@@ -672,16 +672,8 @@ fn compile_ibp(
         // preserve every external linear dependency in every Taylor component.
         // They are coordinates on the span, not reconstructed Cartesian shifts;
         // original squared distances and masses remain authoritative in R.
-        let coordinates = (0..n)
-            .map(|i| {
-                std::array::from_fn(|axis| {
-                    let anchor = basis[axis];
-                    (&supplied_distances[0][anchor] + &supplied_distances[0][i]
-                        - &supplied_distances[anchor][i])
-                        / Atom::num(2)
-                })
-            })
-            .collect();
+        let coordinates =
+            certified_covector_aliases(basis, &distances, supplied_distances, &mut aliases);
         compiler
             .set_certified_linear_coordinates(coordinates)
             .map_err(ReductionError::Preparation)?;
@@ -788,6 +780,48 @@ fn compile_ibp(
     Ok((moments, compiler.leaves, aliases))
 }
 
+/// Share the certified Gram covectors without expanding their input polynomials
+/// inside every exact matrix operation. Symmetric entries share one handle.
+/// These are coordinates on the certified span; physical R remains unchanged.
+fn certified_covector_aliases(
+    basis: [usize; 4],
+    distances: &[Vec<Atom>],
+    supplied_distances: &[Vec<Atom>],
+    aliases: &mut Vec<(Atom, Atom)>,
+) -> Vec<[Atom; 4]> {
+    let mut entries = HashMap::new();
+    (0..distances.len())
+        .map(|i| {
+            std::array::from_fn(|axis| {
+                let anchor = basis[axis];
+                if i == 0 {
+                    return Atom::new();
+                }
+                if i == anchor {
+                    return distances[0][i].clone();
+                }
+                let (first, second) = (anchor.min(i), anchor.max(i));
+                entries
+                    .entry((first, second))
+                    .or_insert_with(|| {
+                        let handle = variable(&format!("cert_k{first}_{second}"));
+                        // Expand once in the original G inputs: this cancels
+                        // repeated diagonal terms before numerical evaluation.
+                        // Combining evaluated squared-distance aliases instead
+                        // could introduce avoidable floating-point cancellation.
+                        let body = ((&supplied_distances[0][anchor] + &supplied_distances[0][i]
+                            - &supplied_distances[anchor][i])
+                            / Atom::num(2))
+                        .expand();
+                        aliases.push((handle.clone(), body));
+                        handle
+                    })
+                    .clone()
+            })
+        })
+        .collect()
+}
+
 fn multinomial(exponents: [u16; 4]) -> Atom {
     let rank: u32 = exponents.iter().map(|&e| u32::from(e)).sum();
     exponents
@@ -834,6 +868,126 @@ mod tests {
         settings.algorithm = Algorithm::Ibp;
         settings.convention = Convention::OneLoop;
         settings
+    }
+
+    #[test]
+    fn certified_covector_aliases_preserve_exact_inputs_and_mixed_dual_components() {
+        use symbolica::{
+            domains::float::SingleFloat,
+            evaluate::{Dualizer, ExpressionEvaluator},
+        };
+
+        for (n, basis) in [(6, [1, 2, 3, 4]), (6, [2, 3, 4, 5]), (7, [2, 4, 5, 6])] {
+            let mut gram = vec![vec![Atom::new(); n]; n];
+            let mut parameters = Vec::new();
+            for i in 0..n {
+                for j in i..n {
+                    let value = variable(&format!("covector_test_g{i}_{j}"));
+                    gram[i][j] = value.clone();
+                    gram[j][i] = value.clone();
+                    parameters.push(value);
+                }
+            }
+            let mut distances = vec![vec![Atom::new(); n]; n];
+            let mut raw = distances.clone();
+            let mut aliases = Vec::new();
+            for i in 0..n {
+                for j in i + 1..n {
+                    let value = variable(&format!("covector_test_s{i}_{j}"));
+                    let body = &gram[i][i] + &gram[j][j] - Atom::num(2) * &gram[i][j];
+                    distances[i][j] = value.clone();
+                    distances[j][i] = value.clone();
+                    raw[i][j] = body.clone();
+                    raw[j][i] = body.clone();
+                    aliases.push((value, body));
+                }
+            }
+            let coordinates = certified_covector_aliases(basis, &distances, &raw, &mut aliases);
+            assert!(coordinates[0].iter().all(AtomCore::is_zero));
+            for (axis, &anchor) in basis.iter().enumerate() {
+                assert_eq!(coordinates[anchor][axis], distances[0][anchor]);
+                for (other_axis, &other) in basis.iter().enumerate() {
+                    assert_eq!(coordinates[other][axis], coordinates[anchor][other_axis]);
+                }
+            }
+            let mut expressions = Vec::new();
+            for (i, coordinate) in coordinates.iter().enumerate() {
+                for (axis, &anchor) in basis.iter().enumerate() {
+                    let expected = &gram[anchor][i] - &gram[0][anchor] - &gram[0][i] + &gram[0][0];
+                    let expanded = aliases
+                        .iter()
+                        .rev()
+                        .fold(coordinate[axis].clone(), |value, (handle, body)| {
+                            value.replace(handle.clone()).with(body.clone())
+                        });
+                    assert!((expanded - &expected).together().is_zero());
+                    expressions.extend([coordinate[axis].clone(), expected]);
+                }
+            }
+            // This exercises alias propagation through Symbolica's Dualizer,
+            // including reordered, mixed and second-order Taylor components.
+            let shape = vec![
+                vec![0, 0],
+                vec![0, 1],
+                vec![1, 0],
+                vec![1, 1],
+                vec![0, 2],
+                vec![2, 0],
+            ];
+            let exact: ExpressionEvaluator<Complex<Rational>> =
+                Atom::evaluator_multiple(&expressions, &parameters)
+                    .add_aliases(aliases)
+                    .unwrap()
+                    .direct_translation(true)
+                    .horner_iterations(0)
+                    .cores(1)
+                    .build()
+                    .unwrap();
+            let prototype = Float::new(256);
+            let convert = |value: &Complex<Rational>| {
+                Complex::new(
+                    prototype.from_rational(&value.re),
+                    prototype.from_rational(&value.im),
+                )
+            };
+            let mut evaluator = exact
+                .vectorize(&Dualizer::new(
+                    HyperDual::<Complex<Rational>>::new(shape.clone()),
+                    Vec::new(),
+                ))
+                .unwrap()
+                .map_coeff_with_prec(&convert, 256);
+            let inputs = (0..parameters.len() * shape.len())
+                .map(|i| {
+                    let argument = (i / shape.len()) as i64;
+                    let component = (i % shape.len()) as i64;
+                    Complex::new(
+                        Rational::from(
+                            (argument + 3).pow(2) * (component + 1).pow(3)
+                                + (argument + 1) * (component + 5),
+                        ),
+                        Rational::from(
+                            (argument + 2).pow(3) * (component + 2).pow(2)
+                                + (argument + 7) * (component + 3),
+                        ),
+                    )
+                })
+                .map(|value| convert(&value))
+                .collect::<Vec<_>>();
+            // These integer jets and the linear half-integer coefficients are
+            // represented exactly at 256 bits; equality needs no tolerance.
+            let mut outputs = vec![
+                convert(&Complex::new(Rational::from(0), Rational::from(0)));
+                expressions.len() * shape.len()
+            ];
+            evaluator.evaluate(&inputs, &mut outputs);
+            let mut distinct_mixed_components = false;
+            for pair in outputs.chunks_exact(2 * shape.len()) {
+                assert_eq!(&pair[..shape.len()], &pair[shape.len()..]);
+                distinct_mixed_components |= pair[3] != pair[0] && pair[4] != pair[5];
+            }
+            assert!(distinct_mixed_components);
+        }
     }
 
     #[test]

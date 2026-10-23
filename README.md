@@ -83,6 +83,17 @@ lanes and Taylor components remain separate. `DoubleFloat` and arbitrary
 precision `Float` use the same API, with constants converted directly at the
 working precision. Independent workspaces own their numerical scratch storage.
 
+For `Float`, the workspace prototype sets constant precision; supplied values
+retain their represented values and arithmetic precision. Accuracy requests
+are never silently lowered. Checks use each contribution's tracked precision
+and examine every returned Taylor coefficient. A conservative check on active
+scalar-master arguments also protects finite parts that round to zero. It can
+request `Unstable` even for an exact coincidence, an analytically unused scale,
+or a tiny low-precision seed; precision rescue reevaluates the same represented
+inputs. Supported constant scaleless branches are exempt only when every
+non-scale Taylor coefficient is exactly zero. Uniform-precision arithmetic
+reuses cached roundoff factors.
+
 `InvariantInput::SuppliedScalarProducts` accepts the packed upper triangle of
 `G_ij = p_i·p_j`, including the diagonal, between shifts and squared masses.
 `ReductionPlan::input_layout()` describes the exact argument ranges. Supplied
@@ -99,8 +110,11 @@ propagators. Their high-point identities require four-dimensional Gram
 constraints in every Taylor component. Coordinate-input topologies remain
 available. The experimental `CertifiedScalarReductionPlan` and
 `CertifiedScalarWorkspace` check those constraints before rank-zero IBP reduction
-with six or seven propagators. The certificate tests pass, but the integrated
-six-point wrapper exceeded a 90-second preparation limit and remains unqualified.
+with six or seven propagators. Certificate tests pass, and the bounded six-point
+diagnostics completed chart preparation and workspace reduction before reaching
+the 90-second limit while preparing the coordinate-input comparison. Complete
+numerical agreement of the wrapper remains unqualified; the retained phases are
+recorded in `validation/invariant-certificate/preparation-profile/report.json`.
 
 Derived scalar invariants are checked before selecting analytic branches or
 evaluating masters. Exact represented-input polynomial checks prevent a rounded

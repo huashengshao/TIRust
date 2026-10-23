@@ -1,12 +1,45 @@
 # High-point matrix preparation: existing-library options
 
-This source audit proposes experiments, not measured optimizations. The reported
+The initial source audit proposed experiments without running Symbolica. The reported
 generic N=7 rank-zero preparation timeout (>120 seconds) and numeric inline
 N=7 rank-seven timeout (>90 seconds) are different workloads. Neither identifies
 a matrix bottleneck by itself. Use the new `IREGI_PV_PREPARATION_PROFILE` spans
 to separate chart determinants, chart solves, Gram/Cayley geometry, scalar
 recurrence construction, and final expression assembly before choosing a change.
-No Symbolica runtime or production edit was performed for this note.
+The subsequent bounded experiment below supplies new phase evidence without
+establishing a performance qualification.
+
+## Subsequent bounded scalar-wrapper diagnosis
+
+The retained experiment in
+`validation/invariant-certificate/preparation-profile/report.json` now separates
+the scalar-wrapper phases. The preserved vendored baseline took 84.017 seconds
+to construct its first six-point chart. A candidate sharing symmetric Gram
+covector aliases took 77.616 seconds. Both complete integration tests reached
+their 90-second limits later, while preparing the coordinate-reference plan;
+neither reached the seven-point iteration or completed the numerical comparison.
+These single runs have no CPU pinning, repetitions or uncertainty estimate and
+are not a performance qualification.
+
+The candidate spent 0.445 seconds constructing its denominator relation and
+77.156 seconds in the six scalar-pentagon Cayley geometries, including 67.164
+seconds in their full matrix inverses. This identifies the next bounded
+experiment: ordinary unit-power scalar pinches consume only `b = R^-1 * 1`,
+so use the existing Symbolica unique `Matrix::solve` for that vector and defer
+inverse entries to recurrences that actually require them. Retain singular-system
+errors and the exceptional fallback. This experiment remains isolated from the
+production matrix algorithm until its identities, generalized regressions and
+integrated results are checked.
+
+The covector-alias candidate itself keeps `R`, exact full-Taylor certificates,
+and chart selection unchanged. It shares `K_ai=K_ia`, uses zero for the origin
+and the existing squared-distance alias for `K_aa`, and expands each off-diagonal
+definition once in the original supplied `G` variables. The focused test proves
+the expanded expressions equal the original covectors and checks reordered,
+mixed second-order components through Symbolica's Dualizer. Its integer input
+jets and half-integer linear coefficients are represented exactly in the
+256-bit runtime domain. The focused test passed; the full wrapper remains
+unqualified as described above.
 
 ## Three source checks
 

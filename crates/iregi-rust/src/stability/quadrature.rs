@@ -17,8 +17,8 @@ use symbolica::{
 use crate::{ibp::MasterLeafKind, plan::ReductionPlan, types::ReductionError};
 
 use super::{
-    StabilityPlan, collect_amplitude_variables, depends_on_amplitudes, dyadic, if_parts,
-    signed_power,
+    OperandRoundoff, StabilityPlan, collect_amplitude_variables, depends_on_amplitudes, dyadic,
+    if_parts, signed_power,
 };
 
 #[derive(Clone, Debug)]
@@ -230,7 +230,7 @@ impl StabilityPlan {
             return Some("missing primal amplitudes for propagated quadrature errors".into());
         };
         let precision = prototype.get_precision();
-        let unit = dyadic(prototype, 1i64 - i64::from(precision));
+        let mut roundoff = OperandRoundoff::new(prototype);
         let tolerance = dyadic(prototype, 19i64 - i64::from(accuracy_bits));
         let scale = self.kinematic_scale(input, components, prototype);
         for (index, check) in quadrature.checks.iter().enumerate() {
@@ -264,7 +264,11 @@ impl StabilityPlan {
                             check.label
                         ));
                     }
-                    estimate += unit.clone() * NativeFloat::hypot(&amplitude.re, &amplitude.im);
+                    let primal_error = match roundoff.complex(amplitude) {
+                        Ok(value) => value,
+                        Err(reason) => return Some(format!("{reason} for {}", check.label)),
+                    };
+                    estimate += primal_error;
                 }
                 let magnitude = NativeFloat::hypot(&moment.re, &moment.im);
                 let reference = if magnitude > natural {
@@ -717,5 +721,44 @@ mod tests {
         assert!(inspect(&[c(-1.0), c(0.0)], Some(&primal)).is_some());
         assert!(inspect(&[c(0.0)], Some(&primal)).is_some());
         assert!(inspect(&[c(0.0), c(0.0)], None).is_some());
+    }
+
+    #[test]
+    fn combined_quadrature_budget_uses_actual_primal_amplitude_precision() {
+        use symbolica::domains::float::Float;
+
+        let plan = fixture();
+        let stability = StabilityPlan::prepare(&plan).unwrap();
+        let quadrature = QuadratureStabilityPlan::prepare(&plan, &stability)
+            .unwrap()
+            .unwrap();
+        let prototype = Float::new(256);
+        let number = |bits, value| Complex::new(Float::with_val(bits, value), Float::new(bits));
+        let input = [0, 0, 0, 0, 1, 1].map(|value| number(256, value));
+        let moments = vec![number(256, 0); 4];
+        let errors = vec![number(256, 0); quadrature.checks.len()];
+        let inspect = |bits, amplitude| {
+            let mut primal = vec![number(256, 0); stability.primal_expressions.len()];
+            for check in &quadrature.checks {
+                primal[check.primal_amplitude] = number(bits, amplitude);
+            }
+            stability.inspect_quadrature_lane(
+                &quadrature,
+                &errors,
+                &moments,
+                &input,
+                1,
+                &prototype,
+                128,
+                Some(&primal),
+            )
+        };
+        assert!(
+            inspect(80, 1)
+                .unwrap()
+                .contains("quadrature estimate exceeds")
+        );
+        assert!(inspect(256, 1).is_none());
+        assert!(inspect(1, 0).is_none());
     }
 }

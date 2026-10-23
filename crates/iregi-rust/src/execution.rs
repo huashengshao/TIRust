@@ -32,7 +32,8 @@ use crate::{
     ibp::MasterLeafKind,
     plan::{ReductionPlan, ZeroInvariantProfile},
     stability::{
-        StabilityPlan, arguments::ArgumentStabilityPlan, quadrature::QuadratureStabilityPlan,
+        StabilityPlan, arguments::ArgumentStabilityPlan, master_argument_precision_failure,
+        quadrature::QuadratureStabilityPlan,
     },
     types::{
         BatchResult, InputLayout, KinematicsBatch, LaneStatus, ReductionError, ResultMetadata,
@@ -152,6 +153,7 @@ struct PreparedMasterCache {
 /// envelopes. Exact certificates additionally protect numerical zero branches.
 struct PreparedDistanceZeros {
     argument_offset: usize,
+    precision_arguments: std::ops::Range<usize>,
     pairs: Vec<(usize, usize)>,
     certificate: ExactZeroConstraintPlan,
     conditioning: Arc<ArgumentStabilityPlan>,
@@ -161,6 +163,7 @@ struct PreparedDistanceZeros {
 #[derive(Clone)]
 struct DistanceZeroWorkspace<T: NativeFloat> {
     argument_offset: usize,
+    precision_arguments: std::ops::Range<usize>,
     pairs: Vec<(usize, usize)>,
     certificate: ExactZeroConstraintWorkspace,
     conditioning: Arc<ArgumentStabilityPlan>,
@@ -179,6 +182,7 @@ where
     fn instantiate(prepared: &PreparedDistanceZeros, prototype: &T) -> Self {
         Self {
             argument_offset: prepared.argument_offset,
+            precision_arguments: prepared.precision_arguments.clone(),
             pairs: prepared.pairs.clone(),
             certificate: prepared.certificate.instantiate(),
             conditioning: prepared.conditioning.clone(),
@@ -235,7 +239,11 @@ where
             // Symbolica preserves each input coefficient's precision while
             // evaluating a batch. A high-precision prototype cannot restore
             // precision already lost in lower-precision input operations.
-            let effective_input_bits = row
+            // Only shift coordinates (or authoritative supplied scalar
+            // products) enter raw distances. Mass and renormalization-scale
+            // precision belongs to the later active-master request checks.
+            let effective_input_bits = row[self.precision_arguments.start * components
+                ..self.precision_arguments.end * components]
                 .iter()
                 .flat_map(|value| [&value.re, &value.im])
                 .filter(|value| !value.is_zero())
@@ -666,6 +674,11 @@ impl PreparedExecution {
             argument_expressions.extend(distance_polynomials);
             Some(PreparedDistanceZeros {
                 argument_offset: distance_offset,
+                precision_arguments: plan
+                    .layout
+                    .scalar_products
+                    .clone()
+                    .unwrap_or_else(|| plan.layout.shifts.clone()),
                 pairs: distance_pairs,
                 certificate,
                 conditioning,
@@ -918,6 +931,10 @@ fn prepare_exact<D: DualNumberStructure>(
 /// Independent workspaces may evaluate the same plan concurrently. Constants
 /// are mapped from exact rationals at `prototype` precision, without a binary64
 /// intermediate. Construct a new workspace when increasing working precision.
+/// Input Float values keep their represented values and arithmetic precision;
+/// the prototype does not promote them. The requested accuracy is unchanged
+/// when conservative active-master argument and output-precision checks mark a
+/// sample `Unstable` for explicit precision rescue.
 #[derive(Clone)]
 pub struct Workspace<T: NativeFloat> {
     prototype: T,
@@ -1701,6 +1718,23 @@ where
                                 }
                             }
                             Ok(value) => {
+                                if let Some(reason) = master_argument_precision_failure(
+                                    &group.input[request * width..(request + 1) * width],
+                                    &self.input[compact * input_width
+                                        + self.layout.scale * self.components
+                                        ..compact * input_width
+                                            + (self.layout.scale + 1) * self.components],
+                                    self.components,
+                                    &self.prototype,
+                                    self.accuracy_bits,
+                                ) {
+                                    if result.statuses[lane] == LaneStatus::Success {
+                                        result.statuses[lane] = LaneStatus::Unstable(format!(
+                                            "{} leaf {leaf}: {reason}",
+                                            family.name(),
+                                        ));
+                                    }
+                                }
                                 let start = compact * reduction_width
                                     + input_width
                                     + leaf * 4 * self.components;
@@ -1787,6 +1821,22 @@ where
                                 }
                             }
                             Ok(finite) => {
+                                if let Some(reason) = master_argument_precision_failure(
+                                    &group.input[request * width..(request + 1) * width],
+                                    &self.input[compact * input_width
+                                        + self.layout.scale * self.components
+                                        ..compact * input_width
+                                            + (self.layout.scale + 1) * self.components],
+                                    self.components,
+                                    &self.prototype,
+                                    self.accuracy_bits,
+                                ) {
+                                    if result.statuses[lane] == LaneStatus::Success {
+                                        result.statuses[lane] = LaneStatus::Unstable(format!(
+                                            "E6 leaf {leaf}: {reason}",
+                                        ));
+                                    }
+                                }
                                 if let Some(quadrature) = &mut self.quadrature {
                                     if let Err(reason) = quadrature.store_errors(
                                         leaf,
@@ -1909,6 +1959,14 @@ where
                 result.statuses[lane] = LaneStatus::Unstable(
                     "reduction has nonfinite coefficients at this kinematic point".into(),
                 );
+            } else if let Some(reason) = self.stability.inspect_output_precision_lane(
+                output,
+                input_row,
+                self.components,
+                &self.prototype,
+                self.accuracy_bits,
+            ) {
+                result.statuses[lane] = LaneStatus::Unstable(reason);
             } else if let Some(reason) = self.stability.inspect_lane_with_accuracy(
                 monitors,
                 input_row,

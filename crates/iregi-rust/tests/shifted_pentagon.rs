@@ -8,6 +8,7 @@ use iregi_masters::NativeFloat;
 use iregi_rust::{
     Algorithm, Convention, KinematicsBatch, LaneStatus, ReductionPlan, ReductionSettings, Workspace,
 };
+use std::time::Instant;
 use symbolica::{
     domains::{
         dual::HyperDual,
@@ -48,11 +49,17 @@ fn generic_point<T: NativeFloat>(prototype: &T, components: usize, scale: i64) -
 }
 
 fn finite_plan(shift: i16) -> ReductionPlan {
+    let started = Instant::now();
     let mut settings = ReductionSettings::new(5, 0);
     settings.algorithm = Algorithm::Ibp;
     settings.dimension_shift = shift;
     settings.convention = Convention::OneLoop;
-    ReductionPlan::new(settings).unwrap()
+    let plan = ReductionPlan::new(settings).unwrap();
+    eprintln!(
+        "E6 test plan dimension_shift={shift}: {:?}",
+        started.elapsed()
+    );
+    plan
 }
 
 fn point(timelike: f64, masses: [f64; 5], width: f64) -> Vec<Complex<f64>> {
@@ -72,12 +79,17 @@ fn point(timelike: f64, masses: [f64; 5], width: f64) -> Vec<Complex<f64>> {
     values
 }
 
-fn check_generic<T: NativeFloat>(plan: &ReductionPlan, prototype: T)
+fn check_generic<T: NativeFloat>(plan: &ReductionPlan, prototype: T, label: &str)
 where
     Complex<T>: EvaluationDomain,
 {
+    let started = Instant::now();
     let mut workspace = Workspace::new(plan, prototype.clone()).unwrap();
     workspace.set_accuracy_precision(80).unwrap();
+    workspace.set_profiling(true);
+    eprintln!("E6 test {label} workspace: {:?}", started.elapsed());
+    let started = Instant::now();
+    eprintln!("E6 test {label} reduction: starting three scaled lanes");
     let result = workspace
         .reduce_batch(&KinematicsBatch {
             rows: 3,
@@ -87,6 +99,13 @@ where
                 .collect(),
         })
         .unwrap();
+    eprintln!(
+        "E6 test {label} reduction: {:?}; profile={:?}; stats={:?}; diagnostics={:?}",
+        started.elapsed(),
+        workspace.last_profile(),
+        workspace.last_execution(),
+        workspace.last_diagnostics(),
+    );
     let expected = prototype.from_rational(&decimal("-0.0001771401382640081806076521310069008176"));
     let tolerance = prototype.from_i64(10).pow(23).inv();
     for lane in 0..3 {
@@ -110,17 +129,30 @@ where
 }
 
 #[test]
-fn shifted_pentagon_core_preserves_doublefloat_and_float_precision() {
+fn shifted_pentagon_core_preserves_doublefloat_precision() {
     let plan = finite_plan(1);
-    check_generic(&plan, DoubleFloat::from(0.));
-    check_generic(&plan, Float::new(128));
+    check_generic(&plan, DoubleFloat::from(0.), "DoubleFloat");
+}
+
+#[test]
+fn shifted_pentagon_core_preserves_float_precision() {
+    let plan = finite_plan(1);
+    check_generic(&plan, Float::new(128), "Float128");
 }
 
 #[test]
 fn shifted_pentagon_core_common_mass_dual_matches_independent_d4() {
     let plan = finite_plan(1);
+    let started = Instant::now();
     let mut workspace =
         Workspace::new_dual(&plan, 0., HyperDual::<f64>::new(vec![vec![0], vec![1]])).unwrap();
+    workspace.set_profiling(true);
+    eprintln!(
+        "E6 test common-mass Dual workspace: {:?}",
+        started.elapsed()
+    );
+    let started = Instant::now();
+    eprintln!("E6 test common-mass Dual reduction: starting three scaled lanes");
     let result = workspace
         .reduce_batch(&KinematicsBatch {
             rows: 3,
@@ -130,6 +162,13 @@ fn shifted_pentagon_core_common_mass_dual_matches_independent_d4() {
                 .collect(),
         })
         .unwrap();
+    eprintln!(
+        "E6 test common-mass Dual reduction: {:?}; profile={:?}; stats={:?}; diagnostics={:?}",
+        started.elapsed(),
+        workspace.last_profile(),
+        workspace.last_execution(),
+        workspace.last_diagnostics(),
+    );
     for lane in 0..3 {
         assert_eq!(
             result.statuses[lane],

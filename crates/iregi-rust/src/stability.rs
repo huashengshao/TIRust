@@ -11,7 +11,10 @@
 pub(crate) mod arguments;
 pub(crate) mod quadrature;
 
-use std::collections::{BTreeSet, HashMap};
+use std::{
+    collections::{BTreeSet, HashMap},
+    num::FpCategory,
+};
 
 use iregi_masters::NativeFloat;
 use symbolica::{
@@ -66,6 +69,7 @@ pub(crate) struct StabilityPlan {
     snapping_threshold: Option<Atom>,
     snapping_zero_image: Option<Atom>,
     checks: Vec<Check>,
+    output_dimensions: Vec<i32>,
     layout: InputLayout,
 }
 
@@ -85,6 +89,7 @@ impl StabilityPlan {
             snapping_threshold: None,
             snapping_zero_image: None,
             checks: Vec::new(),
+            output_dimensions: Vec::new(),
             layout: plan.layout.clone(),
         };
         let mut indices = HashMap::new();
@@ -156,6 +161,7 @@ impl StabilityPlan {
         for (basis, slots) in plan.basis.iter().zip(&plan.moments) {
             let dimension = base_dimension + basis.rank() as i32;
             for (pole, expression) in slots.iter().enumerate() {
+                monitor.output_dimensions.push(dimension);
                 monitor.add_branch_sums(
                     expression,
                     &always,
@@ -694,14 +700,14 @@ impl StabilityPlan {
             return Some("invalid stability-monitor buffer".into());
         }
         let precision = prototype.get_precision();
-        let unit = dyadic(prototype, 1i64 - i64::from(precision));
+        let mut roundoff = OperandRoundoff::new(prototype);
         // At binary64 this is 2^-34, below the 1e-10 validation target.
         // Additional precision tightens the criterion without an f64 detour.
         let tolerance = dyadic(prototype, 19i64 - i64::from(accuracy_bits));
         let scale = self.kinematic_scale(input, components, prototype);
         for check in &self.checks {
             let count = if check.denominator { 1 } else { components };
-            let roundoff = unit.clone() * prototype.from_usize(check.operations.saturating_mul(8));
+            let operation_factor = prototype.from_usize(check.operations.saturating_mul(8));
             for component in 0..count {
                 let value = &values[check.value * components + component];
                 if !value.re.is_finite() || !value.im.is_finite() {
@@ -711,7 +717,7 @@ impl StabilityPlan {
                 if check.denominator && magnitude.is_zero() {
                     return Some(format!("zero recurrence denominator: {}", check.label));
                 }
-                let mut contribution_scale = prototype.zero();
+                let mut contribution_error = prototype.zero();
                 for &index in &check.terms {
                     let term = &values[index * components + component];
                     if !term.re.is_finite() || !term.im.is_finite() {
@@ -720,7 +726,11 @@ impl StabilityPlan {
                             check.label
                         ));
                     }
-                    contribution_scale += NativeFloat::hypot(&term.re, &term.im);
+                    let estimate = match roundoff.complex(term) {
+                        Ok(value) => value,
+                        Err(reason) => return Some(format!("{reason} for {}", check.label)),
+                    };
+                    contribution_error += estimate;
                 }
                 let reference = if check.denominator {
                     magnitude
@@ -738,7 +748,7 @@ impl StabilityPlan {
                         natural
                     }
                 };
-                let estimate = roundoff.clone() * contribution_scale;
+                let estimate = operation_factor.clone() * contribution_error;
                 let target = tolerance.clone() * &reference;
                 if !target.is_finite() || (target.is_zero() && !reference.is_zero()) {
                     return Some(format!(
@@ -748,7 +758,7 @@ impl StabilityPlan {
                 }
                 if !estimate.is_finite() || estimate > target {
                     return Some(format!(
-                        "estimated cancellation exceeds 2^(19-{accuracy_bits}) at working precision {precision} in {}, Taylor component {component}; this estimate is not a certified error bound",
+                        "estimated cancellation exceeds 2^(19-{accuracy_bits}) with operand-dependent roundoff at configured precision {precision} in {}, Taylor component {component}; this estimate is not a certified error bound",
                         check.label,
                     ));
                 }
@@ -773,7 +783,7 @@ impl StabilityPlan {
             return Some("invalid primal stability-monitor buffer".into());
         }
         let precision = prototype.get_precision();
-        let unit = dyadic(prototype, 1i64 - i64::from(precision));
+        let mut roundoff = OperandRoundoff::new(prototype);
         let tolerance = dyadic(prototype, 19i64 - i64::from(accuracy_bits));
         let scale = self.kinematic_scale(input, 1, prototype);
         for check in &self.primal_checks {
@@ -803,7 +813,10 @@ impl StabilityPlan {
                 natural
             };
             let target = tolerance.clone() * reference;
-            let estimate = unit.clone() * NativeFloat::hypot(&amplitude.re, &amplitude.im);
+            let estimate = match roundoff.complex(amplitude) {
+                Ok(value) => value,
+                Err(reason) => return Some(format!("{reason} for {}", check.label)),
+            };
             if !target.is_finite() || target.is_zero() {
                 return Some(format!(
                     "primal conditioning tolerance is outside the numeric range for {}",
@@ -812,9 +825,89 @@ impl StabilityPlan {
             }
             if !estimate.is_finite() || estimate > target {
                 return Some(format!(
-                    "estimated compounded master cancellation exceeds 2^(19-{accuracy_bits}) at working precision {precision} in {}; primal-only sensitivity estimate, not a certified error bound",
+                    "estimated compounded master cancellation exceeds 2^(19-{accuracy_bits}) with operand-dependent roundoff at configured precision {precision} in {}; primal-only sensitivity estimate, not a certified error bound",
                     check.label
                 ));
+            }
+        }
+        None
+    }
+
+    /// Check the precision retained by every returned coefficient, including
+    /// bare scalar masters and monomials without an additive recurrence check.
+    /// Tracked cancellation loss is scaled by the signed output's magnitude,
+    /// never by the upstream contribution envelope a second time.
+    pub(crate) fn inspect_output_precision_lane<T: NativeFloat>(
+        &self,
+        values: &[Complex<T>],
+        input: &[Complex<T>],
+        components: usize,
+        prototype: &T,
+        accuracy_bits: u32,
+    ) -> Option<String> {
+        if components == 0 || values.len() != self.output_dimensions.len() * components {
+            return Some("invalid output-precision buffer".into());
+        }
+        if T::FIXED_BITS == Some(53)
+            && accuracy_bits <= prototype.get_precision()
+            && values
+                .iter()
+                .flat_map(|value| [&value.re, &value.im])
+                .all(|part| {
+                    matches!(
+                        part.real_classify(),
+                        Some(FpCategory::Normal | FpCategory::Zero)
+                    )
+                })
+        {
+            // With normal binary64 components, one output ULP is at
+            // least 18 bits below the configured dimensional target. Existing
+            // contribution checks still inspect cancellation; no repeated
+            // norm, power or precision-map work is needed here.
+            return None;
+        }
+        let mut roundoff = OperandRoundoff::new(prototype);
+        let tolerance = dyadic(prototype, 19i64 - i64::from(accuracy_bits));
+        let scale = self.kinematic_scale(input, components, prototype);
+        for (output, &dimension) in self.output_dimensions.iter().enumerate() {
+            for component in 0..components {
+                let value = &values[output * components + component];
+                if value.re.is_zero() && value.im.is_zero() {
+                    // Active-master argument provenance is checked separately:
+                    // a rounded scalar zero must not become an exact-zero proof.
+                    continue;
+                }
+                let estimate = match roundoff.complex(value) {
+                    Ok(value) => value,
+                    Err(reason) => {
+                        return Some(format!(
+                            "{reason} in output {output}, Taylor component {component}"
+                        ));
+                    }
+                };
+                let natural = signed_power(&scale, dimension);
+                if !natural.is_finite() || natural.is_zero() {
+                    return Some(format!(
+                        "output-precision normalization is outside the numeric range in output {output}"
+                    ));
+                }
+                let magnitude = NativeFloat::hypot(&value.re, &value.im);
+                let reference = if magnitude > natural {
+                    magnitude
+                } else {
+                    natural
+                };
+                let target = tolerance.clone() * reference;
+                if !target.is_finite() || target.is_zero() {
+                    return Some(format!(
+                        "output-precision tolerance is outside the numeric range in output {output}"
+                    ));
+                }
+                if estimate > target {
+                    return Some(format!(
+                        "tracked coefficient precision cannot support 2^(19-{accuracy_bits}) in output {output}, Taylor component {component}; this estimate is not a certified error bound"
+                    ));
+                }
             }
         }
         None
@@ -963,6 +1056,166 @@ fn collect_amplitude_variables(
             }
         }
         AtomView::Num(_) => {}
+    }
+}
+
+/// Weighted roundoff estimates from the precision of actual operands.
+///
+/// Exact-zero component metadata is irrelevant. A tiny weak imaginary part
+/// must not set the relative uncertainty of a large strong real part. Float's
+/// loose precision tracking can overestimate by two bits; reserve three bits
+/// for dynamically tracked domains. Fixed-precision domains keep their
+/// previous unit-roundoff convention.
+struct OperandRoundoff<'a, T: NativeFloat> {
+    prototype: &'a T,
+    prototype_bits: u32,
+    prototype_unit: T,
+    units: HashMap<u32, T>,
+}
+
+impl<'a, T: NativeFloat> OperandRoundoff<'a, T> {
+    fn new(prototype: &'a T) -> Self {
+        let prototype_bits = prototype.get_precision();
+        let margin = if prototype.fixed_precision() { 0 } else { 3 };
+        Self {
+            prototype,
+            prototype_bits,
+            prototype_unit: dyadic(prototype, 1 + margin - i64::from(prototype_bits)),
+            units: HashMap::new(),
+        }
+    }
+
+    fn component(&mut self, value: &T) -> Result<T, &'static str> {
+        if value.is_zero() {
+            return Ok(self.prototype.zero());
+        }
+        if !value.is_finite() {
+            return Err("nonfinite operand in roundoff estimate");
+        }
+        let bits = self.prototype_bits.min(value.get_precision());
+        if bits == 0 {
+            return Err("operand roundoff estimate requires positive precision");
+        }
+        let margin = if self.prototype.fixed_precision() {
+            0
+        } else {
+            3
+        };
+        let unit = if bits == self.prototype_bits {
+            &self.prototype_unit
+        } else {
+            self.units
+                .entry(bits)
+                .or_insert_with(|| dyadic(self.prototype, 1 + margin - i64::from(bits)))
+        };
+        if !unit.is_finite() {
+            return Err("operand roundoff unit is outside the supported numeric range");
+        }
+        let magnitude = value.norm();
+        let estimate = unit.clone() * &magnitude;
+        if !estimate.is_finite() {
+            return Err("nonfinite operand roundoff estimate");
+        }
+        if unit.is_zero()
+            || estimate.is_zero()
+            || magnitude.real_classify() == Some(FpCategory::Subnormal)
+            || estimate.real_classify() == Some(FpCategory::Subnormal)
+        {
+            if *unit > self.prototype.one() {
+                return Err(
+                    "operand roundoff underflow fallback requires a unit no larger than one",
+                );
+            }
+            // The relative model does not cover gradual underflow. For
+            // epsilon <= 1, |x| is a deliberately loose upper estimate of
+            // epsilon*|x|. Keeping it positive prevents a false-safe zero;
+            // comparison with the dimensional target can still accept a
+            // harmless tiny contribution. This is not an interval bound.
+            return Ok(magnitude);
+        }
+        Ok(estimate)
+    }
+
+    fn complex(&mut self, value: &Complex<T>) -> Result<T, &'static str> {
+        if value.re.is_zero() && value.im.is_zero() {
+            return Ok(self.prototype.zero());
+        }
+        if [&value.re, &value.im].into_iter().all(|part| {
+            part.is_zero()
+                || (part.is_finite()
+                    && part.get_precision() >= self.prototype_bits
+                    && part.real_classify() != Some(FpCategory::Subnormal))
+        }) {
+            // Uniform f64/DD/Float operands reuse the cached unit and the
+            // previous Euclidean norm; no per-term rational construction or
+            // cache allocation is needed on this common path.
+            let magnitude = NativeFloat::hypot(&value.re, &value.im);
+            let estimate = self.prototype_unit.clone() * magnitude;
+            if estimate.is_finite()
+                && !estimate.is_zero()
+                && estimate.real_classify() != Some(FpCategory::Subnormal)
+                && self.prototype_unit <= self.prototype.one()
+            {
+                return Ok(estimate);
+            }
+        }
+        let re = self.component(&value.re)?;
+        let im = self.component(&value.im)?;
+        let estimate = NativeFloat::hypot(&re, &im);
+        if !estimate.is_finite() || (estimate.is_zero() && (!re.is_zero() || !im.is_zero())) {
+            Err("complex operand roundoff estimate is outside the numeric range")
+        } else {
+            Ok(estimate)
+        }
+    }
+}
+
+/// Scalar internals can round a nonzero finite part to zero, erasing its
+/// precision provenance before output/amplitude checks. Inspect only actual
+/// active requests, including their Taylor coefficients, to retain that
+/// provenance without penalizing unrelated routing inputs. This conservative
+/// gate may request rescue for exact coincidences, tiny weak seeds, or an
+/// analytically unused scale; it never lowers the requested accuracy target.
+pub(crate) fn master_argument_precision_failure<T: NativeFloat>(
+    arguments: &[Complex<T>],
+    original_scale: &[Complex<T>],
+    components: usize,
+    prototype: &T,
+    accuracy_bits: u32,
+) -> Option<String> {
+    if prototype.fixed_precision() {
+        return None;
+    }
+    if components == 0 || arguments.len() < components {
+        return Some("invalid scalar-master precision provenance buffer".into());
+    }
+    // Require the entire non-scale jet to vanish. A scaleless primal with a
+    // transverse seed is not the constant scaleless analytic branch.
+    if arguments[..arguments.len() - components]
+        .iter()
+        .all(|value| value.re.is_zero() && value.im.is_zero())
+    {
+        return None;
+    }
+    // The public API supplies mu, whereas masters consume mu². A weak Taylor
+    // coefficient can vanish in that nonlinear transformation; preserve its
+    // original precision even when the transformed coefficient is zero.
+    let bits = arguments
+        .iter()
+        .chain(original_scale)
+        .flat_map(|value| [&value.re, &value.im])
+        .filter(|value| !value.is_zero())
+        .fold(prototype.get_precision(), |bits, value| {
+            bits.min(value.get_precision())
+        });
+    // 8*2^(1-bits) <= 2^(19-accuracy_bits), retaining the existing
+    // 19-bit requested-error margin and three tracked-precision guard bits.
+    if bits == 0 || u64::from(bits) + 15 < u64::from(accuracy_bits) {
+        Some(format!(
+            "active scalar-master arguments retain {bits} bits, insufficient for the requested 2^(19-{accuracy_bits}) error budget; conservative precision provenance check requires rescue"
+        ))
+    } else {
+        None
     }
 }
 
@@ -1260,7 +1513,7 @@ fn term_budget(value: AtomView<'_>) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use symbolica::domains::float::{Float, FloatLike, SingleFloat};
+    use symbolica::domains::float::{Float, FloatLike, Real, SingleFloat};
 
     fn synthetic(dimension: i32, denominator: bool) -> StabilityPlan {
         StabilityPlan {
@@ -1284,6 +1537,7 @@ mod tests {
                 denominator,
                 label: "synthetic cancellation".into(),
             }],
+            output_dimensions: Vec::new(),
             layout: InputLayout {
                 shifts: 0..0,
                 scalar_products: None,
@@ -1571,7 +1825,13 @@ mod tests {
             "{reason}"
         );
         assert_eq!(workspace.last_execution().requested_rows, 1);
-        assert_eq!(workspace.last_execution().accepted_rows, 1);
+        assert_eq!(
+            workspace.last_execution().accepted_rows,
+            1,
+            "rescue statuses={:?}; final statuses={:?}",
+            workspace.last_rescue_statuses(),
+            result.statuses,
+        );
         assert!(matches!(result.statuses[0], LaneStatus::Success));
         let finite = result.lane(0).unwrap()[3];
         let expected = -2.43837893544712293939249874984327534762e-3;
@@ -1792,6 +2052,153 @@ mod tests {
             monitor
                 .inspect_lane_with_accuracy(&values, &input, 1, &prototype, 53)
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn roundoff_weights_each_component_and_ignores_zero_metadata() {
+        let prototype = Float::new(256);
+        let mut roundoff = OperandRoundoff::new(&prototype);
+        let strong = Float::with_val(256, 1);
+        let zero_with_one_bit = Float::new(1);
+        let reference = roundoff
+            .complex(&Complex::new(strong.clone(), zero_with_one_bit))
+            .unwrap();
+        let tiny_weak = Float::with_val(80, 2).pow(300).inv();
+        let mixed = roundoff.complex(&Complex::new(strong, tiny_weak)).unwrap();
+        assert!(mixed <= reference.clone() * Float::with_val(256, 2));
+        assert!(mixed < dyadic(&prototype, -240));
+        assert!(
+            roundoff
+                .complex(&Complex::new(Float::new(1), Float::new(1)))
+                .unwrap()
+                .is_zero()
+        );
+    }
+
+    #[test]
+    fn tiny_low_relative_precision_terms_use_the_unchanged_absolute_budget() {
+        let prototype = Float::new(256);
+        let mut tiny = Float::with_val(256, 2).pow(200).inv();
+        tiny.set_prec(1);
+        let mut roundoff = OperandRoundoff::new(&prototype);
+        let estimate = roundoff.complex(&complex(tiny.clone())).unwrap();
+        assert!(!estimate.is_zero());
+        assert!(estimate > tiny);
+        // Symbolica can clamp a tiny cancellation residue to one significant
+        // bit. Its relative estimate exceeds one, but its weighted absolute
+        // estimate can still satisfy the requested dimensional target. The
+        // precursor recurrence and positive-envelope checks remain active.
+        let monitor = synthetic(0, false);
+        let input = [complex(prototype.one())];
+        assert!(
+            monitor
+                .inspect_lane_with_accuracy(
+                    &[
+                        complex(tiny.clone()),
+                        complex(tiny),
+                        complex(prototype.zero())
+                    ],
+                    &input,
+                    1,
+                    &prototype,
+                    128,
+                )
+                .is_none()
+        );
+        let material = Float::with_val(1, 1);
+        assert!(
+            monitor
+                .inspect_lane_with_accuracy(
+                    &[
+                        complex(material.clone()),
+                        complex(material),
+                        complex(prototype.zero())
+                    ],
+                    &input,
+                    1,
+                    &prototype,
+                    128,
+                )
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn weighted_roundoff_keeps_underflow_visible_without_rejecting_tiny_absolute_errors() {
+        let mut roundoff = OperandRoundoff::new(&0.0);
+        let tiny = f64::from_bits(1);
+        let estimate = roundoff.complex(&complex(tiny)).unwrap();
+        assert_eq!(estimate, tiny);
+        let mut monitor = synthetic(0, false);
+        monitor.output_dimensions = vec![0];
+        assert!(
+            monitor
+                .inspect_output_precision_lane(&[complex(tiny)], &[complex(1.0)], 1, &0.0, 53)
+                .is_none()
+        );
+        monitor.output_dimensions = vec![2];
+        assert!(
+            monitor
+                .inspect_output_precision_lane(
+                    &[complex(tiny)],
+                    &[complex(tiny.sqrt())],
+                    1,
+                    &0.0,
+                    53
+                )
+                .is_some()
+        );
+        // DoubleFloat's high limb is normal here, but its low limb has no
+        // exponent headroom for the nominal106-bit precision. It must use
+        // the full range check, rather than the binary64 normal fast path.
+        let tiny_dd = iregi_masters::DoubleFloat::from(f64::MIN_POSITIVE);
+        let zero_dd = iregi_masters::DoubleFloat::from(0.0);
+        assert!(
+            monitor
+                .inspect_output_precision_lane(
+                    &[complex(tiny_dd)],
+                    &[complex(tiny_dd.sqrt())],
+                    1,
+                    &zero_dd,
+                    106
+                )
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn master_precision_provenance_retains_the_error_budget_and_checks_full_jets() {
+        let prototype = Float::new(128);
+        let c = |bits, value| Complex::new(Float::with_val(bits, value), Float::new(bits));
+        assert!(
+            master_argument_precision_failure(&[c(125, 2), c(125, 1)], &[], 1, &prototype, 128)
+                .is_none()
+        );
+        assert!(
+            master_argument_precision_failure(&[c(80, 2), c(80, 1)], &[], 1, &prototype, 128)
+                .is_some()
+        );
+        // The scale is irrelevant only for an entire constant scaleless jet.
+        assert!(
+            master_argument_precision_failure(
+                &[c(1, 0), c(1, 0), c(80, 1), c(1, 0)],
+                &[],
+                2,
+                &prototype,
+                128
+            )
+            .is_none()
+        );
+        assert!(
+            master_argument_precision_failure(
+                &[c(128, 0), c(80, 3), c(128, 1), c(128, 0)],
+                &[],
+                2,
+                &prototype,
+                128
+            )
+            .is_some()
         );
     }
 

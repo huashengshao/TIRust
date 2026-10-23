@@ -24,6 +24,7 @@ use std::{
         LazyLock,
         atomic::{AtomicUsize, Ordering},
     },
+    time::Instant,
 };
 
 use symbolica::{
@@ -122,6 +123,7 @@ pub struct ScalarCompiler {
     six_dimensional_pentagon: bool,
     alias_namespace: usize,
     aliases: Vec<(Atom, Atom)>,
+    profile_preparation: bool,
     pub leaves: Vec<MasterLeaf>,
 }
 
@@ -149,6 +151,7 @@ impl ScalarCompiler {
             six_dimensional_pentagon: false,
             alias_namespace: SCALAR_ALIAS_NAMESPACE.fetch_add(1, Ordering::Relaxed),
             aliases: Vec::new(),
+            profile_preparation: std::env::var_os("IREGI_PREPARATION_PROFILE").is_some(),
             leaves: Vec::new(),
         })
     }
@@ -723,6 +726,7 @@ impl ScalarCompiler {
         if let Some(relation) = self.routing_relations.get(active) {
             return Ok(relation.clone());
         }
+        let started = preparation_start(self.profile_preparation, "routing relation", active);
         let shifts = self
             .routing
             .as_ref()
@@ -755,12 +759,19 @@ impl ScalarCompiler {
             ],
             exact_field(),
         );
+        let solving = preparation_start(self.profile_preparation, "routing constant solve", active);
         let mut solution = matrix.solve_any(&rhs).ok().map(|value| (value, true));
+        preparation_end("routing constant solve", active, solving);
         if solution.is_none() {
             // If the constant identity is unavailable, a homogeneous relation
             // still transfers powers until a denominator is pinched. Symbolica
             // solves each constrained nullspace system; no manual elimination.
             for fixed in 0..active.len() - 1 {
+                let solving = preparation_start(
+                    self.profile_preparation,
+                    "routing homogeneous solve",
+                    active,
+                );
                 let mut constrained = rows.clone();
                 let mut constraint = vec![Atom::new(); active.len() - 1];
                 constraint[fixed] = Atom::num(1);
@@ -778,7 +789,9 @@ impl ScalarCompiler {
                     ],
                     exact_field(),
                 );
-                if let Ok(value) = matrix.solve_any(&rhs) {
+                let value = matrix.solve_any(&rhs);
+                preparation_end("routing homogeneous solve", active, solving);
+                if let Ok(value) = value {
                     solution = Some((value, false));
                     break;
                 }
@@ -801,6 +814,7 @@ impl ScalarCompiler {
         });
         self.routing_relations
             .insert(active.to_vec(), relation.clone());
+        preparation_end("routing relation", active, started);
         Ok(relation)
     }
 
@@ -1195,6 +1209,7 @@ impl ScalarCompiler {
         if let Some(geometry) = self.geometry.get(active) {
             return Ok(geometry.clone());
         }
+        let started = preparation_start(self.profile_preparation, "Cayley geometry", active);
         let rows = active
             .iter()
             .map(|&i| active.iter().map(|&j| self.r[i][j].clone()).collect())
@@ -1202,8 +1217,10 @@ impl ScalarCompiler {
         let field = exact_field();
         let matrix = Matrix::from_nested_vec(rows, field)
             .map_err(|e| format!("cannot construct Symbolica Cayley matrix: {e:?}"))?;
-        let inverse = matrix
-            .inv()
+        let solving = preparation_start(self.profile_preparation, "Cayley inverse", active);
+        let inverse = matrix.inv();
+        preparation_end("Cayley inverse", active, solving);
+        let inverse = inverse
             .map_err(|e| format!("singular Cayley matrix for propagators {active:?}: {e:?}"))?;
         let inverse: Vec<Vec<Atom>> = (0..active.len())
             .map(|i| {
@@ -1226,7 +1243,24 @@ impl ScalarCompiler {
             .together();
         let geometry = Geometry { inverse, b, sum_b };
         self.geometry.insert(active.to_vec(), geometry.clone());
+        preparation_end("Cayley geometry", active, started);
         Ok(geometry)
+    }
+}
+
+fn preparation_start(enabled: bool, stage: &str, active: &[usize]) -> Option<Instant> {
+    enabled.then(|| {
+        eprintln!("iregi IBP preparation {stage} {active:?}: begin");
+        Instant::now()
+    })
+}
+
+fn preparation_end(stage: &str, active: &[usize], started: Option<Instant>) {
+    if let Some(started) = started {
+        eprintln!(
+            "iregi IBP preparation {stage} {active:?}: {:.6}s",
+            started.elapsed().as_secs_f64()
+        );
     }
 }
 

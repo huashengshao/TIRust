@@ -555,16 +555,24 @@ mod tests {
     #[test]
     fn certified_scalar_batch_matches_coordinate_interface_and_isolates_failures() {
         for n in [6, 7] {
+            let started = Instant::now();
+            let phase = |label: &str| {
+                eprintln!("certified scalar n={n} phase={label} elapsed={:?}", started.elapsed());
+            };
             let q = shifts(n);
             let row = scalar_row(&q);
+            phase("chart_prepare_begin");
             let plan = CertifiedScalarReductionPlan::new(settings(n)).unwrap();
+            phase("chart_prepare_end");
             assert!(
                 !plan
                     .chart([1, 2, 3, 4])
                     .unwrap()
                     .zero_profile_dispatch_allowed()
             );
+            phase("certificate_prepare_begin");
             let mut workspace = CertifiedScalarWorkspace::new(&plan, 0_f64).unwrap();
+            phase("certificate_prepare_end");
             assert!(
                 workspace
                     .reduce_batch(&ScalarKinematicsBatch {
@@ -598,7 +606,9 @@ mod tests {
                 ]
                 .concat(),
             };
+            phase("certified_reduce_begin");
             let reduced = workspace.reduce_batch(&input).unwrap();
+            phase("certified_reduce_end");
             assert!(matches!(reduced.statuses[1], LaneStatus::InvalidInput(_)));
             assert!(matches!(reduced.statuses[3], LaneStatus::Unstable(_)));
             assert!(matches!(reduced.statuses[4], LaneStatus::InvalidInput(_)));
@@ -615,10 +625,15 @@ mod tests {
                     >= workspace.last_profile().unwrap().arguments
             );
 
+            phase("coordinate_plan_prepare_begin");
             let reference_plan = ReductionPlan::new(settings(n)).unwrap();
+            phase("coordinate_plan_prepare_end");
+            phase("coordinate_workspace_prepare_begin");
             let mut reference = Workspace::new(&reference_plan, 0_f64).unwrap();
+            phase("coordinate_workspace_prepare_end");
             let mut coordinates: Vec<_> = q.iter().flatten().copied().map(c).collect();
             coordinates.extend_from_slice(&row[gram_arguments..]);
+            phase("coordinate_reduce_begin");
             let expected = reference
                 .reduce_batch(&KinematicsBatch {
                     rows: 1,
@@ -626,6 +641,7 @@ mod tests {
                     values: coordinates,
                 })
                 .unwrap();
+            phase("coordinate_reduce_end");
             for lane in [0, 2, 6] {
                 for (actual, expected) in reduced
                     .lane(lane)

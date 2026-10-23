@@ -146,7 +146,7 @@ backend speedup is inferred across sessions. Both use the historical #raw("4c32e
 current-tree, higher-rank and physical performance remain unmeasured.]
 
 #text(size: 9pt)[Newer validation includes four integrated graphs. The top
-pentagon at Float128/256 agrees with PV/hybrid and MadLoop; original IBP still
+pentagon at Float 128/256 agrees with PV/hybrid and MadLoop; original IBP still
 fails. Physical timings are unmeasured.]
 
 #pagebreak()
@@ -262,17 +262,15 @@ an independent Feynman-parameter integral. Their UV residues agree.
 
 #pagebreak()
 = Measurement protocol
-Run release builds on one pinned CPU core with fixed thread counts and record
-hardware, operating system, toolchain, compile flags, dependency revisions,
-input hashes, seeds, warm-up, sample count and raw observations. Every result
-must identify whether caches are cold or warm. Report median and dispersion
-over repeated sufficiently long timed blocks; retain an output checksum.
+Pin release builds to one CPU core and record thread counts, hardware, OS,
+toolchain, flags, dependency/input hashes, seeds and warm-up. Identify cold
+or warm caches. Retain raw repeated-block observations, median, dispersion
+and an output checksum.
 
-Preparation comprises graph import, rules, tensor identities, coefficient
-extraction and evaluator construction. Time numerator evaluation, pure
-reduction, scalar masters and complete evaluation independently. Measure the
-complete total directly: adding separately instrumented components is only a
-diagnostic. Distinguish reference-library calls from subprocess and file I/O.
+Preparation includes graph import, numerator construction and evaluator
+compilation. Time numerator, reduction, masters and total independently;
+summed instrumented stages are only diagnostic. Separate library costs
+from subprocess/file I/O and match physical routing, modes and stage boundaries.
 
 Use the same samples at batch widths 1, 4, 8, 16, 32 and 64 and report time per
 point. For precision comparisons, match the numerical precision and include
@@ -300,15 +298,15 @@ by #raw("scripts/env.sh"). The master suite uses
 the IBP suite uses #raw("target/ibp-unit --test-threads=1 --nocapture").
 Thirty execution and five argument-guard checks pass, including mixed
 Float80/256, underflow, false/nonzero distance cancellation and higher Taylor
-components. All nineteen CLI smoke checks pass. The frozen oracle passes
+components. Separately, final mixed-precision monitoring passes 29 stability
+and six public tests, repairing the three retained false-success cases; see
+#raw("validation/mixed-precision/qualification.json"). All nineteen CLI smoke
+checks pass. The frozen oracle passes
 31 cases: 30 at binary64 and #raw("C0_power2_1_1_rank2")
 through explicit batched 128/256-bit rescue with unchanged tolerance.
-Three active rescue tests and the complete public rank-six pentagon rescue
-pass. The primary binary64 lane is correctly flagged unstable; 840 coefficients
-converge at 128/256 bits and the independent coefficient assertion passes. Four exact bubble-Taylor tests and three supplied-product
-scalar API tests pass. All 30 retained legacy-snapping cases now pass:
-22 at primary precision and eight through explicit 128/256-bit rescue.
-Earlier failures remain recorded; broader/generalized policy cases are unqualified.
+Three active rescue, four bubble-Taylor and three scalar API tests pass.
+All 30 legacy fixtures pass: 22 primary plus eight verified 128/256-bit rescues.
+Historical failures remain; broader/generalized policy cases are unqualified.
 
 The final frozen master source passes 27 checks, recorded with logs in
 #raw("validation/scalar-masters/qualification.json"). Independent B0 checks
@@ -316,7 +314,11 @@ cover kinematic scales $2^(-1070)$ and $2^(1000)$ at $mu^2=1$ for f64,
 DoubleFloat and Float256. Six-component scale-only jets pass for all five
 master families. Mixed input/seed precision, physical B0/C0 derivatives and
 subnormal normalization pass, including the complete mixed D0 fixture batch.
-Native kernels remain opt-in, with the earlier all-family and tail parity checks.
+Native kernels remain opt-in. A separate factory candidate preserves exact
+C0/D0 outputs in 40 configurations each across f64/DD/Float256, while root
+temporary slots fall from 220 to 8 and 25,010 to 25; helpers are unchanged.
+Defaults and timing qualification are unchanged; see
+#raw("validation/stack-reuse/production-factory/qualification.json").
 
 An independent Symbolica Gamma expansion checks 200 tensor and 40 generalized
 requests with analytic bubbles both disabled and enabled: 480 requests and
@@ -332,10 +334,9 @@ at 128/256 bits converge for all 1320 complex slots within
 $6.46 times 10^(-29)$; original IBP has 566 failures against that result, and
 retained binary64 values also fail. This is internal consistency, not public
 workspace qualification. Public N6/N7 and routing variants remain pending;
-see #raw("validation/pv-high-rank/rust-coverage.json"). N5 rank-six public
-rescue is qualified separately. An experimental Symbolica patch now verifies
-all 1320 N5 rank-seven slots; production integration remains pending. Earlier
-N5 240 s and inline N7 90 s preparation timeouts remain in #raw("data/results.json").
+see #raw("validation/pv-high-rank/rust-coverage.json"). The saved vendored
+baseline verifies 1320 N5 rank-seven slots; later edits remain separate.
+Historical timeouts remain in #raw("data/results.json").
 
 #pagebreak()
 = Physical fixture qualification
@@ -382,7 +383,7 @@ Their normalized tensor difference is $6.09 times 10^(-37)$, with identical
 contracted values after binary64 conversion. That comparison arithmetic
 certifies no extra digits. Evidence is retained in
 #raw("validation/physical/gghh-cli-precision-convergence.json") and its
-linked Float128/256 reports.
+linked Float 128/256 reports.
 A model-import regression was resolved by a narrow Symbolica-backed quantum-
 number adapter. Four boundary, thirteen preparation and four physical numerator
 tests pass with the fix; other numerical tokens retain their precision.
@@ -395,7 +396,7 @@ $6.74 times 10^(-15)$, with fixed-color factor $-1/8$. Evidence is retained in
 #raw("validation/physical/gggg-up-cli-comparison.json"); its one-run wall time
 is not a qualified performance measurement.
 
-Complete top-pentagon CLI reruns at Float128/256 now agree with original
+Complete top-pentagon CLI reruns at Float 128/256 now agree with original
 PV/hybrid for all 280 slots within $4.63 times 10^(-14)$, and with MadLoop
 within $9.30 times 10^(-14)$. Between-run tensor difference is
 $7.79 times 10^(-17)$ under binary64 comparison arithmetic. Original IBP
@@ -423,57 +424,58 @@ Exact commands and scope are retained in
   table.header([Unresolved item], [Observed evidence and remaining check]),
   [Binary64 baseline accuracy], [Historical Rust error $2.23 times 10^(-10)$
     and original IBP error $3.40 times 10^(-10)$ fail the unchanged gate.
-    Public128/256-bit rescue now passes at the retained rank-six point.],
-  [Broader pentagon rescue], [Rank six passes 840 slots. An isolated Symbolica
-    patch verifies all1320 rank-seven slots at128/256 bits and one independent
-    coefficient. Production integration and broader domains remain pending.],
-  [Physical pentagon reference], [Complete Float128/256 graph evaluations
+    Public 128/256-bit rescue now passes at the retained rank-six point.],
+  [Broader pentagon rescue], [Rank six passes 840 slots; the saved vendored
+    baseline passes 1320 rank-seven slots and one independent coefficient.
+    Later precision/routing edits and broader domains remain unqualified.],
+  [Physical pentagon reference], [Complete Float 128/256 graph evaluations
     pass PV/hybrid and MadLoop. Original IBP still disagrees; all-mode reports
     remain failed. Binary64 and broader kinematics remain unqualified.],
-  [Shifted scalar domain], [Thirteen consolidated master/endpoint checks and
-    retained public finite fixtures pass. Unsupported endpoints are rejected;
-    public DD/Float batch-3 timed out at 150 s. Broader domains/native E6 remain open.],
+  [Shifted scalar domain], [Thirteen standalone checks and public finite
+    fixtures pass. Pre-vendor DD/Float128 and first common-mass Dual now pass;
+    current-vendor E6 runtime, broader domains and native E6 remain unqualified.],
   [Broader derivative domains], [The full five-case mixed D0 batch now passes
     with error below $2^(-70)$. True thresholds and unsupported transverse
     massless/Gram/Cayley domains retain typed errors; old timeouts remain.],
   [Physical top-box binary64], [The original binary64 guard rejection remains
-    visible. Complete Float128/256 evaluations now pass; this does not establish
+    visible. Complete Float 128/256 evaluations now pass; this does not establish
     binary64 stability or performance.],
-  [Supplied-product high points], [Pure PV/hybrid scalar requests with six or
-    more supplied-product propagators require domain validation. The public
-    certificate wrapper timed out at 90 s. Bounded argument guards pass; broader
-    mixed-precision recurrence conditioning remains unqualified.],
-  [Legacy snapping scope], [All30 retained cases pass:22 primary plus eight
-    verified128/256-bit rescues. Earlier failures are preserved; generalized
+  [Supplied-product high points], [The six-point certificate wrapper completes
+    chart/workspace reduction, then times out preparing its coordinate comparator.
+    Complete numerical agreement and seven-point integration remain unqualified.],
+  [Legacy snapping scope], [All 30 retained cases pass: 22 primary plus eight
+    verified 128/256-bit rescues. Earlier failures are preserved; generalized
     requests and broader domains remain unqualified.],
+  [Mixed-precision accuracy], [Three retained false-success cases are repaired:
+    29 stability and six public tests pass. The active-master guard remains
+    conservative, its estimates noncertified and its overhead unmeasured.],
   [Runtime performance], [Interpreter: 7 regressions/1 improvement. Native:
     5 regressions/1 parity/2 improvements, in a separate paired session.
     Newer and broader performance remains unmeasured; the goal is unmet.],
 ))
 
 == Canonical physical reference audit
-Original IBP and PV/hybrid disagree in both UV and finite rank-four slots for
-$g g arrow H H H$, despite stable flags. The largest normalized finite
-error is $0.6001338886545732$ at moment 54. UV power counting and converged
-high-precision evaluation now adjudicate that component; details follow on
-the next page. The other three reference families agree across original modes
-within $2.22 times 10^(-14)$. All-slot comparisons are retained in
-#raw("validation/physical/canonical-reference-audit.json").
-
-The retained #raw("validation/pv-high-rank/reference-coverage.json") also records
-rank-seven original PV instability for five to seven propagators and a falsely
-stable four-propagator disagreement. These reference failures remain visible;
-stable IBP reference values do not themselves certify Rust high-rank coverage.
+Original IBP and PV/hybrid disagree in UV and finite rank-four $g g arrow H H H$
+slots despite stable flags: the largest normalized finite error is $0.600134$.
+The next page gives the independent moment-54 adjudication. Other three
+families agree within $2.22 times 10^(-14)$; see
+#raw("validation/physical/canonical-reference-audit.json"). Original high-rank
+failures remain in #raw("validation/pv-high-rank/reference-coverage.json");
+reference stability alone does not certify Rust coverage.
 
 == Independent integral evidence
-The rank-four bubble's 50/80-digit parameter integrals agree with original
-IBP; independent lightlike-bubble 60/100-digit integrals include first
-invariant derivatives. Their fixtures and reproduction scripts are retained
-under #raw("validation/pv-high-rank"). Correctly rounded master inputs reduce
-the synthetic pentagon error to $3.11 times 10^(-12)$ with 256-bit reduction
-and $2.23 times 10^(-11)$ with binary64 reduction; this isolates amplified
-master error. Full independent pentagon evidence follows.
+Independent 50/80-digit rank-four bubble integrals and 60/100-digit lightlike
+bubble integrals with derivatives are retained under #raw("validation/pv-high-rank").
+Correctly rounded masters reduce synthetic pentagon error to
+$3.11 times 10^(-12)$ with Float256 reduction or $2.23 times 10^(-11)$ with
+binary64 reduction, isolating amplified master error.
 
+#text(size: 9pt)[A separate equal-mass D6 family with $q_i=2^(-32)e_i$ has doubled-Gram determinant
+$-2^(-252)$. Symbolica exactly integrates series orders 0–4; the rational center
+has a proven analytic remainder below $2^(-321)$. This qualifies the oracle
+only: no production 128/256-bit agreement yet. The generic/complex numerical
+oracles retain their approximately 29/18 established decimal places. See
+#raw("validation/shifted-pentagon/series-oracle-qualification.json").]
 #pagebreak()
 = Independent pentagon adjudication
 These checks establish selected mathematical values independently of an
@@ -481,30 +483,27 @@ original-reference stability flag. They do not qualify every pentagon tensor,
 physical graph, runtime domain or numerical precision.
 
 == Rank-six Euclidean tensor
-For the retained five-propagator input with squared masses $(4,9,16,25,36)$,
-$mu=3$ and numerator $q_0^5 q_3$, direct Feynman-simplex integration gives
-native finite coefficient $-0.002438378935447123 i$. Two independent simplex
-coordinate mappings agree within $4.34 times 10^(-19)$; the largest reported
-quadrature error is $2.77 times 10^(-15)$. The result agrees with the converged
-256-bit PV value, and all poles vanish by angular integration and power
-counting. The positive denominator bound is $F >= 3.75$.
-This numerical quadrature uses no tensor-reduction or scalar-master library;
-its error estimates are not interval certificates. Evidence and the standalone
-script are in #raw("validation/pv-high-rank/pentagon-simplex-oracle.json").
-The original binary64 errors remain $2.23 times 10^(-10)$ for Rust and
-$3.40 times 10^(-10)$ for IREGI, above the unchanged gate. The complete public
-rescue now flags that primary lane unstable and verifies all 210 moments /
-840 slots at 128/256 bits, plus an independent absolute-error assertion below
-$10^(-13)$ for this coefficient. Evidence is in
-#raw("validation/rescue-pentagon-rank6.json"). Its retained binary hash and
-successful assertions establish this run; full output arrays were not printed
-and the exact source snapshot was not saved at compilation.
-An isolated Symbolica branch-cache patch also passes all 1320 rank-seven
-slots at 128/256 bits and this independent coefficient assertion. Its frozen
-core matches the timed-out baseline; masters and the dependency lock differ.
-Exact lowering takes 1.784 s in a 115.35 s cold test, not a controlled benchmark.
-Production integration is pending. The earlier 240 s timeout is retained in
-#raw("validation/rescue-pentagon-rank7.json").
+For squared masses $(4,9,16,25,36)$, $mu=3$ and numerator $q_0^5 q_3$,
+direct simplex integration gives native finite coefficient
+$-0.002438378935447123 i$. Independent coordinate mappings agree within
+$4.34 times 10^(-19)$; reported quadrature error is at most
+$2.77 times 10^(-15)$. The bound $F>=3.75$, angular integration and power
+counting exclude poles. This uses no reduction/master library; numerical
+error estimates are not interval certificates. See
+#raw("validation/pv-high-rank/pentagon-simplex-oracle.json").
+Historical binary64 errors remain $2.23 times 10^(-10)$ for Rust and
+$3.40 times 10^(-10)$ for IREGI. Public rescue flags the primary unstable and
+verifies all 840 slots at 128/256 bits plus this coefficient below $10^(-13)$.
+#raw("validation/rescue-pentagon-rank6.json") retains the binary and assertions;
+full arrays were not printed and its exact build-source snapshot was not saved.
+
+The coherent vendored Symbolica baseline passes four internal scope tests,
+57 focused core tests and all 1320 rank-seven slots at 128/256 bits, including
+the independent coefficient. Its saved source predates later
+precision/routing edits. Current workspace compilation passes with all 329
+source/manifest hashes unchanged; later runtime checks remain separate. The
+109.44 s cold run is diagnostic, not a performance benchmark. See #raw("validation/symbolica-production-qualification.json").
+The earlier 240 s timeout and 115.35 s isolated-patch run remain historical.
 
 == Physical canonical moment 54
 For $g g arrow H H H$, rank-four moment $q_0 q_3^3$ has UV degree $-2$;
@@ -536,20 +535,21 @@ shift, with a separately integrated tail, agrees within $4.93 times 10^(-15)$.
 A box-only half-line implementation also agrees to approximately
 $8.42 times 10^(-17)$ or better in the recorded checks. Ordinary D4 and
 coalesced D4/D6 normalization checks pass. Evidence and reproduction source
-are in #raw("validation/shifted-pentagon/evidence.json"). The new genuine
-Rust D6 master passes thirteen consolidated tests: eight genuine-master
-checks and five endpoint checks,
-including a common-mass Dual derivative, failed-lane isolation, Float128/
-DoubleFloat comparison, numerical guards and independent negative-width
-agreement at two contour slopes. Public integration now passes a mixed
-three-lane test: positive-F and negative-width values, rejected endpoint,
-poles, scale covariance, empty input and internal box count. The unchanged
-output target is checked after error amplification; the earlier budget failure
-is retained. See #raw("validation/shifted-pentagon/core-qualification.log").
-The public DD/Float batch-3 test timed out at 150 s without a numerical result.
-Broader endpoints, higher Dual orders and native-feature E6 remain unqualified;
-no performance claim follows. The separate original complex-box reference discrepancy
+are in #raw("validation/shifted-pentagon/evidence.json"). Thirteen consolidated
+D6 tests cover eight genuine-master checks and five endpoints. Retained public
+f64 fixtures pass finite values, poles, scaling, rejected endpoints and lane
+isolation; the earlier quadrature-budget failure remains historical.
+Pre-vendor public DoubleFloat and Float128 tests now pass three scaled lanes
+at requested 80-bit accuracy and $10^(-23)$ normalized oracle tolerance.
+First common-mass Dual primal/derivative checks pass at $2 times 10^(-14)$,
+with zero poles. The DD/Float validation durations total 165.69 s, exceeding
+the historical 150 s combined timeout; this is no performance benchmark.
+Build identities and limits are in
+#raw("validation/shifted-pentagon/public-core-qualification.json"). The current
+vendor wiring, full 128-bit accuracy, higher/mixed Dual, broader endpoints and
+native E6 remain unqualified. The original complex-box reference discrepancy
 is documented in #raw("validation/shifted-pentagon/contours.json").
+
 
 #pagebreak()
 #include "conventions.typ"
