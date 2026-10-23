@@ -1,0 +1,297 @@
+{
+  "schema_version": 1,
+  "kind": "original-iregi-vs-collier-initial-eight-families",
+  "status": "complete-with-one-inconclusive-family",
+  "elapsed_seconds": 117.46515063603874,
+  "comparison": "COLLIER COLI-mode1 / original IREGI Hybrid-mode2; this is not the Rust performance gate",
+  "scope": "Massive Euclidean ordinary undotted N2/N3 ranks0/1, batches1/32; N4..N7 and broader shared domain remain pending",
+  "normalization": "Complete native [UV single, IR single, IR double, finite] and all requested symmetric Cartesian moments",
+  "ir_scope": "Positive internal squared masses; IR slots zero, checked by separate untimed delta-parameter probes for every pre/post lane",
+  "units": "Raw medians are ns/batch; displayed us/point = ns/batch /1000/batch_width; batch32 is amortized throughput",
+  "ratio_definition": "Median of paired COLLIER/IREGI block ratios; not ratio of the separately displayed medians",
+  "cpu": 254,
+  "cache_policy": "within-sample recurrence memoization in both; no cross-sample/event numeric reuse",
+  "compiler": "GNU Fortran15.2.0, -O3; fast-math disabled in both reference builds",
+  "timing_boundary": "COLLIER invariant/momentum construction + public full tensor call + native conversion + status checks; IREGI mass setup + tensor call + status checks + cache disposal; transport and pole probes excluded",
+  "protocol": {
+    "comparison": "COLLIER / original IREGI (not Rust / IREGI)",
+    "collier_mode": 1,
+    "iregi_mode": "Hybrid",
+    "outputs": "all Cartesian components through requested rank and native [UV single, IR single, IR double, finite]",
+    "scope": "initial massive Euclidean ordinary undotted slice only; broader N4..N7/rank coverage pending",
+    "cache_policy": "within-sample recurrence memoization in both; no cross-sample/event numeric reuse",
+    "transport_timed": false,
+    "pole_probe_timed": false,
+    "warmup": 5,
+    "warmup_blocks": 5,
+    "blocks": 41,
+    "minimum_block_ms": 100.0,
+    "calibration_target_ms": 110.00000000000001,
+    "calibration": "up to eight warmed common-iteration trials, target1.10*minimum; accept only when both observed blocks reach minimum",
+    "resource_cap_seconds": 900.0,
+    "maximum_iterations": 1000000,
+    "paired_order": "fixed21/20 balanced inventory shuffled with seed271828 for41 blocks",
+    "quiet_note": "validation/benchmark-quiet/20261023d/collier-window.json",
+    "statistic": "paired medians, 99% bootstrap CI; width<=2% required",
+    "correctness_tolerance": 1e-10,
+    "correctness_durations": "diagnostic only; not performance measurements"
+  },
+  "counts": {
+    "inconclusive-short-block": 1,
+    "improvement": 7
+  },
+  "paired_blocks_total": 328,
+  "measured_complex_slots_both_engines": 129888,
+  "pre_post_complex_slots_both_engines": 6336,
+  "maximum_normalized_array_error": 2.488972223388242e-13,
+  "source_and_binary_guards_unchanged": true,
+  "quiet_window": {
+    "path": "validation/benchmark-quiet/20261023d/collier-window.json",
+    "sha256": "50001488c70369ba8377e3a917987a54f78ddf53c3b9db13dfb2c8cd77a98b61"
+  },
+  "quiet_completion": {
+    "path": "validation/benchmark-quiet/20261023d/completion.json",
+    "sha256": "a9c19a2932f2747cfc9a2c11abeae0502c141557fb5b677288beed06069abb60"
+  },
+  "raw": {
+    "path": "validation/collier-reference/timing-initial8/raw-results.json.gz",
+    "sha256": "aa829743b1fafde3d2e8ba9d4433fad32977d777698a39d3be5a4491d74be432",
+    "uncompressed_sha256": "c5b42f2ded5cd4296f2768748eba8218c77749febe4145be7243cbed255237dd",
+    "uncompressed_bytes": 20916844,
+    "compression": "deterministic gzip, level9, mtime0"
+  },
+  "rows": [
+    {
+      "id": "n2-r0-massive",
+      "n": 2,
+      "rank": 0,
+      "batch_width": 1,
+      "status": "measured",
+      "numerical_status": "passed",
+      "maximum_normalized_error": 2.4028904649745953e-16,
+      "postflight_maximum_normalized_error": 2.4028904649745953e-16,
+      "collier_median_ns_per_batch": 764.2622849419257,
+      "iregi_median_ns_per_batch": 943.2170167922842,
+      "collier_median_us_per_point": 0.7642622849419257,
+      "iregi_median_us_per_point": 0.9432170167922842,
+      "ratio": 0.808913488732003,
+      "ratio_ci99": [
+        0.8038228277615383,
+        0.8149293470732063
+      ],
+      "relative_ci_width": 0.013730169500669057,
+      "performance_status": "inconclusive-short-block",
+      "minimum_observed_block_ms": 98.438013,
+      "iterations_per_block": 130953,
+      "calibration_rounds": 1,
+      "paired_blocks": 41,
+      "paired_order_counts": [
+        21,
+        20
+      ]
+    },
+    {
+      "id": "n2-r0-massive",
+      "n": 2,
+      "rank": 0,
+      "batch_width": 32,
+      "status": "measured",
+      "numerical_status": "passed",
+      "maximum_normalized_error": 7.145419273362602e-16,
+      "postflight_maximum_normalized_error": 7.145419273362602e-16,
+      "collier_median_ns_per_batch": 24497.4375274967,
+      "iregi_median_ns_per_batch": 29664.74043114826,
+      "collier_median_us_per_point": 0.7655449227342719,
+      "iregi_median_us_per_point": 0.9270231384733831,
+      "ratio": 0.824087416611874,
+      "ratio_ci99": [
+        0.8181027318884856,
+        0.8279427742561744
+      ],
+      "relative_ci_width": 0.011940532241281865,
+      "performance_status": "improvement",
+      "minimum_observed_block_ms": 110.085386,
+      "iterations_per_block": 4546,
+      "calibration_rounds": 2,
+      "paired_blocks": 41,
+      "paired_order_counts": [
+        21,
+        20
+      ]
+    },
+    {
+      "id": "n2-r1-massive",
+      "n": 2,
+      "rank": 1,
+      "batch_width": 1,
+      "status": "measured",
+      "numerical_status": "passed",
+      "maximum_normalized_error": 3.372267793466473e-16,
+      "postflight_maximum_normalized_error": 3.372267793466473e-16,
+      "collier_median_ns_per_batch": 1172.7201442903845,
+      "iregi_median_ns_per_batch": 3129.496911283959,
+      "collier_median_us_per_point": 1.1727201442903845,
+      "iregi_median_us_per_point": 3.129496911283959,
+      "ratio": 0.37499248207867014,
+      "ratio_ci99": [
+        0.3735865397098881,
+        0.3768674867896263
+      ],
+      "relative_ci_width": 0.00874936761812169,
+      "performance_status": "improvement",
+      "minimum_observed_block_ms": 103.365172,
+      "iterations_per_block": 88710,
+      "calibration_rounds": 1,
+      "paired_blocks": 41,
+      "paired_order_counts": [
+        21,
+        20
+      ]
+    },
+    {
+      "id": "n2-r1-massive",
+      "n": 2,
+      "rank": 1,
+      "batch_width": 32,
+      "status": "measured",
+      "numerical_status": "passed",
+      "maximum_normalized_error": 2.087617977536879e-15,
+      "postflight_maximum_normalized_error": 2.087617977536879e-15,
+      "collier_median_ns_per_batch": 37508.54005431093,
+      "iregi_median_ns_per_batch": 99910.23896809232,
+      "collier_median_us_per_point": 1.1721418766972165,
+      "iregi_median_us_per_point": 3.1221949677528853,
+      "ratio": 0.3757856050314056,
+      "ratio_ci99": [
+        0.37184588823210657,
+        0.3775254234982201
+      ],
+      "relative_ci_width": 0.015113764843756792,
+      "performance_status": "improvement",
+      "minimum_observed_block_ms": 109.97195599999999,
+      "iterations_per_block": 2946,
+      "calibration_rounds": 1,
+      "paired_blocks": 41,
+      "paired_order_counts": [
+        21,
+        20
+      ]
+    },
+    {
+      "id": "n3-r0-massive",
+      "n": 3,
+      "rank": 0,
+      "batch_width": 1,
+      "status": "measured",
+      "numerical_status": "passed",
+      "maximum_normalized_error": 2.5662913180559704e-14,
+      "postflight_maximum_normalized_error": 2.5662913180559704e-14,
+      "collier_median_ns_per_batch": 3780.561271882815,
+      "iregi_median_ns_per_batch": 4994.445802072169,
+      "collier_median_us_per_point": 3.780561271882815,
+      "iregi_median_us_per_point": 4.9944458020721685,
+      "ratio": 0.7565635093184494,
+      "ratio_ci99": [
+        0.754867131046911,
+        0.7575587395780549
+      ],
+      "relative_ci_width": 0.0035576769140882097,
+      "performance_status": "improvement",
+      "minimum_observed_block_ms": 105.278968,
+      "iterations_per_block": 27990,
+      "calibration_rounds": 1,
+      "paired_blocks": 41,
+      "paired_order_counts": [
+        21,
+        20
+      ]
+    },
+    {
+      "id": "n3-r0-massive",
+      "n": 3,
+      "rank": 0,
+      "batch_width": 32,
+      "status": "measured",
+      "numerical_status": "passed",
+      "maximum_normalized_error": 4.014789805436795e-14,
+      "postflight_maximum_normalized_error": 4.014789805436795e-14,
+      "collier_median_ns_per_batch": 122390.27582417583,
+      "iregi_median_ns_per_batch": 158825.24835164836,
+      "collier_median_us_per_point": 3.8246961195054947,
+      "iregi_median_us_per_point": 4.963289010989011,
+      "ratio": 0.7691779217167839,
+      "ratio_ci99": [
+        0.7675926293046412,
+        0.7715232949543508
+      ],
+      "relative_ci_width": 0.005110216425526654,
+      "performance_status": "improvement",
+      "minimum_observed_block_ms": 110.665659,
+      "iterations_per_block": 910,
+      "calibration_rounds": 1,
+      "paired_blocks": 41,
+      "paired_order_counts": [
+        21,
+        20
+      ]
+    },
+    {
+      "id": "n3-r1-massive",
+      "n": 3,
+      "rank": 1,
+      "batch_width": 1,
+      "status": "measured",
+      "numerical_status": "passed",
+      "maximum_normalized_error": 1.6880534444500973e-13,
+      "postflight_maximum_normalized_error": 1.6880534444500973e-13,
+      "collier_median_ns_per_batch": 6147.863707210067,
+      "iregi_median_ns_per_batch": 10752.138486405356,
+      "collier_median_us_per_point": 6.1478637072100675,
+      "iregi_median_us_per_point": 10.752138486405356,
+      "ratio": 0.5714423805311079,
+      "ratio_ci99": [
+        0.5682608806962022,
+        0.5741079560934994
+      ],
+      "relative_ci_width": 0.010232134676225559,
+      "performance_status": "improvement",
+      "minimum_observed_block_ms": 105.298529,
+      "iterations_per_block": 17323,
+      "calibration_rounds": 1,
+      "paired_blocks": 41,
+      "paired_order_counts": [
+        21,
+        20
+      ]
+    },
+    {
+      "id": "n3-r1-massive",
+      "n": 3,
+      "rank": 1,
+      "batch_width": 32,
+      "status": "measured",
+      "numerical_status": "passed",
+      "maximum_normalized_error": 2.488972223388242e-13,
+      "postflight_maximum_normalized_error": 2.488972223388242e-13,
+      "collier_median_ns_per_batch": 196652.89342806395,
+      "iregi_median_ns_per_batch": 347658.7051509769,
+      "collier_median_us_per_point": 6.145402919626998,
+      "iregi_median_us_per_point": 10.864334535968029,
+      "ratio": 0.565584498787693,
+      "ratio_ci99": [
+        0.5646878400607365,
+        0.5670469400839254
+      ],
+      "relative_ci_width": 0.004171083239101473,
+      "performance_status": "improvement",
+      "minimum_observed_block_ms": 110.328438,
+      "iterations_per_block": 563,
+      "calibration_rounds": 1,
+      "paired_blocks": 41,
+      "paired_order_counts": [
+        21,
+        20
+      ]
+    }
+  ]
+}

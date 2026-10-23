@@ -72,6 +72,35 @@
 #let historical809 = data.qualified_80949_benchmark
 #let current = data.qualified_6b24_benchmark
 #let physical = data.physical_80949_benchmark
+#let collier = data.at("qualified_collier_benchmark", default: none)
+#let latest-experiments = data.at("latest_isolated_timing_cohorts", default: none)
+#let collier-cell(r) = table.cell(
+  fill: if not r.correctness_passed or r.gate in ("inconclusive-noise", "inconclusive-short-block") {
+    amber
+  } else { ratio-fill(r.paired_ratio) }, {
+    set par(leading: 0.35em, justify: false)
+    if not r.correctness_passed or not is-num(r.paired_ratio) {
+      text(size: 10pt, weight: "bold")[Unqualified]
+    } else {
+      text(size: 13pt, weight: "bold")[×#fixed(r.paired_ratio, digits: 3)]
+      linebreak()
+      text(size: 8pt)[99% CI #fixed(r.paired_ratio_ci99.at(0), digits: 3)–#fixed(r.paired_ratio_ci99.at(1), digits: 3)]
+      linebreak()
+      let verdict = if r.gate == "inconclusive-noise" {
+        "Inconclusive: noise"
+      } else if r.gate == "inconclusive-short-block" {
+        "Inconclusive: short block"
+      } else if r.gate == "improvement" { "COLLIER faster" } else if r.gate == "regression" {
+        "IREGI faster"
+      } else if r.gate == "parity" { "Compatible with parity" } else { "Unqualified" }
+      text(size: 8pt, weight: "bold", verdict)
+    }
+  },
+)
+#let reference-time-cell(value) = table.cell(fill: pale, {
+  if is-num(value) { text(size: 12pt, weight: "bold")[#fixed(value, digits: 3)] }
+  else { text(size: 9pt)[Unmeasured] }
+})
 #let benchmark-cell(r) = table.cell(fill: ratio-fill(r.paired_ratio), {
   set par(leading: 0.25em, justify: false)
   text(size: 9pt, weight: "bold")[#fixed(r.rust_us_per_point, digits: 3) µs]
@@ -104,16 +133,16 @@
   #v(0.4em)
   #text(22pt, weight: "bold", fill: navy)[iregi-rust benchmark]
   #v(-0.3em)
-  #text(12pt, fill: luma(80))[Batched one-loop tensor reduction in Rust versus IREGI and MadLoop]
+  #text(12pt, fill: luma(80))[Batched one-loop reduction: Rust, IREGI, COLLIER and MadLoop]
   #v(0.2em)
   #text(9.5pt, fill: luma(110))[#data.date · #data.host]
 ]
 #v(0.6em)
 #block(fill: pale, inset: 10pt, radius: 4pt, width: 100%)[
   #set text(9.5pt)
-  *Reading guide.* Every timing ratio is _iregi-rust time ÷ reference time_.
-  Green means faster, white parity and red slower; timings are per phase-space
-  point. Gray cells are unmeasured; amber marks pending or inconclusive evidence.
+  *Reading guide.* Rust tables use _Rust time ÷ reference time_; the COLLIER
+  table uses _COLLIER ÷ IREGI_. Green means the numerator is faster, white parity
+  and red slower. Gray is unmeasured; amber marks pending or inconclusive evidence.
   Source inspection does not establish numerical agreement. #data.measurement_note
 ]
 #v(0.4em)
@@ -298,6 +327,50 @@ host activity remained uncontrolled. No system settings were changed.
 Historical sessions used different CPUs and timing protocols; only each
 session's paired reference supports its verdict, with no causal revision speedup.
 Raw samples and reproduction: #raw("validation/benchmark/baseline-6b24c03-licensed/").
+
+#if collier != none [
+  #pagebreak()
+  = Original IREGI versus COLLIER
+  Identical massive Euclidean tensor integrals compare original IREGI Hybrid
+  (mode 2) with COLLIER 1.2.10 COLI (mode 1). Each row requests the complete
+  Cartesian tensor array and all four native Laurent slots. This is a
+  reference-library comparison, separate from the Rust performance gate.
+
+  #figure(kind: table, caption: [*Binary64, µs/point.* Batch 1 is latency;
+    batch 32 is amortized cost per point. The ratio is *COLLIER ÷ IREGI*,
+    with a paired 99% confidence interval.], report-table(table(
+    columns: (1.15fr, 0.55fr, 1fr, 1fr, 1.65fr),
+    align: (x, y) => if x == 0 { left + horizon } else { center + horizon },
+    inset: (x: 7pt, y: 9pt), stroke: table-stroke,
+    fill: (x, y) => if y == 0 { navy } else { none },
+    table.header([Topology / rank], [Batch], [IREGI\ Hybrid], [COLLIER\ COLI], [COLLIER / IREGI]),
+    ..for r in collier.rows {
+      ([*#r.label*\ rank #r.rank], [#r.batch_width],
+        reference-time-cell(r.iregi_us_per_point),
+        reference-time-cell(r.collier_us_per_point), collier-cell(r))
+    },
+  )))
+
+  #text(size: 9pt)[The 99% interval width must be at most 2% of the paired
+  median, and every block must reach 100 ms. Amber rows remain inconclusive.
+  Raw ns/batch values are divided by $1000 times "batch width"$ for this display;
+  ratios use paired observations before rounding.]
+
+  *Numerical scope.* #collier.correctness_note
+
+  *Cache policy.* #collier.cache_policy
+
+  #text(size: 9pt)[COLLIER timing includes invariant setup and native conversion;
+  IREGI includes mass setup and cache disposal. Both include the full tensor
+  call and status checks.]
+
+  *Measurement protocol.* #collier.protocol_note
+
+  Ordinary non-dotted, fixed-dimension cases have zero IR poles; regulator
+  probes are untimed. Higher points/ranks, singular or IR-divergent families
+  and physical numerators remain pending. Raw observations and reproduction:
+  #raw(collier.source).
+]
 
 #pagebreak()
 = Historical kernel snapshot: #raw("80949db")
@@ -592,9 +665,9 @@ an independent Feynman-parameter integral. Their UV residues agree.
   The original PV branch is retained unchanged; the relevant Rust comparisons
   use original IBP and the independent parameter-integral result.]
 
-#text(size: 8.5pt)[*Pending reference extension:* original IREGI versus COLLIER
-1.2.10 on identical ordinary, non-dotted N2/N3 rank0/1 inputs, batches1/32.
-Complete tensor/Laurent comparisons and timings are not yet qualified.]
+#text(size: 8.5pt)[The dedicated original-IREGI/COLLIER table covers ordinary,
+non-dotted N2/N3 rank0/1 inputs, batches1/32. Its numerical and timing results
+do not qualify broader N4–N7, singular or IR-divergent families.]
 
 #pagebreak()
 = Measurement protocol
@@ -624,8 +697,9 @@ diagnostic. The subsequent quiet physical results are reported separately.
 
 Private slim RealBall passes 88 core checks, eight kernel and 15 typed cases,
 two ggH packets, and 10 separate planar-interaction checks with retained
-dependencies. Four timing rows give two noisy real-lane results, one complex-lane
-parity and one gain. The candidate remains unadopted.
+dependencies. Its first four timing rows give two noisy real-lane results,
+one complex-lane parity and one gain. The longer cohort is reported separately;
+the candidate remains unadopted.
 
 With the accepted license, 360 batched calls across two workers match sequential
 A0–D0 values, status and metadata for f64/Float128 and second-order Dual branches.
@@ -803,13 +877,15 @@ Exact commands and scope are retained in
     regressions/one noisy. Shared B0/C0 kernels: one gain/two parities/seven
     regressions/two noisy. All rejected; D0 singleton source is unchanged.
     Separate actual A0–C0 replay passes 1782 outputs from 297 rows at $10^(-10)$;
-    native/interpreter values are not bitwise identical. Timing is unrun.],
+    native/interpreter values are not bitwise identical. New replay timings
+    are reported separately.],
   [Certificate candidates], [Slim RealBall module: 23 checks, including 8
     baseline controls. Separate exact-distance receipts: 49 checks and 120 exact
     snapshots against the same private RealBall baseline; argument rows unchanged.
     Fourteen timing cases give eight gains/two parities/four noisy, no qualified
     regression. Private final integration passes 12 receipt/6 accounting checks,
-    counted once with the automatic-planar followup. Final code is untimed.],
+    counted once with the automatic-planar followup. The final timing cohort
+    is reported separately.],
   [N5 planar API], [Promoted explicit unit-power API: rank7 ordinary128/256
     passes 1320 slots/convergence; mixed128 passes 5280 slots per accepted lane
     versus256 boxes, requested53. Transverse jets reject; 9 focused/49 ordinary
@@ -823,12 +899,60 @@ Exact commands and scope are retained in
     DD/80, Float128/100 and Float256/128. Ordinary evaluation and default E6
     remain unchanged; no automatic certified-master dispatch.],
 ))
-#text(size: 8.5pt)[New CLI/native timings use CPU 254 and 21 paired 30 ms blocks,
-with project compute held; these isolated candidates are not IREGI or end-to-end
-comparisons. Historical native 24 rows remain separate. Full paths, scopes and
-failures are in #raw("docs/data/results.json"); effects are not multiplied.
-Public-API interruption/storage failures and logged compilation extension remain
-recorded; numerical tests met 600 s. These durations are not benchmarks.]
+#text(size: 8.5pt)[Complete protocols and failures remain in the JSON. Public-API
+user/storage interruptions and compile-only extension are retained; numerical
+tests met 600 s, without a performance claim. New isolated cohorts follow.]
+
+#if latest-experiments != none [
+  #pagebreak()
+  = Latest isolated optimization cohorts
+  These private candidates were measured in one coordinated quiet window on
+  CPU 254. Each has its own frozen sources, binaries and registered protocol;
+  results do not qualify a combined implementation or replace the Rust/IREGI
+  performance gate. Candidate effects are never multiplied. Failed controls,
+  inconclusive rows and earlier cohorts remain in the evidence.
+
+  #report-table(table(
+    columns: (1.1fr, 1.25fr, 2.65fr), inset: (x: 8pt, y: 12pt),
+    stroke: table-stroke, fill: (x, y) => if y == 0 { navy } else { pale },
+    table.header([Private cohort], [Per-family outcomes], [Controls, scope and decision]),
+    ..for row in latest-experiments.rows {
+      ([*#row.label*], [#row.outcomes], table.cell(fill: amber)[#row.decision])
+    },
+  ))
+
+  Ratios in these cohorts are candidate latency divided by that cohort's
+  baseline latency. Every measured family is retained in the linked JSON,
+  with raw paired observations, 99% confidence intervals and unchanged
+  qualification thresholds. Project compute was held, but unrelated host
+  activity remained uncontrolled. Earlier measurements use different frozen
+  sources or protocols and remain separate. No new production adoption is
+  implied by this page.
+
+  == Exact and source-only research
+  Additional Symbolica CSE leaves A0/B0/C0 exports unchanged: 43/506/223
+  instructions and 6/13/8 root slots. Eighteen root identities and 470 control
+  checks pass under the structured-SSA assumption. With no instruction saving,
+  the candidate stops before numerical or performance qualification.
+
+  The E6 design notes remain proposals. A separate private direct N2 prototype
+  at Float256/request128 certifies 16 components across four successful lanes
+  with one-axis common-mass jets; five expected rejections hide values.
+  Independent audit: 513 checks and 140 hashes pass. No public/default E6,
+  general-geometry, mixed-axis or performance qualification follows.
+
+  A separate private rank-lowering N6 rank-one candidate passes all 20 complex
+  Laurent slots against original IBP at Float128/request53, maximum normalized
+  error $3.17 times 10^(-13)$. The old public path rejects nonfinite coefficients,
+  so this is not paired old/new numerical agreement. Exact constraint tests
+  accompany the frozen development build. Its rank-two probe rejects nonfinite
+  coefficients in 57.823 s, within the 180 s bound, without arrays. Rank-seven,
+  N7, convergence and performance qualification remain pending.
+
+  All source identities, complete per-family results and negative evidence are
+  retained in #raw("docs/data/results.json"). Current production remains
+  #raw("06706e2"); the measured optimized Rust gate remains #raw("6b24c03").
+]
 #pagebreak()
 = Independent pentagon adjudication
 These checks establish selected mathematical values independently of an

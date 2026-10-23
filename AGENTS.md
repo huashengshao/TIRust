@@ -24,3 +24,8 @@ Commit and push validated milestones to origin/main, without force pushes, as
 huashengshao <erdissshaw@gmail.com>. Coordinate shared-file changes with the root
 agent. Keep docs/benchmark.pdf and measurement provenance current; never invent
 timings or claim unperformed validation.
+
+Update docs/benchmark.typ and docs/benchmark.pdf at each pushed milestone and
+give the user a GitHub link to that pushed PDF. Include the measured original
+IREGI-versus-COLLIER comparison on shared undotted topologies, separately from
+Rust-versus-IREGI results; retain failed, noisy and unmeasured cases explicitly.
