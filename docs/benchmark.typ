@@ -69,7 +69,8 @@
 #let bench = data.qualified_benchmark
 #let native = data.qualified_native_benchmark
 #let recent = data.qualified_5c9_benchmark
-#let current = data.qualified_80949_benchmark
+#let historical809 = data.qualified_80949_benchmark
+#let current = data.qualified_6b24_benchmark
 #let physical = data.physical_80949_benchmark
 #let benchmark-cell(r) = table.cell(fill: ratio-fill(r.paired_ratio), {
   set par(leading: 0.25em, justify: false)
@@ -160,9 +161,9 @@ higher-rank performance remains unqualified.]
 
 #text(size: 9pt)[The newer optimized interpreter snapshot #raw("5c9e3dd")
 passes eight numerical checks, with six timing regressions and two noisy rows.
-The latest #raw("80949db") default-stack/generalized-PV/vector-solve snapshot
-also passes all eight checks: five regressions and three noisy rows.
-Separate same-session comparisons follow; performance acceptance is unmet.]
+The #raw("80949db") snapshot gives five regressions/three noisy rows.
+Latest #raw("6b24c03") passes all eight checks: seven regressions/one noisy row.
+Separate paired comparisons follow; performance acceptance is unmet.]
 
 #text(size: 9pt)[Newer validation includes four integrated graphs. The top
 pentagon at Float 128/256 agrees with PV/hybrid and MadLoop; original IBP still
@@ -233,19 +234,20 @@ slower, with per-comparison 99% intervals excluding parity. It uses 32 valid
 lanes, CPU 0 and 21 rotated blocks. This selects a batch policy, not IREGI
 speedup; see #raw("validation/native-policy/").]
 
-#text(size: 8.5pt)[A later native allocator candidate is rejected: the corrected
-24-row protocol gives two singleton parities and 22 noisy rows, with no qualified
-batch32 gain. Earlier results (two regressions/22 noisy rows) remain retained.
-D0 compilation/qualification is pending. See #raw("validation/native-stack-batch/").]
+#text(size: 8.5pt)[Native allocator adoption is rejected: 24 corrected timing rows
+give two singleton parities/22 noisy rows, no batch32 gain; earlier two
+regressions remain. D0 exact old/new parity passes 40 configurations/1,488 complex
+outputs (f64/DD/Float256); interpreter differences and unmeasured D0 timing remain.
+See #raw("validation/native-stack-batch/").]
 
 #pagebreak()
-= Latest kernel snapshot: #raw("80949db")
+= Latest kernel snapshot: #raw("6b24c03")
 All eight massive bubble/triangle checks pass the unchanged $10^(-10)$
-criterion, maximum normalized error $2.46 times 10^(-13)$. Five timing rows
-regress; three exceed the unchanged 2% interval-width limit and remain
-*inconclusive*. This optimized snapshot includes the adopted master stack
-allocation, generalized PV and lazy Cayley solve. Later core-allocation and
-experimental changes are excluded. The performance requirement remains unmet.
+criterion, maximum normalized error $2.46 times 10^(-13)$. Seven timing rows
+regress; the rank-one triangle singleton exceeds the unchanged 2%
+interval-width limit (2.357%) and remains *inconclusive*. This production
+snapshot includes ordinary-root allocation and guard-context reuse.
+The performance requirement remains unmet.
 
 #figure(kind: table, caption: [*Binary64 hybrid interpreter, µs/point.*
   Latency at batch 1 and amortized cost at batch 32. Each ratio uses its
@@ -265,8 +267,67 @@ experimental changes are excluded. The performance requirement remains unmet.
 #report-table(table(
   columns: (3.5cm, 10.5cm, 1.5cm), inset: (x: 3pt, y: 3pt), stroke: none,
   fill: (x, y) => if y == 0 { navy } else { none },
-  table.header([Case / batch], [Rust stage time: 0 #h(1fr) 25 #h(1fr) 50 µs/point], [Total]),
+  table.header([Case / batch], [Rust stage time: 0 #h(1fr) 20 #h(1fr) 40 µs/point], [Total]),
   ..for r in current.rows {
+    ([#r.label r#r.rank / #r.batch_width], stage-bar(r, maximum: 40), [#fixed(r.profile_us_per_point.total, digits: 3)])
+  },
+))
+#align(center)[
+  #set text(font: "DejaVu Sans", size: 8pt)
+  #box(width: 8pt, height: 8pt, fill: stage-colors.at(0)) Arguments #h(9pt)
+  #box(width: 8pt, height: 8pt, fill: stage-colors.at(1)) Scalar masters #h(9pt)
+  #box(width: 8pt, height: 8pt, fill: stage-colors.at(2)) Reduction #h(9pt)
+  #box(width: 8pt, height: 8pt, fill: stage-colors.at(3)) Other
+]
+#text(size: 8.5pt)[Stages use a separate instrumented pass. “Other” is its
+total median minus named medians; stage sums are not the uninstrumented gate.
+Graph/numerator preparation is outside this tensor-array benchmark. The
+single plan-preparation observations remain in the data, not in speed ratios.]
+
+CPU 254, five warm-ups and 41 randomized paired blocks targeting 100 ms use
+identical inputs, complete tensor arrays and all native Laurent slots.
+Structural allocations are reused; numerical results are recomputed and
+reference caches cleared per sample. Transport is excluded. Rust 1.99 uses
+opt-level3, thin LTO and one codegen unit; GFortran 15.2 uses #raw("-O3").
+
+The complete optimized workspace build exits successfully. All 414 immutable
+build-source hashes, both binaries, feature selection and harness match the
+retained provenance. Other project computations were held. CPU 254 was selected
+by a read-only load survey because unrelated work occupied CPU 0; external
+host activity remained uncontrolled. No system settings were changed.
+Historical sessions used different CPUs and timing protocols; only each
+session's paired reference supports its verdict, with no causal revision speedup.
+Raw samples and reproduction: #raw("validation/benchmark/baseline-6b24c03-licensed/").
+
+#pagebreak()
+= Historical kernel snapshot: #raw("80949db")
+All eight massive bubble/triangle checks pass the unchanged $10^(-10)$
+criterion, maximum normalized error $2.46 times 10^(-13)$. Five timing rows
+regress; three exceed the unchanged 2% interval-width limit and remain
+*inconclusive*. This optimized snapshot includes the adopted master stack
+allocation, generalized PV and lazy Cayley solve. Later core-allocation and
+experimental changes are excluded. The performance requirement remains unmet.
+
+#figure(kind: table, caption: [*Binary64 hybrid interpreter, µs/point.*
+  Latency at batch 1 and amortized cost at batch 32. Each ratio uses its
+  same-run paired original-IREGI measurement.], report-table(table(
+  columns: (1fr, auto, 2fr, 2fr),
+  align: (x, y) => if x == 0 { left + horizon } else { center + horizon },
+  inset: (x: 7pt, y: 10pt), stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else { none },
+  table.header([Case], [Rank], [Batch 1], [Batch 32]),
+  ..for r in historical809.rows.filter(r => r.batch_width == 1) {
+    let batch = historical809.rows.find(x => x.id == r.id and x.batch_width == 32)
+    ([*#r.label*], [#r.rank], recent-cell(r), recent-cell(batch))
+  },
+)))
+
+== Separately instrumented component timings
+#report-table(table(
+  columns: (3.5cm, 10.5cm, 1.5cm), inset: (x: 3pt, y: 3pt), stroke: none,
+  fill: (x, y) => if y == 0 { navy } else { none },
+  table.header([Case / batch], [Rust stage time: 0 #h(1fr) 25 #h(1fr) 50 µs/point], [Total]),
+  ..for r in historical809.rows {
     ([#r.label r#r.rank / #r.batch_width], stage-bar(r, maximum: 50), [#fixed(r.profile_us_per_point.total, digits: 3)])
   },
 ))
@@ -557,12 +618,9 @@ passes 80 ledger, provenance, protocol and comparison checks. The optimized
 joint ggH smoke passes at batches 1/3; its short zero-warm-up timings are
 diagnostic. The subsequent quiet physical results are reported separately.
 
-An identified debug binary passes the $g g arrow H$ harness smoke at batches
-1 and 3: all 15 moments / four slots agree with three IREGI modes within
-$3.55 times 10^(-15)$, and MadLoop within $8.02 times 10^(-15)$.
-Seven-stage protocol checks pass; short debug timings, live-source provenance
-and repeated-point scaling remain unqualified. See
-#raw("validation/benchmark/physical-smoke/qualification.json").
+Private RealBall certificates pass four paired/eight inherited checks for selected
+128-bit real ggH polynomials/jets; other lanes retain ComplexBall. No production or
+timing gate is claimed.
 
 With the accepted license, 360 batched calls across two workers match sequential
 A0–D0 values, status and metadata for f64/Float128 and second-order Dual branches.
@@ -602,11 +660,13 @@ pass; public integration remains pending.
 
 N6 inline native-master 128/256-bit arrays converge over 1320 complex slots
 within $6.46 times 10^(-29)$; public N6/N7 tensor arrays remain unqualified.
-Public rank-seven baseline/current/n-way probes time out during preparation at
-180/300/300 s, without values. Plans have 330 moments, 31,670 aliases and 56
-masters. The private n-way expression change passes 20 exact checks but its
-changed preparation stage is not reached; no speed gate follows. Source,
-CPU and diagnostic durations are retained in #raw("validation/public-highpoint/").
+Public rank-seven probes time out during preparation at 180/300/300 s.
+The private alias-use candidate passes 73 semantic tests but reaches the 600 s
+bound in primal preparation (601.010 s with teardown), producing no arrays.
+Its exact-only proof checks 17 cases, three semantic tests and 25,700 reachable
+predicates; the separate n-way proof checks 20 cases. Plans have 330 moments,
+31,670 aliases and 56 masters. No performance gate follows; evidence and earlier
+failures remain in #raw("validation/public-highpoint/").
 
 #pagebreak()
 = Physical fixture qualification
@@ -658,13 +718,12 @@ arithmetic. See #raw("validation/physical/gghh-cli-precision-convergence.json").
 The Symbolica-backed model adapter passes four boundary, thirteen preparation
 and four numerator tests while preserving other numerical tokens.
 
-The current optimized CLI also passes the massless up-quark box. All 70
-moments / 280 slots agree with each original mode: maximum error
+The 80949db massless up-quark box passes all 70 moments / 280 slots against
+each original mode: maximum error
 $2.85 times 10^(-14)$ against IBP and $7.11 times 10^(-15)$ against PV/hybrid.
-The isolated MadLoop finite/single/double coefficients agree within
-$6.74 times 10^(-15)$, with fixed-color factor $-1/8$. Evidence is retained in
-#raw("validation/physical/gggg-up-cli-comparison.json"); its one-run wall time
-is not a qualified performance measurement.
+MadLoop finite/single/double coefficients agree within $6.74 times 10^(-15)$
+with fixed-color factor $-1/8$. Its one-run wall time is unqualified; see
+#raw("validation/physical/gggg-up-cli-comparison.json").
 
 Complete top-pentagon CLI reruns at Float 128/256 now agree with original
 PV/hybrid for all 280 slots within $4.63 times 10^(-14)$, and with MadLoop
@@ -725,8 +784,9 @@ Exact commands and scope are retained in
     establish no optimized IREGI gate.],
   [Runtime performance], [Interpreter: 7 regressions/1 improvement. Native:
     5 regressions/1 parity/2 improvements, in a separate paired session.
-    5c9e3dd: 6 regressions/2 noisy rows; latest80949db: 5 regressions/3 noisy.
-    Physical: six noisy rows/two failures. No overall performance gate passes.],
+    5c9e3dd: 6 regressions/2 noisy; 80949db: 5 regressions/3 noisy.
+    Latest6b24c03: 7 regressions/1 noisy. Physical: six noisy rows/two failures.
+    No overall performance gate passes.],
 ))
 
 == Optimization and experimental evidence
@@ -737,23 +797,23 @@ Exact commands and scope are retained in
   [Core stack reuse], [76 test executions and 12 paired cases pass; a quiet
     opt2 run preserves 92 outputs. Batch ratios 0.9873/0.9802; singleton intervals
     include parity. Promoted #raw("d1a4b8e") passes 67 current opt2 checks;
-    its optimized IREGI gate remains unmeasured.],
+    the combined 6b24c03 optimized gate remains unmet.],
   [Guard context], [62/76 isolated checks and 120 snapshots pass; six measured
     improvements, six noisy rows, no regression. Rebased source passes 76 checks
     and 120 snapshots; final cleanup passes 14. Adopted in #raw("6b24c03").
-    Its optimized IREGI gate remains unmeasured.],
+    The combined optimized gate has seven regressions/one noisy row.],
   [Roundoff cache], [29/37 stability tests and 120 snapshots pass. Measured
     candidate rejected: two regressions, ten noisy rows, no qualified gain.
     Separate accuracy-guard diagnostic: two regressions/six noisy rows.],
-  [Certified planar], [Private Float128/request53 rank7 passes 1320 complex slots
-    against five boxes at dimensionally normalized $10^(-10)$. Rank≤2 normalized
-    precision/Dual checks pass. Historical failures/timeouts remain; no production fallback.],
-  [Near-vacuum box], [18 validation executions / 15 settings pass, including
-    mixed jets and unequal masses. Requested bits: f64 40, DD 80, Float128 100,
-    Float256 128. Rejections/timeouts remain; production D0/E6 is unchanged.],
+  [Certified planar], [Private N5 rank7 Float128/256, requested53: all1320 complex
+    slots pass five independent boxes; normalized convergence is below $2^(-65)$.
+    Ten focused runs pass. Historical failures/timeouts remain; no automatic fallback.],
+  [Near-vacuum box], [18 prototype runs / 15 settings, then 96 private adapter
+    component matches. Targets: f64 40, DD 80, Float128 100, Float256 128.
+    An independent five-box contour probe passes at 256/128; production D0/E6 is unchanged.],
 ))
 #text(size: 8.5pt)[Artifact paths and full candidate scopes are retained in
-#raw("docs/data/results.json"). Planar rank7 Float256/Dual and public N6
+#raw("docs/data/results.json"). Planar rank7 Dual and public N6
 remain unqualified. Separate allocator, native and guard effects are not multiplied.]
 #pagebreak()
 = Independent pentagon adjudication
