@@ -1,8 +1,10 @@
 # Development environment
 
 Run commands from the `iregi-rust` checkout. The portable entrypoint is
-`nix-shell`, using the same pinned nixpkgs revision as the supplied
-gammaloop/FeynKit checkout (`02f5696b0e6097e589076d886b317b83ff0437d7`).
+`nix-shell`, using pinned nixpkgs revision
+`5adc50831c259f87faeb09ddf930d43597197473`. Its Rust/Cargo 1.99.0 meets the
+workspace minimum; the older supplied gammaloop/FeynKit nixpkgs pin provides
+Rust 1.98.1 and therefore cannot build this workspace unchanged.
 The shell supplies Rust, C/C++ and Fortran compilers, GMP/MPFR/MPC, Python,
 Typst, and reference-build utilities. Rust is production code; Fortran and
 Python are validation tools only.

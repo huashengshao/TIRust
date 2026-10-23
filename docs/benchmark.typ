@@ -57,8 +57,8 @@
   top: if y <= 1 { none } else { 0.4pt + luma(225) },
   left: if x >= 2 and y > 0 { 0.4pt + luma(225) } else { none },
 )
-#let status-cell(status) = table.cell(fill: if status == "source-audited" { pale } else { amber },
-  text(size: 8pt, weight: "semibold", if status == "source-audited" { "Source audited" } else { "Pending" }))
+#let status-cell(status) = table.cell(fill: if status == "source-audited" { pale } else if status == "verified" { rgb("#d9f0d3") } else { amber },
+  text(size: 8pt, weight: "semibold", if status == "source-audited" { "Source audited" } else if status == "verified" { "Verified" } else { "Pending" }))
 #let report-table(body) = {
   set text(font: "DejaVu Sans", size: 8pt)
   set par(justify: false)
@@ -129,9 +129,9 @@
 #pagebreak()
 = Validation coverage
 #figure(kind: table, caption: [*Evidence ledger.* “Source audited” records code
-  inspection only. Every other capability still requires executable evidence.],
+  inspection; “verified” identifies executed checks described in that row.],
   report-table(table(
-    columns: (1.1fr, 1.5fr, auto), inset: (x: 6pt, y: 8pt), stroke: table-stroke,
+    columns: (1.1fr, 1.5fr, auto), inset: (x: 6pt, y: 6pt), stroke: table-stroke,
     fill: (x, y) => if y == 0 { navy } else { none },
     table.header([Capability], [Required evidence], [Status]),
     ..for row in data.coverage { ([*#row.feature*], [#row.requirement \ #text(size: 7pt, fill: luma(90), row.evidence)], status-cell(row.status)) },

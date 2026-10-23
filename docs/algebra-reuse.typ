@@ -46,6 +46,17 @@ factorial-count argument alone establishes a numerical speedup. Retain
 explicit output/pairing limits and report their failures honestly.
 
 == References and provenance
+The untouched generalized IREGI entry point stops during factorial-table
+initialization: the configured powers/rank request factorial 16, while the
+helper rejects arguments above 12. A narrow repair in a generated reference
+copy replaces that table expression by its exact binomial recurrence. The
+untouched/repaired twins agree exactly on 24 ordinary cases; all 80 table
+entries match independent integer binomials; seven generalized fixtures check
+normalization, unit powers, mass derivatives and a tadpole dimension shift.
+The original #raw("STOP") returns exit code zero, so the harness also requires
+an explicit result record. Evidence lives in
+#raw("validation/reference/fixtures.json") and the report's JSON snapshot.
+
 OneLoopMaster documents corrected analytic-continuation defects in its
 upstream OneLOop reference, including complex-mass box cases. Preserve each
 disagreement as a visible case and adjudicate it with independent analytic,
@@ -62,3 +73,6 @@ reproducing a known incorrect branch.
 *Local audit targets:* #raw("references/gammaloop_feynkit/crates/feynkit-tensor/src/")
 (#raw("reduction.rs"), #raw("reduction/external.rs"), #raw("orbit_projector.rs"),
 #raw("weingarten.rs")); #raw("crates/feynkit-graph/src/integrals.rs").
+Native conventions: #raw("references/madgraph/vendor/IREGI/src/")
+(#raw("IREGI4ML5_interface.f90"), #raw("ti_reduce.f90"), #raw("si_reduce.f90"),
+#raw("mis_warp.f90"), #raw("funlib.f90")).

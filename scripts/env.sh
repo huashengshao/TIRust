@@ -43,6 +43,11 @@ export CARGO_BUILD_BUILD_DIR="${CARGO_BUILD_BUILD_DIR:-$IREGI_ROOT/target/cargo-
 # registry updates and downloaded dependencies inside this checkout.
 export CARGO_HOME="${CARGO_HOME:-$IREGI_ROOT/.local/cargo-home}"
 export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$IREGI_ROOT/.local/cache}"
+# Keep Symbolica's supported per-user license lock in the shared project cache.
+# This relocates the lock; it does not alter license checks or concurrency limits.
+export SYMBOLICA_LOCK_DIR="${SYMBOLICA_LOCK_DIR:-$IREGI_ROOT/.local/symbolica-locks}"
+mkdir -p -m 700 "$SYMBOLICA_LOCK_DIR"
+export RUST_TEST_THREADS="${RUST_TEST_THREADS:-1}"
 export CC="${CC:-$(command -v cc)}"
 export CXX="${CXX:-$(command -v c++)}"
 export FC="${FC:-$(command -v gfortran)}"

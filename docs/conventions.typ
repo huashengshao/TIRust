@@ -4,8 +4,10 @@ in this report is not a claim that every adapter has passed its numerical tests.
 
 == Kinematics and scale
 Use Minkowski signature $(+, -, -, -)$ with component order $(p^0, p^1, p^2,
-p^3)$. Propagators are associated with loop shifts and *squared* internal
-masses. Native tensor reduction accepts one shift per propagator and removes
+p^3)$. Propagators are $D_j=(q+p_j)^2-m_j^2+i 0$, raised to positive integer
+powers. Generalized integrals use $d=4+"idim"-2epsilon$ and the native raw
+measure; dimension shifts introduce powers of $pi$. Native tensor reduction
+accepts one shift per propagator and removes
 the first common shift internally, then translates tensor coefficients back.
 The MadLoop interface instead receives the nonzero shifts and inserts a zero
 first shift. A reference comparison must preserve the chosen numerator routing
@@ -53,22 +55,11 @@ Numerator preparation and tensor output must share this order. The original
 native and MadLoop tensor conventions differ in
 multinomial factors: the native path multiplies symmetric components by the
 factor returned by #raw("all_integers"), whereas
-#raw("ML5_CONVENTION=.TRUE.") uses the unmultiplied components. Test mixed
-monomials explicitly; diagonal-only tests cannot detect this mismatch.
+#raw("ML5_CONVENTION=.TRUE.") uses unweighted components. The independent
+oracle sets this flag *without* applying #raw("IMLOOP"), preserving the native
+four-pole normalization. Mixed-monomial tests detect multiplicity mismatches.
 
 Reduction modes are 0: IBP, 1: PaVe, 2: PaVe with IBP stability improvement.
 Direction mode 2 reverses the propagator order and shifts the loop origin.
 The source labels direction modes 4/5 as unimplemented quadruple precision;
 their numbers are not evidence of high-precision support.
-
-== Physical comparisons
-Remove R2 and UV counterterms from both physical pipelines while retaining
-bare poles and R1. Compare the same isolated graph with matched parameters,
-polarizations, helicity/color factors and overall normalization. Individual
-graphs depend on gauge and conventions; an agreement claim must document
-those choices rather than compare an unspecified process sum.
-
-#set text(size: 8pt)
-*Source locations:* #raw("references/madgraph/vendor/IREGI/src/IREGI4ML5_interface.f90"),
-#raw("ti_reduce.f90"), #raw("si_reduce.f90"), #raw("mis_warp.f90"),
-#raw("funlib.f90"); #raw("references/oneloopmaster/src/lib.rs") and its README.
