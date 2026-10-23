@@ -29,3 +29,15 @@ Update docs/benchmark.typ and docs/benchmark.pdf at each pushed milestone and
 give the user a GitHub link to that pushed PDF. Include the measured original
 IREGI-versus-COLLIER comparison on shared undotted topologies, separately from
 Rust-versus-IREGI results; retain failed, noisy and unmeasured cases explicitly.
+
+Use TIRust as the benchmark and Python-facing implementation name. Every
+displayed implementation/reference ratio is TIRust/reference (below one is
+faster). Preserve historical raw evidence; show reference-only comparisons as
+absolute timings and outcomes, never infer TIRust ratios across sessions.
+
+Python bindings follow the pinned Community extension guide in PLAN.md: actual
+upstream shared PyO3 types, direct Rust calls, one native host/kernel, rlib
+registration and optional standalone host. Keep the Rust core Python-free.
+Preserve precision and Dual shapes; provide typed stubs, fresh-wheel tests and
+executable marimo examples. Coordinate Cargo/feature changes and compilation
+with active numerical provenance guards and benchmark quiet windows.

@@ -1,11 +1,11 @@
 // Measured values live in data/results.json. null means no measurement.
 #let data = json("data/results.json")
-#set document(title: "iregi-rust benchmark", author: "Hua-Sheng Shao")
+#set document(title: "TIRust benchmark", author: "Hua-Sheng Shao")
 #set page(paper: "a4", margin: (x: 1.6cm, y: 1.8cm), numbering: "1 / 1",
   header: context {
     if counter(page).get().first() > 1 {
       set text(8pt, fill: luma(110))
-      [iregi-rust benchmark #h(1fr) #data.date]
+      [TIRust benchmark #h(1fr) #data.date]
     }
   },
 )
@@ -77,24 +77,15 @@
 #let collier-cell(r) = table.cell(
   fill: if not r.correctness_passed or r.gate in ("inconclusive-noise", "inconclusive-short-block") {
     amber
-  } else { ratio-fill(r.paired_ratio) }, {
+  } else { pale }, {
     set par(leading: 0.35em, justify: false)
-    if not r.correctness_passed or not is-num(r.paired_ratio) {
-      text(size: 10pt, weight: "bold")[Unqualified]
-    } else {
-      text(size: 13pt, weight: "bold")[×#fixed(r.paired_ratio, digits: 3)]
-      linebreak()
-      text(size: 8pt)[99% CI #fixed(r.paired_ratio_ci99.at(0), digits: 3)–#fixed(r.paired_ratio_ci99.at(1), digits: 3)]
-      linebreak()
-      let verdict = if r.gate == "inconclusive-noise" {
-        "Inconclusive: noise"
-      } else if r.gate == "inconclusive-short-block" {
-        "Inconclusive: short block"
-      } else if r.gate == "improvement" { "COLLIER faster" } else if r.gate == "regression" {
-        "IREGI faster"
-      } else if r.gate == "parity" { "Compatible with parity" } else { "Unqualified" }
-      text(size: 8pt, weight: "bold", verdict)
-    }
+    let verdict = if not r.correctness_passed { "Unqualified" }
+    else if r.gate == "inconclusive-noise" { "Inconclusive: noise" }
+    else if r.gate == "inconclusive-short-block" { "Inconclusive: short block" }
+    else if r.gate == "improvement" { "COLLIER faster" }
+    else if r.gate == "regression" { "IREGI faster" }
+    else if r.gate == "parity" { "Compatible with parity" } else { "Unqualified" }
+    text(size: 9pt, weight: "bold", verdict)
   },
 )
 #let reference-time-cell(value) = table.cell(fill: pale, {
@@ -131,18 +122,21 @@
 
 #align(center)[
   #v(0.4em)
-  #text(22pt, weight: "bold", fill: navy)[iregi-rust benchmark]
+  #text(22pt, weight: "bold", fill: navy)[TIRust benchmark]
   #v(-0.3em)
-  #text(12pt, fill: luma(80))[Batched one-loop reduction: Rust, IREGI, COLLIER and MadLoop]
+  #text(12pt, fill: luma(80))[Batched one-loop reduction: TIRust, IREGI, COLLIER and MadLoop]
   #v(0.2em)
   #text(9.5pt, fill: luma(110))[#data.date · #data.host]
 ]
 #v(0.6em)
 #block(fill: pale, inset: 10pt, radius: 4pt, width: 100%)[
   #set text(9.5pt)
-  *Reading guide.* Rust tables use _Rust time ÷ reference time_; the COLLIER
-  table uses _COLLIER ÷ IREGI_. Green means the numerator is faster, white parity
-  and red slower. Gray is unmeasured; amber marks pending or inconclusive evidence.
+  *Reading guide.* Every displayed timing ratio has TIRust in the numerator:
+  _TIRust / IREGI_, _TIRust / COLLIER_, or
+  _TIRust(candidate) / TIRust(baseline)_. Physical graphs use _TIRust / MadLoop_.
+  Green means TIRust is faster, white parity and red slower. The archival
+  reference-only table shows absolute times and outcomes. Gray is unmeasured;
+  amber marks pending or inconclusive evidence.
   Source inspection does not establish numerical agreement. #data.measurement_note
 ]
 #v(0.4em)
@@ -157,7 +151,7 @@
 ]
 = Historical kernel baseline: #raw("4c32ece")
 #figure(kind: table, caption: [*Massive bubble/triangle, binary64, hybrid mode.*
-  Rust and IREGI total medians in µs/point. Ratios are paired-block medians;
+  TIRust and IREGI total medians in µs/point. *TIRust / IREGI* ratios are paired-block medians;
   intervals are 99% bootstrap confidence intervals. Batch 1 is latency;
   batch 32 is amortized cost per point. Each backend uses its own paired reference.],
   report-table(table(
@@ -200,7 +194,7 @@ fails. The latest physical timing comparisons remain inconclusive.]
 
 #pagebreak()
 = Historical stage profiles: #raw("4c32ece")
-Rust medians from separate instrumented passes, in µs/point. All bars use
+TIRust medians from separate instrumented passes, in µs/point. All bars use
 0–40 µs/point; S denotes the Symbolica interpreter, N the generated native
 backend. Sessions are separate: compare each with its own reference on page 1,
 not with the other backend's absolute bar length. Raw ns/batch are divided
@@ -209,7 +203,7 @@ by $1000 times "batch width"$.
 #report-table(table(
   columns: (3.5cm, 10.5cm, 1.5cm), inset: (x: 3pt, y: 3pt), stroke: none,
   fill: (x, y) => if y == 0 { navy } else { none },
-  table.header([Case / batch / backend], [Rust stage time: 0 #h(1fr) 20 #h(1fr) 40 µs/point], [Total]),
+  table.header([Case / batch / backend], [TIRust stage time: 0 #h(1fr) 20 #h(1fr) 40 µs/point], [Total]),
   ..for r in bench.rows {
     let nr = native.rows.find(x => x.id == r.id and x.batch_width == r.batch_width)
     ([#r.label r#r.rank / #r.batch_width · S], stage-bar(r), [#fixed(r.profile_us_per_point.total, digits: 3)],
@@ -248,7 +242,7 @@ preparation is outside this tensor-array benchmark.
 
 Both backends of the isolated pushed revision #raw("4c32ece") ran on AMD EPYC 9754 CPU 0,
 with 5 warm-ups and 21 paired blocks targeting 30 ms, randomized order with
-seed 271828. Rust used release opt-level3, thin LTO and one codegen unit;
+seed 271828. TIRust used release opt-level3, thin LTO and one codegen unit;
 Fortran used #raw("-O3"). Structural plans and allocation capacity were reused;
 numerical results were recomputed, and original recurrence caches were freed
 per sample. Subprocess transport is excluded. All source/binary provenance
@@ -279,8 +273,8 @@ planar and finite-D0 certification APIs and later expression preparation.
 The performance requirement remains unmet.
 
 #figure(kind: table, caption: [*Binary64 hybrid interpreter, µs/point.*
-  Latency at batch 1 and amortized cost at batch 32. Each ratio uses its
-  same-run paired original-IREGI measurement.], report-table(table(
+  Latency at batch 1 and amortized cost at batch 32. Ratios are
+  *TIRust / IREGI*, using the same-run paired original-IREGI measurement.], report-table(table(
   columns: (1fr, auto, 2fr, 2fr),
   align: (x, y) => if x == 0 { left + horizon } else { center + horizon },
   inset: (x: 7pt, y: 10pt), stroke: table-stroke,
@@ -296,7 +290,7 @@ The performance requirement remains unmet.
 #report-table(table(
   columns: (3.5cm, 10.5cm, 1.5cm), inset: (x: 3pt, y: 3pt), stroke: none,
   fill: (x, y) => if y == 0 { navy } else { none },
-  table.header([Case / batch], [Rust stage time: 0 #h(1fr) 20 #h(1fr) 40 µs/point], [Total]),
+  table.header([Case / batch], [TIRust stage time: 0 #h(1fr) 20 #h(1fr) 40 µs/point], [Total]),
   ..for r in current.rows {
     ([#r.label r#r.rank / #r.batch_width], stage-bar(r, maximum: 40), [#fixed(r.profile_us_per_point.total, digits: 3)])
   },
@@ -316,7 +310,7 @@ single plan-preparation observations remain in the data, not in speed ratios.]
 CPU 254, five warm-ups and 41 randomized paired blocks targeting 100 ms use
 identical inputs, complete tensor arrays and all native Laurent slots.
 Structural allocations are reused; numerical results are recomputed and
-reference caches cleared per sample. Transport is excluded. Rust 1.99 uses
+reference caches cleared per sample. Transport is excluded. rustc 1.99 uses
 opt-level3, thin LTO and one codegen unit; GFortran 15.2 uses #raw("-O3").
 
 The complete optimized workspace build exits successfully. All 414 immutable
@@ -330,20 +324,23 @@ Raw samples and reproduction: #raw("validation/benchmark/baseline-6b24c03-licens
 
 #if collier != none [
   #pagebreak()
-  = Original IREGI versus COLLIER
+  = Archival reference timings: IREGI and COLLIER
   Identical massive Euclidean tensor integrals compare original IREGI Hybrid
   (mode 2) with COLLIER 1.2.10 COLI (mode 1). Each row requests the complete
   Cartesian tensor array and all four native Laurent slots. This is a
-  reference-library comparison, separate from the Rust performance gate.
+  reference-library comparison, separate from the TIRust performance gate.
+  No TIRust/COLLIER ratio is inferred from different sessions. A jointly
+  measured four-engine comparison is pending.
 
-  #figure(kind: table, caption: [*Binary64, µs/point.* Batch 1 is latency;
-    batch 32 is amortized cost per point. The ratio is *COLLIER ÷ IREGI*,
-    with a paired 99% confidence interval.], report-table(table(
+  #figure(kind: table, caption: [*Archival binary64 reference timings, µs/point.*
+    Batch 1 is latency; batch 32 is amortized cost per point.
+    Qualified comparison outcomes are retained without reference/reference
+    ratio displays.], report-table(table(
     columns: (1.15fr, 0.55fr, 1fr, 1fr, 1.65fr),
     align: (x, y) => if x == 0 { left + horizon } else { center + horizon },
     inset: (x: 7pt, y: 9pt), stroke: table-stroke,
     fill: (x, y) => if y == 0 { navy } else { none },
-    table.header([Topology / rank], [Batch], [IREGI\ Hybrid], [COLLIER\ COLI], [COLLIER / IREGI]),
+    table.header([Topology / rank], [Batch], [IREGI\ Hybrid], [COLLIER\ COLI], [Qualified outcome]),
     ..for r in collier.rows {
       ([*#r.label*\ rank #r.rank], [#r.batch_width],
         reference-time-cell(r.iregi_us_per_point),
@@ -353,8 +350,8 @@ Raw samples and reproduction: #raw("validation/benchmark/baseline-6b24c03-licens
 
   #text(size: 9pt)[The 99% interval width must be at most 2% of the paired
   median, and every block must reach 100 ms. Amber rows remain inconclusive.
-  Raw ns/batch values are divided by $1000 times "batch width"$ for this display;
-  ratios use paired observations before rounding.]
+  Raw ns/batch values are divided by $1000 times "batch width"$ for this display.
+  Original paired ratios and intervals remain archival metadata in the JSON.]
 
   *Numerical scope.* #collier.correctness_note
 
@@ -382,8 +379,8 @@ allocation, generalized PV and lazy Cayley solve. Later core-allocation and
 experimental changes are excluded. The performance requirement remains unmet.
 
 #figure(kind: table, caption: [*Binary64 hybrid interpreter, µs/point.*
-  Latency at batch 1 and amortized cost at batch 32. Each ratio uses its
-  same-run paired original-IREGI measurement.], report-table(table(
+  Latency at batch 1 and amortized cost at batch 32. Ratios are
+  *TIRust / IREGI*, using the same-run paired original-IREGI measurement.], report-table(table(
   columns: (1fr, auto, 2fr, 2fr),
   align: (x, y) => if x == 0 { left + horizon } else { center + horizon },
   inset: (x: 7pt, y: 10pt), stroke: table-stroke,
@@ -399,7 +396,7 @@ experimental changes are excluded. The performance requirement remains unmet.
 #report-table(table(
   columns: (3.5cm, 10.5cm, 1.5cm), inset: (x: 3pt, y: 3pt), stroke: none,
   fill: (x, y) => if y == 0 { navy } else { none },
-  table.header([Case / batch], [Rust stage time: 0 #h(1fr) 25 #h(1fr) 50 µs/point], [Total]),
+  table.header([Case / batch], [TIRust stage time: 0 #h(1fr) 25 #h(1fr) 50 µs/point], [Total]),
   ..for r in historical809.rows {
     ([#r.label r#r.rank / #r.batch_width], stage-bar(r, maximum: 50), [#fixed(r.profile_us_per_point.total, digits: 3)])
   },
@@ -419,7 +416,7 @@ single plan-preparation observations remain in the data, not in speed ratios.]
 CPU 0, five warm-ups and 21 randomized paired blocks targeting 30 ms use
 identical inputs, complete tensor arrays and all native Laurent slots.
 Structural allocations are reused; numerical results are recomputed and
-reference caches cleared per sample. Transport is excluded. Rust 1.99 uses
+reference caches cleared per sample. Transport is excluded. rustc 1.99 uses
 opt-level3, thin LTO and one codegen unit; GFortran 15.2 uses #raw("-O3").
 
 All 401 immutable build-source hashes, both binaries and the harness match
@@ -439,8 +436,8 @@ not improvement. This commit predates default stack reuse, generalized PV
 and the vector-solve candidate. The overall performance requirement is unmet.
 
 #figure(kind: table, caption: [*Binary64 hybrid interpreter, µs/point.*
-  Latency at batch 1 and amortized cost at batch 32. Each ratio uses its
-  same-run paired original-IREGI measurement.], report-table(table(
+  Latency at batch 1 and amortized cost at batch 32. Ratios are
+  *TIRust / IREGI*, using the same-run paired original-IREGI measurement.], report-table(table(
   columns: (1fr, auto, 2fr, 2fr),
   align: (x, y) => if x == 0 { left + horizon } else { center + horizon },
   inset: (x: 7pt, y: 10pt), stroke: table-stroke,
@@ -456,7 +453,7 @@ and the vector-solve candidate. The overall performance requirement is unmet.
 #report-table(table(
   columns: (3.5cm, 10.5cm, 1.5cm), inset: (x: 3pt, y: 3pt), stroke: none,
   fill: (x, y) => if y == 0 { navy } else { none },
-  table.header([Case / batch], [Rust stage time: 0 #h(1fr) 20 #h(1fr) 40 µs/point], [Total]),
+  table.header([Case / batch], [TIRust stage time: 0 #h(1fr) 20 #h(1fr) 40 µs/point], [Total]),
   ..for r in recent.rows {
     ([#r.label r#r.rank / #r.batch_width], stage-bar(r), [#fixed(r.profile_us_per_point.total, digits: 3)])
   },
@@ -476,7 +473,7 @@ the warm kernel ratios.]
 
 CPU 0, five warm-ups and 21 randomized paired blocks targeting 30 ms use identical
 inputs and all requested tensor slots. Structural allocations are reused;
-numerical results are recomputed. Transport is excluded. Rust 1.99 uses
+numerical results are recomputed. Transport is excluded. rustc 1.99 uses
 opt-level3, thin LTO and one codegen unit; GFortran 15.2 uses #raw("-O3").
 All 391 source hashes, both binaries and the harness remain
 unchanged under the retained provenance checks. Absolute timings from earlier
@@ -508,11 +505,11 @@ rows fail during preparation; no output or timing substitutes for them.
   }
 })
 #figure(kind: table, caption: [*Equivalent complete numerical pipelines,
-  ms/point.* Repeated captured point; amortized batch32 cost does not establish
+  ms/point, TIRust / MadLoop.* Repeated captured point; amortized batch32 cost does not establish
   throughput over varying phase-space samples.], report-table(table(
   columns: (1.2fr, auto, 2fr, 2fr), inset: (x: 7pt, y: 10pt), stroke: table-stroke,
   fill: (x, y) => if y == 0 { navy } else { none },
-  table.header([Graph], [Ranks\ Rust/ML], [Batch 1], [Batch 32]),
+  table.header([Graph], [Ranks\ TIRust/ML], [Batch 1], [Batch 32]),
   ..for r in physical.rows.filter(r => r.batch_width == 1) {
     let batch = physical.rows.find(x => x.case == r.case and x.batch_width == 32)
     ([*#r.label*], [#r.rust_rank / #r.madloop_rank], physical-cell(r), physical-cell(batch))
@@ -601,8 +598,10 @@ stricter Float guard; fixed-precision DD is unaffected. Current-guard tests
 are separate. Sources: #raw("validation/stack-reuse/production-factory/").
 
 == Generalized PV and unresolved precision
-Generalized PV for $N<=4$ passes nine focused tests and 36 original-IREGI
-comparisons across 312 complex slots; maximum normalized error is
+The retained original-IREGI dotted-integral comparisons cover positive
+propagator powers and dimension shifts; they are separate from COLLIER's
+ordinary undotted slice. Generalized PV for $N<=4$ passes nine focused tests
+and 36 original-IREGI comparisons across 312 complex slots; maximum normalized error is
 $7.04 times 10^(-12)$ at the unchanged $10^(-10)$ gate. The promoted PV and
 lazy-solve core also passes five supplemental behaviors: supplied products,
 multinomial weights, complex scalar/tensor comparisons and Hybrid isolation.
@@ -642,7 +641,7 @@ binary predates default stack reuse. See
   Four physical triangle and five massive/complex box cases pass
   six-component mixed derivative checks. Historical timeouts remain visible.
   The N5 rank-six public rescue verifies all 210 moments / 840 slots at
-  128/256 bits, including an independent coefficient. Binary64 Rust and
+  128/256 bits, including an independent coefficient. Binary64 TIRust and
   original IBP still exceed the fixed $10^(-10)$ criterion for that point.
   The frozen oracle passes 31 cases: 30 at binary64 and one generalized
   triangle through verified rescue. Broader domains remain pending.
@@ -662,7 +661,7 @@ an independent Feynman-parameter integral. Their UV residues agree.
   [Original PV / hybrid], table.cell(fill: rgb("#fddbc7"), [#str(issue.original_pv_finite_imaginary)]),
 ))
 #text(size: 8.5pt)[Evidence: #raw(issue.evidence).
-  The original PV branch is retained unchanged; the relevant Rust comparisons
+  The original PV branch is retained unchanged; the relevant TIRust comparisons
   use original IBP and the independent parameter-integral result.]
 
 #text(size: 8.5pt)[The dedicated original-IREGI/COLLIER table covers ordinary,
@@ -751,7 +750,7 @@ Earlier timeouts remain in #raw("validation/public-highpoint/"); no timing gate 
 #report-table(table(
   columns: (1.3fr, 1.3fr, 1.3fr), inset: (x: 7pt, y: 9pt), stroke: table-stroke,
   fill: (x, y) => if y == 0 { navy } else { none },
-  table.header([Single graph], [Pointwise numerator], [Integrated Rust result]),
+  table.header([Single graph], [Pointwise numerator], [Integrated TIRust result]),
   [Top triangle: $g g arrow H$], status-cell("verified"), status-cell("verified"),
   [Top box: $g g arrow H H$], status-cell("verified"), status-cell("verified"),
   [Top pentagon: $g g arrow H H H$], status-cell("verified"), table.cell(fill: pale)[*PV/hybrid + MadLoop*],
@@ -774,8 +773,8 @@ because MadLoop may correct the requested point.
 Fresh preserved-input Fortran replay matches all 301 numerator coefficients,
 903 tensor Laurent entries and 12 contracted slots across four graphs exactly;
 eight alignment boundary tests pass. Legacy-default ggH is unchanged. This is
-reference-only qualification; later Rust checks belong to the separate joint run.
-Equivalent full-graph timing retains Rust/MadLoop ranks 2/3 for ggH, 4/4 for
+reference-only qualification; later TIRust checks belong to the separate joint run.
+Equivalent full-graph timing retains TIRust/MadLoop ranks 2/3 for ggH, 4/4 for
 both boxes and 4/5 for ggHHH, and their declared routing. It does not qualify
 tensor-stage ratios. Sources: #raw("validation/benchmark/physical-alignment/").
 
@@ -829,7 +828,7 @@ Exact commands and scope are retained in
   columns: (1fr, 2.7fr), inset: (x: 6pt, y: 4pt), stroke: table-stroke,
   fill: (x, y) => if y == 0 { navy } else { amber },
   table.header([Unresolved item], [Observed evidence and remaining check]),
-  [Binary64 baseline], [Historical Rust/IBP errors $2.23 times 10^(-10)$ /
+  [Binary64 baseline], [Historical TIRust/IBP errors $2.23 times 10^(-10)$ /
     $3.40 times 10^(-10)$ fail. Rank-six rescue passes at the retained point.],
   [Pentagon coverage], [Rank-six rescue passes 840 slots; saved rank-seven
     baseline passes 1320. Later precision/routing edits and broader domains
@@ -908,7 +907,7 @@ tests met 600 s, without a performance claim. New isolated cohorts follow.]
   = Latest isolated optimization cohorts
   These private candidates were measured in one coordinated quiet window on
   CPU 254. Each has its own frozen sources, binaries and registered protocol;
-  results do not qualify a combined implementation or replace the Rust/IREGI
+  results do not qualify a combined implementation or replace the TIRust/IREGI
   performance gate. Candidate effects are never multiplied. Failed controls,
   inconclusive rows and earlier cohorts remain in the evidence.
 
@@ -921,8 +920,8 @@ tests met 600 s, without a performance claim. New isolated cohorts follow.]
     },
   ))
 
-  Ratios in these cohorts are candidate latency divided by that cohort's
-  baseline latency. Every measured family is retained in the linked JSON,
+  Ratios in these cohorts are *TIRust(candidate) / TIRust(baseline)*,
+  using each cohort's own implementation and baseline. Every measured family is retained in the linked JSON,
   with raw paired observations, 99% confidence intervals and unchanged
   qualification thresholds. Project compute was held, but unrelated host
   activity remained uncontrolled. Earlier measurements use different frozen
@@ -949,9 +948,6 @@ tests met 600 s, without a performance claim. New isolated cohorts follow.]
   coefficients in 57.823 s, within the 180 s bound, without arrays. Rank-seven,
   N7, convergence and performance qualification remain pending.
 
-  All source identities, complete per-family results and negative evidence are
-  retained in #raw("docs/data/results.json"). Current production remains
-  #raw("06706e2"); the measured optimized Rust gate remains #raw("6b24c03").
 ]
 #pagebreak()
 = Additional bounded correctness checks
@@ -1013,9 +1009,13 @@ certified-planar retries fail among six packed N5 children. The parent is never
 evaluated: no arrays or numerical comparisons exist. The bounded rejection
 is not N6 tensor success or a performance result.
 
+Planned Python work adds PyO3 bindings and reactive marimo notebooks following
+#raw("PLAN.md")'s pinned Community extension guide. No executed binding or
+notebook qualification is claimed here.
+
 Source bindings, raw outputs, failures and reproduction commands are retained
 in #raw("docs/data/results.json"). No elapsed correctness-run duration on this
-page is a benchmark. Production remains #raw("06706e2"); the optimized Rust
+page is a benchmark. Production remains #raw("06706e2"); the optimized TIRust
 performance gate remains the measured #raw("6b24c03") snapshot.
 
 #pagebreak()
@@ -1033,7 +1033,7 @@ $2.77 times 10^(-15)$. The bound $F>=3.75$, angular integration and power
 counting exclude poles. This uses no reduction/master library; numerical
 error estimates are not interval certificates. See
 #raw("validation/pv-high-rank/pentagon-simplex-oracle.json").
-Historical binary64 errors remain $2.23 times 10^(-10)$ for Rust and
+Historical binary64 errors remain $2.23 times 10^(-10)$ for TIRust and
 $3.40 times 10^(-10)$ for IREGI. Public rescue flags the primary unstable and
 verifies all 840 slots at 128/256 bits plus this coefficient below $10^(-13)$.
 #raw("validation/rescue-pentagon-rank6.json") retains the binary and assertions;
