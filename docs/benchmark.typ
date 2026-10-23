@@ -74,6 +74,8 @@
 #let physical = data.physical_80949_benchmark
 #let collier = data.at("qualified_collier_benchmark", default: none)
 #let latest-experiments = data.at("latest_isolated_timing_cohorts", default: none)
+#let lazy-cohort = data.at("lazy_receipt_capture_performance", default: none)
+#let typed-e6 = data.at("private_direct_e6_n2_typed", default: none)
 #let collier-cell(r) = table.cell(
   fill: if not r.correctness_passed or r.gate in ("inconclusive-noise", "inconclusive-short-block") {
     amber
@@ -92,6 +94,18 @@
   if is-num(value) { text(size: 12pt, weight: "bold")[#fixed(value, digits: 3)] }
   else { text(size: 9pt)[Unmeasured] }
 })
+#let lazy-ratio-cell(row) = table.cell(
+  fill: ratio-fill(row.candidate_over_baseline_latency_ratio), {
+    set par(leading: 0.3em, justify: false)
+    let verdict = if row.classification == "improvement" { "Gain" }
+      else if row.classification == "regression" { "Regression" } else { "Compatible with parity" }
+    text(size: 12pt, weight: "bold")[#fixed(row.candidate_over_baseline_latency_ratio, digits: 4)]
+    linebreak()
+    text(size: 7pt)[99% CI #fixed(row.latency_ratio_ci99.at(0), digits: 4)–#fixed(row.latency_ratio_ci99.at(1), digits: 4)]
+    linebreak()
+    text(size: 8pt, weight: "semibold", verdict)
+  },
+)
 #let benchmark-cell(r) = table.cell(fill: ratio-fill(r.paired_ratio), {
   set par(leading: 0.25em, justify: false)
   text(size: 9pt, weight: "bold")[#fixed(r.rust_us_per_point, digits: 3) µs]
@@ -836,8 +850,9 @@ Exact commands and scope are retained in
   [Physical pentagon], [Float 128/256 agrees with PV/hybrid and MadLoop;
     original IBP disagrees. Binary64 and all-mode acceptance remain incomplete.],
   [Shifted scalar], [Thirteen standalone checks and public f64 fixtures pass.
-    Small-routing E6 remains Unstable at requested 128; higher/mixed Dual and
-    broader domains remain unqualified.],
+    Production small-routing E6 remains Unstable at requested 128. New private
+    mixed-jet checks cover common masses/zero invariants only; broader domains
+    and production integration remain unqualified.],
   [Derivative domains], [Five-case mixed D0 checks pass $2^(-70)$.
     Thresholds and unsupported transverse massless/Gram/Cayley domains retain errors.],
   [Physical top box], [Historical binary64 guard rejection remains visible;
@@ -898,9 +913,6 @@ Exact commands and scope are retained in
     DD/80, Float128/100 and Float256/128. Ordinary evaluation and default E6
     remain unchanged; no automatic certified-master dispatch.],
 ))
-#text(size: 8.5pt)[Complete protocols and failures remain in the JSON. Public-API
-user/storage interruptions and compile-only extension are retained; numerical
-tests met 600 s, without a performance claim. New isolated cohorts follow.]
 
 #if latest-experiments != none [
   #pagebreak()
@@ -934,11 +946,12 @@ tests met 600 s, without a performance claim. New isolated cohorts follow.]
   checks pass under the structured-SSA assumption. With no instruction saving,
   the candidate stops before numerical or performance qualification.
 
-  The E6 design notes remain proposals. A separate private direct N2 prototype
+  The E6 design notes remain proposals. The initial private direct N2 prototype
   at Float256/request128 certifies 16 components across four successful lanes
   with one-axis common-mass jets; five expected rejections hide values.
-  Independent audit: 513 checks and 140 hashes pass. No public/default E6,
-  general-geometry, mixed-axis or performance qualification follows.
+  Independent audit: 513 checks and 140 hashes pass. Its later typed followup
+  appears separately below. Neither snapshot qualifies public/default E6,
+  general geometry or performance.
 
   A separate private rank-lowering N6 rank-one candidate passes all 20 complex
   Laurent slots against original IBP at Float128/request53, maximum normalized
@@ -948,6 +961,57 @@ tests met 600 s, without a performance claim. New isolated cohorts follow.]
   coefficients in 57.823 s, within the 180 s bound, without arrays. Rank-seven,
   N7, convergence and performance qualification remain pending.
 
+]
+#if lazy-cohort != none [
+  #pagebreak()
+  = Lazy proof capture: complete paired comparison
+  *TIRust(lazy) / TIRust(eager)* measures the entire reduction call, including
+  result construction and disposal. Variants share the eager-final baseline,
+  current master adapter and unchanged optimized numerical dependencies; only
+  receipt-capture allocation changes. Symbolica masters remain selected; N5
+  retry is inactive.
+
+  #figure(kind: table, caption: [*All fourteen workloads are retained.*
+    Ratios below one favor lazy capture. Each cell shows the paired latency
+    ratio, its 99% bootstrap interval and the unchanged per-family verdict.],
+    report-table(table(
+      columns: (1.2fr, 1.5fr, 1.5fr), inset: (x: 8pt, y: 12pt),
+      stroke: table-stroke, fill: (x, y) => if y == 0 { navy } else { none },
+      align: (x, y) => if x == 0 { left + horizon } else { center + horizon },
+      table.header([Workload], [Batch 1], [Batch 32]),
+      ..for singleton in lazy-cohort.snapshot.performance.results.filter(row => row.rows == 1) {
+        let batch = lazy-cohort.snapshot.performance.results.find(row => row.workload == singleton.workload and row.rows == 32)
+        let labels = (
+          "bubble-mixed-dual": "Bubble · mixed Dual",
+          "bubble-ordinary": "Bubble · ordinary",
+          "bubble-zero-complex": "Bubble · complex / exact zeros",
+          "bubble-zero-real": "Bubble · real / exact zeros",
+          "ggh-mixed-complex": "ggH · mixed complex",
+          "ggh-zero-real": "ggH · real / exact zeros",
+          "triangle-ordinary": "Triangle · ordinary",
+        )
+        ([*#labels.at(singleton.workload)*], lazy-ratio-cell(singleton), lazy-ratio-cell(batch))
+      },
+    )),
+  )
+
+  *Five gains, six parity results and three qualified regressions; no noisy
+  intervals. No adoption.* Regressions occur for the real exact-zero bubble
+  at batch 32, real exact-zero ggH at batch 32, and ordinary triangle singleton.
+  Every 99% interval meets the fixed 2% width gate. The all-family no-regression
+  criterion fails; all families remain retained.
+
+  Fourteen optimized preflight pairs preserve 10,560 unique complex output slots
+  and exact status/metadata/context/counters. The earlier 26 debug tests remain
+  separate. CPU 254; five warm calls; 41 paired blocks with 21/20 alternating
+  order; retained calibration ≥200 ms on the faster side; 20,000 paired bootstrap
+  resamples; all 1,148 observations retained. Lane/output checks precede and
+  follow timing; iterations unwrap the top-level result. The host is shared.
+
+  Scope: N2/N3 f64 and flattened mixed Dual only; no new TIRust/IREGI or
+  TIRust/COLLIER gate. Earlier eager/core and slim-RealBall cohorts remain
+  separate; their ratios cannot be multiplied. Source:
+  #raw("validation/lazy-receipt-performance/").
 ]
 #pagebreak()
 = Additional bounded correctness checks
@@ -969,8 +1033,8 @@ performance for a different candidate.
   [Lazy proof capture], [26 tests pass: 12 receipt, 8 lifecycle and 6 accounting
     checks. Fourteen paired workloads match exact values, status, metadata and
     counters through seven calls per implementation. Capture is created only
-    when evidence is needed and discarded after each call. Private debug
-    dependency snapshot; no optimized timing or adoption.],
+    when evidence is needed and discarded after each call. This private debug
+    qualification is separate from the later optimized timing table; no adoption.],
   [COLLIER N4 extension], table.cell(fill: amber)[Eight fixed massive cases cover
     ranks0–3 at batches1/32. Both scalar rows are accepted, maximum normalized
     error $2.76 times 10^(-14)$. All six higher-rank COLI rows retain
@@ -992,10 +1056,10 @@ the common output saved. Initial build and fixture failures remain in the
 package. Native D0, high-point tensors and a production backend switch are outside
 this qualification.
 
-The lazy-capture allocation now occurs inside the existing argument-stage
-timer. The earlier eager allocation was outside that stage; a future decision
-must use total latency. The earlier final receipt cohort and its two qualified
-regressions remain unchanged.
+The lazy-capture allocation occurs inside the existing argument-stage timer.
+The earlier eager allocation was outside that stage; the later paired comparison
+therefore uses total latency. The earlier final receipt cohort and its two
+qualified regressions remain unchanged.
 
 N4 checks use 238 Symbolica-prepared polynomial arrays for metric traces,
 pinch translation, denominator-difference signs, UV finiteness and odd-time
@@ -1017,6 +1081,62 @@ Source bindings, raw outputs, failures and reproduction commands are retained
 in #raw("docs/data/results.json"). No elapsed correctness-run duration on this
 page is a benchmark. Production remains #raw("06706e2"); the optimized TIRust
 performance gate remains the measured #raw("6b24c03") snapshot.
+
+#if typed-e6 != none [
+  #pagebreak()
+  = Precision and high-point research
+  == Typed direct E6: bounded common-mass fixtures
+  The unchanged private N2 direct genuine D6-pentagon engine is checked on
+  common complex masses and zero invariants, with four- and six-component
+  mixed Taylor shapes. Across ten groups, 65 lanes succeed and 65 intentionally
+  reject; all 320 successful components satisfy the requested enclosure budget.
+  Rejected lanes hide values. This extends the earlier one-axis prototype;
+  it does not integrate the engine into the public reduction path.
+
+  #report-table(table(
+    columns: (1fr, 1.1fr, 1.3fr, 1fr), inset: (x: 8pt, y: 10pt),
+    stroke: table-stroke, fill: (x, y) => if y == 0 { navy } else { pale },
+    table.header([Base type], [Working / requested bits], [Accepted / rejected lanes], [Accepted components]),
+    [f64], [53 / 40], [13 / 13], [64],
+    [DoubleFloat], [106 / 80], [13 / 13], [64],
+    [Float], [128 / 80], [13 / 13], [64],
+    [Float], [256 / 128], [13 / 13], [64],
+    [Float], [384 / 128], [13 / 13], [64],
+  ))
+
+  Independent exact audit: 24,889 checks and 166 hashes, zero failures; the root
+  independently reran that audit. Inputs distinguish $2^(-80)$ where the type
+  permits it, retain mixed input precisions and verify scale-jet independence.
+  Static Mixed4/Mixed6 and dynamic HyperDual metadata transport use Symbolica's
+  Dualizer with NativeFloat workspaces; this is *not*
+  #raw("Workspace<StaticDual<T>>") qualification. Empty, odd, reordered,
+  chunked, fresh, invalid-neighbor and independent concurrent workspaces pass
+  compiled assertions; complete repeated arrays are not serialized.
+
+  Float256→384 arithmetic widths shrink for 102 positive coordinates and remain
+  zero for 26. This comparison removes twice the retained truncation radius;
+  it does not establish convergence of the fixed N2 mixed-cubic truncation.
+  Instruction-lane visits are structural estimates. Unequal masses, nonzero
+  invariants in this typed extension, generalized powers/dimensions, N4,
+  contour/geometry certification and performance remain outside its scope.
+  Production E6 failures remain unchanged. Source:
+  #raw("validation/e6-direct-n2-typed/").
+
+  == Exact child localization and mixed-jet counterexample
+  Two retained regular planar charts locate an ordinary child with Gram
+  rank 2/determinant 0 and Cayley rank 4/determinant −4. Its multiplier vanishes
+  at this exact ordinary input; generic symbolic aliasing still requests the
+  singular PV child. This is preparation/identity evidence only: it does not
+  identify the first nonfinite runtime instruction or evaluate a scalar master.
+
+  A separate exact mixed-jet counterexample has zero primal and first
+  components but nonzero mixed cofactors −1/−1 and weights −2/−1 in the two
+  charts. *Primal zero is insufficient for pruning.* Any future mask must
+  certify the complete requested cofactor jet while retaining planar and chart
+  regularity checks. No pruning implementation, successful N6 array, production
+  change or performance result is claimed by these sources:
+  #raw("validation/highpoint-child-localization/").
+]
 
 #pagebreak()
 = Independent pentagon adjudication
