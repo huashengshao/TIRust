@@ -1,0 +1,983 @@
+{
+  "schema_version": 1,
+  "capture_started_utc": "2026-10-23T14:41:42.174774+00:00",
+  "capture_completed_utc": "2026-10-23T14:41:42.217399+00:00",
+  "normalization": "native_iregi",
+  "basis": "unweighted_cartesian_monomials",
+  "dimension_shift_convention": "full even idim; D=4+idim-2epsilon",
+  "pole_slots": [
+    "uv1",
+    "ir1",
+    "ir2",
+    "finite"
+  ],
+  "scope": "Six requested complex generalized tensor requests are retained as unsupported transport failures. Two direct complex generalized scalar counterparts provide independent rank-zero values only.",
+  "source_limitation": "No complex generalized tensor wrapper exists in the supplied IREGI source. The public ordinary complex tensor interface accepts unit powers and zero shift; the lower-level complex scalar recursion accepts generalized powers and dimensions.",
+  "provenance": {
+    "inherited_capture": "target/generalized-pv/reference-capture.json",
+    "inherited_capture_sha256": "7529013ffd218551af10c05787c91b3c93fa9752ebef61c4a671094be9ff80cc",
+    "reference_build": {
+      "executable": "target/reference/iregi-reference",
+      "executable_sha256": "a21bca142169df21385b7ec3a38ed46ac6b7c5b5e0ea5f11e54e90fd7b68f720",
+      "captured_build_provenance": {
+        "madgraph_commit": "6c1b4684b46ad26c4f0ebc57eb9963649f350142",
+        "compiler": "GNU Fortran (GCC) 15.2.0",
+        "flags": [
+          "-O3",
+          "-fPIC",
+          "-std=legacy",
+          "-fallow-argument-mismatch",
+          "-J",
+          "/shared/external/iregi/iregi-rust/target/reference/objects",
+          "-I",
+          "/shared/external/iregi/iregi-rust/target/reference/objects",
+          "-I",
+          "/shared/external/iregi/iregi-rust/target/reference/source"
+        ],
+        "source_sha256": {
+          "global.f90": "eb824e14ce88e7a0e1749b32c7115b6a8b8b48c405dfec5427548e84c3dfd730",
+          "special_fun.f90": "42566ddbe172a6450b79b8d01d8a4492b3374c5ab7ad30b54aa3dce9bd4ba3ad",
+          "csi_reduce.f90": "46703a0d18ddd4291f0ae38b9c78224b11177b55ac4b6cfa5d02dc923e880fee",
+          "si_reduce.f90": "c9cc407de5db60d043acb81b40de8a16f2c19bd3de1bb92c9643c60667d5bfe6",
+          "IREGI4ML5_interface.f90": "7dea440003e38c7c68688894f0e87758c5ae2f2322a5770b30701aa3929ad3b1",
+          "kinematics.f90": "d86a520646158d48499298f3444d6628bc956881bf498ff6acfd205c1dc92117",
+          "funlib.f90": "1eebe2910debc482fa3976c0bc9a73553bf7cefe03dbf6b52786f0ce7979bf95",
+          "banner.inc": "e25eb460b096bb87811c5c51825b5412d25ca85458e54fc3f3df09c2acf94308",
+          "cpave_reduce.f90": "ed67f9c00433363254aa27a7f9636b5cbf514929c5b0b9a41bc9d26304af1575",
+          "binary_tree.f90": "c47405dc762e00045ca0a9ada8325c7c31bfa488e8b4fae7a30fb852677cbdbb",
+          "mis_warp.f90": "a91edb13d4934cce9ee2d86af473eb82f0e383e5d0636bce7560d60fdd0a8649",
+          "matrices.f90": "c63bd717ebea1af2be8d024a0f6dbea50d179bba2fbf00abfd9c21a5df84c575",
+          "pave_reduce.f90": "8dbabaad834152fc2eb090dbbda9fc0f736d0510ad417eb7f88d1a426ec25e89",
+          "matrix_base.f90": "5c49d7215d4434d5d74b6128942ef9a1da6ad038294c16c2f91275cab892fb12",
+          "linear_algebra.f90": "bf6c1b6a495594572fb889d02350c17a420785b154d70d683e55f6628a002723",
+          "cti_reduce.f90": "cc7ef03c9da81a038d299ebac3730409fc53792cf912db16df320f75b5cc2156",
+          "ti_reduce.f90": "17d9a0f5e14b84f46667f532a1463a5734cd46c885467cfb6230e862d2ceb49a",
+          "gti_reduce.f90": "f454ed573338c869ca8c9054ca30d3c45d3fa829c397b7f8b242a9e6ea6755a6",
+          "cmatrix_base.f90": "283c5a574b7010729504df943f7e57d4bdaa7d5ef8510e6e842aaa8d4ad0b5f7",
+          "oneloop/avh_olo_foriregi.f90": "a8479811673441cce6d1b147f2c08af08453bc7e9876c3702b3fbec9676a51cd",
+          "qcdloop/test.f": "83742aabbc3ef2b4362c2a28eb07b6f85c6a894aeeadf6ff6c4dc433bea4e674",
+          "qcdloop/ff/ffcrr.f": "f1942622eec3505988cfbfe32c6b0cd9eef45f64ba6b5956ea09357f2890dd4e",
+          "qcdloop/ff/aaxcx.f": "f8b0fbe67c0f41afae969ad095dfa32767bd0f9b70e3ade1a5c5b5b0c0ca20aa",
+          "qcdloop/ff/aa.h": "14e1924840dd12c46533fd0184d87d945832e0ba9a00f351476f820dd2b22fb1",
+          "qcdloop/ff/ffcli2.f": "cda10211025a5a10660482741bc076ea3541d90d4d6ad6eba2adce639cb72131",
+          "qcdloop/ff/ffcd0.f": "756d10f4af38987a8e8229e8b527ec670e6afe39a1e79ee5376c343cf9a58940",
+          "qcdloop/ff/ffxe0.f": "035036bcd94cde9ab9709687a01e58813be4f48f53c5910204bb671785b2d996",
+          "qcdloop/ff/ffxc0i.f": "1a6cb3ebc5027bd2591be5b1d3d357f5b56704def30887807278ff3d67b1fc93",
+          "qcdloop/ff/ffxd0.f": "3814366ebcbeb969325aa74dcd38cd822f3eb8802b34a4486647de99d5eccfb2",
+          "qcdloop/ff/ffcxyz.f": "86e4f346636cd645010f0bfdb4a769b984cabcbc94649879c2d05dfc8700bb36",
+          "qcdloop/ff/ffs.h": "2b1dbfef8e362468e6e2aebc2d3200a419b21e59a1a798a7194d5ce1efb1c409",
+          "qcdloop/ff/ffdl2i.f": "db324e1ab45433fa97a7aaeddc2dcddf022ae737e611b5119c167b6c452f32da",
+          "qcdloop/ff/ffxd0i.f": "bdf5fd12352009b018764ab33e37cd939b0a4160bae2c44c4dec69726166e22a",
+          "qcdloop/ff/aaxbx.f": "ca319716bef6e5a103bc62030a43def89c875962d59f94c08b0b7b27b0712c32",
+          "qcdloop/ff/ffdel6.f": "3ef7e4681446d1b65cc4e446b3bad5b8083df8f89065e7df32c6a65aff63c6f2",
+          "qcdloop/ff/ffxd0h.f": "bb1327aac229b1dc9457474fb1c2927c4f9030e9b7398a86b8effd3f055f1d30",
+          "qcdloop/ff/ffxf0.f": "bca637613227bb69796ebda728f0bb94be4d8ecd79f93c3ee550a947ee3ed957",
+          "qcdloop/ff/ffinit_mine.f": "2e8cf2d2c72579e40c56b15382be5d32de58935f5925781b2c8659a3196a9221",
+          "qcdloop/ff/ffceta.f": "14e276e2fd4073a4df43c71575303c5d1a9841af7922a9e0eae7ad3d0047d67a",
+          "qcdloop/ff/ffxd1.f": "52c0b17de97dce5f4d15b075780309f9fae6cdaa63ffbadec6b68aeb34e5226f",
+          "qcdloop/ff/ffcb2p.f": "84be40ce5c1c8efd70c698ae6cd9f6c3c9cfe8dc873ff528e3dd38087025279c",
+          "qcdloop/ff/ffxe1.f": "2ab21de519c513a24650826b218822198c9cafcff72578feadaeedf4bc07b125",
+          "qcdloop/ff/ffxdb0.f": "0d31e6a833b36075cde925f188c736902f17f62f8a88e9597aa7cbcf24972f69",
+          "qcdloop/ff/aacinv.f": "7ad6b236d5ca85000db6821a3b45d898bfc41c3989ccf872b95336ec3ecc7b28",
+          "qcdloop/ff/ffabcd.f": "8fcefb4e41d3dc6edc4d38ff43efac298ad23576db8ad271acad3c24d1111ebd",
+          "qcdloop/ff/ffcb2.f": "347930dc9f2a34f28df17c2fb95df2bc60f6dc5added6f90567cae56d8688952",
+          "qcdloop/ff/ffcb0.f": "3e9d5c5f2c3c6dca4563f57b86c215c9fb81db805a354ae551aaad7524cad1a5",
+          "qcdloop/ff/ffxc0.f": "2e67cd06fecb40ee1398017a4cef1c82aa1f8ecdcd1530fed4686e0044af2596",
+          "qcdloop/ff/ffdcc0.f": "59befaa12cd737a0f39cd47961d1c6a84605077091c2aed79345383e331c235b",
+          "qcdloop/ff/ffcc0p.f": "16c75f991a7bfd03a6af860c5af333a9d50b0e33a0fee9924afe4a09cae1748d",
+          "qcdloop/ff/aaxex.f": "0672dadca3899ed52566a539588c05533c02f448b697c691aaa1ddd120a60e75",
+          "qcdloop/ff/aaxdx.f": "019b5a5a28ff185b04cc02485b05e0865a887877ef27a67cf77293f08daf267a",
+          "qcdloop/ff/ffcel3.f": "3d9271063508605baafe2f93c6509ada0c6e4aaa0e2435a556d0efb49a963b1f",
+          "qcdloop/ff/ffdxc0.f": "55a25c748a0ce4865602b4f3716f9b15a90dc957434e47d424fd60e60d43a280",
+          "qcdloop/ff/ffcc0.f": "a87906d237b6b360e5a727608554dc05ae87c30d6a8e722f50d069f39a44c979",
+          "qcdloop/ff/ffcxs4.f": "7687a067d733178bcd9befa36f66b11e40e5680a5e1ed97884f9b6e2f11d932c",
+          "qcdloop/ff/ffdel4.f": "3b172a5a138adcf597f4cb3cf445ae50c16b241dc14fcd1c6d670080d4d68b65",
+          "qcdloop/ff/ffxb0.f": "b7a9b8dc3b1f5b557013038c2ff2c7ba03bd73129a480f7fff9fe0d4290b202c",
+          "qcdloop/ff/ffxb1.f": "3ff8090a85a67986bd392bb47753fb53253d39162a8e2b31cd4031cebad90987",
+          "qcdloop/ff/ffdel5.f": "8a4f4dea6f5141b34a8c217c955e3705c92cc3236f49257de2d7317ba00d7b0a",
+          "qcdloop/ff/ffcc1.f": "b91fecc12fdbdfc382cdbf1f9cc6ffe491a61a006686a668bc8fd8532c9c5f28",
+          "qcdloop/ff/ffca0.f": "84a819b75b371a8d6a1ee53fe493d809e8c8be3b0beec40c7ef6be975b17944c",
+          "qcdloop/ff/ffcel2.f": "7abc264f693cb484eadf9f8793ff844e6b21d02d3053c6b3755a6fe69b89bd81",
+          "qcdloop/ff/ffxdbd.f": "cc8613f21a517f159808900e18a8e75e055f5cb20066fbb289a5f8fba052d1e6",
+          "qcdloop/ff/npoin.f": "0aec7bd58c607437f3f63c2ddc90dbabdf9f56ab4da99b321f239c346fbce9ec",
+          "qcdloop/ff/ffxc1.f": "5264a2c3fd4eda4929d80d4223d68fc53eaab95688b4312c8c5eb5d87604bc1b",
+          "qcdloop/ff/ffcb1.f": "3b6527f765f5c268b096ba3cb3d83d865deca99e42112ce5fd2ef68ff9aafee9",
+          "qcdloop/ff/fftest.f": "43c4cf19c0dec09afc520aef4b4172c0a6d07618a8b684bff48c71340fc6fbb7",
+          "qcdloop/ff/ffxf0h.f": "89137241b17c9602966af900fc2f84fb3893057c8a02922dc86782aa95c025da",
+          "qcdloop/ff/ffxc0p.f": "5cfa74bb1705b97b7690bf0aea2dbe6239172c1edac486a3aa30a7e1cf4b78a6",
+          "qcdloop/ff/fftran.f": "5693144c3c96a3e91350313c44a2aac5d654474c3c8fc5140edd0a7f9c52f759",
+          "qcdloop/ff/ffxd0p.f": "7950472f4b7a50e2f2e74af45bfa7f2bd2c4e79b24e4f591f3eefa3c469edf1c",
+          "qcdloop/ff/ffinit.f": "2b60e25cf03903951e439aa20a704da318582be648c03c2abcff6a38ca2ab16c",
+          "qcdloop/ff/ffcdbd.f": "4a9d59d1dc377c0fc06f65e54d366051f070e2f76bb6c6de8a9f7f71609e73ae",
+          "qcdloop/ff/ffxdpv.f": "028bc62625b5d4aca51474816dd220991c994f2030d1a633645e6cce6a59c2d8",
+          "qcdloop/ff/ffdl5p.f": "0047efd1f955be4daa4d059aa8dc00476afc1f6a0b77b2f8dfab4191f6913c31",
+          "qcdloop/ff/spence.f": "6c44d1f44ebda28672aabf9ce46c43d46e3373b880f91eb2558ac0ea57dce965",
+          "qcdloop/ff/ffini.f": "d0bf04ead3bbcdfc62eb258faf51a1383647cba08cb35d473fc0f2c85dc7d548",
+          "qcdloop/ff/ffxxyz.f": "79a04a5beb82be99f57d651b21c9e598513caef3956133e2f8fc5fda50d53fd3",
+          "qcdloop/ff/ffxli2.f": "9bfd736913900fa2736e6b663ace2b7de1d245419733f64507a98f00d9e3bcae",
+          "qcdloop/ff/ffcxr.f": "59c8d405ae7c299c9ec525564ef7cd821455989ec382407bbe76ab65d1fd5725",
+          "qcdloop/ff/ffcel5.f": "b95133c5879782373d6de974b22808a623a8cf7c8a53b40bcff4e0a6b3e2f7f7",
+          "qcdloop/ff/ff2dl2.f": "f4dcdbb4bae3194f4510d2a08fe21be649edf09d0773df40a3bd15d47eb0af05",
+          "qcdloop/ff/ffdel2.f": "4dbf306a464a713959944b225d70d05301d20fbf8efecbc28d8a5a8c1a72ad26",
+          "qcdloop/ff/ffxdi.f": "4795c9e005512ebef0e938d08242ee1137abc6f2df6d149b06941e3d62bccf59",
+          "qcdloop/ff/ffcxs3.f": "eff4f6c113fdb149fb72cf8fa39780e742711913ea508dee09b7e36bd57bd982",
+          "qcdloop/ff/ffdel3.f": "13da9c4af5bfd945a70141f45f07a2af906f09397b2b3b539a533fee536d3b87",
+          "qcdloop/ff/aaccc.f": "5501ec33f0866ef2c65f0352ce9ed56f90246bd41f88f6aad7788d91c73bd7ac",
+          "qcdloop/ff/ffcel4.f": "1b5ce730d176f2b8785e267cbf01b1774d49378d920a6bd8939f4c241df0b367",
+          "qcdloop/ff/ff.h": "37de572b28b7f5b5a4af86ec99f555c1ededc312d80494dacd70dcb49c76dcd7",
+          "qcdloop/ff/npointes.f": "8a02e5220735599998cabe7898334994025efa01a44ac3dc64b2369e0e0e676e",
+          "qcdloop/ff/ffrcvr.f": "03473e216066c7bb6626e3cff9bf5120b1f3096ce6777226f51d22b17f97b5f7",
+          "qcdloop/ff/ffcdb0.f": "589965ad393051f237ad5361b3fd5cd5213b74c7e5f63db5a1b2c358355fe00f",
+          "qcdloop/ff/aaxinv.f": "598bcd22ec1f17c2fdb1406dff545ba3c29558b086832e62275bc7d2014d2f32",
+          "qcdloop/ff/ffdcxs.f": "e50a9cec3b71616a66c2c8a53131cb70ab6109bb71f4e7f31cc0a5d7da41f2d7",
+          "qcdloop/ff/ffxb2p.f": "50bb8a0c5b9729d664ea69df93815e1af5845e1686ff47471190c1b25462a40e",
+          "qcdloop/ff/aacbc.f": "2b6e36e744d54212cc579cfa5840466a13c7e227ed54166a40d73bbee36023bd",
+          "qcdloop/ql/qlfndd.f": "2b6666965425168f7845e0c713e02488e4bcc109ce99a7897fa41dee04c21d45",
+          "qcdloop/ql/qlbox13.f": "5d75306052b444e64c3e91308769f85b05ff01ea48e42a0a8500f86516cec13d",
+          "qcdloop/ql/qlbox5.f": "1e8e5933b16333117a75ab5ee75bb06da109664448fe979d4a69f42a5f3fdf57",
+          "qcdloop/ql/qlspencer.f": "026354f7b75eef62600b564d656353239c6b36fef758c8e46202f98868a17b60",
+          "qcdloop/ql/qlI3sub.f": "31fa6f1173953f062c38e418d77f30ff5f29a8cfa5fcc6f7ac92a6d89b7b01b6",
+          "qcdloop/ql/ddilog.f": "c8f1691debb485b9071dad69dff0128b6014f15a58159f161d00d510cf49ed63",
+          "qcdloop/ql/qlLi2omx.f": "2d5bad2700434c75c67bbb9d3a754a25df10642abf98e7855f297185de9ab46e",
+          "qcdloop/ql/qltri3.f": "3f8f5ae6fd3ac5c9261c0e189a460d2cae545f30f408f8ceccc4aed6d47ad301",
+          "qcdloop/ql/qlI4DNS41.f": "cdadb56ee9aa15738eaf6ac185f428e986fc947cb268c7ccd999e9c8e19fa20f",
+          "qcdloop/ql/qlI4.f": "b4d3dc8cb18e704d96f09978dec2e303b00cebc5277bba2c3ec4aec39911b101",
+          "qcdloop/ql/qltri2.f": "44d3a8f65dfebcde57b535d5381c0d272edc13386b7e55af0f666b10562cd08e",
+          "qcdloop/ql/qlLi2omx2.f": "4f27012fa22595d9300322bd42c97c30ae718fb33c21ecdc5c8c637800a3c931",
+          "qcdloop/ql/qlbox4.f": "ecff3160065c92185ca87afbcc2034df645354d756305de2a579519da62a180b",
+          "qcdloop/ql/qlI2fin.f": "5a8ff3988a031b7101f7eaf5fb1d97cad4fab7457a8d32868ffc5e8da8bb79ef",
+          "qcdloop/ql/qlbox12.f": "a8554797b44b764b1b13b9a422fffbf383b25439197c10953327feef5d2e0ad8",
+          "qcdloop/ql/qlbox10.f": "394d02106dbd444c9e4133ebcb3aa21d02e479fe8106f12bc54564fb9fc4e6d8",
+          "qcdloop/ql/qlbox6.f": "b6d08c0dc13cf04eefbaf237341049387c48c3d879f2302279f39fc61f343f98",
+          "qcdloop/ql/qlfunctions.f": "b8e1f11cee75ebfae2c5416168cd70faf684084ae34cfce19708dabd2fe369d3",
+          "qcdloop/ql/qlI4sub2mo.f": "55d8feee75b561f2eff3ebfeb65b1914fd8dcbf53b52120b7c8ad73bba655641",
+          "qcdloop/ql/qlI3fin.f": "01ad2afe338e20249898ec5cb0b56bf87057bb6cee9b67415fb2d42f1d1a66bc",
+          "qcdloop/ql/qlonshellcutoff.f": "a6b65dc7f21f258b64b20f668a95f9e91a8c0a6f3bdd13010f49f0e6aa7cef21",
+          "qcdloop/ql/qltri1.f": "1b18e05c9c6c6caece9c6b3b2c81bb355f810929ca6eee45d204f2c3ffa424c1",
+          "qcdloop/ql/qlsnglsort.f": "270cd4470d82d47d2565af9ab11b4912b0930f231f436d08bc707e68c727e925",
+          "qcdloop/ql/qlbox7.f": "849ef46d56d1a628754a755bfb4ee34d31e685ac3911d28d36a6775cfb6accf8",
+          "qcdloop/ql/qlbox11.f": "e21d52bdf0725d59457fe7c53128b27492b7a9d3d07d5a7062460d6b53390dbc",
+          "qcdloop/ql/qlkfn.f": "347da434c839b68fe6489b964f3332eba232be3dbec1ad0a2a39be34435b9088",
+          "qcdloop/ql/qlbox15.f": "d0afce99ba6183a80c59472442cd8242ae9a690c75b351375eb8c8e13066bc12",
+          "qcdloop/ql/qlbox3.f": "de33f076d32e88e15486a063920bb82941f6358377cf60b44ec53658f00b0c7a",
+          "qcdloop/ql/qlYcalc.f": "12cad400daf3627799d79207ff6af4a13f5b44c1cb5ac19bc87140781a2ee8a8",
+          "qcdloop/ql/qlbox9.f": "66f3afc6522df3d49806d8f5606f5323eea59d5b2dc4ac8ca7e06bfdae48906b",
+          "qcdloop/ql/qlxpicheck.f": "34be8f92e9cd4e8fb12b898eea195f73a4ca3a093c51ec15c5deeaf953024938",
+          "qcdloop/ql/auxCD.f": "6dd5df77c65de7668ff36d876de186f7d86e95d4286a1ffc9e77450aa65939be",
+          "qcdloop/ql/qltri5.f": "bf8fb09a23828089741cd2add4022a386bf92182543d136acf7487e61b5aa7cd",
+          "qcdloop/ql/qlI2.f": "a82b2855c6d53f5a5f50f46d9c78d98ad5a3dff32a53a617de19cb7b8c53394f",
+          "qcdloop/ql/qlI3.f": "11c585fd832106118972e9143e05d6554f0b358437dbee0c40e58f7c2c30a164",
+          "qcdloop/ql/qltri4.f": "e7d73f9e8e231e9ff739d6dfe3e4c1ff3f0d24c7ea59fa123b71818643fd0fed",
+          "qcdloop/ql/qltrisort.f": "ea94b1659b60002a9b4c0c8e51b3d179ffc2e5eacbe422d48be3c0b612846502",
+          "qcdloop/ql/qlbox8.f": "d9ec9af27ad323e47d5ad9cebfeaf37aae4a96cddfeab1c52d252dbd0f3bba1d",
+          "qcdloop/ql/qlI4sub2ma.f": "63655faed2223e523f7dcb625826db419e0a404411f64e4aa6a4a36ec3ca0ecb",
+          "qcdloop/ql/qlbox2.f": "64e6593d9336592591acc4158a952379aeee1503512e5ac61c240693328abbe3",
+          "qcdloop/ql/qlbox14.f": "c4061be3b62e354df4b6f13b9037aa793af300b0ccf35442bb27455d05010ba3",
+          "qcdloop/ql/qlI4sub0m.f": "1e839901ebbce68d121e972f44367b40db64c0a1c312d004d4ae283fd6e394f1",
+          "qcdloop/ql/qlbox16.f": "397885ffec712065a268c6136181fb52a2a9531d298b673e2884b206d4b762bc",
+          "qcdloop/ql/qllnomrat4.f": "171334a94c7f9324f04f21a97c7e3368f85d5a5b2dbfba9b80823162adb5ea9e",
+          "qcdloop/ql/qlcLi2omx3.f": "127d5bd6120c8e0ea20e8c9c0fedec27d35dcf3103a245fb4a1d9dad8975c9d4",
+          "qcdloop/ql/qlinit.f": "7ee96fe78b34360e98a49fb6fb8a0e12bca70ad407a9e418599bd3d371860865",
+          "qcdloop/ql/qlratgam.f": "30625359d1a989d39f9cec0fe158c15e1db7ecd87229ee61941338f6ea3ba2c7",
+          "qcdloop/ql/qltri6.f": "4bdf53ca979eca50363cb4584241b2d400b8abd79bcfc4da2729e60b60fc3a4d",
+          "qcdloop/ql/qlratreal.f": "72a6e519226aee4165f426e76d0fd264021a05d4d8c25b4da08be6128bf90ba4",
+          "qcdloop/ql/qlI4sub1m.f": "54bc45dc46287aa608c97853c02dbd5523dfafe6db8817112cc81779a8128880",
+          "qcdloop/ql/qlI1.f": "a9a8517e3340c6f9723a72f1306f89446eb2d86ef2d31c68672fce3457034468",
+          "qcdloop/ql/qlI4array.f": "bd78eafaf47bc106de8f88a23b460e5edd8091a03d5cd28cd8a01d4237c326f7",
+          "qcdloop/ql/qlI4sub3m.f": "c65c42e7bbf6c6ad7219b287e87f073003021578f5adeb53afd04130b4e54032",
+          "qcdloop/ql/qllnrat.f": "477b30faa0572b2d6b98830f8cc225f30e842d041618b01f9af2635546b98f35",
+          "qcdloop/ql/qlI4fin.f": "01252afff29c35cf30f603564f42ea09303913935d6a22dd60e5a88a256a46ce",
+          "qcdloop/ql/qlLi2omprod.f": "1fb5c73145a04b27e24bf24168b462ea3b8280a1a376677d14d45b34cbe48340",
+          "qcdloop/ql/qlcLi2omx2.f": "fddc6f8663345164f43f9f8800203b0be7e86c210de88a99e9533cd606713656",
+          "qcdloop/ql/qlzero.f": "84d71fc8fece1e0b43eff433c280e09f048822a26e0b65f025510c12832840fb",
+          "qcdloop/ql/qlI4sub2m.f": "2b4293fa94bac395f7dfef8cd6b70153cdcfa86aec28a4ea4e47636c08090e89",
+          "qcdloop/ql/qlconstants.f": "4b6e366738f6ac7fab86257bdab6c480dc8ce0646f4c51411fa8f14ce46abf41",
+          "qcdloop/ql/qlbox1.f": "5f844fbb6e047fd9330ce9fb7c2b923b24de2447357c4e5909a2d957c3387f1d",
+          "qcdloop/ql/qlLi2omrat.f": "90b5b535d8353b66051b111ba0bfd5cd8aa8a39e41763cb44ddf5c098c6b470d",
+          "oneloop/src/avh_olo_arrays.f90": "10a6703cc4b0e65b765333c4b94ac644431dfd336c9c4c75463a215a076c265f",
+          "oneloop/src/avh_olo_version.f90": "32d52d21341a497984d412792dfe02c623eefed683beed36364ec37ae36f5021",
+          "oneloop/src/avh_olo_intrinsic.f90": "cdc8a0f2d1807e9bf9ff811c7fa536b06c18af7e54ca78a3fa8303b1d17ec283",
+          "oneloop/src/avh_olo_olog.f90": "0d60f7a02adfdee4f146895e1a3f837b5cdb6add194214f37e1762647a0ff005",
+          "oneloop/src/avh_olo_arprec.f90": "c876918d571241882d74bade45595561f6c632126462ce4cd00777b9514509c2",
+          "oneloop/src/avh_olo_box.f90": "c4cc0e1c6fd022f97a5f211308e14a4e07f052890925c2cac675124a00deadf4",
+          "oneloop/src/avh_olo_mpfun90.f90": "db0918f3204c7ee56842a9c3183cf40c8392264e952b0c3499996288bc24f80e",
+          "oneloop/src/avh_olo_boxc.f90": "18de65941eb162132b646593d5f3b324ccd5a0caf3fc72cf99854d3f70d7992a",
+          "oneloop/src/avh_olo_qmplx.f90": "f88b81cd047cd14be8c91f25585f5e2e4d468d9985877f4fb38bafe1804aa20e",
+          "oneloop/src/avh_olo_units.f90": "b7d3f0fa00660ac314c5af3447e47f76c97d7ef031bbb780d0449a8096d9c752",
+          "oneloop/src/avh_olo_ddfun90.f90": "e86322c79f70854989335fecce28ba55041132fa0642ecd4391b02aadf9bad6b",
+          "oneloop/src/avh_olo_dilog.f90": "4d1d2c7c5cadc8fa78b2ec4db605b141d8baa228b1630949a8940337b1b793b5",
+          "oneloop/src/avh_olo_wrp01.f90": "57c406d0824f0d53b80f474bf82d61cba98e3e427998a7986b7cb3cd85706ad4",
+          "oneloop/src/avh_olo_auxfun.f90": "49dc0f29e0d8efe7e8f3236707be0af8415e17cdccc5509ea1467e99a0a37c91",
+          "oneloop/src/avh_olo_kinds.f90": "a96821b63d44cb92f7c25b3f6429a83f0058a48ae280d3468cce9769cc4dd75b",
+          "oneloop/src/avh_olo_bub.f90": "7cadbd3b714b52ca61e2e0434c00c2ae00eefb1cc628752906d99608ae2d36dd",
+          "oneloop/src/avh_olo_print.f90": "d28bfa0d9334b2b6a18cf765c541245e257bf6e2164ffb67cc9014a20b6f71bb",
+          "oneloop/src/avh_olo_qdcpp.f90": "875e7b0861b5fc76c85ad91627438398aeac5804db1bdd3ddedc693c6af10ae2",
+          "oneloop/src/avh_olo_tri.f90": "f894fc249b6f28986d18272dd91fe45889bd818efac5c4a312a6c1b8298568b8",
+          "oneloop/src/avh_olo_main.f90": "e4332a9b09f746d467b8b3ffe448ba9ccfe33565fc2943b431de530a4a0ec50e",
+          "oneloop/src/avh_olo_comb.f90": "d91fe7670f6607cd9bd24095fdbd6754f14653b38015db13bfbbcbbada55fe54",
+          "oneloop/src/avh_olo_bnlog.f90": "16421269108a8116c555f48a8b211ef4e5c9395f7d4cfc266155b91a253e84ed",
+          "oneloop/example_mpfun90/example.f": "4153e94ab72255ab6b27ea5027826f90f6fa50ef54ade876cb8b1f3fdcbac95a",
+          "oneloop/example_qdcpp/f_test.f": "90fab152e42cf700bcb999bdb9a1df9143ba07847ded7b4e7edb17da5d0ae98b",
+          "oneloop/example_cpp/cavh_olo.h": "f19561a8cb639fed6232236ef1285217bec15cbbba5c0269b5fa649b48af021f",
+          "oneloop/example_ddfun90/example.f": "89712a336ccf110b980bc57374ca08c94d7d3625a633a10016223978c375b8fb",
+          "oneloop/example/example.f": "70e34d10b1a7a45712f38c56aae45e8d510d8028b0b66def1576ff1a9063173a",
+          "oneloop/example_arprec/f_test.f": "265f7ffc5d725e2aaa653ffb90298616aa93ec59a7d5cd58313054880266bc70",
+          "oneloop/ONI/src/avh_oni_dqagpe.f": "cca79e6e9af58fac494d5b1db8456e6cbb68180473e8e04ec000dbc60711df5c",
+          "oneloop/ONI/src/avh_oni_3fin.f": "0f21359e42025c297e37150a4854deeee2cb9a3d82f55eeb993db42ad8059cb1",
+          "oneloop/ONI/src/avh_oni_3div.f": "515237ad867eeeb1f38c55cd6cdce90a9bd42061e4a400f6459d4aefbbb4869b",
+          "oneloop/ONI/src/avh_oni_cuba-1.x.h": "7ddcfda184b55ee06b0c81e0ad136b1aa4a86daeb1078bcaeccc246eb2c8693b",
+          "oneloop/ONI/src/avh_oni_func.f": "3f8970d32354a47e40ab097cf097ceccf230f139e0d6326bb8ad02b206a0016a",
+          "oneloop/ONI/src/avh_oni_d1mach.f": "3f1b4e140fe8b6985143a3563d7d8b09da171ecd90a6aba5e67fbb8507fc4125",
+          "oneloop/ONI/src/avh_oni_hello.f": "528d62e4bf500cb926122c0ded7b83337d9362cd2e4d8bbf8810c4b3a1a7c809",
+          "oneloop/ONI/src/avh_oni_dfam.f": "6af9df4058637097915cad91626db9944954cab75697232e5e27e4643f91be08",
+          "oneloop/ONI/src/avh_oni_4div.f": "7cca0e082af938fbbb44115ca81818e582f465bd5d96b4561a4309535bcb1343",
+          "oneloop/ONI/src/avh_oni_cuba.h": "6b2325e2b136e2b4ea4e83fd5d2f6c87839258ef5f9f176ba40f6f57e663dd48",
+          "oneloop/ONI/src/avh_oni_cuba-2.x.h": "6b2325e2b136e2b4ea4e83fd5d2f6c87839258ef5f9f176ba40f6f57e663dd48",
+          "oneloop/ONI/src/avh_oni_cmplx.f": "a55a5a9dde8646797cfbfa65c04937a5a85f34334110e528b6b285d585198709",
+          "oneloop/ONI/src/avh_oni_cuba.f": "e33f215f98c41147075a43bef4c0a3afcee7bd7d29b54017d27557cb6f98965d",
+          "oneloop/ONI/src/avh_oni_real.f": "6f53fd528b2701d644c95f0c7b56f0cb7c2a18b58ea5a57b5ab992a160768aaf",
+          "oneloop/ONI/example/example.f": "bf155e6391a7f0d1e80e27f1aa70dcb18f77c1d753a2e85849cf3a1cb638362c"
+        },
+        "patch_sha256": "c39de3683ebd8c1494dc35bde8de8dfadd34a531c6675a4265c776dfdeb1b67a",
+        "driver_sha256": "537feca6168480d98d541e1cf2331b79708c4a6caa425ddd23862a51c5b999df"
+      },
+      "build_provenance_path": "target/reference/provenance.json",
+      "build_provenance_sha256": "bf1330181d941ab525009e33e58f2aa5e581d89d40877e516c0b7402b0443e74",
+      "script": "target/generalized-pv/capture_reference.py",
+      "script_sha256": "ceab7ced2bd291a9d96c9c167f07bdf6c2e782641e979b8a18eab3130a855fa8",
+      "encoding_harness": "validation/reference/capture.py",
+      "encoding_harness_sha256": "95c1fc9da3cff457e30cf8eb04a258bef4a999b38f8adebc1499e35705ec1ada",
+      "driver_source_sha256_current": "99e8201f5687c2106b1b3b2c8e65bd1fbda4d1722b258db6e7298f889d31d3c2",
+      "recorded_build_driver": {
+        "path": "target/generalized-pv/reference-raw/recorded-build-driver.f90",
+        "sha256": "537feca6168480d98d541e1cf2331b79708c4a6caa425ddd23862a51c5b999df",
+        "source_commit": "92eafe860498d8aae0453eaab0f1898f8e8abfd2",
+        "matches_recorded_build_hash": true
+      },
+      "driver_drift": {
+        "current_matches_recorded_build": false,
+        "diff_path": "target/generalized-pv/reference-raw/recorded-build-driver-to-current.diff",
+        "diff_sha256": "789399c81209a09dcd4c15498e47839aa05b9c507e91b0b891487867ac79a938",
+        "scope": "Later driver changes add mass-reference deduplication and tiny-complex-width dispatch; fixtures use distinct positive real masses with snapping disabled, so these changes are inactive here. No claim is made that the executable uses the current driver."
+      },
+      "patched_funlib_sha256": "d748ab4f886c3336dec5adcbdabd609dafff2ff411b34feb8cda7b4ff03500a0",
+      "python_executable": "/nix/store/0r6k8xa2kgqyp3r4v2w7yrb80ma2iawm-python3-3.13.12/bin/python3",
+      "python_version": "3.13.12 (main, Feb  3 2026, 17:53:27) [GCC 15.2.0]",
+      "working_directory": "/shared/external/iregi/iregi-rust",
+      "command": [
+        "/nix/store/0r6k8xa2kgqyp3r4v2w7yrb80ma2iawm-python3-3.13.12/bin/python3",
+        "target/generalized-pv/capture_reference.py"
+      ],
+      "isolated_process_per_request": true,
+      "timeout_seconds_per_request": 30
+    },
+    "capture_script": "target/generalized-pv/capture_complex_reference.py",
+    "capture_script_sha256": "c1b90f5b706ea28fb53dc8bf0e99d9c041b6fc7dcba2f2ec9cce6939d314401e",
+    "capture_helper": "target/generalized-pv/capture_reference.py",
+    "capture_helper_sha256": "ceab7ced2bd291a9d96c9c167f07bdf6c2e782641e979b8a18eab3130a855fa8",
+    "command": [
+      "/nix/store/0r6k8xa2kgqyp3r4v2w7yrb80ma2iawm-python3-3.13.12/bin/python3",
+      "target/generalized-pv/capture_complex_reference.py"
+    ],
+    "working_directory": "/shared/external/iregi/iregi-rust",
+    "complex_dispatch_drift_checks": [
+      {
+        "family": "complex_n2_p12_h1_r2",
+        "recorded_old_driver_selects_complex": true,
+        "current_driver_selects_complex": true,
+        "current_relative_widths": [
+          0.06237828615518053,
+          0.05547001962252291
+        ],
+        "reference_masses_distinct_positive_real_parts": true,
+        "snap": false
+      },
+      {
+        "family": "complex_n3_p121_h2_r1",
+        "recorded_old_driver_selects_complex": true,
+        "current_driver_selects_complex": true,
+        "current_relative_widths": [
+          0.06237828615518053,
+          0.05547001962252291,
+          0.04682358629858615
+        ],
+        "reference_masses_distinct_positive_real_parts": true,
+        "snap": false
+      }
+    ],
+    "symbolica_runtime_used": false,
+    "tensor_transformations_performed": false
+  },
+  "cases": [
+    {
+      "input": {
+        "id": "complex_n2_p12_h1_r2_mode0",
+        "api": "general",
+        "mode": 0,
+        "rank": 2,
+        "dimension_shift": 2,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "mass_squared": [
+              4,
+              -0.25
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              0,
+              1,
+              0,
+              0
+            ],
+            "mass_squared": [
+              9,
+              -0.5
+            ],
+            "power": 2
+          }
+        ]
+      },
+      "role": "requested_complex_generalized_tensor",
+      "status": "reference_failure",
+      "reference_repaired": true,
+      "expected": null,
+      "transport": {
+        "returncode": 1,
+        "timeout": false,
+        "elapsed_seconds": 0.0048445380525663495,
+        "result_count": 0,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-complex-raw/complex_n2_p12_h1_r2_mode0.input",
+            "sha256": "dd01ca7786ded87ec0a659dd07aae06c6a14dd5ece17c5e2702f7374db9689d4"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-complex-raw/complex_n2_p12_h1_r2_mode0.stdout.log",
+            "sha256": "7f1c6b14b574c53d0f7a63b4e99ef3749738a7db265d305e22797ba0a712fefa"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-complex-raw/complex_n2_p12_h1_r2_mode0.stderr.log",
+            "sha256": "433d720a7337f9ac6288715ae977c18194e9c8f11dec4752b1ce755ff9794c5b"
+          }
+        }
+      },
+      "boundary": {
+        "supported": false,
+        "reason": "The unmodified generalized tensor adapter and original general_ti_reduce accept real squared masses only.",
+        "explicit_rejection_observed": true
+      }
+    },
+    {
+      "input": {
+        "id": "complex_n2_p12_h1_r2_mode1",
+        "api": "general",
+        "mode": 1,
+        "rank": 2,
+        "dimension_shift": 2,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "mass_squared": [
+              4,
+              -0.25
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              0,
+              1,
+              0,
+              0
+            ],
+            "mass_squared": [
+              9,
+              -0.5
+            ],
+            "power": 2
+          }
+        ]
+      },
+      "role": "requested_complex_generalized_tensor",
+      "status": "reference_failure",
+      "reference_repaired": true,
+      "expected": null,
+      "transport": {
+        "returncode": 1,
+        "timeout": false,
+        "elapsed_seconds": 0.004923209082335234,
+        "result_count": 0,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-complex-raw/complex_n2_p12_h1_r2_mode1.input",
+            "sha256": "959cf9e30a324ddb2fea13890d721ff4b0b0fe6592bd431106aab4c038976a29"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-complex-raw/complex_n2_p12_h1_r2_mode1.stdout.log",
+            "sha256": "7f1c6b14b574c53d0f7a63b4e99ef3749738a7db265d305e22797ba0a712fefa"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-complex-raw/complex_n2_p12_h1_r2_mode1.stderr.log",
+            "sha256": "4396ecb4f4aa957c723c9941619744cace355cb982ceb279566fa8228f75f116"
+          }
+        }
+      },
+      "boundary": {
+        "supported": false,
+        "reason": "The unmodified generalized tensor adapter and original general_ti_reduce accept real squared masses only.",
+        "explicit_rejection_observed": true
+      }
+    },
+    {
+      "input": {
+        "id": "complex_n2_p12_h1_r2_mode2",
+        "api": "general",
+        "mode": 2,
+        "rank": 2,
+        "dimension_shift": 2,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "mass_squared": [
+              4,
+              -0.25
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              0,
+              1,
+              0,
+              0
+            ],
+            "mass_squared": [
+              9,
+              -0.5
+            ],
+            "power": 2
+          }
+        ]
+      },
+      "role": "requested_complex_generalized_tensor",
+      "status": "reference_failure",
+      "reference_repaired": true,
+      "expected": null,
+      "transport": {
+        "returncode": 1,
+        "timeout": false,
+        "elapsed_seconds": 0.004431467037647963,
+        "result_count": 0,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-complex-raw/complex_n2_p12_h1_r2_mode2.input",
+            "sha256": "ccdd397e2e9b962294897a5e32e011a230984e2561299e9b49a578a550a40cfb"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-complex-raw/complex_n2_p12_h1_r2_mode2.stdout.log",
+            "sha256": "7f1c6b14b574c53d0f7a63b4e99ef3749738a7db265d305e22797ba0a712fefa"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-complex-raw/complex_n2_p12_h1_r2_mode2.stderr.log",
+            "sha256": "735011e8e7a32166d07329970c96892509f5feb6b93f1510fb4e46daf4fa8487"
+          }
+        }
+      },
+      "boundary": {
+        "supported": false,
+        "reason": "The unmodified generalized tensor adapter and original general_ti_reduce accept real squared masses only.",
+        "explicit_rejection_observed": true
+      }
+    },
+    {
+      "input": {
+        "id": "complex_n3_p121_h2_r1_mode0",
+        "api": "general",
+        "mode": 0,
+        "rank": 1,
+        "dimension_shift": 4,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "mass_squared": [
+              4,
+              -0.25
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              0,
+              1,
+              0,
+              0
+            ],
+            "mass_squared": [
+              9,
+              -0.5
+            ],
+            "power": 2
+          },
+          {
+            "shift": [
+              0,
+              0,
+              2,
+              0
+            ],
+            "mass_squared": [
+              16,
+              -0.75
+            ],
+            "power": 1
+          }
+        ]
+      },
+      "role": "requested_complex_generalized_tensor",
+      "status": "reference_failure",
+      "reference_repaired": true,
+      "expected": null,
+      "transport": {
+        "returncode": 1,
+        "timeout": false,
+        "elapsed_seconds": 0.004449396976269782,
+        "result_count": 0,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-complex-raw/complex_n3_p121_h2_r1_mode0.input",
+            "sha256": "ad06fb01438c0b2918a2e8b6f29102b19f3312ea2be1b3fc1c91427e020f7581"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-complex-raw/complex_n3_p121_h2_r1_mode0.stdout.log",
+            "sha256": "7f1c6b14b574c53d0f7a63b4e99ef3749738a7db265d305e22797ba0a712fefa"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-complex-raw/complex_n3_p121_h2_r1_mode0.stderr.log",
+            "sha256": "a30faaea86bd747d2c22e7f6a1db72ee7f7ee9245dfada130d32f86c10131b5e"
+          }
+        }
+      },
+      "boundary": {
+        "supported": false,
+        "reason": "The unmodified generalized tensor adapter and original general_ti_reduce accept real squared masses only.",
+        "explicit_rejection_observed": true
+      }
+    },
+    {
+      "input": {
+        "id": "complex_n3_p121_h2_r1_mode1",
+        "api": "general",
+        "mode": 1,
+        "rank": 1,
+        "dimension_shift": 4,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "mass_squared": [
+              4,
+              -0.25
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              0,
+              1,
+              0,
+              0
+            ],
+            "mass_squared": [
+              9,
+              -0.5
+            ],
+            "power": 2
+          },
+          {
+            "shift": [
+              0,
+              0,
+              2,
+              0
+            ],
+            "mass_squared": [
+              16,
+              -0.75
+            ],
+            "power": 1
+          }
+        ]
+      },
+      "role": "requested_complex_generalized_tensor",
+      "status": "reference_failure",
+      "reference_repaired": true,
+      "expected": null,
+      "transport": {
+        "returncode": 1,
+        "timeout": false,
+        "elapsed_seconds": 0.004402316058985889,
+        "result_count": 0,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-complex-raw/complex_n3_p121_h2_r1_mode1.input",
+            "sha256": "84a5aa849556711d6bac7abfb273593f97a90ea9a6424ae7fd46cf85dbe21cdb"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-complex-raw/complex_n3_p121_h2_r1_mode1.stdout.log",
+            "sha256": "7f1c6b14b574c53d0f7a63b4e99ef3749738a7db265d305e22797ba0a712fefa"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-complex-raw/complex_n3_p121_h2_r1_mode1.stderr.log",
+            "sha256": "b52623e656a0a6904ec72f6d4ecf00c8bef64d4aaeaa8dc2dc1591bfb0d8af40"
+          }
+        }
+      },
+      "boundary": {
+        "supported": false,
+        "reason": "The unmodified generalized tensor adapter and original general_ti_reduce accept real squared masses only.",
+        "explicit_rejection_observed": true
+      }
+    },
+    {
+      "input": {
+        "id": "complex_n3_p121_h2_r1_mode2",
+        "api": "general",
+        "mode": 2,
+        "rank": 1,
+        "dimension_shift": 4,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "mass_squared": [
+              4,
+              -0.25
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              0,
+              1,
+              0,
+              0
+            ],
+            "mass_squared": [
+              9,
+              -0.5
+            ],
+            "power": 2
+          },
+          {
+            "shift": [
+              0,
+              0,
+              2,
+              0
+            ],
+            "mass_squared": [
+              16,
+              -0.75
+            ],
+            "power": 1
+          }
+        ]
+      },
+      "role": "requested_complex_generalized_tensor",
+      "status": "reference_failure",
+      "reference_repaired": true,
+      "expected": null,
+      "transport": {
+        "returncode": 1,
+        "timeout": false,
+        "elapsed_seconds": 0.004854377009905875,
+        "result_count": 0,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-complex-raw/complex_n3_p121_h2_r1_mode2.input",
+            "sha256": "1b2e55ec6373d4b4ad6e0f67e513d1a9c1327285057e6d3f259b993ed1667113"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-complex-raw/complex_n3_p121_h2_r1_mode2.stdout.log",
+            "sha256": "7f1c6b14b574c53d0f7a63b4e99ef3749738a7db265d305e22797ba0a712fefa"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-complex-raw/complex_n3_p121_h2_r1_mode2.stderr.log",
+            "sha256": "0c2c4c1861adf45787abb4da05d8987272b26e64322dc33f64b0e9220ebec39d"
+          }
+        }
+      },
+      "boundary": {
+        "supported": false,
+        "reason": "The unmodified generalized tensor adapter and original general_ti_reduce accept real squared masses only.",
+        "explicit_rejection_observed": true
+      }
+    }
+  ],
+  "scalar_cases": [
+    {
+      "input": {
+        "id": "complex_n2_p12_h1_r2_scalar_counterpart",
+        "api": "scalar",
+        "mode": 0,
+        "rank": 0,
+        "dimension_shift": 2,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "mass_squared": [
+              4,
+              -0.25
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              0,
+              1,
+              0,
+              0
+            ],
+            "mass_squared": [
+              9,
+              -0.5
+            ],
+            "power": 2
+          }
+        ]
+      },
+      "role": "direct_complex_generalized_scalar",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "complex_n2_p12_h1_r2_scalar_counterpart",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              -2.6645352591003757e-15,
+              -15.503138340149903
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.8621314333112942,
+              23.69616711673055
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.0014715550933033228,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-complex-raw/complex_n2_p12_h1_r2_scalar_counterpart.input",
+            "sha256": "54a39f15fd8c2455b3b008ed5155c0042ea272909c9bdcea790184c8d6feff01"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-complex-raw/complex_n2_p12_h1_r2_scalar_counterpart.stdout.log",
+            "sha256": "3db3e2b3e4860af47f4455f30d0362daa7d972119fa019ee4b5097a9fd07e544"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-complex-raw/complex_n2_p12_h1_r2_scalar_counterpart.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      },
+      "scope": "Rank-zero counterpart only, through comp_scalar_integral_reduce; original scalar API ignores mode. No tensor moments assembled or inferred."
+    },
+    {
+      "input": {
+        "id": "complex_n3_p121_h2_r1_scalar_counterpart",
+        "api": "scalar",
+        "mode": 0,
+        "rank": 0,
+        "dimension_shift": 4,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "mass_squared": [
+              4,
+              -0.25
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              0,
+              1,
+              0,
+              0
+            ],
+            "mass_squared": [
+              9,
+              -0.5
+            ],
+            "power": 2
+          },
+          {
+            "shift": [
+              0,
+              0,
+              2,
+              0
+            ],
+            "mass_squared": [
+              16,
+              -0.75
+            ],
+            "power": 1
+          }
+        ]
+      },
+      "role": "direct_complex_generalized_scalar",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "complex_n3_p121_h2_r1_scalar_counterpart",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              6.217248937900877e-15,
+              16.234848505667316
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              -0.7967441566038644,
+              -29.798429293224956
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.0015612459974363446,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-complex-raw/complex_n3_p121_h2_r1_scalar_counterpart.input",
+            "sha256": "9d170aa5864d878db6850cad5ffdbd39daf0e4fda1b4b5c0a632006202e5ed73"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-complex-raw/complex_n3_p121_h2_r1_scalar_counterpart.stdout.log",
+            "sha256": "1d873acf6d22a560b0a08762dcef5a5b48b6fb19ef4787bd715b1fd523a3c62f"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-complex-raw/complex_n3_p121_h2_r1_scalar_counterpart.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      },
+      "scope": "Rank-zero counterpart only, through comp_scalar_integral_reduce; original scalar API ignores mode. No tensor moments assembled or inferred."
+    }
+  ],
+  "summary": {
+    "requested_complex_tensor_requests": 6,
+    "explicit_unsupported_complex_tensor_rejections": 6,
+    "successful_complex_tensor_results": 0,
+    "stable_finite_complex_scalar_counterparts": 2
+  }
+}

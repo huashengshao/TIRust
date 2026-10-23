@@ -931,7 +931,7 @@ pub fn exact_scalar_master_evaluator(
 ) -> Result<ExpressionEvaluator<Complex<Rational>>, MasterError> {
     let (context, parameters, expressions) = expressions(family, false);
     context
-        .evaluator(&expressions, &parameters)
+        .evaluator_with_stack_reuse(&expressions, &parameters)
         .map_err(|error| MasterError::Preparation(error.to_string()))
 }
 

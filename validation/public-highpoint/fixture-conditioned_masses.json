@@ -1,0 +1,298 @@
+{
+  "schema_version": 1,
+  "name": "regular_coordinate_conditioned_masses",
+  "samples": [
+    {
+      "id": "base",
+      "mu": "3",
+      "propagators": [
+        {
+          "shift": [
+            "0",
+            "0",
+            "0",
+            "0"
+          ],
+          "mass_squared": [
+            "1",
+            "0"
+          ],
+          "power": 1
+        },
+        {
+          "shift": [
+            "0",
+            "1",
+            "0",
+            "0"
+          ],
+          "mass_squared": [
+            "2",
+            "0"
+          ],
+          "power": 1
+        },
+        {
+          "shift": [
+            "0",
+            "0",
+            "1",
+            "0"
+          ],
+          "mass_squared": [
+            "3",
+            "0"
+          ],
+          "power": 1
+        },
+        {
+          "shift": [
+            "0",
+            "0",
+            "0",
+            "1"
+          ],
+          "mass_squared": [
+            "4",
+            "0"
+          ],
+          "power": 1
+        },
+        {
+          "shift": [
+            "1/2",
+            "0",
+            "0",
+            "0"
+          ],
+          "mass_squared": [
+            "2",
+            "0"
+          ],
+          "power": 1
+        },
+        {
+          "shift": [
+            "0",
+            "1",
+            "1",
+            "0"
+          ],
+          "mass_squared": [
+            "3",
+            "0"
+          ],
+          "power": 1
+        },
+        {
+          "shift": [
+            "0",
+            "0",
+            "1",
+            "1"
+          ],
+          "mass_squared": [
+            "4",
+            "0"
+          ],
+          "power": 1
+        }
+      ]
+    },
+    {
+      "id": "scaled_by_two",
+      "mu": "6",
+      "propagators": [
+        {
+          "shift": [
+            "0",
+            "0",
+            "0",
+            "0"
+          ],
+          "mass_squared": [
+            "4",
+            "0"
+          ],
+          "power": 1
+        },
+        {
+          "shift": [
+            "0",
+            "2",
+            "0",
+            "0"
+          ],
+          "mass_squared": [
+            "8",
+            "0"
+          ],
+          "power": 1
+        },
+        {
+          "shift": [
+            "0",
+            "0",
+            "2",
+            "0"
+          ],
+          "mass_squared": [
+            "12",
+            "0"
+          ],
+          "power": 1
+        },
+        {
+          "shift": [
+            "0",
+            "0",
+            "0",
+            "2"
+          ],
+          "mass_squared": [
+            "16",
+            "0"
+          ],
+          "power": 1
+        },
+        {
+          "shift": [
+            "1",
+            "0",
+            "0",
+            "0"
+          ],
+          "mass_squared": [
+            "8",
+            "0"
+          ],
+          "power": 1
+        },
+        {
+          "shift": [
+            "0",
+            "2",
+            "2",
+            "0"
+          ],
+          "mass_squared": [
+            "12",
+            "0"
+          ],
+          "power": 1
+        },
+        {
+          "shift": [
+            "0",
+            "0",
+            "2",
+            "2"
+          ],
+          "mass_squared": [
+            "16",
+            "0"
+          ],
+          "power": 1
+        }
+      ]
+    },
+    {
+      "id": "first_mass_squared_plus_one",
+      "mu": "3",
+      "propagators": [
+        {
+          "shift": [
+            "0",
+            "0",
+            "0",
+            "0"
+          ],
+          "mass_squared": [
+            "2",
+            "0"
+          ],
+          "power": 1
+        },
+        {
+          "shift": [
+            "0",
+            "1",
+            "0",
+            "0"
+          ],
+          "mass_squared": [
+            "2",
+            "0"
+          ],
+          "power": 1
+        },
+        {
+          "shift": [
+            "0",
+            "0",
+            "1",
+            "0"
+          ],
+          "mass_squared": [
+            "3",
+            "0"
+          ],
+          "power": 1
+        },
+        {
+          "shift": [
+            "0",
+            "0",
+            "0",
+            "1"
+          ],
+          "mass_squared": [
+            "4",
+            "0"
+          ],
+          "power": 1
+        },
+        {
+          "shift": [
+            "1/2",
+            "0",
+            "0",
+            "0"
+          ],
+          "mass_squared": [
+            "2",
+            "0"
+          ],
+          "power": 1
+        },
+        {
+          "shift": [
+            "0",
+            "1",
+            "1",
+            "0"
+          ],
+          "mass_squared": [
+            "3",
+            "0"
+          ],
+          "power": 1
+        },
+        {
+          "shift": [
+            "0",
+            "0",
+            "1",
+            "1"
+          ],
+          "mass_squared": [
+            "4",
+            "0"
+          ],
+          "power": 1
+        }
+      ]
+    }
+  ],
+  "intent": "Regular four-dimensional coordinate rank, positive massive Feynman polynomial, modest scales, distinct denominators; includes exact uniform scaling and a mass perturbation. This is one structured family, not general high-point qualification."
+}

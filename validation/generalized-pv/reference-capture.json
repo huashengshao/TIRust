@@ -1,0 +1,4863 @@
+{
+  "schema_version": 1,
+  "capture_started_utc": "2026-10-23T14:32:38.216945+00:00",
+  "capture_completed_utc": "2026-10-23T14:32:38.393388+00:00",
+  "normalization": "native_iregi",
+  "basis": "unweighted_cartesian_monomials",
+  "dimension_shift_convention": "full even idim; D=4+idim-2epsilon",
+  "pole_slots": [
+    "uv1",
+    "ir1",
+    "ir2",
+    "finite"
+  ],
+  "tolerance": 1e-10,
+  "comparison_scale": "Q^(4+idim+rank-2*sum(powers)) + abs(mode0_value); Q=max(mu, abs(shifts), sqrt(abs(mass_squared)))",
+  "fixture_policy": "Reference stability and intermode agreement are recorded, not assumed to prove correctness. Preserve every failed or disagreeing mode; no reference repair beyond existing factorial initialization patch.",
+  "translation_policy": "No hand-derived tensor translation. The original generalized transport requires zero first shift; direct translated scalar-API results are separately scoped and the rejected generalized transport probe is retained.",
+  "kinematics": {
+    "anchored_shifts": [
+      [
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        1,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        2,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        3
+      ]
+    ],
+    "positive_mass_squared": [
+      4,
+      9,
+      16,
+      25
+    ],
+    "common_translation": [
+      1,
+      -2,
+      1,
+      0
+    ],
+    "rationale": "Integer spacelike differences, orthogonal nonzero external vectors, distinct positive masses; Feynman polynomial strictly positive."
+  },
+  "provenance": {
+    "executable": "target/reference/iregi-reference",
+    "executable_sha256": "a21bca142169df21385b7ec3a38ed46ac6b7c5b5e0ea5f11e54e90fd7b68f720",
+    "captured_build_provenance": {
+      "madgraph_commit": "6c1b4684b46ad26c4f0ebc57eb9963649f350142",
+      "compiler": "GNU Fortran (GCC) 15.2.0",
+      "flags": [
+        "-O3",
+        "-fPIC",
+        "-std=legacy",
+        "-fallow-argument-mismatch",
+        "-J",
+        "/shared/external/iregi/iregi-rust/target/reference/objects",
+        "-I",
+        "/shared/external/iregi/iregi-rust/target/reference/objects",
+        "-I",
+        "/shared/external/iregi/iregi-rust/target/reference/source"
+      ],
+      "source_sha256": {
+        "global.f90": "eb824e14ce88e7a0e1749b32c7115b6a8b8b48c405dfec5427548e84c3dfd730",
+        "special_fun.f90": "42566ddbe172a6450b79b8d01d8a4492b3374c5ab7ad30b54aa3dce9bd4ba3ad",
+        "csi_reduce.f90": "46703a0d18ddd4291f0ae38b9c78224b11177b55ac4b6cfa5d02dc923e880fee",
+        "si_reduce.f90": "c9cc407de5db60d043acb81b40de8a16f2c19bd3de1bb92c9643c60667d5bfe6",
+        "IREGI4ML5_interface.f90": "7dea440003e38c7c68688894f0e87758c5ae2f2322a5770b30701aa3929ad3b1",
+        "kinematics.f90": "d86a520646158d48499298f3444d6628bc956881bf498ff6acfd205c1dc92117",
+        "funlib.f90": "1eebe2910debc482fa3976c0bc9a73553bf7cefe03dbf6b52786f0ce7979bf95",
+        "banner.inc": "e25eb460b096bb87811c5c51825b5412d25ca85458e54fc3f3df09c2acf94308",
+        "cpave_reduce.f90": "ed67f9c00433363254aa27a7f9636b5cbf514929c5b0b9a41bc9d26304af1575",
+        "binary_tree.f90": "c47405dc762e00045ca0a9ada8325c7c31bfa488e8b4fae7a30fb852677cbdbb",
+        "mis_warp.f90": "a91edb13d4934cce9ee2d86af473eb82f0e383e5d0636bce7560d60fdd0a8649",
+        "matrices.f90": "c63bd717ebea1af2be8d024a0f6dbea50d179bba2fbf00abfd9c21a5df84c575",
+        "pave_reduce.f90": "8dbabaad834152fc2eb090dbbda9fc0f736d0510ad417eb7f88d1a426ec25e89",
+        "matrix_base.f90": "5c49d7215d4434d5d74b6128942ef9a1da6ad038294c16c2f91275cab892fb12",
+        "linear_algebra.f90": "bf6c1b6a495594572fb889d02350c17a420785b154d70d683e55f6628a002723",
+        "cti_reduce.f90": "cc7ef03c9da81a038d299ebac3730409fc53792cf912db16df320f75b5cc2156",
+        "ti_reduce.f90": "17d9a0f5e14b84f46667f532a1463a5734cd46c885467cfb6230e862d2ceb49a",
+        "gti_reduce.f90": "f454ed573338c869ca8c9054ca30d3c45d3fa829c397b7f8b242a9e6ea6755a6",
+        "cmatrix_base.f90": "283c5a574b7010729504df943f7e57d4bdaa7d5ef8510e6e842aaa8d4ad0b5f7",
+        "oneloop/avh_olo_foriregi.f90": "a8479811673441cce6d1b147f2c08af08453bc7e9876c3702b3fbec9676a51cd",
+        "qcdloop/test.f": "83742aabbc3ef2b4362c2a28eb07b6f85c6a894aeeadf6ff6c4dc433bea4e674",
+        "qcdloop/ff/ffcrr.f": "f1942622eec3505988cfbfe32c6b0cd9eef45f64ba6b5956ea09357f2890dd4e",
+        "qcdloop/ff/aaxcx.f": "f8b0fbe67c0f41afae969ad095dfa32767bd0f9b70e3ade1a5c5b5b0c0ca20aa",
+        "qcdloop/ff/aa.h": "14e1924840dd12c46533fd0184d87d945832e0ba9a00f351476f820dd2b22fb1",
+        "qcdloop/ff/ffcli2.f": "cda10211025a5a10660482741bc076ea3541d90d4d6ad6eba2adce639cb72131",
+        "qcdloop/ff/ffcd0.f": "756d10f4af38987a8e8229e8b527ec670e6afe39a1e79ee5376c343cf9a58940",
+        "qcdloop/ff/ffxe0.f": "035036bcd94cde9ab9709687a01e58813be4f48f53c5910204bb671785b2d996",
+        "qcdloop/ff/ffxc0i.f": "1a6cb3ebc5027bd2591be5b1d3d357f5b56704def30887807278ff3d67b1fc93",
+        "qcdloop/ff/ffxd0.f": "3814366ebcbeb969325aa74dcd38cd822f3eb8802b34a4486647de99d5eccfb2",
+        "qcdloop/ff/ffcxyz.f": "86e4f346636cd645010f0bfdb4a769b984cabcbc94649879c2d05dfc8700bb36",
+        "qcdloop/ff/ffs.h": "2b1dbfef8e362468e6e2aebc2d3200a419b21e59a1a798a7194d5ce1efb1c409",
+        "qcdloop/ff/ffdl2i.f": "db324e1ab45433fa97a7aaeddc2dcddf022ae737e611b5119c167b6c452f32da",
+        "qcdloop/ff/ffxd0i.f": "bdf5fd12352009b018764ab33e37cd939b0a4160bae2c44c4dec69726166e22a",
+        "qcdloop/ff/aaxbx.f": "ca319716bef6e5a103bc62030a43def89c875962d59f94c08b0b7b27b0712c32",
+        "qcdloop/ff/ffdel6.f": "3ef7e4681446d1b65cc4e446b3bad5b8083df8f89065e7df32c6a65aff63c6f2",
+        "qcdloop/ff/ffxd0h.f": "bb1327aac229b1dc9457474fb1c2927c4f9030e9b7398a86b8effd3f055f1d30",
+        "qcdloop/ff/ffxf0.f": "bca637613227bb69796ebda728f0bb94be4d8ecd79f93c3ee550a947ee3ed957",
+        "qcdloop/ff/ffinit_mine.f": "2e8cf2d2c72579e40c56b15382be5d32de58935f5925781b2c8659a3196a9221",
+        "qcdloop/ff/ffceta.f": "14e276e2fd4073a4df43c71575303c5d1a9841af7922a9e0eae7ad3d0047d67a",
+        "qcdloop/ff/ffxd1.f": "52c0b17de97dce5f4d15b075780309f9fae6cdaa63ffbadec6b68aeb34e5226f",
+        "qcdloop/ff/ffcb2p.f": "84be40ce5c1c8efd70c698ae6cd9f6c3c9cfe8dc873ff528e3dd38087025279c",
+        "qcdloop/ff/ffxe1.f": "2ab21de519c513a24650826b218822198c9cafcff72578feadaeedf4bc07b125",
+        "qcdloop/ff/ffxdb0.f": "0d31e6a833b36075cde925f188c736902f17f62f8a88e9597aa7cbcf24972f69",
+        "qcdloop/ff/aacinv.f": "7ad6b236d5ca85000db6821a3b45d898bfc41c3989ccf872b95336ec3ecc7b28",
+        "qcdloop/ff/ffabcd.f": "8fcefb4e41d3dc6edc4d38ff43efac298ad23576db8ad271acad3c24d1111ebd",
+        "qcdloop/ff/ffcb2.f": "347930dc9f2a34f28df17c2fb95df2bc60f6dc5added6f90567cae56d8688952",
+        "qcdloop/ff/ffcb0.f": "3e9d5c5f2c3c6dca4563f57b86c215c9fb81db805a354ae551aaad7524cad1a5",
+        "qcdloop/ff/ffxc0.f": "2e67cd06fecb40ee1398017a4cef1c82aa1f8ecdcd1530fed4686e0044af2596",
+        "qcdloop/ff/ffdcc0.f": "59befaa12cd737a0f39cd47961d1c6a84605077091c2aed79345383e331c235b",
+        "qcdloop/ff/ffcc0p.f": "16c75f991a7bfd03a6af860c5af333a9d50b0e33a0fee9924afe4a09cae1748d",
+        "qcdloop/ff/aaxex.f": "0672dadca3899ed52566a539588c05533c02f448b697c691aaa1ddd120a60e75",
+        "qcdloop/ff/aaxdx.f": "019b5a5a28ff185b04cc02485b05e0865a887877ef27a67cf77293f08daf267a",
+        "qcdloop/ff/ffcel3.f": "3d9271063508605baafe2f93c6509ada0c6e4aaa0e2435a556d0efb49a963b1f",
+        "qcdloop/ff/ffdxc0.f": "55a25c748a0ce4865602b4f3716f9b15a90dc957434e47d424fd60e60d43a280",
+        "qcdloop/ff/ffcc0.f": "a87906d237b6b360e5a727608554dc05ae87c30d6a8e722f50d069f39a44c979",
+        "qcdloop/ff/ffcxs4.f": "7687a067d733178bcd9befa36f66b11e40e5680a5e1ed97884f9b6e2f11d932c",
+        "qcdloop/ff/ffdel4.f": "3b172a5a138adcf597f4cb3cf445ae50c16b241dc14fcd1c6d670080d4d68b65",
+        "qcdloop/ff/ffxb0.f": "b7a9b8dc3b1f5b557013038c2ff2c7ba03bd73129a480f7fff9fe0d4290b202c",
+        "qcdloop/ff/ffxb1.f": "3ff8090a85a67986bd392bb47753fb53253d39162a8e2b31cd4031cebad90987",
+        "qcdloop/ff/ffdel5.f": "8a4f4dea6f5141b34a8c217c955e3705c92cc3236f49257de2d7317ba00d7b0a",
+        "qcdloop/ff/ffcc1.f": "b91fecc12fdbdfc382cdbf1f9cc6ffe491a61a006686a668bc8fd8532c9c5f28",
+        "qcdloop/ff/ffca0.f": "84a819b75b371a8d6a1ee53fe493d809e8c8be3b0beec40c7ef6be975b17944c",
+        "qcdloop/ff/ffcel2.f": "7abc264f693cb484eadf9f8793ff844e6b21d02d3053c6b3755a6fe69b89bd81",
+        "qcdloop/ff/ffxdbd.f": "cc8613f21a517f159808900e18a8e75e055f5cb20066fbb289a5f8fba052d1e6",
+        "qcdloop/ff/npoin.f": "0aec7bd58c607437f3f63c2ddc90dbabdf9f56ab4da99b321f239c346fbce9ec",
+        "qcdloop/ff/ffxc1.f": "5264a2c3fd4eda4929d80d4223d68fc53eaab95688b4312c8c5eb5d87604bc1b",
+        "qcdloop/ff/ffcb1.f": "3b6527f765f5c268b096ba3cb3d83d865deca99e42112ce5fd2ef68ff9aafee9",
+        "qcdloop/ff/fftest.f": "43c4cf19c0dec09afc520aef4b4172c0a6d07618a8b684bff48c71340fc6fbb7",
+        "qcdloop/ff/ffxf0h.f": "89137241b17c9602966af900fc2f84fb3893057c8a02922dc86782aa95c025da",
+        "qcdloop/ff/ffxc0p.f": "5cfa74bb1705b97b7690bf0aea2dbe6239172c1edac486a3aa30a7e1cf4b78a6",
+        "qcdloop/ff/fftran.f": "5693144c3c96a3e91350313c44a2aac5d654474c3c8fc5140edd0a7f9c52f759",
+        "qcdloop/ff/ffxd0p.f": "7950472f4b7a50e2f2e74af45bfa7f2bd2c4e79b24e4f591f3eefa3c469edf1c",
+        "qcdloop/ff/ffinit.f": "2b60e25cf03903951e439aa20a704da318582be648c03c2abcff6a38ca2ab16c",
+        "qcdloop/ff/ffcdbd.f": "4a9d59d1dc377c0fc06f65e54d366051f070e2f76bb6c6de8a9f7f71609e73ae",
+        "qcdloop/ff/ffxdpv.f": "028bc62625b5d4aca51474816dd220991c994f2030d1a633645e6cce6a59c2d8",
+        "qcdloop/ff/ffdl5p.f": "0047efd1f955be4daa4d059aa8dc00476afc1f6a0b77b2f8dfab4191f6913c31",
+        "qcdloop/ff/spence.f": "6c44d1f44ebda28672aabf9ce46c43d46e3373b880f91eb2558ac0ea57dce965",
+        "qcdloop/ff/ffini.f": "d0bf04ead3bbcdfc62eb258faf51a1383647cba08cb35d473fc0f2c85dc7d548",
+        "qcdloop/ff/ffxxyz.f": "79a04a5beb82be99f57d651b21c9e598513caef3956133e2f8fc5fda50d53fd3",
+        "qcdloop/ff/ffxli2.f": "9bfd736913900fa2736e6b663ace2b7de1d245419733f64507a98f00d9e3bcae",
+        "qcdloop/ff/ffcxr.f": "59c8d405ae7c299c9ec525564ef7cd821455989ec382407bbe76ab65d1fd5725",
+        "qcdloop/ff/ffcel5.f": "b95133c5879782373d6de974b22808a623a8cf7c8a53b40bcff4e0a6b3e2f7f7",
+        "qcdloop/ff/ff2dl2.f": "f4dcdbb4bae3194f4510d2a08fe21be649edf09d0773df40a3bd15d47eb0af05",
+        "qcdloop/ff/ffdel2.f": "4dbf306a464a713959944b225d70d05301d20fbf8efecbc28d8a5a8c1a72ad26",
+        "qcdloop/ff/ffxdi.f": "4795c9e005512ebef0e938d08242ee1137abc6f2df6d149b06941e3d62bccf59",
+        "qcdloop/ff/ffcxs3.f": "eff4f6c113fdb149fb72cf8fa39780e742711913ea508dee09b7e36bd57bd982",
+        "qcdloop/ff/ffdel3.f": "13da9c4af5bfd945a70141f45f07a2af906f09397b2b3b539a533fee536d3b87",
+        "qcdloop/ff/aaccc.f": "5501ec33f0866ef2c65f0352ce9ed56f90246bd41f88f6aad7788d91c73bd7ac",
+        "qcdloop/ff/ffcel4.f": "1b5ce730d176f2b8785e267cbf01b1774d49378d920a6bd8939f4c241df0b367",
+        "qcdloop/ff/ff.h": "37de572b28b7f5b5a4af86ec99f555c1ededc312d80494dacd70dcb49c76dcd7",
+        "qcdloop/ff/npointes.f": "8a02e5220735599998cabe7898334994025efa01a44ac3dc64b2369e0e0e676e",
+        "qcdloop/ff/ffrcvr.f": "03473e216066c7bb6626e3cff9bf5120b1f3096ce6777226f51d22b17f97b5f7",
+        "qcdloop/ff/ffcdb0.f": "589965ad393051f237ad5361b3fd5cd5213b74c7e5f63db5a1b2c358355fe00f",
+        "qcdloop/ff/aaxinv.f": "598bcd22ec1f17c2fdb1406dff545ba3c29558b086832e62275bc7d2014d2f32",
+        "qcdloop/ff/ffdcxs.f": "e50a9cec3b71616a66c2c8a53131cb70ab6109bb71f4e7f31cc0a5d7da41f2d7",
+        "qcdloop/ff/ffxb2p.f": "50bb8a0c5b9729d664ea69df93815e1af5845e1686ff47471190c1b25462a40e",
+        "qcdloop/ff/aacbc.f": "2b6e36e744d54212cc579cfa5840466a13c7e227ed54166a40d73bbee36023bd",
+        "qcdloop/ql/qlfndd.f": "2b6666965425168f7845e0c713e02488e4bcc109ce99a7897fa41dee04c21d45",
+        "qcdloop/ql/qlbox13.f": "5d75306052b444e64c3e91308769f85b05ff01ea48e42a0a8500f86516cec13d",
+        "qcdloop/ql/qlbox5.f": "1e8e5933b16333117a75ab5ee75bb06da109664448fe979d4a69f42a5f3fdf57",
+        "qcdloop/ql/qlspencer.f": "026354f7b75eef62600b564d656353239c6b36fef758c8e46202f98868a17b60",
+        "qcdloop/ql/qlI3sub.f": "31fa6f1173953f062c38e418d77f30ff5f29a8cfa5fcc6f7ac92a6d89b7b01b6",
+        "qcdloop/ql/ddilog.f": "c8f1691debb485b9071dad69dff0128b6014f15a58159f161d00d510cf49ed63",
+        "qcdloop/ql/qlLi2omx.f": "2d5bad2700434c75c67bbb9d3a754a25df10642abf98e7855f297185de9ab46e",
+        "qcdloop/ql/qltri3.f": "3f8f5ae6fd3ac5c9261c0e189a460d2cae545f30f408f8ceccc4aed6d47ad301",
+        "qcdloop/ql/qlI4DNS41.f": "cdadb56ee9aa15738eaf6ac185f428e986fc947cb268c7ccd999e9c8e19fa20f",
+        "qcdloop/ql/qlI4.f": "b4d3dc8cb18e704d96f09978dec2e303b00cebc5277bba2c3ec4aec39911b101",
+        "qcdloop/ql/qltri2.f": "44d3a8f65dfebcde57b535d5381c0d272edc13386b7e55af0f666b10562cd08e",
+        "qcdloop/ql/qlLi2omx2.f": "4f27012fa22595d9300322bd42c97c30ae718fb33c21ecdc5c8c637800a3c931",
+        "qcdloop/ql/qlbox4.f": "ecff3160065c92185ca87afbcc2034df645354d756305de2a579519da62a180b",
+        "qcdloop/ql/qlI2fin.f": "5a8ff3988a031b7101f7eaf5fb1d97cad4fab7457a8d32868ffc5e8da8bb79ef",
+        "qcdloop/ql/qlbox12.f": "a8554797b44b764b1b13b9a422fffbf383b25439197c10953327feef5d2e0ad8",
+        "qcdloop/ql/qlbox10.f": "394d02106dbd444c9e4133ebcb3aa21d02e479fe8106f12bc54564fb9fc4e6d8",
+        "qcdloop/ql/qlbox6.f": "b6d08c0dc13cf04eefbaf237341049387c48c3d879f2302279f39fc61f343f98",
+        "qcdloop/ql/qlfunctions.f": "b8e1f11cee75ebfae2c5416168cd70faf684084ae34cfce19708dabd2fe369d3",
+        "qcdloop/ql/qlI4sub2mo.f": "55d8feee75b561f2eff3ebfeb65b1914fd8dcbf53b52120b7c8ad73bba655641",
+        "qcdloop/ql/qlI3fin.f": "01ad2afe338e20249898ec5cb0b56bf87057bb6cee9b67415fb2d42f1d1a66bc",
+        "qcdloop/ql/qlonshellcutoff.f": "a6b65dc7f21f258b64b20f668a95f9e91a8c0a6f3bdd13010f49f0e6aa7cef21",
+        "qcdloop/ql/qltri1.f": "1b18e05c9c6c6caece9c6b3b2c81bb355f810929ca6eee45d204f2c3ffa424c1",
+        "qcdloop/ql/qlsnglsort.f": "270cd4470d82d47d2565af9ab11b4912b0930f231f436d08bc707e68c727e925",
+        "qcdloop/ql/qlbox7.f": "849ef46d56d1a628754a755bfb4ee34d31e685ac3911d28d36a6775cfb6accf8",
+        "qcdloop/ql/qlbox11.f": "e21d52bdf0725d59457fe7c53128b27492b7a9d3d07d5a7062460d6b53390dbc",
+        "qcdloop/ql/qlkfn.f": "347da434c839b68fe6489b964f3332eba232be3dbec1ad0a2a39be34435b9088",
+        "qcdloop/ql/qlbox15.f": "d0afce99ba6183a80c59472442cd8242ae9a690c75b351375eb8c8e13066bc12",
+        "qcdloop/ql/qlbox3.f": "de33f076d32e88e15486a063920bb82941f6358377cf60b44ec53658f00b0c7a",
+        "qcdloop/ql/qlYcalc.f": "12cad400daf3627799d79207ff6af4a13f5b44c1cb5ac19bc87140781a2ee8a8",
+        "qcdloop/ql/qlbox9.f": "66f3afc6522df3d49806d8f5606f5323eea59d5b2dc4ac8ca7e06bfdae48906b",
+        "qcdloop/ql/qlxpicheck.f": "34be8f92e9cd4e8fb12b898eea195f73a4ca3a093c51ec15c5deeaf953024938",
+        "qcdloop/ql/auxCD.f": "6dd5df77c65de7668ff36d876de186f7d86e95d4286a1ffc9e77450aa65939be",
+        "qcdloop/ql/qltri5.f": "bf8fb09a23828089741cd2add4022a386bf92182543d136acf7487e61b5aa7cd",
+        "qcdloop/ql/qlI2.f": "a82b2855c6d53f5a5f50f46d9c78d98ad5a3dff32a53a617de19cb7b8c53394f",
+        "qcdloop/ql/qlI3.f": "11c585fd832106118972e9143e05d6554f0b358437dbee0c40e58f7c2c30a164",
+        "qcdloop/ql/qltri4.f": "e7d73f9e8e231e9ff739d6dfe3e4c1ff3f0d24c7ea59fa123b71818643fd0fed",
+        "qcdloop/ql/qltrisort.f": "ea94b1659b60002a9b4c0c8e51b3d179ffc2e5eacbe422d48be3c0b612846502",
+        "qcdloop/ql/qlbox8.f": "d9ec9af27ad323e47d5ad9cebfeaf37aae4a96cddfeab1c52d252dbd0f3bba1d",
+        "qcdloop/ql/qlI4sub2ma.f": "63655faed2223e523f7dcb625826db419e0a404411f64e4aa6a4a36ec3ca0ecb",
+        "qcdloop/ql/qlbox2.f": "64e6593d9336592591acc4158a952379aeee1503512e5ac61c240693328abbe3",
+        "qcdloop/ql/qlbox14.f": "c4061be3b62e354df4b6f13b9037aa793af300b0ccf35442bb27455d05010ba3",
+        "qcdloop/ql/qlI4sub0m.f": "1e839901ebbce68d121e972f44367b40db64c0a1c312d004d4ae283fd6e394f1",
+        "qcdloop/ql/qlbox16.f": "397885ffec712065a268c6136181fb52a2a9531d298b673e2884b206d4b762bc",
+        "qcdloop/ql/qllnomrat4.f": "171334a94c7f9324f04f21a97c7e3368f85d5a5b2dbfba9b80823162adb5ea9e",
+        "qcdloop/ql/qlcLi2omx3.f": "127d5bd6120c8e0ea20e8c9c0fedec27d35dcf3103a245fb4a1d9dad8975c9d4",
+        "qcdloop/ql/qlinit.f": "7ee96fe78b34360e98a49fb6fb8a0e12bca70ad407a9e418599bd3d371860865",
+        "qcdloop/ql/qlratgam.f": "30625359d1a989d39f9cec0fe158c15e1db7ecd87229ee61941338f6ea3ba2c7",
+        "qcdloop/ql/qltri6.f": "4bdf53ca979eca50363cb4584241b2d400b8abd79bcfc4da2729e60b60fc3a4d",
+        "qcdloop/ql/qlratreal.f": "72a6e519226aee4165f426e76d0fd264021a05d4d8c25b4da08be6128bf90ba4",
+        "qcdloop/ql/qlI4sub1m.f": "54bc45dc46287aa608c97853c02dbd5523dfafe6db8817112cc81779a8128880",
+        "qcdloop/ql/qlI1.f": "a9a8517e3340c6f9723a72f1306f89446eb2d86ef2d31c68672fce3457034468",
+        "qcdloop/ql/qlI4array.f": "bd78eafaf47bc106de8f88a23b460e5edd8091a03d5cd28cd8a01d4237c326f7",
+        "qcdloop/ql/qlI4sub3m.f": "c65c42e7bbf6c6ad7219b287e87f073003021578f5adeb53afd04130b4e54032",
+        "qcdloop/ql/qllnrat.f": "477b30faa0572b2d6b98830f8cc225f30e842d041618b01f9af2635546b98f35",
+        "qcdloop/ql/qlI4fin.f": "01252afff29c35cf30f603564f42ea09303913935d6a22dd60e5a88a256a46ce",
+        "qcdloop/ql/qlLi2omprod.f": "1fb5c73145a04b27e24bf24168b462ea3b8280a1a376677d14d45b34cbe48340",
+        "qcdloop/ql/qlcLi2omx2.f": "fddc6f8663345164f43f9f8800203b0be7e86c210de88a99e9533cd606713656",
+        "qcdloop/ql/qlzero.f": "84d71fc8fece1e0b43eff433c280e09f048822a26e0b65f025510c12832840fb",
+        "qcdloop/ql/qlI4sub2m.f": "2b4293fa94bac395f7dfef8cd6b70153cdcfa86aec28a4ea4e47636c08090e89",
+        "qcdloop/ql/qlconstants.f": "4b6e366738f6ac7fab86257bdab6c480dc8ce0646f4c51411fa8f14ce46abf41",
+        "qcdloop/ql/qlbox1.f": "5f844fbb6e047fd9330ce9fb7c2b923b24de2447357c4e5909a2d957c3387f1d",
+        "qcdloop/ql/qlLi2omrat.f": "90b5b535d8353b66051b111ba0bfd5cd8aa8a39e41763cb44ddf5c098c6b470d",
+        "oneloop/src/avh_olo_arrays.f90": "10a6703cc4b0e65b765333c4b94ac644431dfd336c9c4c75463a215a076c265f",
+        "oneloop/src/avh_olo_version.f90": "32d52d21341a497984d412792dfe02c623eefed683beed36364ec37ae36f5021",
+        "oneloop/src/avh_olo_intrinsic.f90": "cdc8a0f2d1807e9bf9ff811c7fa536b06c18af7e54ca78a3fa8303b1d17ec283",
+        "oneloop/src/avh_olo_olog.f90": "0d60f7a02adfdee4f146895e1a3f837b5cdb6add194214f37e1762647a0ff005",
+        "oneloop/src/avh_olo_arprec.f90": "c876918d571241882d74bade45595561f6c632126462ce4cd00777b9514509c2",
+        "oneloop/src/avh_olo_box.f90": "c4cc0e1c6fd022f97a5f211308e14a4e07f052890925c2cac675124a00deadf4",
+        "oneloop/src/avh_olo_mpfun90.f90": "db0918f3204c7ee56842a9c3183cf40c8392264e952b0c3499996288bc24f80e",
+        "oneloop/src/avh_olo_boxc.f90": "18de65941eb162132b646593d5f3b324ccd5a0caf3fc72cf99854d3f70d7992a",
+        "oneloop/src/avh_olo_qmplx.f90": "f88b81cd047cd14be8c91f25585f5e2e4d468d9985877f4fb38bafe1804aa20e",
+        "oneloop/src/avh_olo_units.f90": "b7d3f0fa00660ac314c5af3447e47f76c97d7ef031bbb780d0449a8096d9c752",
+        "oneloop/src/avh_olo_ddfun90.f90": "e86322c79f70854989335fecce28ba55041132fa0642ecd4391b02aadf9bad6b",
+        "oneloop/src/avh_olo_dilog.f90": "4d1d2c7c5cadc8fa78b2ec4db605b141d8baa228b1630949a8940337b1b793b5",
+        "oneloop/src/avh_olo_wrp01.f90": "57c406d0824f0d53b80f474bf82d61cba98e3e427998a7986b7cb3cd85706ad4",
+        "oneloop/src/avh_olo_auxfun.f90": "49dc0f29e0d8efe7e8f3236707be0af8415e17cdccc5509ea1467e99a0a37c91",
+        "oneloop/src/avh_olo_kinds.f90": "a96821b63d44cb92f7c25b3f6429a83f0058a48ae280d3468cce9769cc4dd75b",
+        "oneloop/src/avh_olo_bub.f90": "7cadbd3b714b52ca61e2e0434c00c2ae00eefb1cc628752906d99608ae2d36dd",
+        "oneloop/src/avh_olo_print.f90": "d28bfa0d9334b2b6a18cf765c541245e257bf6e2164ffb67cc9014a20b6f71bb",
+        "oneloop/src/avh_olo_qdcpp.f90": "875e7b0861b5fc76c85ad91627438398aeac5804db1bdd3ddedc693c6af10ae2",
+        "oneloop/src/avh_olo_tri.f90": "f894fc249b6f28986d18272dd91fe45889bd818efac5c4a312a6c1b8298568b8",
+        "oneloop/src/avh_olo_main.f90": "e4332a9b09f746d467b8b3ffe448ba9ccfe33565fc2943b431de530a4a0ec50e",
+        "oneloop/src/avh_olo_comb.f90": "d91fe7670f6607cd9bd24095fdbd6754f14653b38015db13bfbbcbbada55fe54",
+        "oneloop/src/avh_olo_bnlog.f90": "16421269108a8116c555f48a8b211ef4e5c9395f7d4cfc266155b91a253e84ed",
+        "oneloop/example_mpfun90/example.f": "4153e94ab72255ab6b27ea5027826f90f6fa50ef54ade876cb8b1f3fdcbac95a",
+        "oneloop/example_qdcpp/f_test.f": "90fab152e42cf700bcb999bdb9a1df9143ba07847ded7b4e7edb17da5d0ae98b",
+        "oneloop/example_cpp/cavh_olo.h": "f19561a8cb639fed6232236ef1285217bec15cbbba5c0269b5fa649b48af021f",
+        "oneloop/example_ddfun90/example.f": "89712a336ccf110b980bc57374ca08c94d7d3625a633a10016223978c375b8fb",
+        "oneloop/example/example.f": "70e34d10b1a7a45712f38c56aae45e8d510d8028b0b66def1576ff1a9063173a",
+        "oneloop/example_arprec/f_test.f": "265f7ffc5d725e2aaa653ffb90298616aa93ec59a7d5cd58313054880266bc70",
+        "oneloop/ONI/src/avh_oni_dqagpe.f": "cca79e6e9af58fac494d5b1db8456e6cbb68180473e8e04ec000dbc60711df5c",
+        "oneloop/ONI/src/avh_oni_3fin.f": "0f21359e42025c297e37150a4854deeee2cb9a3d82f55eeb993db42ad8059cb1",
+        "oneloop/ONI/src/avh_oni_3div.f": "515237ad867eeeb1f38c55cd6cdce90a9bd42061e4a400f6459d4aefbbb4869b",
+        "oneloop/ONI/src/avh_oni_cuba-1.x.h": "7ddcfda184b55ee06b0c81e0ad136b1aa4a86daeb1078bcaeccc246eb2c8693b",
+        "oneloop/ONI/src/avh_oni_func.f": "3f8970d32354a47e40ab097cf097ceccf230f139e0d6326bb8ad02b206a0016a",
+        "oneloop/ONI/src/avh_oni_d1mach.f": "3f1b4e140fe8b6985143a3563d7d8b09da171ecd90a6aba5e67fbb8507fc4125",
+        "oneloop/ONI/src/avh_oni_hello.f": "528d62e4bf500cb926122c0ded7b83337d9362cd2e4d8bbf8810c4b3a1a7c809",
+        "oneloop/ONI/src/avh_oni_dfam.f": "6af9df4058637097915cad91626db9944954cab75697232e5e27e4643f91be08",
+        "oneloop/ONI/src/avh_oni_4div.f": "7cca0e082af938fbbb44115ca81818e582f465bd5d96b4561a4309535bcb1343",
+        "oneloop/ONI/src/avh_oni_cuba.h": "6b2325e2b136e2b4ea4e83fd5d2f6c87839258ef5f9f176ba40f6f57e663dd48",
+        "oneloop/ONI/src/avh_oni_cuba-2.x.h": "6b2325e2b136e2b4ea4e83fd5d2f6c87839258ef5f9f176ba40f6f57e663dd48",
+        "oneloop/ONI/src/avh_oni_cmplx.f": "a55a5a9dde8646797cfbfa65c04937a5a85f34334110e528b6b285d585198709",
+        "oneloop/ONI/src/avh_oni_cuba.f": "e33f215f98c41147075a43bef4c0a3afcee7bd7d29b54017d27557cb6f98965d",
+        "oneloop/ONI/src/avh_oni_real.f": "6f53fd528b2701d644c95f0c7b56f0cb7c2a18b58ea5a57b5ab992a160768aaf",
+        "oneloop/ONI/example/example.f": "bf155e6391a7f0d1e80e27f1aa70dcb18f77c1d753a2e85849cf3a1cb638362c"
+      },
+      "patch_sha256": "c39de3683ebd8c1494dc35bde8de8dfadd34a531c6675a4265c776dfdeb1b67a",
+      "driver_sha256": "537feca6168480d98d541e1cf2331b79708c4a6caa425ddd23862a51c5b999df"
+    },
+    "build_provenance_path": "target/reference/provenance.json",
+    "build_provenance_sha256": "bf1330181d941ab525009e33e58f2aa5e581d89d40877e516c0b7402b0443e74",
+    "script": "target/generalized-pv/capture_reference.py",
+    "script_sha256": "ceab7ced2bd291a9d96c9c167f07bdf6c2e782641e979b8a18eab3130a855fa8",
+    "encoding_harness": "validation/reference/capture.py",
+    "encoding_harness_sha256": "95c1fc9da3cff457e30cf8eb04a258bef4a999b38f8adebc1499e35705ec1ada",
+    "driver_source_sha256_current": "99e8201f5687c2106b1b3b2c8e65bd1fbda4d1722b258db6e7298f889d31d3c2",
+    "recorded_build_driver": {
+      "path": "target/generalized-pv/reference-raw/recorded-build-driver.f90",
+      "sha256": "537feca6168480d98d541e1cf2331b79708c4a6caa425ddd23862a51c5b999df",
+      "source_commit": "92eafe860498d8aae0453eaab0f1898f8e8abfd2",
+      "matches_recorded_build_hash": true
+    },
+    "driver_drift": {
+      "current_matches_recorded_build": false,
+      "diff_path": "target/generalized-pv/reference-raw/recorded-build-driver-to-current.diff",
+      "diff_sha256": "789399c81209a09dcd4c15498e47839aa05b9c507e91b0b891487867ac79a938",
+      "scope": "Later driver changes add mass-reference deduplication and tiny-complex-width dispatch; fixtures use distinct positive real masses with snapping disabled, so these changes are inactive here. No claim is made that the executable uses the current driver."
+    },
+    "patched_funlib_sha256": "d748ab4f886c3336dec5adcbdabd609dafff2ff411b34feb8cda7b4ff03500a0",
+    "python_executable": "/nix/store/0r6k8xa2kgqyp3r4v2w7yrb80ma2iawm-python3-3.13.12/bin/python3",
+    "python_version": "3.13.12 (main, Feb  3 2026, 17:53:27) [GCC 15.2.0]",
+    "working_directory": "/shared/external/iregi/iregi-rust",
+    "command": [
+      "/nix/store/0r6k8xa2kgqyp3r4v2w7yrb80ma2iawm-python3-3.13.12/bin/python3",
+      "target/generalized-pv/capture_reference.py"
+    ],
+    "isolated_process_per_request": true,
+    "timeout_seconds_per_request": 30
+  },
+  "cases": [
+    {
+      "input": {
+        "id": "n1_p1_h1_mode0",
+        "api": "general",
+        "mode": 0,
+        "rank": 0,
+        "dimension_shift": 2,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "mass_squared": [
+              4,
+              0
+            ],
+            "power": 1
+          }
+        ]
+      },
+      "role": "anchored_generalized",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "n1_p1_h1_mode0",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              0.0,
+              -248.05021344239853
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              -146.09777198299108
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.002117299009114504,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-raw/n1_p1_h1_mode0.input",
+            "sha256": "ef3ec439ce4e87908ac7fc7bde116ab3ec191a103360abcd20a3a2326b541cce"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-raw/n1_p1_h1_mode0.stdout.log",
+            "sha256": "51695d2f0cc7d49e939bc79979745810b93233dc4fbd0c0e18d2bf86ef1cfa35"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-raw/n1_p1_h1_mode0.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "id": "n1_p1_h1_mode1",
+        "api": "general",
+        "mode": 1,
+        "rank": 0,
+        "dimension_shift": 2,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "mass_squared": [
+              4,
+              0
+            ],
+            "power": 1
+          }
+        ]
+      },
+      "role": "anchored_generalized",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "n1_p1_h1_mode1",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              0.0,
+              -248.05021344239853
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              -146.0977719829911
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.0016153269680216908,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-raw/n1_p1_h1_mode1.input",
+            "sha256": "2d0aca8225c0e26abe4e7710d5ff939ed728ba9c250b574dbfc095ace4b76d5d"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-raw/n1_p1_h1_mode1.stdout.log",
+            "sha256": "abc036469ac1e395eaf3b07d362a7760c079d3938cf721bc1079ca10671dcb00"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-raw/n1_p1_h1_mode1.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "id": "n1_p1_h1_mode2",
+        "api": "general",
+        "mode": 2,
+        "rank": 0,
+        "dimension_shift": 2,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "mass_squared": [
+              4,
+              0
+            ],
+            "power": 1
+          }
+        ]
+      },
+      "role": "anchored_generalized",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "n1_p1_h1_mode2",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              0.0,
+              -248.05021344239853
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              -146.0977719829911
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.002410599961876869,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-raw/n1_p1_h1_mode2.input",
+            "sha256": "5ad960914909b8d3a5a699f92dd722b5abf615e75f15fadd3002da027b37f511"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-raw/n1_p1_h1_mode2.stdout.log",
+            "sha256": "bb9000fc62c126178ed88a85cf6636c9de5d1ad30b65cbb279dbdabe0a4bc828"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-raw/n1_p1_h1_mode2.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "id": "n2_p12_h1_mode0",
+        "api": "general",
+        "mode": 0,
+        "rank": 0,
+        "dimension_shift": 2,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "mass_squared": [
+              4,
+              0
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              0,
+              1,
+              0,
+              0
+            ],
+            "mass_squared": [
+              9,
+              0
+            ],
+            "power": 2
+          }
+        ]
+      },
+      "role": "anchored_generalized",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "n2_p12_h1_mode0",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              0.0,
+              -15.50313834014986
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              23.672176009646634
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.0017268169904127717,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-raw/n2_p12_h1_mode0.input",
+            "sha256": "529b076c068a32a389826aa99cea7cf243d6a8da5662d89a820fe2de5b860f85"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-raw/n2_p12_h1_mode0.stdout.log",
+            "sha256": "f7e457035c4aedc23b77daaf6074733de65d1824f1f40a4e2848a157a2b4cd3b"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-raw/n2_p12_h1_mode0.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "id": "n2_p12_h1_mode1",
+        "api": "general",
+        "mode": 1,
+        "rank": 0,
+        "dimension_shift": 2,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "mass_squared": [
+              4,
+              0
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              0,
+              1,
+              0,
+              0
+            ],
+            "mass_squared": [
+              9,
+              0
+            ],
+            "power": 2
+          }
+        ]
+      },
+      "role": "anchored_generalized",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "n2_p12_h1_mode1",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              0.0,
+              -15.503138340149903
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              23.67217600964663
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.0021299790823832154,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-raw/n2_p12_h1_mode1.input",
+            "sha256": "7024698c4ae8a3cd255ae0c901d90b448a867f06ad4d8bb8724313ced1eeb8ea"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-raw/n2_p12_h1_mode1.stdout.log",
+            "sha256": "f2523ecc7fcad5d965b5e63972b4e32402dea363ab06b0a0f9fe0ead3d59c016"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-raw/n2_p12_h1_mode1.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "id": "n2_p12_h1_mode2",
+        "api": "general",
+        "mode": 2,
+        "rank": 0,
+        "dimension_shift": 2,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "mass_squared": [
+              4,
+              0
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              0,
+              1,
+              0,
+              0
+            ],
+            "mass_squared": [
+              9,
+              0
+            ],
+            "power": 2
+          }
+        ]
+      },
+      "role": "anchored_generalized",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "n2_p12_h1_mode2",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              0.0,
+              -15.503138340149903
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              23.67217600964663
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.0018063869792968035,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-raw/n2_p12_h1_mode2.input",
+            "sha256": "3a8b1676de19fb7a374a104244f6ba5a185c9146532dc127ace788ff381b0826"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-raw/n2_p12_h1_mode2.stdout.log",
+            "sha256": "9daaf12e070a1dff27019fc6031bc6581aa2e5bd02b70fb5a1de8e9985026d1e"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-raw/n2_p12_h1_mode2.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "id": "n2_p13_h2_mode0",
+        "api": "general",
+        "mode": 0,
+        "rank": 0,
+        "dimension_shift": 4,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "mass_squared": [
+              4,
+              0
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              0,
+              1,
+              0,
+              0
+            ],
+            "mass_squared": [
+              9,
+              0
+            ],
+            "power": 3
+          }
+        ]
+      },
+      "role": "anchored_generalized",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "n2_p13_h2_mode0",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              0.0,
+              16.234848505666797
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              -25.721018518608048
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.0017409470165148377,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-raw/n2_p13_h2_mode0.input",
+            "sha256": "76d41d0c59d8444118a738038e4fa61954e03fc56578e47efeb8dceca8e2a8e0"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-raw/n2_p13_h2_mode0.stdout.log",
+            "sha256": "0a28d86f4d256c94e710bde83d2fda8153f412010a62a59dede09626ea37fe3b"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-raw/n2_p13_h2_mode0.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "id": "n2_p13_h2_mode1",
+        "api": "general",
+        "mode": 1,
+        "rank": 0,
+        "dimension_shift": 4,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "mass_squared": [
+              4,
+              0
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              0,
+              1,
+              0,
+              0
+            ],
+            "mass_squared": [
+              9,
+              0
+            ],
+            "power": 3
+          }
+        ]
+      },
+      "role": "anchored_generalized",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "n2_p13_h2_mode1",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              0.0,
+              16.234848505667014
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              -25.72101851860797
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.0016323369927704334,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-raw/n2_p13_h2_mode1.input",
+            "sha256": "481bac44339fc53bb4662d8a2f2b7daf8690e447ba47f6deec609afd58ba8e33"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-raw/n2_p13_h2_mode1.stdout.log",
+            "sha256": "8ed115c26958439267b5bc1c88d2ba1594c15cfae10f5229e4e480c742b15277"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-raw/n2_p13_h2_mode1.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "id": "n2_p13_h2_mode2",
+        "api": "general",
+        "mode": 2,
+        "rank": 0,
+        "dimension_shift": 4,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "mass_squared": [
+              4,
+              0
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              0,
+              1,
+              0,
+              0
+            ],
+            "mass_squared": [
+              9,
+              0
+            ],
+            "power": 3
+          }
+        ]
+      },
+      "role": "anchored_generalized",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "n2_p13_h2_mode2",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              0.0,
+              16.234848505667014
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              -25.72101851860797
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.0018543279729783535,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-raw/n2_p13_h2_mode2.input",
+            "sha256": "009685a63af693053937c30d6498af90234b1fe55e728258cff48f094291afd3"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-raw/n2_p13_h2_mode2.stdout.log",
+            "sha256": "b8e5d4ec4eaaaf8df7cbeefa674327e341a7a02a4bd84c6bc592b20112372c6d"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-raw/n2_p13_h2_mode2.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "id": "n2_p12_h2_mode0",
+        "api": "general",
+        "mode": 0,
+        "rank": 0,
+        "dimension_shift": 4,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "mass_squared": [
+              4,
+              0
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              0,
+              1,
+              0,
+              0
+            ],
+            "mass_squared": [
+              9,
+              0
+            ],
+            "power": 2
+          }
+        ]
+      },
+      "role": "anchored_generalized",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "n2_p12_h2_mode0",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              0.0,
+              365.2840913775085
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              -201.4868130779048
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.0019463679054751992,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-raw/n2_p12_h2_mode0.input",
+            "sha256": "0368ba8e46130dc79f52e98d3b1b2d55e4407ae8f27dae1eeb144d8ca876f3c6"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-raw/n2_p12_h2_mode0.stdout.log",
+            "sha256": "8ae9eea84e739ea7e0bd78773cca6462f8e7748200f6445b5fc2dd5134d1308b"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-raw/n2_p12_h2_mode0.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "id": "n2_p12_h2_mode1",
+        "api": "general",
+        "mode": 1,
+        "rank": 0,
+        "dimension_shift": 4,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "mass_squared": [
+              4,
+              0
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              0,
+              1,
+              0,
+              0
+            ],
+            "mass_squared": [
+              9,
+              0
+            ],
+            "power": 2
+          }
+        ]
+      },
+      "role": "anchored_generalized",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "n2_p12_h2_mode1",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              0.0,
+              365.2840913775089
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              -201.48681307790417
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.001717745908536017,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-raw/n2_p12_h2_mode1.input",
+            "sha256": "06a24f0e0b1c056ba7ddc42556ade8c6a04cf9448c3a280448104a7389d93ccd"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-raw/n2_p12_h2_mode1.stdout.log",
+            "sha256": "847b6f49568c5d8729a669b201ff1074da729e0fffda0256c9e89f21b9277c23"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-raw/n2_p12_h2_mode1.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "id": "n2_p12_h2_mode2",
+        "api": "general",
+        "mode": 2,
+        "rank": 0,
+        "dimension_shift": 4,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "mass_squared": [
+              4,
+              0
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              0,
+              1,
+              0,
+              0
+            ],
+            "mass_squared": [
+              9,
+              0
+            ],
+            "power": 2
+          }
+        ]
+      },
+      "role": "anchored_generalized",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "n2_p12_h2_mode2",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              0.0,
+              365.2840913775089
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              -201.48681307790417
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.0019311170326545835,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-raw/n2_p12_h2_mode2.input",
+            "sha256": "b4f495bfec73a5ad9d2e15a0a8e1925c634df37e91f7f8c1406e9feb807c7cba"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-raw/n2_p12_h2_mode2.stdout.log",
+            "sha256": "ab6d828f63b5afe9b2ad6140ebd6bca276191abe65294951c839bc15f6788d37"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-raw/n2_p12_h2_mode2.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "id": "n3_p123_h4_mode0",
+        "api": "general",
+        "mode": 0,
+        "rank": 0,
+        "dimension_shift": 8,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "mass_squared": [
+              4,
+              0
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              0,
+              1,
+              0,
+              0
+            ],
+            "mass_squared": [
+              9,
+              0
+            ],
+            "power": 2
+          },
+          {
+            "shift": [
+              0,
+              0,
+              2,
+              0
+            ],
+            "mass_squared": [
+              16,
+              0
+            ],
+            "power": 3
+          }
+        ]
+      },
+      "role": "anchored_generalized",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "n3_p123_h4_mode0",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              0.0,
+              8.011576613129918
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              6.74685998494783e-11,
+              -16.48101382554006
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.002121687983162701,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-raw/n3_p123_h4_mode0.input",
+            "sha256": "39c5394baedbe7da5d212e645b17f863541b93591651dc40a6e09d98b3fb7aa1"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-raw/n3_p123_h4_mode0.stdout.log",
+            "sha256": "a80ba7a216d6ed7957de13dfe53c8a077cac4a144ce1581b8f51df4a618afff9"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-raw/n3_p123_h4_mode0.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "id": "n3_p123_h4_mode1",
+        "api": "general",
+        "mode": 1,
+        "rank": 0,
+        "dimension_shift": 8,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "mass_squared": [
+              4,
+              0
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              0,
+              1,
+              0,
+              0
+            ],
+            "mass_squared": [
+              9,
+              0
+            ],
+            "power": 2
+          },
+          {
+            "shift": [
+              0,
+              0,
+              2,
+              0
+            ],
+            "mass_squared": [
+              16,
+              0
+            ],
+            "power": 3
+          }
+        ]
+      },
+      "role": "anchored_generalized",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "n3_p123_h4_mode1",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              0.0,
+              8.011576613126602
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              6.746859984947835e-11,
+              -16.481013825544125
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.002012968063354492,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-raw/n3_p123_h4_mode1.input",
+            "sha256": "217883b8d2f0f148d0c13cc6f1e5176206e195b86a78ec6d84ddd50e0b67707b"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-raw/n3_p123_h4_mode1.stdout.log",
+            "sha256": "17c7f4d62bedb8bb5e4580826c81927fe6ec747acb15130b014b04b0954b34aa"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-raw/n3_p123_h4_mode1.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "id": "n3_p123_h4_mode2",
+        "api": "general",
+        "mode": 2,
+        "rank": 0,
+        "dimension_shift": 8,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "mass_squared": [
+              4,
+              0
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              0,
+              1,
+              0,
+              0
+            ],
+            "mass_squared": [
+              9,
+              0
+            ],
+            "power": 2
+          },
+          {
+            "shift": [
+              0,
+              0,
+              2,
+              0
+            ],
+            "mass_squared": [
+              16,
+              0
+            ],
+            "power": 3
+          }
+        ]
+      },
+      "role": "anchored_generalized",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "n3_p123_h4_mode2",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              0.0,
+              8.011576613126602
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              6.746859984947835e-11,
+              -16.481013825544125
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.0027913710800930858,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-raw/n3_p123_h4_mode2.input",
+            "sha256": "c6a62b0950b7c3f1044dd4e3e84143f49a9a00c8d663f33c66d41df9ad762ad5"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-raw/n3_p123_h4_mode2.stdout.log",
+            "sha256": "d42a38d4af657b3c9574c3fdf33876428058717a7fc4285a53385316cb028c2a"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-raw/n3_p123_h4_mode2.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "id": "n4_unit_h1_mode0",
+        "api": "general",
+        "mode": 0,
+        "rank": 0,
+        "dimension_shift": 2,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "mass_squared": [
+              4,
+              0
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              0,
+              1,
+              0,
+              0
+            ],
+            "mass_squared": [
+              9,
+              0
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              0,
+              0,
+              2,
+              0
+            ],
+            "mass_squared": [
+              16,
+              0
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              3
+            ],
+            "mass_squared": [
+              25,
+              0
+            ],
+            "power": 1
+          }
+        ]
+      },
+      "role": "anchored_generalized",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "n4_unit_h1_mode0",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              -1.0638618856504826e-13,
+              0.3584984848172163
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.002069288049824536,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-raw/n4_unit_h1_mode0.input",
+            "sha256": "a9ce0e5ee6d63c6fd042ae314522d9d80f0fa99cc61c2540c00275aea34dbf42"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-raw/n4_unit_h1_mode0.stdout.log",
+            "sha256": "ce1ad630433b534642a26229a0a6d0f6b5cf2ff1dd33db0abea61f08cdbe0bfa"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-raw/n4_unit_h1_mode0.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "id": "n4_unit_h1_mode1",
+        "api": "general",
+        "mode": 1,
+        "rank": 0,
+        "dimension_shift": 2,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "mass_squared": [
+              4,
+              0
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              0,
+              1,
+              0,
+              0
+            ],
+            "mass_squared": [
+              9,
+              0
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              0,
+              0,
+              2,
+              0
+            ],
+            "mass_squared": [
+              16,
+              0
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              3
+            ],
+            "mass_squared": [
+              25,
+              0
+            ],
+            "power": 1
+          }
+        ]
+      },
+      "role": "anchored_generalized",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "n4_unit_h1_mode1",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              -1.0638618856504824e-13,
+              0.3584984848172154
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.0017170669743791223,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-raw/n4_unit_h1_mode1.input",
+            "sha256": "a399b209c6796c3651e82cb861693c999eece7ce74697d3b4d773732cf1367f5"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-raw/n4_unit_h1_mode1.stdout.log",
+            "sha256": "888692cc09f73d6cf0e8e43109461abe2ddc8346cc9db4a577f77e482dede78c"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-raw/n4_unit_h1_mode1.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "id": "n4_unit_h1_mode2",
+        "api": "general",
+        "mode": 2,
+        "rank": 0,
+        "dimension_shift": 2,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "mass_squared": [
+              4,
+              0
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              0,
+              1,
+              0,
+              0
+            ],
+            "mass_squared": [
+              9,
+              0
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              0,
+              0,
+              2,
+              0
+            ],
+            "mass_squared": [
+              16,
+              0
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              3
+            ],
+            "mass_squared": [
+              25,
+              0
+            ],
+            "power": 1
+          }
+        ]
+      },
+      "role": "anchored_generalized",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "n4_unit_h1_mode2",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              -1.0638618856504824e-13,
+              0.3584984848172154
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.0017381669022142887,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-raw/n4_unit_h1_mode2.input",
+            "sha256": "1711b45487c4a6b216811a1ae3597d2d391940d7b717402d7ce72514e20d0465"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-raw/n4_unit_h1_mode2.stdout.log",
+            "sha256": "48a20f00cca55e0478a707ff81efe9c8e69daade968ea54f603c0ab1ba005e5e"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-raw/n4_unit_h1_mode2.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "id": "n2_p21_h1_mode0",
+        "api": "general",
+        "mode": 0,
+        "rank": 0,
+        "dimension_shift": 2,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "mass_squared": [
+              4,
+              0
+            ],
+            "power": 2
+          },
+          {
+            "shift": [
+              0,
+              1,
+              0,
+              0
+            ],
+            "mass_squared": [
+              9,
+              0
+            ],
+            "power": 1
+          }
+        ]
+      },
+      "role": "anchored_generalized",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "n2_p21_h1_mode0",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              0.0,
+              -15.50313834014996
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              19.63520334076054
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.001557647017762065,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-raw/n2_p21_h1_mode0.input",
+            "sha256": "b0076ddb8c02fb7d9390c800617689b93a90da54742978c4ab0b76632009554c"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-raw/n2_p21_h1_mode0.stdout.log",
+            "sha256": "354b88d1c278116dc3452c2ddbcf6458a36278a45e520313078ac8393cbf04c9"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-raw/n2_p21_h1_mode0.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "id": "n2_p21_h1_mode1",
+        "api": "general",
+        "mode": 1,
+        "rank": 0,
+        "dimension_shift": 2,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "mass_squared": [
+              4,
+              0
+            ],
+            "power": 2
+          },
+          {
+            "shift": [
+              0,
+              1,
+              0,
+              0
+            ],
+            "mass_squared": [
+              9,
+              0
+            ],
+            "power": 1
+          }
+        ]
+      },
+      "role": "anchored_generalized",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "n2_p21_h1_mode1",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              0.0,
+              -15.50313834014996
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              19.63520334076054
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.001803977065719664,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-raw/n2_p21_h1_mode1.input",
+            "sha256": "5594aa87d7dc6292d4ff946a4d727c4dd1d91e0fc680f7f2c214e802367881de"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-raw/n2_p21_h1_mode1.stdout.log",
+            "sha256": "1ada5527531542d996169433c52d825cb1d909aea2d5fbfe21548a57cfc45ffa"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-raw/n2_p21_h1_mode1.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "id": "n2_p21_h1_mode2",
+        "api": "general",
+        "mode": 2,
+        "rank": 0,
+        "dimension_shift": 2,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "mass_squared": [
+              4,
+              0
+            ],
+            "power": 2
+          },
+          {
+            "shift": [
+              0,
+              1,
+              0,
+              0
+            ],
+            "mass_squared": [
+              9,
+              0
+            ],
+            "power": 1
+          }
+        ]
+      },
+      "role": "anchored_generalized",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "n2_p21_h1_mode2",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              0.0,
+              -15.50313834014996
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              19.63520334076054
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.001655536936596036,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-raw/n2_p21_h1_mode2.input",
+            "sha256": "fdbab263d83133ef509d85537fed18bd0050f2b40bb54f97d3a61ce7305a7e58"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-raw/n2_p21_h1_mode2.stdout.log",
+            "sha256": "4f2bfa8ff1868715c3e7aaaff8564c5ac92c309ba82b71be1fb68ebbff81f1e4"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-raw/n2_p21_h1_mode2.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "id": "n2_unit_hm1_r0_mode0",
+        "api": "general",
+        "mode": 0,
+        "rank": 0,
+        "dimension_shift": -2,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "mass_squared": [
+              4,
+              0
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              0,
+              1,
+              0,
+              0
+            ],
+            "mass_squared": [
+              9,
+              0
+            ],
+            "power": 1
+          }
+        ]
+      },
+      "role": "anchored_generalized",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "n2_unit_hm1_r0_mode0",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.4963202300310545
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.0016236769733950496,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-raw/n2_unit_hm1_r0_mode0.input",
+            "sha256": "ee86fa8f4fc1b0c6ddb0ec1a61c6590fd3a4c88b7235df32cdb62314a6bf78eb"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-raw/n2_unit_hm1_r0_mode0.stdout.log",
+            "sha256": "49cc7d78fcf2f6cd8ed39bf23639d1e9994db57d180ff98fc7f3ef5e7c068407"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-raw/n2_unit_hm1_r0_mode0.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "id": "n2_unit_hm1_r0_mode1",
+        "api": "general",
+        "mode": 1,
+        "rank": 0,
+        "dimension_shift": -2,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "mass_squared": [
+              4,
+              0
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              0,
+              1,
+              0,
+              0
+            ],
+            "mass_squared": [
+              9,
+              0
+            ],
+            "power": 1
+          }
+        ]
+      },
+      "role": "anchored_generalized",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "n2_unit_hm1_r0_mode1",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.4963202300310545
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.0026744300266727805,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-raw/n2_unit_hm1_r0_mode1.input",
+            "sha256": "1773f0f477c8ba18bead1b474fde676ebc091d88102264aae35c48bb11a22653"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-raw/n2_unit_hm1_r0_mode1.stdout.log",
+            "sha256": "9845614bfc43c00dc43de3eb7b258dfbcb51eee53308ce402cf28396518c5021"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-raw/n2_unit_hm1_r0_mode1.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "id": "n2_unit_hm1_r0_mode2",
+        "api": "general",
+        "mode": 2,
+        "rank": 0,
+        "dimension_shift": -2,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "mass_squared": [
+              4,
+              0
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              0,
+              1,
+              0,
+              0
+            ],
+            "mass_squared": [
+              9,
+              0
+            ],
+            "power": 1
+          }
+        ]
+      },
+      "role": "anchored_generalized",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "n2_unit_hm1_r0_mode2",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.4963202300310545
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.0021690489957109094,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-raw/n2_unit_hm1_r0_mode2.input",
+            "sha256": "56f67295b12946a17f4a6b93f32bb447b7d9f57f1199fa2f742e37945cb23d6a"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-raw/n2_unit_hm1_r0_mode2.stdout.log",
+            "sha256": "4eb8d8058f178563f26409bb568201a0eaf6c8767ec54a5f1529ec9501133f73"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-raw/n2_unit_hm1_r0_mode2.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "id": "n2_unit_hm1_r2_mode0",
+        "api": "general",
+        "mode": 0,
+        "rank": 2,
+        "dimension_shift": -2,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "mass_squared": [
+              4,
+              0
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              0,
+              1,
+              0,
+              0
+            ],
+            "mass_squared": [
+              9,
+              0
+            ],
+            "power": 1
+          }
+        ]
+      },
+      "role": "anchored_generalized",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "n2_unit_hm1_r2_mode0",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.4963202300310545
+            ]
+          ],
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ]
+          ],
+          [
+            [
+              0.0,
+              -1.5223167706150166e-16
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              -0.21515448517356306
+            ]
+          ],
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ]
+          ],
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ]
+          ],
+          [
+            [
+              0.0,
+              -1.5707963267948966
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              2.1939774681154955
+            ]
+          ],
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ]
+          ],
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ]
+          ],
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ]
+          ],
+          [
+            [
+              0.0,
+              1.5707963267948974
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              -2.059362290539692
+            ]
+          ],
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ]
+          ],
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ]
+          ],
+          [
+            [
+              0.0,
+              1.5707963267948966
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              -2.1939774681154955
+            ]
+          ],
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ]
+          ],
+          [
+            [
+              0.0,
+              1.5707963267948966
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              -2.1939774681154955
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.008355314028449357,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-raw/n2_unit_hm1_r2_mode0.input",
+            "sha256": "c6b4cc7252582701ad34cba5999c68f4137fc2a5182ead7897fd1bcfe5e84175"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-raw/n2_unit_hm1_r2_mode0.stdout.log",
+            "sha256": "d4090568c4cbf5516a6e8eea4db8202764528cc522d43e4d7041b1bdf97ad7f6"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-raw/n2_unit_hm1_r2_mode0.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "id": "n2_unit_hm1_r2_mode1",
+        "api": "general",
+        "mode": 1,
+        "rank": 2,
+        "dimension_shift": -2,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "mass_squared": [
+              4,
+              0
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              0,
+              1,
+              0,
+              0
+            ],
+            "mass_squared": [
+              9,
+              0
+            ],
+            "power": 1
+          }
+        ]
+      },
+      "role": "anchored_generalized",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "n2_unit_hm1_r2_mode1",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.4963202300310545
+            ]
+          ],
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ]
+          ],
+          [
+            [
+              0.0,
+              -1.5223167706150166e-16
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              -0.21515448517356306
+            ]
+          ],
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ]
+          ],
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ]
+          ],
+          [
+            [
+              0.0,
+              -1.5707963267948966
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              2.1939774681154955
+            ]
+          ],
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ]
+          ],
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ]
+          ],
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ]
+          ],
+          [
+            [
+              0.0,
+              1.5707963267948974
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              -2.059362290539692
+            ]
+          ],
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ]
+          ],
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ]
+          ],
+          [
+            [
+              0.0,
+              1.5707963267948966
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              -2.1939774681154955
+            ]
+          ],
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ]
+          ],
+          [
+            [
+              0.0,
+              1.5707963267948966
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              -2.1939774681154955
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.008426164044067264,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-raw/n2_unit_hm1_r2_mode1.input",
+            "sha256": "5c4b08f83a73d56d6efc71f7b56cd250b2436c73e9caf6296618739fa99741e9"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-raw/n2_unit_hm1_r2_mode1.stdout.log",
+            "sha256": "51bb4fab1b45c15c93609670468d853076332a52fd64e8c19138b5244ac4f2a9"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-raw/n2_unit_hm1_r2_mode1.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "id": "n2_unit_hm1_r2_mode2",
+        "api": "general",
+        "mode": 2,
+        "rank": 2,
+        "dimension_shift": -2,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "mass_squared": [
+              4,
+              0
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              0,
+              1,
+              0,
+              0
+            ],
+            "mass_squared": [
+              9,
+              0
+            ],
+            "power": 1
+          }
+        ]
+      },
+      "role": "anchored_generalized",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "n2_unit_hm1_r2_mode2",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.4963202300310545
+            ]
+          ],
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ]
+          ],
+          [
+            [
+              0.0,
+              -1.5223167706150166e-16
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              -0.21515448517356306
+            ]
+          ],
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ]
+          ],
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ]
+          ],
+          [
+            [
+              0.0,
+              -1.5707963267948966
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              2.1939774681154955
+            ]
+          ],
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ]
+          ],
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ]
+          ],
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ]
+          ],
+          [
+            [
+              0.0,
+              1.5707963267948974
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              -2.059362290539692
+            ]
+          ],
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ]
+          ],
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ]
+          ],
+          [
+            [
+              0.0,
+              1.5707963267948966
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              -2.1939774681154955
+            ]
+          ],
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ]
+          ],
+          [
+            [
+              0.0,
+              1.5707963267948966
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              -2.1939774681154955
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.008507675025612116,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-raw/n2_unit_hm1_r2_mode2.input",
+            "sha256": "dacf222709e181c5ac1f40c170986ce9e08ebb04336cf463c0a1095e8900a52d"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-raw/n2_unit_hm1_r2_mode2.stdout.log",
+            "sha256": "da56bc14a24c3ce6fd7ed3b7b33cdd4d4487f8f2ad6759a276b0e72c6dce03d3"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-raw/n2_unit_hm1_r2_mode2.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      }
+    }
+  ],
+  "intermode_comparisons": [
+    {
+      "family": "n1_p1_h1",
+      "left_mode": 0,
+      "right_mode": 1,
+      "status": "agreement",
+      "complex_slots_compared": 4,
+      "maximum_normalized_error": 1.2515186380838957e-16,
+      "failures": []
+    },
+    {
+      "family": "n1_p1_h1",
+      "left_mode": 0,
+      "right_mode": 2,
+      "status": "agreement",
+      "complex_slots_compared": 4,
+      "maximum_normalized_error": 1.2515186380838957e-16,
+      "failures": []
+    },
+    {
+      "family": "n2_p12_h1",
+      "left_mode": 0,
+      "right_mode": 1,
+      "status": "agreement",
+      "complex_slots_compared": 4,
+      "maximum_normalized_error": 2.5833004163751608e-15,
+      "failures": []
+    },
+    {
+      "family": "n2_p12_h1",
+      "left_mode": 0,
+      "right_mode": 2,
+      "status": "agreement",
+      "complex_slots_compared": 4,
+      "maximum_normalized_error": 2.5833004163751608e-15,
+      "failures": []
+    },
+    {
+      "family": "n2_p13_h2",
+      "left_mode": 0,
+      "right_mode": 1,
+      "status": "agreement",
+      "complex_slots_compared": 4,
+      "maximum_normalized_error": 1.2574263959185644e-14,
+      "failures": []
+    },
+    {
+      "family": "n2_p13_h2",
+      "left_mode": 0,
+      "right_mode": 2,
+      "status": "agreement",
+      "complex_slots_compared": 4,
+      "maximum_normalized_error": 1.2574263959185644e-14,
+      "failures": []
+    },
+    {
+      "family": "n2_p12_h2",
+      "left_mode": 0,
+      "right_mode": 1,
+      "status": "agreement",
+      "complex_slots_compared": 4,
+      "maximum_normalized_error": 2.9706260374490165e-15,
+      "failures": []
+    },
+    {
+      "family": "n2_p12_h2",
+      "left_mode": 0,
+      "right_mode": 2,
+      "status": "agreement",
+      "complex_slots_compared": 4,
+      "maximum_normalized_error": 2.9706260374490165e-15,
+      "failures": []
+    },
+    {
+      "family": "n3_p123_h4",
+      "left_mode": 0,
+      "right_mode": 1,
+      "status": "agreement",
+      "complex_slots_compared": 4,
+      "maximum_normalized_error": 3.6802197457081697e-13,
+      "failures": []
+    },
+    {
+      "family": "n3_p123_h4",
+      "left_mode": 0,
+      "right_mode": 2,
+      "status": "agreement",
+      "complex_slots_compared": 4,
+      "maximum_normalized_error": 3.6802197457081697e-13,
+      "failures": []
+    },
+    {
+      "family": "n4_unit_h1",
+      "left_mode": 0,
+      "right_mode": 1,
+      "status": "agreement",
+      "complex_slots_compared": 4,
+      "maximum_normalized_error": 2.2288125389172205e-15,
+      "failures": []
+    },
+    {
+      "family": "n4_unit_h1",
+      "left_mode": 0,
+      "right_mode": 2,
+      "status": "agreement",
+      "complex_slots_compared": 4,
+      "maximum_normalized_error": 2.2288125389172205e-15,
+      "failures": []
+    },
+    {
+      "family": "n2_p21_h1",
+      "left_mode": 0,
+      "right_mode": 1,
+      "status": "agreement",
+      "complex_slots_compared": 4,
+      "maximum_normalized_error": 0.0,
+      "failures": []
+    },
+    {
+      "family": "n2_p21_h1",
+      "left_mode": 0,
+      "right_mode": 2,
+      "status": "agreement",
+      "complex_slots_compared": 4,
+      "maximum_normalized_error": 0.0,
+      "failures": []
+    },
+    {
+      "family": "n2_unit_hm1_r0",
+      "left_mode": 0,
+      "right_mode": 1,
+      "status": "agreement",
+      "complex_slots_compared": 4,
+      "maximum_normalized_error": 0.0,
+      "failures": []
+    },
+    {
+      "family": "n2_unit_hm1_r0",
+      "left_mode": 0,
+      "right_mode": 2,
+      "status": "agreement",
+      "complex_slots_compared": 4,
+      "maximum_normalized_error": 0.0,
+      "failures": []
+    },
+    {
+      "family": "n2_unit_hm1_r2",
+      "left_mode": 0,
+      "right_mode": 1,
+      "status": "agreement",
+      "complex_slots_compared": 60,
+      "maximum_normalized_error": 0.0,
+      "failures": []
+    },
+    {
+      "family": "n2_unit_hm1_r2",
+      "left_mode": 0,
+      "right_mode": 2,
+      "status": "agreement",
+      "complex_slots_compared": 60,
+      "maximum_normalized_error": 0.0,
+      "failures": []
+    }
+  ],
+  "translated_scalar_checks": [
+    {
+      "input": {
+        "id": "n1_p1_h1_translated_scalar",
+        "api": "scalar",
+        "mode": 0,
+        "rank": 0,
+        "dimension_shift": 2,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              1,
+              -2,
+              1,
+              0
+            ],
+            "mass_squared": [
+              4,
+              0
+            ],
+            "power": 1
+          }
+        ]
+      },
+      "role": "translated_scalar_api",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "n1_p1_h1_translated_scalar",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              0.0,
+              -248.05021344239853
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              -146.09777198299108
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.0015082559548318386,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-raw/n1_p1_h1_translated_scalar.input",
+            "sha256": "c3d20188786613b3590e3b870175dca60f8d7d74372496e96e4504d14c1a0a9f"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-raw/n1_p1_h1_translated_scalar.stdout.log",
+            "sha256": "3703570c7389722ab8bd45ac1f5a5173582e438d1cbc15ce60545cd640b473a2"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-raw/n1_p1_h1_translated_scalar.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      },
+      "scope": "Direct rank-zero scalar API; mode is ignored by the original scalar entry point.",
+      "comparison_to_anchored_general_mode0_scalar": {
+        "status": "agreement",
+        "complex_slots_compared": 4,
+        "maximum_normalized_error": 0.0,
+        "failures": []
+      }
+    },
+    {
+      "input": {
+        "id": "n2_p12_h1_translated_scalar",
+        "api": "scalar",
+        "mode": 0,
+        "rank": 0,
+        "dimension_shift": 2,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              1,
+              -2,
+              1,
+              0
+            ],
+            "mass_squared": [
+              4,
+              0
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              1,
+              -1,
+              1,
+              0
+            ],
+            "mass_squared": [
+              9,
+              0
+            ],
+            "power": 2
+          }
+        ]
+      },
+      "role": "translated_scalar_api",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "n2_p12_h1_translated_scalar",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              0.0,
+              -15.50313834014986
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              23.672176009646634
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.0015266460832208395,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-raw/n2_p12_h1_translated_scalar.input",
+            "sha256": "7e0e695e8a9a6d7745ccc88970588d97a536546598a45c598661283c9b735349"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-raw/n2_p12_h1_translated_scalar.stdout.log",
+            "sha256": "902a7830a7bb7aca62099df05e158c133da06fd1ddbb46359043f772e2cd81ca"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-raw/n2_p12_h1_translated_scalar.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      },
+      "scope": "Direct rank-zero scalar API; mode is ignored by the original scalar entry point.",
+      "comparison_to_anchored_general_mode0_scalar": {
+        "status": "agreement",
+        "complex_slots_compared": 4,
+        "maximum_normalized_error": 0.0,
+        "failures": []
+      }
+    },
+    {
+      "input": {
+        "id": "n2_p13_h2_translated_scalar",
+        "api": "scalar",
+        "mode": 0,
+        "rank": 0,
+        "dimension_shift": 4,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              1,
+              -2,
+              1,
+              0
+            ],
+            "mass_squared": [
+              4,
+              0
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              1,
+              -1,
+              1,
+              0
+            ],
+            "mass_squared": [
+              9,
+              0
+            ],
+            "power": 3
+          }
+        ]
+      },
+      "role": "translated_scalar_api",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "n2_p13_h2_translated_scalar",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              0.0,
+              16.234848505666797
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              -25.721018518608048
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.0015989060048013926,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-raw/n2_p13_h2_translated_scalar.input",
+            "sha256": "0546ef7548578770c6a66fcfffea0632aa29d1e7800623596bd2af2652e40689"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-raw/n2_p13_h2_translated_scalar.stdout.log",
+            "sha256": "8fb30c63c1034e8bc633d80e8a4132182572e66b2d076f229349627a102742d4"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-raw/n2_p13_h2_translated_scalar.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      },
+      "scope": "Direct rank-zero scalar API; mode is ignored by the original scalar entry point.",
+      "comparison_to_anchored_general_mode0_scalar": {
+        "status": "agreement",
+        "complex_slots_compared": 4,
+        "maximum_normalized_error": 0.0,
+        "failures": []
+      }
+    },
+    {
+      "input": {
+        "id": "n2_p12_h2_translated_scalar",
+        "api": "scalar",
+        "mode": 0,
+        "rank": 0,
+        "dimension_shift": 4,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              1,
+              -2,
+              1,
+              0
+            ],
+            "mass_squared": [
+              4,
+              0
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              1,
+              -1,
+              1,
+              0
+            ],
+            "mass_squared": [
+              9,
+              0
+            ],
+            "power": 2
+          }
+        ]
+      },
+      "role": "translated_scalar_api",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "n2_p12_h2_translated_scalar",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              0.0,
+              365.2840913775085
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              -201.4868130779048
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.0014687159564346075,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-raw/n2_p12_h2_translated_scalar.input",
+            "sha256": "133372b432c49326a49b4795b9f843c1e43abea359c8b282071dd9f6119e77eb"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-raw/n2_p12_h2_translated_scalar.stdout.log",
+            "sha256": "7b47541ad57257c62c56fc872dc40f23cc4161ef4dc3a5b769d5760623a7ac51"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-raw/n2_p12_h2_translated_scalar.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      },
+      "scope": "Direct rank-zero scalar API; mode is ignored by the original scalar entry point.",
+      "comparison_to_anchored_general_mode0_scalar": {
+        "status": "agreement",
+        "complex_slots_compared": 4,
+        "maximum_normalized_error": 0.0,
+        "failures": []
+      }
+    },
+    {
+      "input": {
+        "id": "n3_p123_h4_translated_scalar",
+        "api": "scalar",
+        "mode": 0,
+        "rank": 0,
+        "dimension_shift": 8,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              1,
+              -2,
+              1,
+              0
+            ],
+            "mass_squared": [
+              4,
+              0
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              1,
+              -1,
+              1,
+              0
+            ],
+            "mass_squared": [
+              9,
+              0
+            ],
+            "power": 2
+          },
+          {
+            "shift": [
+              1,
+              -2,
+              3,
+              0
+            ],
+            "mass_squared": [
+              16,
+              0
+            ],
+            "power": 3
+          }
+        ]
+      },
+      "role": "translated_scalar_api",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "n3_p123_h4_translated_scalar",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              0.0,
+              8.011576613129918
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              6.74685998494783e-11,
+              -16.48101382554006
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.001845767954364419,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-raw/n3_p123_h4_translated_scalar.input",
+            "sha256": "bac4fc168d8251178c24e35c3eebae290b3a7e84b598ece9ea22bbccdfbd56a4"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-raw/n3_p123_h4_translated_scalar.stdout.log",
+            "sha256": "60556695df1c724c4c1ba7e0632c9c5f3d3fbb1602e87fed354ffc048f3ce91c"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-raw/n3_p123_h4_translated_scalar.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      },
+      "scope": "Direct rank-zero scalar API; mode is ignored by the original scalar entry point.",
+      "comparison_to_anchored_general_mode0_scalar": {
+        "status": "agreement",
+        "complex_slots_compared": 4,
+        "maximum_normalized_error": 0.0,
+        "failures": []
+      }
+    },
+    {
+      "input": {
+        "id": "n4_unit_h1_translated_scalar",
+        "api": "scalar",
+        "mode": 0,
+        "rank": 0,
+        "dimension_shift": 2,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              1,
+              -2,
+              1,
+              0
+            ],
+            "mass_squared": [
+              4,
+              0
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              1,
+              -1,
+              1,
+              0
+            ],
+            "mass_squared": [
+              9,
+              0
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              1,
+              -2,
+              3,
+              0
+            ],
+            "mass_squared": [
+              16,
+              0
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              1,
+              -2,
+              1,
+              3
+            ],
+            "mass_squared": [
+              25,
+              0
+            ],
+            "power": 1
+          }
+        ]
+      },
+      "role": "translated_scalar_api",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "n4_unit_h1_translated_scalar",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              -1.0638618856504826e-13,
+              0.3584984848172163
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.0013474749866873026,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-raw/n4_unit_h1_translated_scalar.input",
+            "sha256": "21c1cc2f388d56a792281a67acef471492be5e188a1348a08e20b86c197ee5c6"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-raw/n4_unit_h1_translated_scalar.stdout.log",
+            "sha256": "aa7f7251090e09a2d4ba90c882f49c59c58355c13b07879f9a69660ab299e09a"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-raw/n4_unit_h1_translated_scalar.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      },
+      "scope": "Direct rank-zero scalar API; mode is ignored by the original scalar entry point.",
+      "comparison_to_anchored_general_mode0_scalar": {
+        "status": "agreement",
+        "complex_slots_compared": 4,
+        "maximum_normalized_error": 0.0,
+        "failures": []
+      }
+    },
+    {
+      "input": {
+        "id": "n2_p21_h1_translated_scalar",
+        "api": "scalar",
+        "mode": 0,
+        "rank": 0,
+        "dimension_shift": 2,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              1,
+              -2,
+              1,
+              0
+            ],
+            "mass_squared": [
+              4,
+              0
+            ],
+            "power": 2
+          },
+          {
+            "shift": [
+              1,
+              -1,
+              1,
+              0
+            ],
+            "mass_squared": [
+              9,
+              0
+            ],
+            "power": 1
+          }
+        ]
+      },
+      "role": "translated_scalar_api",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "n2_p21_h1_translated_scalar",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              0.0,
+              -15.50313834014996
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              19.63520334076054
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.001222715014591813,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-raw/n2_p21_h1_translated_scalar.input",
+            "sha256": "06b6c8d5e923e7ab168f21a66f172cdf64b6e383f518fde6210f6817b926148b"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-raw/n2_p21_h1_translated_scalar.stdout.log",
+            "sha256": "354fcf18c25246e38d4f2a205aca0f65e82165cdb4bf0235acadbf82aac68c61"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-raw/n2_p21_h1_translated_scalar.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      },
+      "scope": "Direct rank-zero scalar API; mode is ignored by the original scalar entry point.",
+      "comparison_to_anchored_general_mode0_scalar": {
+        "status": "agreement",
+        "complex_slots_compared": 4,
+        "maximum_normalized_error": 0.0,
+        "failures": []
+      }
+    },
+    {
+      "input": {
+        "id": "n2_unit_hm1_r0_translated_scalar",
+        "api": "scalar",
+        "mode": 0,
+        "rank": 0,
+        "dimension_shift": -2,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              1,
+              -2,
+              1,
+              0
+            ],
+            "mass_squared": [
+              4,
+              0
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              1,
+              -1,
+              1,
+              0
+            ],
+            "mass_squared": [
+              9,
+              0
+            ],
+            "power": 1
+          }
+        ]
+      },
+      "role": "translated_scalar_api",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "n2_unit_hm1_r0_translated_scalar",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              -0.0,
+              -0.0
+            ],
+            [
+              -0.0,
+              -0.0
+            ],
+            [
+              -0.0,
+              -0.0
+            ],
+            [
+              -0.0,
+              0.4963202300310545
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.0013659850228577852,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-raw/n2_unit_hm1_r0_translated_scalar.input",
+            "sha256": "3b6701314f7d5d2bab0dcba2dbae5d73b9ceba5962eb4b00061d8869717bd993"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-raw/n2_unit_hm1_r0_translated_scalar.stdout.log",
+            "sha256": "6e16645b4d196f216b49f42dca59131c010e6c78d28de42890598771d3131327"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-raw/n2_unit_hm1_r0_translated_scalar.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      },
+      "scope": "Direct rank-zero scalar API; mode is ignored by the original scalar entry point.",
+      "comparison_to_anchored_general_mode0_scalar": {
+        "status": "agreement",
+        "complex_slots_compared": 4,
+        "maximum_normalized_error": 0.0,
+        "failures": []
+      }
+    },
+    {
+      "input": {
+        "id": "n2_unit_hm1_r2_translated_scalar",
+        "api": "scalar",
+        "mode": 0,
+        "rank": 0,
+        "dimension_shift": -2,
+        "mu": 3,
+        "snap": false,
+        "threshold": 1e-06,
+        "propagators": [
+          {
+            "shift": [
+              1,
+              -2,
+              1,
+              0
+            ],
+            "mass_squared": [
+              4,
+              0
+            ],
+            "power": 1
+          },
+          {
+            "shift": [
+              1,
+              -1,
+              1,
+              0
+            ],
+            "mass_squared": [
+              9,
+              0
+            ],
+            "power": 1
+          }
+        ]
+      },
+      "role": "translated_scalar_api",
+      "status": "stable_finite_reference_result",
+      "reference_repaired": true,
+      "expected": {
+        "id": "n2_unit_hm1_r2_translated_scalar",
+        "stable": true,
+        "poles": [
+          "uv1",
+          "ir1",
+          "ir2",
+          "finite"
+        ],
+        "moments": [
+          [
+            [
+              -0.0,
+              -0.0
+            ],
+            [
+              -0.0,
+              -0.0
+            ],
+            [
+              -0.0,
+              -0.0
+            ],
+            [
+              -0.0,
+              0.4963202300310545
+            ]
+          ]
+        ]
+      },
+      "transport": {
+        "returncode": 0,
+        "timeout": false,
+        "elapsed_seconds": 0.001455906080082059,
+        "result_count": 1,
+        "parse_errors": [],
+        "logs": {
+          "stdin": {
+            "path": "target/generalized-pv/reference-raw/n2_unit_hm1_r2_translated_scalar.input",
+            "sha256": "ad9d484f1c98e36e1f6a8d0cedf7b33a53f8c4cb55135ff30fb8dd38708fceee"
+          },
+          "stdout": {
+            "path": "target/generalized-pv/reference-raw/n2_unit_hm1_r2_translated_scalar.stdout.log",
+            "sha256": "ba991a05cc481c53b6e7913185241813c9ff8d72c935dab97b1f90949c9a882d"
+          },
+          "stderr": {
+            "path": "target/generalized-pv/reference-raw/n2_unit_hm1_r2_translated_scalar.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        }
+      },
+      "scope": "Direct rank-zero scalar API; mode is ignored by the original scalar entry point.",
+      "comparison_to_anchored_general_mode0_scalar": {
+        "status": "agreement",
+        "complex_slots_compared": 4,
+        "maximum_normalized_error": 0.0,
+        "failures": []
+      }
+    }
+  ],
+  "translated_general_transport": {
+    "input": {
+      "id": "translated_general_transport_probe",
+      "api": "general",
+      "mode": 1,
+      "rank": 2,
+      "dimension_shift": -2,
+      "mu": 3,
+      "snap": false,
+      "threshold": 1e-06,
+      "propagators": [
+        {
+          "shift": [
+            1,
+            -2,
+            1,
+            0
+          ],
+          "mass_squared": [
+            4,
+            0
+          ],
+          "power": 1
+        },
+        {
+          "shift": [
+            1,
+            -1,
+            1,
+            0
+          ],
+          "mass_squared": [
+            9,
+            0
+          ],
+          "power": 1
+        }
+      ]
+    },
+    "role": "expected_unsupported_transport",
+    "status": "reference_failure",
+    "reference_repaired": true,
+    "expected": null,
+    "transport": {
+      "returncode": 1,
+      "timeout": false,
+      "elapsed_seconds": 0.004280197084881365,
+      "result_count": 0,
+      "parse_errors": [],
+      "logs": {
+        "stdin": {
+          "path": "target/generalized-pv/reference-raw/translated_general_transport_probe.input",
+          "sha256": "f1a44a0e58413bc96bafb5b3c4f1396c2726ef5e207e5769d51a933b8d9b991d"
+        },
+        "stdout": {
+          "path": "target/generalized-pv/reference-raw/translated_general_transport_probe.stdout.log",
+          "sha256": "7f1c6b14b574c53d0f7a63b4e99ef3749738a7db265d305e22797ba0a712fefa"
+        },
+        "stderr": {
+          "path": "target/generalized-pv/reference-raw/translated_general_transport_probe.stderr.log",
+          "sha256": "7f68ee0dc943a6c621c69182e77808603d963563f5e162b69039d7024b207d50"
+        }
+      }
+    }
+  },
+  "summary": {
+    "generalized_requests": 27,
+    "stable_finite_generalized_results": 27,
+    "generalized_reference_failures": 0,
+    "intermode_discrepancies": 0,
+    "intermode_agreements": 18,
+    "translated_scalar_agreements": 9,
+    "translated_general_transport_rejected": true
+  }
+}

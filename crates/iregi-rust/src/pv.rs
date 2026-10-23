@@ -328,6 +328,63 @@ impl PvCompiler {
         }
     }
 
+    /// Convert an eligible generalized scalar to a canonical PV coefficient.
+    ///
+    /// With e=sum(nu_i-1) and k=h-e, IREGI's IBP2PAVE relation is
+    /// J_h(nu)=(-2)^k C_{00...0,1...}/prod((nu_i-1)!). The internal
+    /// normalization has already removed pi^h. Eligibility is tested for each
+    /// generated scalar request, including those in negative-shift tensors.
+    /// `None` means the original generalized interface selects IBP instead.
+    ///
+    /// Canonical metric coefficients are independent only through four
+    /// propagators here. In particular, a Cartesian pentagon moment cannot
+    /// substitute for the independent genuine D6 scalar master.
+    pub(crate) fn compile_generalized_scalar(
+        &mut self,
+        request: &ScalarRequest,
+    ) -> Result<Option<[Atom; 4]>, String> {
+        if request.powers.len() != self.shifts.len()
+            || request.powers.iter().any(|&power| power == 0)
+        {
+            return Err("generalized PV requires one positive power per propagator".into());
+        }
+        let excess: i32 = request
+            .powers
+            .iter()
+            .map(|&power| i32::from(power) - 1)
+            .sum();
+        let metrics = i32::from(request.dimension_shift) - excess;
+        if request.powers[0] != 1 || metrics < 0 {
+            return Ok(None);
+        }
+        if self.shifts.len() > 4 {
+            return Err("generalized canonical PV coefficients beyond four propagators require an independent shifted-master completion".into());
+        }
+        let mapped_rank = 2 * metrics + excess;
+        if mapped_rank > 32 {
+            return Err(
+                "generalized PV coefficient exceeds the 32-index preparation budget".into(),
+            );
+        }
+        let metrics = u16::try_from(metrics)
+            .map_err(|_| "generalized PV metric count is outside the supported integer range")?;
+        let momenta: Vec<_> = request.powers[1..].iter().map(|&power| power - 1).collect();
+        let active: Vec<_> = (0..self.shifts.len()).collect();
+        let coefficient = self.coefficient(&active, metrics, &momenta)?;
+        let factor = Atom::num(-2).pow(i64::from(metrics))
+            / request
+                .powers
+                .iter()
+                .map(|&power| factorial(power - 1))
+                .product::<Atom>();
+        let value = scale(&coefficient, &factor);
+        Ok(Some(if self.alias_enabled {
+            value
+        } else {
+            value.map(|expression| expression.replace_multiple(self.substitutions.iter()))
+        }))
+    }
+
     fn scalar(&mut self, active: &[usize]) -> Result<[Atom; 4], String> {
         let mut powers = vec![0; self.shifts.len()];
         for &i in active {
@@ -1159,6 +1216,99 @@ mod tests {
 
     fn exact_shifts(rows: &[[i32; 4]]) -> Vec<[Atom; 4]> {
         rows.iter().map(|p| p.map(Atom::num)).collect()
+    }
+
+    #[test]
+    fn generalized_pv_scalar_conversion_matches_independent_ibp_coefficients() {
+        let points = [[0, 0, 0, 0], [0, 1, 0, 0], [0, 0, 2, 0], [0, 0, 0, 3]];
+        for (powers, dimension_shift) in [
+            (vec![1], 1),
+            (vec![1, 2], 1),
+            (vec![1, 3], 2),
+            (vec![1, 2], 2),
+            (vec![1, 2, 3], 4),
+            (vec![1, 1, 1, 1], 1),
+            (vec![1, 1, 2, 1], 2),
+        ] {
+            let n = powers.len();
+            let shifts = exact_shifts(&points[..n]);
+            let masses: Vec<_> = (0..n).map(|i| Atom::num(4 + 3 * i)).collect();
+            let r = (0..n)
+                .map(|i| {
+                    (0..n)
+                        .map(|j| {
+                            let difference =
+                                std::array::from_fn(|mu| &shifts[i][mu] - &shifts[j][mu]);
+                            dot(&difference, &difference) - &masses[i] - &masses[j]
+                        })
+                        .collect()
+                })
+                .collect();
+            let mut ibp = ScalarCompiler::new(r).unwrap();
+            let mut pv = PvCompiler::new(shifts, masses).unwrap();
+            let request = ScalarRequest {
+                powers,
+                dimension_shift,
+            };
+            let actual = pv.compile_generalized_scalar(&request).unwrap().unwrap();
+            let expected = ibp.compile(request.clone()).unwrap();
+            for slot in 0..4 {
+                assert!(
+                    (&actual[slot] - &expected[slot]).together().is_zero(),
+                    "{request:?}, slot {slot}: {}",
+                    &actual[slot] - &expected[slot]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn generalized_pv_eligibility_and_coefficient_budget_are_explicit() {
+        let mut bubble = PvCompiler::new(
+            exact_shifts(&[[0, 0, 0, 0], [0, 1, 0, 0]]),
+            vec![Atom::num(4), Atom::num(9)],
+        )
+        .unwrap();
+        for (powers, dimension_shift) in [(vec![2, 1], 1), (vec![1, 1], -1), (vec![1, 3], 1)] {
+            assert!(
+                bubble
+                    .compile_generalized_scalar(&ScalarRequest {
+                        powers,
+                        dimension_shift,
+                    })
+                    .unwrap()
+                    .is_none()
+            );
+        }
+        assert!(
+            bubble
+                .compile_generalized_scalar(&ScalarRequest {
+                    powers: vec![1, 1],
+                    dimension_shift: 17,
+                })
+                .unwrap_err()
+                .contains("preparation budget")
+        );
+        let mut pentagon = PvCompiler::new(
+            exact_shifts(&[
+                [0, 0, 0, 0],
+                [0, 1, 0, 0],
+                [0, 0, 1, 0],
+                [0, 0, 0, 1],
+                [1, 0, 0, 0],
+            ]),
+            vec![Atom::num(4); 5],
+        )
+        .unwrap();
+        assert!(
+            pentagon
+                .compile_generalized_scalar(&ScalarRequest {
+                    powers: vec![1; 5],
+                    dimension_shift: 1,
+                })
+                .unwrap_err()
+                .contains("independent shifted-master completion")
+        );
     }
 
     #[test]

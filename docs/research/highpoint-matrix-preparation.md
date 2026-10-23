@@ -27,9 +27,8 @@ seconds in their full matrix inverses. This identifies the next bounded
 experiment: ordinary unit-power scalar pinches consume only `b = R^-1 * 1`,
 so use the existing Symbolica unique `Matrix::solve` for that vector and defer
 inverse entries to recurrences that actually require them. Retain singular-system
-errors and the exceptional fallback. This experiment remains isolated from the
-production matrix algorithm until its identities, generalized regressions and
-integrated results are checked.
+errors and the exceptional fallback. The experiment was initially isolated;
+the subsequent reviewed promotion and its limits are recorded below.
 
 The covector-alias candidate itself keeps `R`, exact full-Taylor certificates,
 and chart selection unchanged. It shares `K_ai=K_ia`, uses zero for the origin
@@ -38,8 +37,39 @@ definition once in the original supplied `G` variables. The focused test proves
 the expanded expressions equal the original covectors and checks reordered,
 mixed second-order components through Symbolica's Dualizer. Its integer input
 jets and half-integer linear coefficients are represented exactly in the
-256-bit runtime domain. The focused test passed; the full wrapper remains
-unqualified as described above.
+256-bit runtime domain. The focused test passed; those original bounded full
+wrapper runs remain unsuccessful as described above.
+
+## Reviewed lazy scalar solve
+
+The minimal `ibp.rs` optimization now uses Symbolica `Matrix::solve(ones)` for
+unit-power geometry and upgrades its cache to the complete inverse when a
+raised-power recurrence requires inverse entries. The singular-system semantics,
+exceptional recurrences, exact-zero decisions, and stability checks are unchanged.
+The exact patch, independent review and retained outcomes are in
+`validation/invariant-certificate/solve-vector/`.
+
+Both compiler variants pass the independent 480-identity Gamma corpus. A separate
+regular-matrix comparison covers 44 successful requests in all Laurent slots and
+four identical unsupported errors, including D6 enabled/disabled. The public N6
+fixture retains the same binary64 guard rejection in both variants. Candidate
+Float128/256 workspaces at fixed requested accuracy 53 bits agree with an
+independent direct-simplex quadrature result and isolate an incompatible Gram
+lane. The normalized cross-precision difference is `3.31e-32`; the raw difference
+from the independent estimate is `1.53e-23`, below its estimated `6.11e-22`
+uncertainty. The quadrature uncertainty is not a certified bound.
+
+Matched single-run chart spans were about 77.6 seconds before and 17.2 seconds
+after the change. These diagnose preparation cost; they do not establish
+performance acceptance. Public N7, mixed-Dual integration, combined current-source
+integration and controlled performance remain pending in this evidence set.
+
+Aliasing the remaining `b` and `B` coefficient trees is a separate research
+proposal. Exact `B=0` must be decided before opaque aliases hide cancellations.
+Splitting a large coefficient out of its parent also changes operation-count
+estimates: full coefficient-error propagation requires review, because the
+current primal amplitude monitor propagates scalar-master sensitivity. Merely
+reducing the parent's operation count does not establish equivalent guarding.
 
 ## Three source checks
 

@@ -63,7 +63,7 @@ pub struct MasterLeaf {
 
 #[derive(Clone)]
 struct Geometry {
-    inverse: Vec<Vec<Atom>>,
+    inverse: Option<Vec<Vec<Atom>>>,
     /// `b = R^-1 1`.
     b: Vec<Atom>,
     /// `B = 1^T R^-1 1`.
@@ -527,7 +527,7 @@ impl ScalarCompiler {
                 // its zero dimension divisor is precisely the independent IR
                 // master case. Other exact degeneracies reduce by the same
                 // scalar relations as the reference before backend dispatch.
-                match self.geometry(active) {
+                match self.scalar_geometry(active) {
                     Ok(geometry) if !geometry.sum_b.is_zero() => return Ok(self.master(active)),
                     Ok(_) => {}
                     Err(_) => match self.exceptional_geometry(active)? {
@@ -542,7 +542,12 @@ impl ScalarCompiler {
             }
         }
 
-        let geometry = match self.geometry(active) {
+        let prepared = if raised.is_some() {
+            self.geometry(active)
+        } else {
+            self.scalar_geometry(active)
+        };
+        let geometry = match prepared {
             Ok(geometry) => geometry,
             Err(_) => return self.compile_exceptional(request, active),
         };
@@ -629,6 +634,10 @@ impl ScalarCompiler {
         }
 
         let local_l = raised.expect("unit powers handled above");
+        let inverse = geometry
+            .inverse
+            .as_ref()
+            .ok_or("raised-power recurrence requires the full Cayley inverse")?;
         let original_l = active[local_l];
         let w = decrement(request, original_l);
         let divisor = Atom::num(i64::from(w.powers[original_l]));
@@ -653,7 +662,7 @@ impl ScalarCompiler {
                         &value,
                     );
                 }
-                accumulate(&mut result, &geometry.inverse[local_l][i], &term);
+                accumulate(&mut result, &inverse[local_l][i], &term);
             }
             return Ok(scale(&result, &(Atom::num(1) / divisor)));
         }
@@ -669,7 +678,7 @@ impl ScalarCompiler {
             let b_l_over_b = &geometry.b[local_l] / &geometry.sum_b;
             let mut result = scale(&self.compile(lower.clone())?, &(-&b_l_over_b));
             for (i, &original_i) in active.iter().enumerate() {
-                let coefficient = &b_l_over_b * &geometry.b[i] - &geometry.inverse[local_l][i];
+                let coefficient = &b_l_over_b * &geometry.b[i] - &inverse[local_l][i];
                 let value = self.compile(decrement(&lower, original_i))?;
                 accumulate(&mut result, &coefficient, &value);
             }
@@ -690,7 +699,7 @@ impl ScalarCompiler {
         lower.dimension_shift -= 1;
         for (i, &original_i) in active.iter().enumerate() {
             let value = self.compile(decrement(&lower, original_i))?;
-            accumulate(&mut result, &(-&geometry.inverse[local_l][i]), &value);
+            accumulate(&mut result, &(-&inverse[local_l][i]), &value);
         }
         Ok(scale(&result, &(Atom::num(1) / divisor)))
     }
@@ -1202,12 +1211,50 @@ impl ScalarCompiler {
         ))
     }
 
-    fn geometry(&mut self, active: &[usize]) -> Result<Geometry, String> {
+    fn scalar_geometry(&mut self, active: &[usize]) -> Result<Geometry, String> {
         if self.exceptional_geometry.contains_key(active) {
             return Err("singular Cayley R matrix".into());
         }
         if let Some(geometry) = self.geometry.get(active) {
             return Ok(geometry.clone());
+        }
+        let started = preparation_start(self.profile_preparation, "Cayley scalar solve", active);
+        let rows = active
+            .iter()
+            .map(|&i| active.iter().map(|&j| self.r[i][j].clone()).collect())
+            .collect();
+        let matrix = Matrix::from_nested_vec(rows, exact_field())
+            .map_err(|e| format!("cannot construct Symbolica Cayley matrix: {e:?}"))?;
+        let rhs = Matrix::new_vec(vec![Atom::num(1); active.len()], exact_field());
+        // solve_any would incorrectly accept a consistent singular system.
+        let solved = matrix.solve(&rhs);
+        preparation_end("Cayley scalar solve", active, started);
+        let solved = solved
+            .map_err(|e| format!("singular Cayley matrix for propagators {active:?}: {e:?}"))?;
+        let b: Vec<_> = (0..active.len())
+            .map(|i| solved[(i as u32, 0)].clone())
+            .collect();
+        let sum_b = b
+            .iter()
+            .fold(Atom::new(), |sum, entry| sum + entry)
+            .together();
+        let geometry = Geometry {
+            inverse: None,
+            b,
+            sum_b,
+        };
+        self.geometry.insert(active.to_vec(), geometry.clone());
+        Ok(geometry)
+    }
+
+    fn geometry(&mut self, active: &[usize]) -> Result<Geometry, String> {
+        if self.exceptional_geometry.contains_key(active) {
+            return Err("singular Cayley R matrix".into());
+        }
+        if let Some(geometry) = self.geometry.get(active) {
+            if geometry.inverse.is_some() {
+                return Ok(geometry.clone());
+            }
         }
         let started = preparation_start(self.profile_preparation, "Cayley geometry", active);
         let rows = active
@@ -1241,7 +1288,11 @@ impl ScalarCompiler {
             .iter()
             .fold(Atom::new(), |sum, entry| sum + entry)
             .together();
-        let geometry = Geometry { inverse, b, sum_b };
+        let geometry = Geometry {
+            inverse: Some(inverse),
+            b,
+            sum_b,
+        };
         self.geometry.insert(active.to_vec(), geometry.clone());
         preparation_end("Cayley geometry", active, started);
         Ok(geometry)
@@ -1716,6 +1767,78 @@ mod tests {
             equal(&constant, Atom::num(if homogeneous { 0 } else { 1 }));
             assert_eq!(compiler.routing_relations.len(), 1);
         }
+    }
+
+    #[test]
+    fn compile_upgrades_scalar_geometry_for_raised_powers() {
+        let r = vec![
+            vec![Atom::num(-4), Atom::num(-9)],
+            vec![Atom::num(-9), Atom::num(-10)],
+        ];
+        let active = vec![0, 1];
+        let lower = ScalarRequest {
+            powers: vec![1, 1],
+            dimension_shift: -1,
+        };
+        for dimension_shift in [0, 1] {
+            let mut warm = ScalarCompiler::new(r.clone()).unwrap();
+            let lower_warm = warm.compile(lower.clone()).unwrap();
+            let cached = warm.geometry.get(&active).unwrap();
+            assert!(cached.inverse.is_none());
+            equal(&cached.b[0], Atom::num(1) / Atom::num(41));
+            equal(&cached.b[1], Atom::num(-5) / Atom::num(41));
+            equal(&cached.sum_b, Atom::num(-4) / Atom::num(41));
+            let mut full = ScalarCompiler::new(r.clone()).unwrap();
+            for subset in [vec![0], vec![1], vec![0, 1]] {
+                assert!(full.geometry(&subset).unwrap().inverse.is_some());
+            }
+            let lower_full = full.compile(lower.clone()).unwrap();
+            for slot in 0..4 {
+                equal(&lower_warm[slot], lower_full[slot].clone());
+            }
+            let request = ScalarRequest {
+                powers: vec![2, 1],
+                dimension_shift,
+            };
+            let expected = full.compile(request.clone()).unwrap();
+            let mut fresh = ScalarCompiler::new(r.clone()).unwrap();
+            let cold = fresh.compile(request.clone()).unwrap();
+            let actual = warm.compile(request).unwrap();
+            assert!(warm.geometry.get(&active).unwrap().inverse.is_some());
+            assert!(!actual[3].is_zero());
+            for slot in 0..4 {
+                equal(&actual[slot], expected[slot].clone());
+                equal(&actual[slot], cold[slot].clone());
+            }
+            assert!(warm.scalar_geometry(&active).unwrap().inverse.is_some());
+        }
+    }
+
+    #[test]
+    fn lazy_scalar_geometry_has_exact_identity_and_preserves_unique_solve_errors() {
+        let (_, r) = routing_fixture(6, false);
+        let active = [0, 1, 2, 3, 4];
+        let mut compiler = ScalarCompiler::new(r.clone()).unwrap();
+        let scalar = compiler.scalar_geometry(&active).unwrap();
+        assert!(scalar.inverse.is_none());
+        for &i in &active {
+            let residual = active
+                .iter()
+                .zip(&scalar.b)
+                .fold(Atom::num(-1), |sum, (&j, b)| sum + &r[i][j] * b);
+            assert!(residual.together().is_zero());
+        }
+        let full = compiler.geometry(&active).unwrap();
+        assert!(full.inverse.is_some());
+        for (left, right) in scalar.b.iter().zip(&full.b) {
+            assert!((left - right).together().is_zero());
+        }
+        assert!((scalar.sum_b - full.sum_b).together().is_zero());
+        assert!(compiler.scalar_geometry(&active).unwrap().inverse.is_some());
+        let singular = vec![vec![Atom::num(1); 5]; 5];
+        let mut compiler = ScalarCompiler::new(singular).unwrap();
+        assert!(compiler.scalar_geometry(&active).is_err());
+        assert!(compiler.geometry(&active).is_err());
     }
 
     #[test]

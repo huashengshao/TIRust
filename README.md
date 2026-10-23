@@ -99,6 +99,17 @@ reuses cached roundoff factors.
 `ReductionPlan::input_layout()` describes the exact argument ranges. Supplied
 invariants are authoritative; Cartesian shifts still specify tensor components.
 
+Generalized PV and Hybrid plans select the reduction method for each scalar
+term in the tensor expansion, as in original IREGI. With `e = sum(powers)-N`,
+the existing canonical PV coefficients apply when the first power is one and
+the term's dimension shift `h >= e`; other terms use IBP. This PV mapping is
+qualified through four propagators. Generalized requests with more propagators
+retain IBP and genuine shifted masters, including the six-dimensional pentagon,
+and report that limitation in `preparation_notes()`. A mixed plan reports PV as
+its primary method and records both methods' preparation counts. Hybrid retains
+the independent IBP numerical fallback. The [qualification record](validation/generalized-pv/PROMOTION.md)
+documents the tested cases and remaining coverage.
+
 For generalized scalar integrals, `ScalarReductionPlan`,
 `ScalarKinematicsBatch` and `ScalarWorkspace` accept only the packed scalar
 products, squared masses and scale. Set rank zero in `ReductionSettings` and
@@ -128,6 +139,12 @@ Plans cache exact prepared instructions separately for each ordered Dual shape.
 Workspaces at different precisions share this symbolic preparation while mapping
 constants directly into their own numeric domain and retaining separate scratch
 buffers. Numerical sample results are never stored in that cache.
+
+Ordinary scalar masters reuse temporary storage through Symbolica's existing
+root allocator. The instruction and arithmetic order stay unchanged; Dual
+preparation keeps its existing allocation path. The [paired qualification](validation/stack-reuse/production-factory/integration-qualification.json)
+records exact output agreement and diagnostic memory observations. Controlled
+performance gates are assessed separately.
 
 `PrecisionRescueWorkspace` provides an optional accuracy check and recovery
 path. Its default settings retry unstable samples together at 128 and 256 bits,

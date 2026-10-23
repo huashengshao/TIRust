@@ -326,9 +326,6 @@ impl ReductionPlan {
         } else {
             settings.algorithm
         };
-        if !ordinary && settings.algorithm == Algorithm::PassarinoVeltman {
-            return Err(ReductionError::Unsupported("PV currently requires unit propagator powers and zero dimension shift; use IBP or hybrid".into()));
-        }
         let mut preparation_notes = Vec::new();
         if matches!(settings.input_policy, InputPolicy::LegacyOnShell { .. }) {
             preparation_notes.push(if snapping.is_some() {
@@ -337,72 +334,121 @@ impl ReductionPlan {
                 "Supplied scalar products bypass the legacy on-shell policy, matching the original supplied-invariant interface".into()
             });
         }
-        let (mut moments, leaves, mut aliases, algorithm_used) = match algorithm_used {
-            Algorithm::Ibp => {
-                match compile_ibp(
-                    &settings,
-                    &basis,
-                    &shifts,
-                    &masses,
-                    &distances,
-                    bubble_limit,
-                    zero_invariants.as_ref(),
-                    certified_scalar_basis,
-                ) {
-                    Ok((moments, leaves, aliases)) => (moments, leaves, aliases, Algorithm::Ibp),
-                    Err(error)
-                        if ordinary
-                            && n >= 5
-                            && !special_kinematics
-                            && certified_scalar_basis.is_none() =>
-                    {
-                        // Original IBP also completes its four-dimensional
-                        // high-point tensor system with PV at zero dimension
-                        // coefficients. This does not replace an independent
-                        // higher-dimensional scalar integral by box masters.
-                        preparation_notes.push(format!("IBP tensor completion uses PV: {error}"));
-                        let (moments, leaves, aliases) = compile_pv(
-                            &basis,
-                            &shifts,
-                            &masses,
-                            &distances,
-                            analytic_jet_order,
-                            snapping.clone(),
-                        )?;
-                        (moments, leaves, aliases, Algorithm::PassarinoVeltman)
+        let mut generalized_ibp_used = false;
+        let (mut moments, leaves, mut aliases, algorithm_used) = if !ordinary
+            && !special_kinematics
+            && settings.algorithm != Algorithm::Ibp
+        {
+            let generalized = compile_generalized_pv(
+                &settings,
+                &basis,
+                &shifts,
+                &masses,
+                &distances,
+                analytic_jet_order,
+                snapping.clone(),
+            );
+            match generalized {
+                Ok((moments, leaves, aliases, usage)) => {
+                    generalized_ibp_used = usage.ibp != 0;
+                    preparation_notes.push(format!(
+                        "Generalized scalar-term dispatch: {} canonical PV requests, {} IBP requests; PV eligibility requires first power one and h >= sum(powers)-N",
+                        usage.pv, usage.ibp,
+                    ));
+                    if n > 4 {
+                        preparation_notes.push("Generalized canonical PV coefficients beyond four propagators are not qualified; retaining genuine IBP and shifted-master reduction, including D6 pentagons".into());
                     }
-                    Err(error) => return Err(error),
+                    let used = if usage.pv == 0 {
+                        Algorithm::Ibp
+                    } else {
+                        // A generalized PV primary may contain IBP terms which
+                        // are ineligible for IBP2PAVE, as in original IREGI.
+                        Algorithm::PassarinoVeltman
+                    };
+                    (moments, leaves, aliases, used)
                 }
+                Err(error) if settings.algorithm == Algorithm::Hybrid => {
+                    preparation_notes.push(format!(
+                        "Generalized PV preparation failed; using IBP: {error}"
+                    ));
+                    let (moments, leaves, aliases) = compile_ibp(
+                        &settings, &basis, &shifts, &masses, &distances, None, None, None,
+                    )?;
+                    (moments, leaves, aliases, Algorithm::Ibp)
+                }
+                Err(error) => return Err(error),
             }
-            Algorithm::PassarinoVeltman | Algorithm::Hybrid => {
-                let pv = compile_pv(
-                    &basis,
-                    &shifts,
-                    &masses,
-                    &distances,
-                    analytic_jet_order,
-                    snapping.clone(),
-                );
-                match pv {
-                    Ok((moments, leaves, aliases)) => {
-                        (moments, leaves, aliases, Algorithm::PassarinoVeltman)
+        } else {
+            match algorithm_used {
+                Algorithm::Ibp => {
+                    match compile_ibp(
+                        &settings,
+                        &basis,
+                        &shifts,
+                        &masses,
+                        &distances,
+                        bubble_limit,
+                        zero_invariants.as_ref(),
+                        certified_scalar_basis,
+                    ) {
+                        Ok((moments, leaves, aliases)) => {
+                            (moments, leaves, aliases, Algorithm::Ibp)
+                        }
+                        Err(error)
+                            if ordinary
+                                && n >= 5
+                                && !special_kinematics
+                                && certified_scalar_basis.is_none() =>
+                        {
+                            // Original IBP also completes its four-dimensional
+                            // high-point tensor system with PV at zero dimension
+                            // coefficients. This does not replace an independent
+                            // higher-dimensional scalar integral by box masters.
+                            preparation_notes
+                                .push(format!("IBP tensor completion uses PV: {error}"));
+                            let (moments, leaves, aliases) = compile_pv(
+                                &basis,
+                                &shifts,
+                                &masses,
+                                &distances,
+                                analytic_jet_order,
+                                snapping.clone(),
+                            )?;
+                            (moments, leaves, aliases, Algorithm::PassarinoVeltman)
+                        }
+                        Err(error) => return Err(error),
                     }
-                    Err(error) if algorithm_used == Algorithm::Hybrid => {
-                        preparation_notes
-                            .push(format!("PV preparation failed; using IBP: {error}"));
-                        let (moments, leaves, aliases) = compile_ibp(
-                            &settings,
-                            &basis,
-                            &shifts,
-                            &masses,
-                            &distances,
-                            bubble_limit,
-                            zero_invariants.as_ref(),
-                            certified_scalar_basis,
-                        )?;
-                        (moments, leaves, aliases, Algorithm::Ibp)
+                }
+                Algorithm::PassarinoVeltman | Algorithm::Hybrid => {
+                    let pv = compile_pv(
+                        &basis,
+                        &shifts,
+                        &masses,
+                        &distances,
+                        analytic_jet_order,
+                        snapping.clone(),
+                    );
+                    match pv {
+                        Ok((moments, leaves, aliases)) => {
+                            (moments, leaves, aliases, Algorithm::PassarinoVeltman)
+                        }
+                        Err(error) if algorithm_used == Algorithm::Hybrid => {
+                            preparation_notes
+                                .push(format!("PV preparation failed; using IBP: {error}"));
+                            let (moments, leaves, aliases) = compile_ibp(
+                                &settings,
+                                &basis,
+                                &shifts,
+                                &masses,
+                                &distances,
+                                bubble_limit,
+                                zero_invariants.as_ref(),
+                                certified_scalar_basis,
+                            )?;
+                            (moments, leaves, aliases, Algorithm::Ibp)
+                        }
+                        Err(error) => return Err(error),
                     }
-                    Err(error) => return Err(error),
                 }
             }
         };
@@ -425,7 +471,7 @@ impl ReductionPlan {
             );
         let snapping_zero_image_required = snapping_zero_image.is_some()
             && n == 1
-            && algorithm_used == Algorithm::Ibp
+            && (algorithm_used == Algorithm::Ibp || generalized_ibp_used)
             && (settings.rank > 0 || !ordinary);
         if !snapping_aliases.is_empty() {
             let mut ordered = snapping_aliases.clone();
@@ -637,6 +683,85 @@ fn compile_ibp(
     zero_invariants: Option<&ZeroInvariantProfile>,
     certified_basis: Option<[usize; 4]>,
 ) -> Result<(Vec<[Atom; 4]>, Vec<MasterLeaf>, Vec<(Atom, Atom)>), ReductionError> {
+    compile_scalar_tensors(
+        settings,
+        basis,
+        shifts,
+        masses,
+        supplied_distances,
+        bubble_limit,
+        zero_invariants,
+        certified_basis,
+        None,
+    )
+    .map(|(moments, leaves, aliases, _)| (moments, leaves, aliases))
+}
+
+#[derive(Default)]
+struct ScalarMethodUsage {
+    pv: usize,
+    ibp: usize,
+}
+
+fn compile_generalized_pv(
+    settings: &ReductionSettings,
+    basis: &[Monomial],
+    shifts: &[[Atom; 4]],
+    masses: &[Atom],
+    distances: &[Vec<Atom>],
+    analytic_jet_order: u16,
+    snapping: Option<Rc<RefCell<LegacySnapping>>>,
+) -> Result<
+    (
+        Vec<[Atom; 4]>,
+        Vec<MasterLeaf>,
+        Vec<(Atom, Atom)>,
+        ScalarMethodUsage,
+    ),
+    ReductionError,
+> {
+    let pv = if shifts.len() <= 4 {
+        let mut pv =
+            PvCompiler::with_distances(shifts.to_vec(), masses.to_vec(), distances.to_vec(), true)
+                .map_err(ReductionError::Preparation)?;
+        pv.set_analytic_jet_order(analytic_jet_order)
+            .map_err(ReductionError::Preparation)?;
+        if let Some(snapping) = snapping {
+            pv.set_gram_scalar_product_transform(move |raw| {
+                snapping
+                    .borrow_mut()
+                    .snap_scalar_product(raw, "PV Gram scalar product")
+            })
+            .map_err(ReductionError::Preparation)?;
+        }
+        Some(pv)
+    } else {
+        None
+    };
+    compile_scalar_tensors(
+        settings, basis, shifts, masses, distances, None, None, None, pv,
+    )
+}
+
+fn compile_scalar_tensors(
+    settings: &ReductionSettings,
+    basis: &[Monomial],
+    shifts: &[[Atom; 4]],
+    masses: &[Atom],
+    supplied_distances: &[Vec<Atom>],
+    bubble_limit: Option<(u16, bool)>,
+    zero_invariants: Option<&ZeroInvariantProfile>,
+    certified_basis: Option<[usize; 4]>,
+    mut pv: Option<PvCompiler>,
+) -> Result<
+    (
+        Vec<[Atom; 4]>,
+        Vec<MasterLeaf>,
+        Vec<(Atom, Atom)>,
+        ScalarMethodUsage,
+    ),
+    ReductionError,
+> {
     // Independent squared-distance symbols keep exact matrix elimination small.
     // Symbolica shares their definitions across the recurrence graph.
     let n = shifts.len();
@@ -708,6 +833,7 @@ fn compile_ibp(
         .map(|p| t.iter().zip(p).map(|(a, b)| a * b).sum())
         .collect();
     let mut by_exponent: HashMap<[u16; 4], [Atom; 4]> = HashMap::new();
+    let mut usage = ScalarMethodUsage::default();
     for rank in 0..=settings.rank {
         let mut generating: [Atom; 4] = std::array::from_fn(|_| Atom::new());
         for pairs in 0..=rank / 2 {
@@ -735,12 +861,25 @@ fn compile_ibp(
                             i64::from(counts[i]),
                         ));
                 }
-                let value = compiler
-                    .compile(ScalarRequest {
-                        powers,
-                        dimension_shift: scalar_h,
-                    })
-                    .map_err(ReductionError::Preparation)?;
+                let request = ScalarRequest {
+                    powers,
+                    dimension_shift: scalar_h,
+                };
+                let pv_value = pv
+                    .as_mut()
+                    .map(|pv| pv.compile_generalized_scalar(&request))
+                    .transpose()
+                    .map_err(ReductionError::Preparation)?
+                    .flatten();
+                let value = if let Some(value) = pv_value {
+                    usage.pv += 1;
+                    value
+                } else {
+                    usage.ibp += 1;
+                    compiler
+                        .compile(request)
+                        .map_err(ReductionError::Preparation)?
+                };
                 for pole in 0..4 {
                     generating[pole] = &generating[pole] + &coefficient * &value[pole];
                 }
@@ -777,7 +916,19 @@ fn compile_ibp(
         })
         .collect();
     aliases.extend_from_slice(compiler.aliases());
-    Ok((moments, compiler.leaves, aliases))
+    if let Some(pv) = pv {
+        aliases.extend_from_slice(pv.aliases());
+        for leaf in pv.leaves() {
+            if !compiler
+                .leaves
+                .iter()
+                .any(|existing| existing.kind == leaf.kind && existing.active == leaf.active)
+            {
+                compiler.leaves.push(leaf.clone());
+            }
+        }
+    }
+    Ok((moments, compiler.leaves, aliases, usage))
 }
 
 /// Share the certified Gram covectors without expanding their input polynomials
@@ -868,6 +1019,294 @@ mod tests {
         settings.algorithm = Algorithm::Ibp;
         settings.convention = Convention::OneLoop;
         settings
+    }
+
+    #[test]
+    fn generalized_pv_dispatch_preserves_negative_shift_and_mixed_terms() {
+        for (powers, shift, rank, expected_method) in [
+            (vec![1, 2], 1, 0, Algorithm::PassarinoVeltman),
+            (vec![2, 1], 1, 0, Algorithm::Ibp),
+            (vec![1, 1], -1, 0, Algorithm::Ibp),
+            (vec![1, 1], -1, 2, Algorithm::PassarinoVeltman),
+        ] {
+            let mut configuration = settings(2, rank);
+            configuration.algorithm = Algorithm::PassarinoVeltman;
+            configuration.powers = powers;
+            configuration.dimension_shift = shift;
+            let plan = ReductionPlan::new(configuration.clone()).unwrap();
+            assert_eq!(plan.algorithm_used(), expected_method);
+            assert!(
+                plan.preparation_notes()
+                    .iter()
+                    .any(|note| note.contains("Generalized scalar-term dispatch"))
+            );
+            if shift < 0 && rank == 2 {
+                assert!(
+                    plan.preparation_notes()
+                        .iter()
+                        .any(|note| note.contains("1 canonical PV requests"))
+                );
+            }
+            // Translation makes numerator terms raising the first denominator
+            // nonzero, so a per-input eligibility shortcut would be exposed.
+            let row = [1., 2., 0., 0., 1., 3., 0., 0., 4., 9., 3.];
+            let input = crate::KinematicsBatch {
+                rows: 1,
+                components: 1,
+                values: row.map(|value| Complex::new(value, 0.)).to_vec(),
+            };
+            let mut actual_workspace = Workspace::new(&plan, 0.).unwrap();
+            let actual = actual_workspace.reduce_batch(&input).unwrap();
+            configuration.algorithm = Algorithm::Ibp;
+            let expected_plan = ReductionPlan::new(configuration).unwrap();
+            let mut expected_workspace = Workspace::new(&expected_plan, 0.).unwrap();
+            let expected = expected_workspace.reduce_batch(&input).unwrap();
+            for (left, right) in actual
+                .lane(0)
+                .unwrap()
+                .iter()
+                .zip(expected.lane(0).unwrap())
+            {
+                let error = (left.re - right.re).hypot(left.im - right.im);
+                assert!(
+                    error <= 1e-10 * (1. + right.re.hypot(right.im)),
+                    "{left:?} versus {right:?}"
+                );
+            }
+            let unique: std::collections::HashSet<_> = plan
+                .leaves
+                .iter()
+                .map(|leaf| (leaf.kind, leaf.active.clone()))
+                .collect();
+            assert_eq!(unique.len(), plan.leaves.len());
+        }
+    }
+
+    #[test]
+    fn generalized_pv_native_normalization_retains_dimension_and_uv_residue() {
+        for convention in [Convention::OneLoop, Convention::IregiNative] {
+            let mut configuration = settings(1, 0);
+            configuration.algorithm = Algorithm::PassarinoVeltman;
+            configuration.dimension_shift = 1;
+            configuration.convention = convention;
+            let plan = ReductionPlan::new(configuration).unwrap();
+            let uv = plan
+                .aliases
+                .iter()
+                .rev()
+                .fold(plan.moments[0][0].clone(), |value, (handle, body)| {
+                    value.replace(handle.clone()).with(body.clone())
+                });
+            let mass_squared = &plan.parameters[plan.layout.masses.start];
+            let expected = -mass_squared.pow(2) / Atom::num(2);
+            let expected = if convention == Convention::IregiNative {
+                expected * symbolica::parse!("𝑖") * Atom::var(symbolica::atom::Symbol::PI).pow(3)
+            } else {
+                expected
+            };
+            assert!((uv - expected).together().is_zero());
+        }
+    }
+
+    #[test]
+    fn generalized_pv_highpoint_keeps_genuine_shifted_master_and_method_note() {
+        let mut configuration = settings(5, 0);
+        configuration.algorithm = Algorithm::PassarinoVeltman;
+        configuration.dimension_shift = 1;
+        let plan = ReductionPlan::new(configuration).unwrap();
+        assert_eq!(plan.algorithm_used(), Algorithm::Ibp);
+        assert!(
+            plan.leaves
+                .iter()
+                .any(|leaf| leaf.kind == MasterLeafKind::SixDimensionalPentagon)
+        );
+        assert!(
+            plan.preparation_notes()
+                .iter()
+                .any(|note| note.contains("not qualified") && note.contains("D6"))
+        );
+    }
+
+    #[test]
+    fn generalized_pv_hybrid_falls_back_when_mapped_coefficient_exceeds_budget() {
+        let mut configuration = settings(1, 0);
+        configuration.algorithm = Algorithm::PassarinoVeltman;
+        configuration.dimension_shift = 17;
+        assert!(
+            matches!(ReductionPlan::new(configuration.clone()), Err(ReductionError::Preparation(reason))
+            if reason.contains("preparation budget"))
+        );
+        configuration.algorithm = Algorithm::Hybrid;
+        let plan = ReductionPlan::new(configuration).unwrap();
+        assert_eq!(plan.algorithm_used(), Algorithm::Ibp);
+        assert!(
+            plan.preparation_notes()
+                .iter()
+                .any(|note| note.contains("PV preparation failed; using IBP"))
+        );
+    }
+
+    #[test]
+    fn generalized_pv_mixed_tadpole_retains_legacy_zero_diagonal_guard() {
+        let mut configuration = settings(1, 1);
+        configuration.dimension_shift = 1;
+        configuration.algorithm = Algorithm::PassarinoVeltman;
+        configuration.input_policy = InputPolicy::LegacyOnShell {
+            threshold: "0".into(),
+        };
+        let plan = ReductionPlan::new(configuration).unwrap();
+        assert_eq!(plan.algorithm_used(), Algorithm::PassarinoVeltman);
+        assert!(plan.snapping_zero_image_required);
+        let mut workspace = Workspace::new(&plan, 0.).unwrap();
+        let batch = crate::KinematicsBatch {
+            rows: 2,
+            components: 1,
+            values: [-4., 4.]
+                .into_iter()
+                .flat_map(|mass| [1., 0., 0., 0., mass, 3.].map(|value| Complex::new(value, 0.)))
+                .collect(),
+        };
+        let result = workspace.reduce_batch(&batch).unwrap();
+        assert!(
+            matches!(&result.statuses[0], crate::LaneStatus::InvalidInput(reason)
+            if reason.contains("nonphysical Cayley-diagonal domain"))
+        );
+        assert_eq!(result.statuses[1], crate::LaneStatus::Success);
+        assert_eq!(workspace.last_execution().master_rows, 1);
+    }
+
+    #[test]
+    fn generalized_pv_original_generalized_fixtures_agree_in_all_modes() {
+        let fixtures: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../validation/reference/fixtures.json"
+        ))
+        .unwrap();
+        let mut comparisons = 0;
+        for case in fixtures["cases"].as_array().unwrap() {
+            let input = &case["input"];
+            if input["api"] != "general" {
+                continue;
+            }
+            let propagators = input["propagators"].as_array().unwrap();
+            let mut configuration =
+                ReductionSettings::new(propagators.len(), input["rank"].as_u64().unwrap() as u16);
+            configuration.dimension_shift = (input["dimension_shift"].as_i64().unwrap() / 2) as i16;
+            configuration.powers = propagators
+                .iter()
+                .map(|p| p["power"].as_u64().unwrap() as u16)
+                .collect();
+            let base_dimension = 4 + 2 * i32::from(configuration.dimension_shift)
+                - 2 * configuration
+                    .powers
+                    .iter()
+                    .map(|&power| i32::from(power))
+                    .sum::<i32>();
+            let mut characteristic_scale = input["mu"].as_f64().unwrap();
+            let mut values = Vec::new();
+            for propagator in propagators {
+                for value in propagator["shift"].as_array().unwrap() {
+                    let value = value.as_f64().unwrap();
+                    characteristic_scale = characteristic_scale.max(value.abs());
+                    values.push(Complex::new(value, 0.));
+                }
+            }
+            for propagator in propagators {
+                let mass = propagator["mass_squared"].as_array().unwrap();
+                let mass = Complex::new(mass[0].as_f64().unwrap(), mass[1].as_f64().unwrap());
+                characteristic_scale = characteristic_scale.max(mass.re.hypot(mass.im).sqrt());
+                values.push(mass);
+            }
+            values.push(Complex::new(input["mu"].as_f64().unwrap(), 0.));
+            let batch = crate::KinematicsBatch {
+                rows: 1,
+                components: 1,
+                values,
+            };
+            for mode in [
+                Algorithm::Ibp,
+                Algorithm::PassarinoVeltman,
+                Algorithm::Hybrid,
+            ] {
+                configuration.algorithm = mode;
+                let plan = ReductionPlan::new(configuration.clone()).unwrap();
+                let mut workspace = crate::PrecisionRescueWorkspace::new(
+                    &plan,
+                    0.,
+                    crate::RescueSettings::default(),
+                )
+                .unwrap();
+                let result = workspace.reduce_batch(&batch).unwrap();
+                let actual = result
+                    .lane(0)
+                    .unwrap_or_else(|error| panic!("{} {mode:?}: {error:?}", input["id"]));
+                let expected = case["expected"]["moments"].as_array().unwrap();
+                assert_eq!(actual.len(), expected.len() * 4);
+                for (index, expected) in expected.iter().enumerate() {
+                    let natural = characteristic_scale
+                        .powi(base_dimension + plan.basis()[index].rank() as i32);
+                    for slot in 0..4 {
+                        let re = expected[slot][0].as_f64().unwrap();
+                        let im = expected[slot][1].as_f64().unwrap();
+                        let value = &actual[4 * index + slot];
+                        assert!(
+                            (value.re - re).hypot(value.im - im)
+                                <= 1e-10 * (natural + re.hypot(im)),
+                            "{} {mode:?} moment {index}, slot {slot}: {value:?} expected ({re},{im})",
+                            input["id"]
+                        );
+                    }
+                }
+                comparisons += 1;
+            }
+        }
+        assert_eq!(comparisons, 21);
+    }
+
+    #[test]
+    fn generalized_pv_second_order_dual_batches_match_ibp() {
+        let mut configuration = settings(2, 1);
+        configuration.powers = vec![1, 2];
+        configuration.dimension_shift = 2;
+        configuration.algorithm = Algorithm::PassarinoVeltman;
+        let pv = ReductionPlan::new(configuration.clone()).unwrap();
+        configuration.algorithm = Algorithm::Ibp;
+        let ibp = ReductionPlan::new(configuration).unwrap();
+        let shape = HyperDual::<f64>::new(vec![vec![0], vec![1], vec![2]]);
+        let mut pv = Workspace::new_dual(&pv, 0., shape.clone()).unwrap();
+        let mut ibp = Workspace::new_dual(&ibp, 0., shape).unwrap();
+        let values = (0..3)
+            .flat_map(|lane| {
+                [1., 2., 0., 0., 1., 3., 0., 0., 4. + lane as f64, 9., 3.]
+                    .into_iter()
+                    .enumerate()
+                    .flat_map(|(argument, value)| {
+                        [value, if argument == 8 { 1. } else { 0. }, 0.]
+                            .map(|value| Complex::new(value, 0.))
+                    })
+            })
+            .collect();
+        let batch = crate::KinematicsBatch {
+            rows: 3,
+            components: 3,
+            values,
+        };
+        let actual = pv.reduce_batch(&batch).unwrap();
+        let expected = ibp.reduce_batch(&batch).unwrap();
+        for lane in 0..3 {
+            for (left, right) in actual
+                .lane(lane)
+                .unwrap()
+                .iter()
+                .zip(expected.lane(lane).unwrap())
+            {
+                assert!(
+                    (left.re - right.re).hypot(left.im - right.im)
+                        <= 1e-10 * (1. + right.re.hypot(right.im)),
+                    "lane {lane}: {left:?} versus {right:?}"
+                );
+            }
+        }
+        assert!(pv.last_execution().master_rows >= 3);
     }
 
     #[test]
