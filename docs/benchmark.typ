@@ -69,6 +69,8 @@
 #let bench = data.qualified_benchmark
 #let native = data.qualified_native_benchmark
 #let recent = data.qualified_5c9_benchmark
+#let current = data.qualified_80949_benchmark
+#let physical = data.physical_80949_benchmark
 #let benchmark-cell(r) = table.cell(fill: ratio-fill(r.paired_ratio), {
   set par(leading: 0.25em, justify: false)
   text(size: 9pt, weight: "bold")[#fixed(r.rust_us_per_point, digits: 3) µs]
@@ -88,12 +90,12 @@
   linebreak()
   text(size: 7.5pt, weight: "bold")[#if r.gate == "inconclusive-noise" { "Inconclusive: noise" } else { "Regression" }]
 })
-#let stage-bar(r) = {
+#let stage-bar(r, maximum: 40) = {
   let v = r.profile_us_per_point
   let vals = (v.arguments, v.masters, v.reduction, v.other)
   box(width: 10.5cm, height: 12pt, fill: rgb("#f3f4f6"))[
     #stack(dir: ltr, spacing: 0pt, ..vals.enumerate().map(((i, val)) =>
-      rect(width: 10.5cm * val / 40, height: 12pt, fill: stage-colors.at(i), stroke: none)))
+      rect(width: 10.5cm * val / maximum, height: 12pt, fill: stage-colors.at(i), stroke: none)))
   ]
 }
 
@@ -119,8 +121,8 @@
   *Acceptance gates*
   #table(columns: (1fr, 2fr, auto), stroke: none, inset: (x: 4pt, y: 4pt),
     [*Correctness*], [Agreement with original IREGI and isolated MadLoop graphs], [*Pending*],
-    [*Kernel performance*], [Equal or better on identical inputs; three separate runs], [*Unmet*],
-    [*Complete evaluation*], [Report preparation, numerator, reduction and masters separately], [*Unmeasured*],
+    [*Kernel performance*], [Equal or better on identical inputs; separate measured snapshots], [*Unmet*],
+    [*Complete evaluation*], [Six physical rows measured; two failures retained], [*Inconclusive*],
   )
 ]
 = Historical kernel baseline: #raw("4c32ece")
@@ -154,16 +156,17 @@ regressions, one parity result and two improvements. *Absolute IREGI timings
 changed substantially between sessions*, despite identical inputs/reference
 binary and CPU settings. Each verdict uses its own paired run; no direct
 backend speedup is inferred across sessions. Both use the historical #raw("4c32ece") revision;
-current-tree, higher-rank and physical performance remain unmeasured.]
+higher-rank performance remains unqualified.]
 
 #text(size: 9pt)[The newer optimized interpreter snapshot #raw("5c9e3dd")
-passes eight numerical checks, with six timing regressions and two noisy,
-inconclusive rows. Its separate paired run is reported below. Subsequent
-default-stack, generalized-PV and vector-solve changes are unmeasured.]
+passes eight numerical checks, with six timing regressions and two noisy rows.
+The latest #raw("80949db") default-stack/generalized-PV/vector-solve snapshot
+also passes all eight checks: five regressions and three noisy rows.
+Separate same-session comparisons follow; performance acceptance is unmet.]
 
 #text(size: 9pt)[Newer validation includes four integrated graphs. The top
 pentagon at Float 128/256 agrees with PV/hybrid and MadLoop; original IBP still
-fails. Physical timings are unmeasured.]
+fails. The latest physical timing comparisons remain inconclusive.]
 
 #pagebreak()
 = Historical stage profiles: #raw("4c32ece")
@@ -231,7 +234,65 @@ lanes, CPU 0 and 21 rotated blocks. This selects a batch policy, not IREGI
 speedup; see #raw("validation/native-policy/").]
 
 #pagebreak()
-= Newer kernel snapshot: #raw("5c9e3dd")
+= Latest kernel snapshot: #raw("80949db")
+All eight massive bubble/triangle checks pass the unchanged $10^(-10)$
+criterion, maximum normalized error $2.46 times 10^(-13)$. Five timing rows
+regress; three exceed the unchanged 2% interval-width limit and remain
+*inconclusive*. This optimized snapshot includes the adopted master stack
+allocation, generalized PV and lazy Cayley solve. Later core-allocation and
+experimental changes are excluded. The performance requirement remains unmet.
+
+#figure(kind: table, caption: [*Binary64 hybrid interpreter, µs/point.*
+  Latency at batch 1 and amortized cost at batch 32. Each ratio uses its
+  same-run paired original-IREGI measurement.], report-table(table(
+  columns: (1fr, auto, 2fr, 2fr),
+  align: (x, y) => if x == 0 { left + horizon } else { center + horizon },
+  inset: (x: 7pt, y: 10pt), stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else { none },
+  table.header([Case], [Rank], [Batch 1], [Batch 32]),
+  ..for r in current.rows.filter(r => r.batch_width == 1) {
+    let batch = current.rows.find(x => x.id == r.id and x.batch_width == 32)
+    ([*#r.label*], [#r.rank], recent-cell(r), recent-cell(batch))
+  },
+)))
+
+== Separately instrumented component timings
+#report-table(table(
+  columns: (3.5cm, 10.5cm, 1.5cm), inset: (x: 3pt, y: 3pt), stroke: none,
+  fill: (x, y) => if y == 0 { navy } else { none },
+  table.header([Case / batch], [Rust stage time: 0 #h(1fr) 25 #h(1fr) 50 µs/point], [Total]),
+  ..for r in current.rows {
+    ([#r.label r#r.rank / #r.batch_width], stage-bar(r, maximum: 50), [#fixed(r.profile_us_per_point.total, digits: 3)])
+  },
+))
+#align(center)[
+  #set text(font: "DejaVu Sans", size: 8pt)
+  #box(width: 8pt, height: 8pt, fill: stage-colors.at(0)) Arguments #h(9pt)
+  #box(width: 8pt, height: 8pt, fill: stage-colors.at(1)) Scalar masters #h(9pt)
+  #box(width: 8pt, height: 8pt, fill: stage-colors.at(2)) Reduction #h(9pt)
+  #box(width: 8pt, height: 8pt, fill: stage-colors.at(3)) Other
+]
+#text(size: 8.5pt)[Stages use a separate instrumented pass. “Other” is its
+total median minus named medians; stage sums are not the uninstrumented gate.
+Graph/numerator preparation is outside this tensor-array benchmark. The
+single plan-preparation observations remain in the data, not in speed ratios.]
+
+CPU 0, five warm-ups and 21 randomized paired blocks targeting 30 ms use
+identical inputs, complete tensor arrays and all native Laurent slots.
+Structural allocations are reused; numerical results are recomputed and
+reference caches cleared per sample. Transport is excluded. Rust 1.99 uses
+opt-level3, thin LTO and one codegen unit; GFortran 15.2 uses #raw("-O3").
+
+All 401 immutable build-source hashes, both binaries and the harness match
+the retained provenance. Other project computations were held; a pending
+native compiler was suspended. Host activity outside the project was not
+controlled. The accepted license contains no tracked key material.
+This is a separate session from the historical tables; its absolute timings
+establish no revision speedup. Raw samples and reproduction commands:
+#raw("validation/benchmark/baseline-80949db-licensed/").
+
+#pagebreak()
+= Historical kernel snapshot: #raw("5c9e3dd")
 All eight massive bubble/triangle checks pass the unchanged $10^(-10)$
 criterion. Six timing rows regress; two exceed the allowed 2% relative
 confidence-interval width and remain *inconclusive*. Amber cells denote noise,
@@ -284,6 +345,80 @@ sessions cannot establish a revision speedup. Raw blocks, inputs, manifests
 and reproduction commands: #raw("validation/benchmark/baseline-5c9e3dd/").
 
 #pagebreak()
+= Physical pipeline measurements: #raw("80949db")
+Six preserved-input binary64 comparisons pass complete canonical tensors
+against all three original modes and all three isolated graph Laurent slots
+against MadLoop. *Every measured timing row remains inconclusive*: its 99%
+interval exceeds the unchanged 2% relative-width threshold. Both top-pentagon
+rows fail during preparation; no output or timing substitutes for them.
+
+#let physical-cell(r) = table.cell(fill: amber, {
+  set par(leading: 0.3em, justify: false)
+  if r.status != "measured" {
+    text(size: 10pt, weight: "bold")[Failed before timing]
+    linebreak()
+    text(size: 8pt)[Preserved-input conditioning guard]
+  } else {
+    text(size: 11pt, weight: "bold")[#fixed(r.rust_ms_per_point, digits: 3) ms]
+    linebreak()
+    text(size: 8pt)[MadLoop #fixed(r.madloop_ms_per_point, digits: 3) ms · ×#fixed(r.ratio, digits: 3)]
+    linebreak()
+    text(size: 7pt)[99% CI #fixed(r.ci99.at(0), digits: 3)–#fixed(r.ci99.at(1), digits: 3)]
+    linebreak()
+    text(size: 7.5pt, weight: "bold")[Inconclusive: noise]
+  }
+})
+#figure(kind: table, caption: [*Equivalent complete numerical pipelines,
+  ms/point.* Repeated captured point; amortized batch32 cost does not establish
+  throughput over varying phase-space samples.], report-table(table(
+  columns: (1.2fr, auto, 2fr, 2fr), inset: (x: 7pt, y: 10pt), stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else { none },
+  table.header([Graph], [Ranks\ Rust/ML], [Batch 1], [Batch 32]),
+  ..for r in physical.rows.filter(r => r.batch_width == 1) {
+    let batch = physical.rows.find(x => x.case == r.case and x.batch_width == 32)
+    ([*#r.label*], [#r.rust_rank / #r.madloop_rank], physical-cell(r), physical-cell(batch))
+  },
+)))
+
+== Scope and uncertainty
+The timers include numerical numerator coefficients, reduction, conversion,
+contraction, status checks and returned-buffer/cache cleanup. Graph/model and
+external-wavefunction preparation, input packing, final comparison adapters
+and process transport are excluded from both. Bare poles and R1 are retained;
+R2 and UV counterterm graphs are excluded. Routing and rank differences are
+declared algorithmic choices: *no tensor-stage timing ratio is valid*.
+
+Both engines use Hybrid, 53 working/requested bits, input preservation, CPU 0,
+five warm-ups and 21 blocks targeting 30 ms. Separate engine runs use an
+independent bootstrap ratio of medians (10,000 resamples). These intervals
+describe within-run variation and do not bound drift between engines.
+Project computations and producer writes were frozen; external host activity
+was not controlled. Stage samples and raw full responses remain available.
+
+Attempt002 preserves all source/build identities. Attempt001 is retained as
+unqualified because producer inputs changed during execution. The optimized
+top-box numerical pass is specific to this captured harness path; earlier
+CLI binary64 guard rejections remain part of the ledger. Top-pentagon failure
+is the actual preserved-input derived-distance conditioning diagnostic.
+No failure is removed from the family count.
+
+Sources, contracts, stage timings and reproduction:
+#raw("validation/benchmark/physical-joint-quiet/"). The preceding three-block
+ggH smoke and 80 Python boundary/provenance tests are separately retained in
+#raw("validation/benchmark/physical-joint-smoke/").
+
+== Precision follow-up on the failed pentagon point
+Promoting the same 95 represented binary64 input components exactly to
+Float256/512, with requested accuracy53 unchanged, gives convergence over
+all 280 complex tensor slots within $2.17 times 10^(-55)$. Original PV/hybrid
+agree within $4.62 times 10^(-14)$ and the preserved MadLoop graph within
+$9.29 times 10^(-14)$. Original IBP still differs by 0.60013; binary64/128 guard
+failures remain. The first 256-bit driver captured valid outputs before a
+rational-input comparison-parser failure; the retained separate comparison
+passes. This is one-point manual precision qualification, not automatic
+rescue or a timing gate. See #raw("validation/physical/gghhh-guard/").
+
+#pagebreak()
 = Current implementation checkpoint
 These experiments have separate source and binary identities. They extend
 the correctness evidence; they do not replace the historical timing tables.
@@ -305,6 +440,11 @@ The default-stack workspace snapshot compiled with unchanged source hashes
 before the generalized-PV promotion below. Its current-guard acceptance
 passes 30 execution, 29 stability, six public mixed-precision and three
 scalar integration tests.
+
+The optimized #raw("80949db") snapshot also passes eight complete bubble/
+triangle kernel checks at batches 1/32, maximum normalized error
+$2.46 times 10^(-13)$. Three short blocks, zero warm-up and concurrent builds
+make this a correctness smoke only; its recorded timing ratios are unqualified.
 
 The paired DD E6 experiment preserves all three statuses and 12 complex
 Laurent outputs exactly, with the independent $10^(-23)$ check passing in
@@ -407,10 +547,10 @@ The target envelope includes seven propagators, rank seven, generalized
 powers and dimension shifts.
 
 The kernel harness now records every requested configuration before starting
-subprocesses, preserving interrupted and unrun rows. The retained Python
-suite passes 37 ledger, provenance, protocol, transport and comparison
-boundary checks, without numerical backends. Explicit matched manifests
-identify the separately executed #raw("5c9e3dd") timing snapshot.
+subprocesses, preserving interrupted and unrun rows. The latest Python suite
+passes 80 ledger, provenance, protocol and comparison checks. The optimized
+joint ggH smoke passes at batches 1/3; its short zero-warm-up timings are
+diagnostic. The subsequent quiet physical results are reported separately.
 
 An identified debug binary passes the $g g arrow H$ harness smoke at batches
 1 and 3: all 15 moments / four slots agree with three IREGI modes within
@@ -419,16 +559,16 @@ Seven-stage protocol checks pass; short debug timings, live-source provenance
 and repeated-point scaling remain unqualified. See
 #raw("validation/benchmark/physical-smoke/qualification.json").
 
-Actual concurrent evaluation remains unqualified under the installed
-one-thread Symbolica license; the guarded two-worker test is ignored.
-The corrected sequential corpus passes, using scalar D0 with a tensor
-triangle and second-order Dual bubble. Its original rank-one f64 box
-rejection remains recorded; sequential agreement does not establish concurrency.
-See #raw("validation/concurrent-workspaces/qualification.json").
+With the accepted license, 360 batched calls across two workers match sequential
+A0–D0 values, status and metadata for f64/Float128 and second-order Dual branches.
+A separate four-worker cold-specialization test passes shared ownership and
+cleanup checks. These qualify retained SymbolicaBatch snapshots; native kernels
+remain separate. The earlier rank-one box rejection is retained in
+#raw("validation/concurrent-workspaces/").
 
 = Rebuilding this report
 Update #raw("docs/data/results.json") only from retained measurements and
-rebuild with #raw("typst compile docs/benchmark.typ docs/benchmark.pdf").
+rebuild with #raw("bash scripts/build-benchmark-report.sh").
 The report uses Libertinus Serif and DejaVu Sans/Mono. Supply their installation
 directories through Typst's #raw("--font-path") option when needed.
 Reference checkout revisions are retained in the JSON data. They record the
@@ -455,14 +595,13 @@ requests with analytic bubbles disabled/enabled: 480 evaluations and 1920
 slots. Nine extracted FeynKit partial-fraction and two planar formula tests
 pass; public integration remains pending.
 
-Exact PV coefficients with Fortran leaves pass N1–4 through rank seven.
-For N6, inline native-master 128/256-bit arrays converge over 1320 complex
-slots within $6.46 times 10^(-29)$; retained binary64/original results fail.
-Full public N6/N7 tensor arrays remain unqualified. The latest N6 rank-seven
-probe times out during workspace preparation at 180 s, after a 107.836 s plan
-with 330 moments, 31,670 aliases and 56 masters; no values are produced.
-See #raw("validation/public-highpoint/"). The saved N5 rank-seven baseline
-passes separately; historical evidence remains in #raw("data/results.json").
+N6 inline native-master 128/256-bit arrays converge over 1320 complex slots
+within $6.46 times 10^(-29)$; public N6/N7 tensor arrays remain unqualified.
+Public rank-seven baseline/current/n-way probes time out during preparation at
+180/300/300 s, without values. Plans have 330 moments, 31,670 aliases and 56
+masters. The private n-way expression change passes 20 exact checks but its
+changed preparation stage is not reached; no speed gate follows. Source,
+CPU and diagnostic durations are retained in #raw("validation/public-highpoint/").
 
 #pagebreak()
 = Physical fixture qualification
@@ -484,35 +623,35 @@ its adapter includes the odd-rank sign. For the FeynKit routing,
 $N_"FK"(q)=-1/2 P_("ML",1)(p_1-q)$ with matched couplings/polarizations.
 Do not apply color or direction factors twice.
 
-Five schema-2 captures under #raw("validation/physical/madloop/fixtures/")
-contain 40 graph records, including a second triangle helicity. All thirteen
-preparation tests and four selected physical numerator comparisons pass;
-this is not 40 integrated validations. Actual evaluated momenta are exported
-because MadLoop can correct the requested phase-space point. The compact
-triangle reference is #raw("validation/physical/ggh-numerator-reference.json").
+Five captures contain 40 graph records, including a second triangle helicity;
+these are not 40 integrated validations. Thirteen preparation and four selected
+physical numerator comparisons pass. Actual evaluated momenta are exported
+because MadLoop may correct the requested point.
+
+Fresh preserved-input Fortran replay matches all 301 numerator coefficients,
+903 tensor Laurent entries and 12 contracted slots across four graphs exactly;
+eight alignment boundary tests pass. Legacy-default ggH is unchanged. This is
+reference-only qualification; later Rust checks belong to the separate joint run.
+Equivalent full-graph timing retains Rust/MadLoop ranks 2/3 for ggH, 4/4 for
+both boxes and 4/5 for ggHHH, and their declared routing. It does not qualify
+tensor-stage ratios. Sources: #raw("validation/benchmark/physical-alignment/").
 
 The recorded binary64 $g g arrow H$ CLI passes all 15 moments / 60 slots
 against original IREGI within $1.86 times 10^(-15)$ normalized error and
-MadLoop within $9.38 times 10^(-15)$, including poles. Its fixed-color raw
-finite value is $-147.86843349622455$, normalized to $-0.9363877940734862$.
-Values and executable provenance are retained in
-#raw("validation/physical/ggh-cli-comparison.json"); this is not a fresh replay.
-All nineteen current CLI smoke checks pass. Reference data and comparison
-arithmetic are binary64; higher working precision certifies no extra digits.
-Short unpinned timing checks are excluded from benchmark evidence.
-The top-box binary64 rejection remains recorded: PV fails its cancellation
-guard and IBP fallback is nonfinite. Complete Float128 and Float256 CLI reruns
-now pass all 280 tensor slots against all three reference modes, within
-$1.15 times 10^(-13)$; MadLoop contraction error is at most
-$4.77 times 10^(-15)$. Each run freshly prepares/evaluates the numerator.
-Their normalized tensor difference is $6.09 times 10^(-37)$, with identical
-contracted values after binary64 conversion. That comparison arithmetic
-certifies no extra digits. Evidence is retained in
-#raw("validation/physical/gghh-cli-precision-convergence.json") and its
-linked Float 128/256 reports.
-A model-import regression was resolved by a narrow Symbolica-backed quantum-
-number adapter. Four boundary, thirteen preparation and four physical numerator
-tests pass with the fix; other numerical tokens retain their precision.
+MadLoop within $9.38 times 10^(-15)$, including poles. Values and binary identity
+remain in #raw("validation/physical/ggh-cli-comparison.json"); this is not a
+fresh replay. Nineteen CLI smoke checks pass. Binary64 comparison arithmetic
+certifies no extra digits from higher working precision; short unpinned
+timings are excluded.
+
+The historical top-box binary64 CLI rejects: PV fails its cancellation guard and IBP
+fallback is nonfinite. Float128/256 reruns pass all 280 slots against all
+three reference modes within $1.15 times 10^(-13)$, and MadLoop within
+$4.77 times 10^(-15)$. Each freshly prepares/evaluates the numerator. Their
+normalized tensor difference is $6.09 times 10^(-37)$ under binary64 comparison
+arithmetic. See #raw("validation/physical/gghh-cli-precision-convergence.json").
+The Symbolica-backed model adapter passes four boundary, thirteen preparation
+and four numerator tests while preserving other numerical tokens.
 
 The current optimized CLI also passes the massless up-quark box. All 70
 moments / 280 slots agree with each original mode: maximum error
@@ -545,7 +684,7 @@ Exact commands and scope are retained in
 #pagebreak()
 = Open qualification ledger
 #report-table(table(
-  columns: (1.1fr, 2.4fr), inset: (x: 7pt, y: 9pt), stroke: table-stroke,
+  columns: (1.1fr, 2.4fr), inset: (x: 7pt, y: 6pt), stroke: table-stroke,
   fill: (x, y) => if y == 0 { navy } else { amber },
   table.header([Unresolved item], [Observed evidence and remaining check]),
   [Binary64 baseline accuracy], [Historical Rust error $2.23 times 10^(-10)$
@@ -564,9 +703,9 @@ Exact commands and scope are retained in
   [Broader derivative domains], [The full five-case mixed D0 batch now passes
     with error below $2^(-70)$. True thresholds and unsupported transverse
     massless/Gram/Cayley domains retain typed errors; old timeouts remain.],
-  [Physical top-box binary64], [The original binary64 guard rejection remains
-    visible. Complete Float 128/256 evaluations now pass; this does not establish
-    binary64 stability or performance.],
+  [Physical top-box binary64], [The historical CLI guard rejection remains
+    visible. Complete Float 128/256 evaluations pass; the retained 80949db
+    physical harness also passes binary64. Broader kinematics remain pending.],
   [Supplied-product high points], [Certified N6 scalar: working128/256,
     requested53, zero poles and invalid-lane isolation pass. Both binary64
     variants reject at the same guard. Independent quadrature differs by
@@ -577,32 +716,36 @@ Exact commands and scope are retained in
     requests and broader domains remain unqualified.],
   [Mixed-precision accuracy], [Three retained false-success cases are repaired:
     29 stability and six public tests pass. The active-master guard remains
-    conservative, its estimates noncertified and its overhead unmeasured.],
+    conservative and its estimates noncertified; isolated overhead diagnostics
+    establish no optimized IREGI gate.],
   [Runtime performance], [Interpreter: 7 regressions/1 improvement. Native:
     5 regressions/1 parity/2 improvements, in a separate paired session.
-    Newer5c9e3dd: 6 regressions/2 noisy inconclusive rows. Subsequent changes
-    remain unmeasured; diagnostic memory observations do not satisfy the gate.],
+    5c9e3dd: 6 regressions/2 noisy rows; latest80949db: 5 regressions/3 noisy.
+    Physical: six noisy rows/two failures. No overall performance gate passes.],
 ))
 
-== Canonical physical reference audit
-Original IBP disagrees with PV/hybrid in $g g arrow H H H$ despite stable
-flags; maximum normalized finite error is $0.600134$. Other three families
-agree within $2.22 times 10^(-14)$; see
-#raw("validation/physical/canonical-reference-audit.json"). The next page
-independently adjudicates moment 54. Reference stability does not certify Rust.
-
-== Independent integral evidence
-Independent 50/80-digit rank-four bubble integrals and 60/100-digit lightlike
-bubble integrals with derivatives are retained under #raw("validation/pv-high-rank").
-Correctly rounded masters reduce synthetic pentagon error to
-$3.11 times 10^(-12)$ with Float256 reduction or $2.23 times 10^(-11)$ with
-binary64 reduction, isolating amplified master error.
-
-#text(size: 9pt)[The equal-mass D6 series oracle has a proven remainder below
-$2^(-321)$; its production failures remain visible above. The new N6 scalar
-oracle and lazy Cayley solve evidence are retained under
-#raw("validation/invariant-certificate/solve-vector/"). Neither establishes
-broader high-point tensor or performance coverage.]
+== Optimization and experimental evidence
+#report-table(table(
+  columns: (1fr, 3fr), inset: (x: 6pt, y: 5pt), stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else { pale },
+  table.header([Candidate], [Executed evidence and limit]),
+  [Core stack reuse], [76 test executions and 12 paired cases pass; a quiet
+    opt2 run preserves 92 outputs. Batch ratios 0.9873/0.9802; singleton intervals
+    include parity. Promoted #raw("d1a4b8e") passes 67 current opt2 checks;
+    its optimized IREGI gate remains unmeasured.],
+  [Roundoff cache], [29/37 stability tests and 120 snapshots pass. Measured
+    candidate rejected: two regressions, ten noisy rows, no qualified gain.
+    Separate accuracy-guard diagnostic: two regressions/six noisy rows.],
+  [Certified planar], [Private Float128/request53 rank7 passes 1320 complex slots
+    against five boxes at dimensionally normalized $10^(-10)$. Rank≤2 normalized
+    precision/Dual checks pass. Historical failures/timeouts remain; no production fallback.],
+  [Near-vacuum box], [18 validation executions / 15 settings pass, including
+    mixed jets and unequal masses. Requested bits: f64 40, DD 80, Float128 100,
+    Float256 128. Rejections/timeouts remain; production D0/E6 is unchanged.],
+))
+#text(size: 8.5pt)[Artifact paths and full candidate scopes are retained in
+#raw("docs/data/results.json"). Planar rank7 Float256/Dual and public N6
+remain unqualified; the private successful run establishes no speedup.]
 #pagebreak()
 = Independent pentagon adjudication
 These checks establish selected mathematical values independently of an
