@@ -233,6 +233,11 @@ slower, with per-comparison 99% intervals excluding parity. It uses 32 valid
 lanes, CPU 0 and 21 rotated blocks. This selects a batch policy, not IREGI
 speedup; see #raw("validation/native-policy/").]
 
+#text(size: 8.5pt)[A later native allocator candidate is rejected: the corrected
+24-row protocol gives two singleton parities and 22 noisy rows, with no qualified
+batch32 gain. Earlier results (two regressions/22 noisy rows) remain retained.
+D0 compilation/qualification is pending. See #raw("validation/native-stack-batch/").]
+
 #pagebreak()
 = Latest kernel snapshot: #raw("80949db")
 All eight massive bubble/triangle checks pass the unchanged $10^(-10)$
@@ -684,7 +689,7 @@ Exact commands and scope are retained in
 #pagebreak()
 = Open qualification ledger
 #report-table(table(
-  columns: (1.1fr, 2.4fr), inset: (x: 7pt, y: 6pt), stroke: table-stroke,
+  columns: (1.1fr, 2.4fr), inset: (x: 7pt, y: 4pt), stroke: table-stroke,
   fill: (x, y) => if y == 0 { navy } else { amber },
   table.header([Unresolved item], [Observed evidence and remaining check]),
   [Binary64 baseline accuracy], [Historical Rust error $2.23 times 10^(-10)$
@@ -733,6 +738,10 @@ Exact commands and scope are retained in
     opt2 run preserves 92 outputs. Batch ratios 0.9873/0.9802; singleton intervals
     include parity. Promoted #raw("d1a4b8e") passes 67 current opt2 checks;
     its optimized IREGI gate remains unmeasured.],
+  [Guard context], [62/76 isolated checks and 120 snapshots pass; six measured
+    improvements, six noisy rows, no regression. Rebased source passes 76 checks
+    and 120 snapshots; final cleanup passes 14. Adopted in #raw("6b24c03").
+    Its optimized IREGI gate remains unmeasured.],
   [Roundoff cache], [29/37 stability tests and 120 snapshots pass. Measured
     candidate rejected: two regressions, ten noisy rows, no qualified gain.
     Separate accuracy-guard diagnostic: two regressions/six noisy rows.],
@@ -745,7 +754,7 @@ Exact commands and scope are retained in
 ))
 #text(size: 8.5pt)[Artifact paths and full candidate scopes are retained in
 #raw("docs/data/results.json"). Planar rank7 Float256/Dual and public N6
-remain unqualified; the private successful run establishes no speedup.]
+remain unqualified. Separate allocator, native and guard effects are not multiplied.]
 #pagebreak()
 = Independent pentagon adjudication
 These checks establish selected mathematical values independently of an
