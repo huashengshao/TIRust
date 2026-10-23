@@ -1,0 +1,5 @@
+/target/
+/.local/
+**/*.profraw
+**/*.profdata
+.DS_Store
