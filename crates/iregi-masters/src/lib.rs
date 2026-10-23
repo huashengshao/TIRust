@@ -13,6 +13,8 @@
 
 use std::{error::Error, fmt};
 
+pub mod certified;
+mod near_vacuum;
 mod bubble_neighborhood;
 mod derivative_domain;
 mod dual_validation;
@@ -47,6 +49,7 @@ const OUTPUTS: usize = 6;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MasterError {
     InvalidPrecision,
+    InvalidAccuracy(String),
     InvalidShape(String),
     SizeOverflow,
     InputLength { expected: usize, actual: usize },
@@ -57,6 +60,7 @@ pub enum MasterError {
 impl fmt::Display for MasterError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InvalidAccuracy(reason) => write!(f, "invalid accuracy context: {reason}"),
             Self::InvalidPrecision => f.write_str("working precision must be positive"),
             Self::InvalidShape(reason) => write!(f, "invalid Dual shape: {reason}"),
             Self::SizeOverflow => f.write_str("master batch dimensions overflow"),
@@ -80,6 +84,7 @@ pub enum LaneError {
     UndefinedScalelessDerivative,
     UnsupportedDerivativeDomain,
     NonFiniteOutput,
+    UncertifiedFinite(Option<usize>),
 }
 
 impl fmt::Display for LaneError {
@@ -102,6 +107,7 @@ impl fmt::Display for LaneError {
             Self::UnsupportedDerivativeDomain => f.write_str(
                 "these Dual seeds cross a scalar-limit branch without a supported analytic neighborhood",
             ),
+            Self::UncertifiedFinite(component) => write!(f, "finite coefficient has no requested accuracy certificate: {component:?}"),
             Self::NonFiniteOutput => {
                 f.write_str("master is singular or unsupported at this kinematic point")
             }

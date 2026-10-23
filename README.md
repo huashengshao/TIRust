@@ -171,6 +171,15 @@ The generated Rust scalar-master kernels can be selected with
 Dual evaluation continues through Symbolica's Dualizer. This backend remains
 opt-in while end-to-end performance qualification is in progress.
 
+`iregi_masters::certified::AccuracyMasterEvaluator` provides an explicit
+accuracy-aware interface for finite D0 masters near the equal-mass vacuum.
+It accepts exact rational error budgets and returns per-component enclosures
+for accepted lanes. Orders two and four run across the eligible batch, including
+supported Taylor components. Ordinary fallback requires an explicit policy and
+is labelled uncertified. These bounds cover the represented master inputs;
+upstream routing arithmetic requires its own enclosure. See the
+[API contract](docs/research/certified-masters-api.md) for limits and validation.
+
 ## Validation and reporting
 
 ```sh

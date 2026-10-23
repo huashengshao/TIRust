@@ -1,0 +1,351 @@
+{
+  "schema_version": 1,
+  "purpose": "Research/source audit only. No COLLIER build, timing or numerical qualification.",
+  "audit_utc": "2026-10-23T19:48:58.578611+00:00",
+  "archive": {
+    "requested_url": "https://collier.hepforge.org/downloads/?f=collier-1.2.10.tar.gz",
+    "final_url": "https://collier.hepforge.org/downloader?f=collier-1.2.10.tar.gz",
+    "downloaded_utc": "2026-10-23T19:39:57.009176+00:00",
+    "bytes": 928595,
+    "sha256": "460624ea709211506b642343a7f6be41d3883ccb52598b14950f8e07c0262713",
+    "local_path": "target/reference/collier/collier-1.2.10.tar.gz"
+  },
+  "download_receipt": {
+    "path": "target/reference/collier/download.json",
+    "sha256": "06f2fa5b45e68a6a9fa6e415595a74dd042dbce39c2d037e23d065d58d5a897d",
+    "recorded_fields_reproduced_in_archive_entry": true
+  },
+  "extraction": {
+    "root": "target/reference/collier/source/collier-COLLIER-1.2.10",
+    "archive_members": 64,
+    "regular_files": 53,
+    "path_policy": "Rejected absolute paths and any .. path component; extracted regular files and directories only; no symlink followed. Every extracted regular file verified byte-for-byte against archive.",
+    "omitted_symlinks": [
+      {
+        "path": "collier-COLLIER-1.2.10/manual/collier.pdf",
+        "target": "collier_manual-1.2.10.pdf"
+      },
+      {
+        "path": "collier-COLLIER-1.2.10/manual/collier.tex",
+        "target": "collier_manual-1.2.10.tex"
+      }
+    ]
+  },
+  "source_files": [
+    {
+      "path": "CMakeLists.txt",
+      "bytes": 10799,
+      "sha256": "59f89939e93f7bce5f455d023430c86a1f2103171df53c27686150371100c2eb"
+    },
+    {
+      "path": "COPYING",
+      "bytes": 35147,
+      "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+    },
+    {
+      "path": "config/CMakeCheckCompilerFlagCommonPatterns.cmake",
+      "bytes": 1771,
+      "sha256": "5c15afa367cf80461a80878b9d1894e01d0b28acaa6a61251198276205a11468"
+    },
+    {
+      "path": "config/CMakeUninstall.cmake.in",
+      "bytes": 1003,
+      "sha256": "44fbd45b49710f11ff2073b878119a60b5d7bb01a879dad2726b29ec3e6fc584"
+    },
+    {
+      "path": "config/CheckFortranCompilerFlag.cmake",
+      "bytes": 1381,
+      "sha256": "30b5f7188c487c939189c41ac4beea9220407a08f92acb7eb02615c20b97f921"
+    },
+    {
+      "path": "config/CheckFortranSourceCompiles.cmake",
+      "bytes": 2689,
+      "sha256": "0e6280339a550e52de4087bdf3d31b784e7d7cee76976fa9289affcc6279f10c"
+    },
+    {
+      "path": "config/PackageConfig.cmake.in",
+      "bytes": 821,
+      "sha256": "91836168db6091a009a41fd6310ed50b1b874dd34ee61e36f191db64c59befa0"
+    },
+    {
+      "path": "config/PackageConfigInstall.cmake",
+      "bytes": 2111,
+      "sha256": "2a5776be0b1febff3a4f66124cebf6d025df76bcc1d6a0ac78ca64fa948000db"
+    },
+    {
+      "path": "config/PackageConfigVersion.cmake.in",
+      "bytes": 561,
+      "sha256": "66d0d9a704183f1086e694d19207cc9c1fb93ba1452894d68ef2364cac967ec1"
+    },
+    {
+      "path": "demos/demo.f90",
+      "bytes": 126627,
+      "sha256": "9c28f5b44245a4034141b684bbadf5f60118e75d11365a6d3ac947c3370ec375"
+    },
+    {
+      "path": "demos/democache.f90",
+      "bytes": 16995,
+      "sha256": "9d841674aa62e32a9cc634d620686b1402ff01cabf3fee8e3d2c957df2aedfbc"
+    },
+    {
+      "path": "makefile_basic",
+      "bytes": 4137,
+      "sha256": "e502fb94324e4dfc8656dc99b6081b6c3c667bc4a3004df0ef64d1faa81bde8b"
+    },
+    {
+      "path": "manual/collier.bib",
+      "bytes": 106193,
+      "sha256": "10538cb5ed00c0d448c27f8165f151897599ee992550b23cad7a48a9c2501ef0"
+    },
+    {
+      "path": "manual/collier_manual-1.2.10.pdf",
+      "bytes": 494736,
+      "sha256": "baeae2546dcd418ce9ba14a995436bd2fbac10ea493c16bc362dcf134ffdb8d3"
+    },
+    {
+      "path": "manual/collier_manual-1.2.10.tex",
+      "bytes": 139025,
+      "sha256": "f4ace8a990cef3218128cb06e2647493bb2603bbe553bdbede45f9793fa71534"
+    },
+    {
+      "path": "src/Aux/Combinatorics.F90",
+      "bytes": 22204,
+      "sha256": "b8ce8bd275fce766cf452b5941ea15012fd4a294f6781516342dd53624618336"
+    },
+    {
+      "path": "src/Aux/cache.F90",
+      "bytes": 52609,
+      "sha256": "c733fb2359d6c813c3162811ae3c5976b026c30afcfeaf2ff49548fd9fe984f1"
+    },
+    {
+      "path": "src/Aux/master.F90",
+      "bytes": 22399,
+      "sha256": "d37fc4c1a902b8a3d6fb8f2f493984530ec2fbc5afeb0342bd5edde09fc1adea"
+    },
+    {
+      "path": "src/COLI/checkparams_coli.h",
+      "bytes": 961,
+      "sha256": "437f926b917046ede4f9fb221e6211ee432c9a6fdb662c8acf9e5977298c58f9"
+    },
+    {
+      "path": "src/COLI/coli_aux.F",
+      "bytes": 78302,
+      "sha256": "212578160240cf3caee217eff7ad88d6a1567e0a86b20340e07528d1122e178b"
+    },
+    {
+      "path": "src/COLI/coli_aux2.F90",
+      "bytes": 13997,
+      "sha256": "0e281706293b89dcfdc68f5facb9abcf9cdb1ba3252bf16ac3a12d71cd0b3085"
+    },
+    {
+      "path": "src/COLI/coli_b0.F",
+      "bytes": 73239,
+      "sha256": "640a6a3ffc3793da88d3c85b92ec07b7d228d4aa0f3f46ff4a83e0bfda074fe5"
+    },
+    {
+      "path": "src/COLI/coli_c0.F",
+      "bytes": 115548,
+      "sha256": "0542c11470df8b52c22127a0e4b0b3dca99ce208430609134b4d42dd339826a9"
+    },
+    {
+      "path": "src/COLI/coli_d0.F",
+      "bytes": 387766,
+      "sha256": "823e44eacd5c5859ee94ff28646cba74756168db2c09a75583df328ac31a7418"
+    },
+    {
+      "path": "src/COLI/coli_d0reg.F",
+      "bytes": 26443,
+      "sha256": "5c98af2430a865038f67e7ff06ac40f8f2c14693e9dc07225428ff5834490ffc"
+    },
+    {
+      "path": "src/COLI/coli_stat.F90",
+      "bytes": 12258,
+      "sha256": "01ef0f893adcb857172c8f856606e01724508a38a9f68571f3c397ff7cf40814"
+    },
+    {
+      "path": "src/COLI/common_coli.h",
+      "bytes": 1825,
+      "sha256": "81fe8d21a6d7d27c37014fb4f2d3cdd22aca984fca06a9fb6e3a6907c650ea3b"
+    },
+    {
+      "path": "src/COLI/global_coli.h",
+      "bytes": 918,
+      "sha256": "4a84851e597285cd9b151892cb034ad70d7793d024ad47e2bc5969effbf144b6"
+    },
+    {
+      "path": "src/COLI/interfaceAD.F90",
+      "bytes": 45496,
+      "sha256": "9c1d02508d33368bc66db1c7521ff2c9f59bca67de6ad9699418f8365037b93f"
+    },
+    {
+      "path": "src/COLI/params_coli.h",
+      "bytes": 1553,
+      "sha256": "c39446bb432c436253581def00f1b556448bb2a5f7f8fbaba6aa9fc4622d4cd0"
+    },
+    {
+      "path": "src/COLI/reductionAB.F90",
+      "bytes": 11685,
+      "sha256": "dae1567472ade977dabcdd0a85747770e177611998a4c7152b1c8a28080b342c"
+    },
+    {
+      "path": "src/COLI/reductionC.F90",
+      "bytes": 265822,
+      "sha256": "950254df9a142d2bb9c58d4d273fa89b36952744d5f59f9335474f43ecab0057"
+    },
+    {
+      "path": "src/COLI/reductionD.F90",
+      "bytes": 333576,
+      "sha256": "8256b0378a7925aa8c7161a40731ea2d773f4ff3bd7e509d07223fada2eac817"
+    },
+    {
+      "path": "src/COLI/reductionEFG.F90",
+      "bytes": 78331,
+      "sha256": "fa75ec50858245947c44b261315111d46ebd29d9e2a6d81fdc62fdc0c0f43e4e"
+    },
+    {
+      "path": "src/COLI/reductionTN.F90",
+      "bytes": 42564,
+      "sha256": "0efbf720137dc7e64bb08e728af1355554cb73277679adb45f0a3703b892f0ad"
+    },
+    {
+      "path": "src/COLLIER.F90",
+      "bytes": 3405,
+      "sha256": "a0fc89d3d04f50d11a4cc09f953461d27861e1f9a1f842310a253531e3b94963"
+    },
+    {
+      "path": "src/DDlib/DD_2pt.F",
+      "bytes": 32433,
+      "sha256": "730668b528237013089fe03345e453c3c42baea91eb4ff9da79be3a9729785a5"
+    },
+    {
+      "path": "src/DDlib/DD_3pt.F",
+      "bytes": 125340,
+      "sha256": "9fe01a53f5284d94bc084905cb1d523fddc362fcebac2eb981a1003b4a64411d"
+    },
+    {
+      "path": "src/DDlib/DD_4pt.F",
+      "bytes": 186430,
+      "sha256": "6ff001947c81af4156440b79b9f97d00c59bcbb5141ddf89f363a84cc41cb48b"
+    },
+    {
+      "path": "src/DDlib/DD_5pt.F",
+      "bytes": 32759,
+      "sha256": "09bb3055e89bc538c6d0b1889f15e570b0a5c494e47f754cfc16ae6f572de20d"
+    },
+    {
+      "path": "src/DDlib/DD_6pt.F",
+      "bytes": 32323,
+      "sha256": "99c9650c17cd789bbd3b9831351285888913e2bc270e3e77ed95c79cd2ac7e24"
+    },
+    {
+      "path": "src/DDlib/DD_aux.F",
+      "bytes": 31542,
+      "sha256": "d3b03c308d6838e2a673bce558b90ebd88fc882f3355b43428ad0fe690c42fb1"
+    },
+    {
+      "path": "src/DDlib/DD_global.F90",
+      "bytes": 10659,
+      "sha256": "14de6aa336182a814c41ae6bea88aee097df338e86ce7afd7f6d80df35afc068"
+    },
+    {
+      "path": "src/DDlib/DD_to_COLLIER.F",
+      "bytes": 2715,
+      "sha256": "b2d40492abd56fdc2280843885d33af0bac18b029cbe83f3b0e12e5dce29746f"
+    },
+    {
+      "path": "src/DDlib/makefile",
+      "bytes": 1304,
+      "sha256": "0072649090457593e8fb3055cca443c49f7c3e53483f4ff7fb4d535799288e3e"
+    },
+    {
+      "path": "src/collier_aux.F90",
+      "bytes": 126253,
+      "sha256": "cae00372465f633245f23ba1a70262282b5680d04fe6ffbd5364d86168d5edd4"
+    },
+    {
+      "path": "src/collier_coefs.F90",
+      "bytes": 199703,
+      "sha256": "a68b24e8107d0c3ab3e24214b0a079523e46b02090ff15711dfbcb6cec6944e7"
+    },
+    {
+      "path": "src/collier_global.F90",
+      "bytes": 7447,
+      "sha256": "a58b1683e452e192a5cd32a9a7e24c1c43f5a386f10af060040972eb41360249"
+    },
+    {
+      "path": "src/collier_init.F90",
+      "bytes": 143858,
+      "sha256": "4c45df4e4f85f862c334c810fccff4c1d1d4f633ae675faec9878df72a408395"
+    },
+    {
+      "path": "src/collier_tensors.F90",
+      "bytes": 252983,
+      "sha256": "84eb74151250657fd7b08510b966b09b6bf84bac2abdb7c484407c95d3cba0db"
+    },
+    {
+      "path": "src/tensors/BuildTensors.F90",
+      "bytes": 45903,
+      "sha256": "082b29e72a067c42c011ef1eee8a1f2b0e772131a8c2bff6fe7cd2e484fa209e"
+    },
+    {
+      "path": "src/tensors/InitTensors.F90",
+      "bytes": 30121,
+      "sha256": "4bd46f11af8badfbec4d68e021606f5d55941cceeff2411ba96517afc6e139b0"
+    },
+    {
+      "path": "src/tensors/TensorReduction.F90",
+      "bytes": 57728,
+      "sha256": "0524c2a2eab14588bbe408de880227cf97832f3c4cf117489761618474061ec5"
+    }
+  ],
+  "project_snapshot": {
+    "git_head": "21622ec9abfdedcf18993768845a29a9bb1c1e1d",
+    "working_tree_may_contain_uncommitted_changes": true,
+    "files": [
+      {
+        "path": "crates/iregi-rust/src/pv.rs",
+        "sha256": "909b9901e5f7b074e206927901ab976b936dfb9d6c454893ae1137918f350780"
+      },
+      {
+        "path": "crates/iregi-rust/src/plan.rs",
+        "sha256": "db9081cf3c4f6258702f82db8bcb5cf140d41d78b52de15343ddc1fd92e1e683"
+      },
+      {
+        "path": "crates/iregi-rust/src/stability.rs",
+        "sha256": "36db72b53c56a7cbea033806b96a705c35eed6c6c2fd2e504234aa49551093a4"
+      },
+      {
+        "path": "crates/iregi-rust/src/execution.rs",
+        "sha256": "cfec1ae8b3ea4d057c4f225d565f07c1a2d020155ecff56379093992ca9072dd"
+      },
+      {
+        "path": "crates/iregi-rust/src/invariant_certificate.rs",
+        "sha256": "1bb69027a7ae3c5262dca88fc7eaf3da63d47f700232e426d449267c7c6ac8c9"
+      },
+      {
+        "path": "crates/iregi-masters/src/near_vacuum.rs",
+        "sha256": "046bb0e22fe5ec63489f94352a61eecb20020647bd8d893dc585e99e46663a57"
+      },
+      {
+        "path": "dependencies/symbolica/lib/numerica/src/tensors/matrix.rs",
+        "sha256": "0d9eeea1d66ceb6ef24b2c2f1affd3c18f1bba5dd460a9bdf34229a6bd7d157c"
+      },
+      {
+        "path": "validation/public-highpoint/fixture-conditioned_masses.json",
+        "sha256": "ec27f2c5774a18d3d84d2d733e634dae93e9bd4c74523d6f77e8784d13421ada"
+      }
+    ]
+  },
+  "audit_document": {
+    "path": "docs/research/collier-1.2.10-audit.md",
+    "sha256": "da5db3b00dcca5d06cb755d00b2c59af74c432fd0c2363e8147e3de90dbdd263"
+  },
+  "web_verification": {
+    "download_endpoint": "web open failed; separately recorded HTTPS archive download succeeded",
+    "checked_primary_pages": [
+      "https://arxiv.org/abs/1604.06792",
+      "https://arxiv.org/abs/hep-ph/0509141",
+      "https://arxiv.org/abs/hep-ph/0212259"
+    ]
+  }
+}

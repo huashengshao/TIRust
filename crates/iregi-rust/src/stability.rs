@@ -1538,12 +1538,40 @@ fn visit_if_branches<'a>(
     }
 }
 
+fn record_alias_use(alias: Atom, active: &Atom, uses: &mut HashMap<Atom, BTreeSet<Atom>>) {
+    let paths = uses.entry(alias).or_default();
+    let always = Atom::num(1);
+    if paths.contains(&always) { return; }
+    if active == &always { paths.clear(); }
+    paths.insert(active.clone());
+}
+
 fn collect_alias_uses(
     value: AtomView<'_>,
     active: &Atom,
     definitions: &HashMap<Atom, Atom>,
     uses: &mut HashMap<Atom, BTreeSet<Atom>>,
 ) {
+    match value {
+        AtomView::Num(_) => return,
+        AtomView::Var(_) => {
+            let alias = value.to_owned();
+            if definitions.contains_key(&alias) { record_alias_use(alias, active, uses); }
+            return;
+        }
+        _ => {}
+    }
+    if !value.contains_symbol(Symbol::IF) {
+        // This Symbolica traversal deliberately ignores Num coefficient internals,
+        // matching the prior walker; function names are not variable references.
+        for indeterminate in value.get_all_indeterminates(true) {
+            if matches!(indeterminate, AtomView::Var(_)) {
+                let alias = indeterminate.to_owned();
+                if definitions.contains_key(&alias) { record_alias_use(alias, active, uses); }
+            }
+        }
+        return;
+    }
     if let Some((condition, yes, no)) = if_parts(value) {
         collect_alias_uses(condition, active, definitions, uses);
         collect_alias_uses(
@@ -1564,7 +1592,7 @@ fn collect_alias_uses(
         AtomView::Var(_) => {
             let alias = value.to_owned();
             if definitions.contains_key(&alias) {
-                uses.entry(alias).or_default().insert(active.clone());
+                record_alias_use(alias, active, uses);
             }
         }
         AtomView::Pow(power) => {
