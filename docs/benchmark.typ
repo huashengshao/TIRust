@@ -954,6 +954,71 @@ tests met 600 s, without a performance claim. New isolated cohorts follow.]
   #raw("06706e2"); the measured optimized Rust gate remains #raw("6b24c03").
 ]
 #pagebreak()
+= Additional bounded correctness checks
+These completed checks extend the evidence ledger without changing production
+or any measured timing row. Each private candidate retains its own source and
+dependency snapshot; the raw-master replay gains do not establish whole-reduction
+performance for a different candidate.
+
+#report-table(table(
+  columns: (1.1fr, 2.8fr), inset: (x: 8pt, y: 12pt), stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else { pale },
+  table.header([Bounded study], [Observed result and remaining limit]),
+  [Selected native A0–C0], [Eight ordinary f64 N2/N3 rank0/1 families at batches
+    1/32 pass all 1584 complete tensor coefficients per backend against original
+    IREGI and the Symbolica baseline. Maximum normalized errors are
+    $3.38 times 10^(-13)$ against IREGI and $2.07 times 10^(-13)$ between backends.
+    The 297 actual master rows retain all 1782 six-output coefficients.
+    Private opt0 build; whole-call performance is unmeasured.],
+  [Lazy proof capture], [26 tests pass: 12 receipt, 8 lifecycle and 6 accounting
+    checks. Fourteen paired workloads match exact values, status, metadata and
+    counters through seven calls per implementation. Capture is created only
+    when evidence is needed and discarded after each call. Private debug
+    dependency snapshot; no optimized timing or adoption.],
+  [COLLIER N4 extension], table.cell(fill: amber)[Eight fixed massive cases cover
+    ranks0–3 at batches1/32. Both scalar rows are accepted, maximum normalized
+    error $2.76 times 10^(-14)$. All six higher-rank COLI rows retain
+    #raw("AccFlag=-1"), despite raw agreement within $2.39 times 10^(-12)$.
+    DD mode returns #raw("ErrFlag=-10") for all eight; those arrays are invalid
+    reference evidence. No inputs or thresholds changed; no timings were run.],
+  [Fused core CSE], [The N2 rank1 native/OneLoop exports remain byte-identical:
+    1013/850 instructions and 237/147 slots. All 422 exact roots and 730 control
+    checks pass under the structured-SSA assumption. With no structural saving,
+    the candidate stops before numerical or timing work; other topologies
+    remain untested.],
+))
+
+== Scope of the independent checks
+The selected-native study also passes 34 adapter cases, ten unchanged master
+paths covering 33 cases and three unchanged whole-core paths. Repeated whole
+responses are retained; direct adapter repeats are executable assertions with
+the common output saved. Initial build and fixture failures remain in the
+package. Native D0, high-point tensors and a production backend switch are outside
+this qualification.
+
+The lazy-capture allocation now occurs inside the existing argument-stage
+timer. The earlier eager allocation was outside that stage; a future decision
+must use total latency. The earlier final receipt cohort and its two qualified
+regressions remain unchanged.
+
+N4 checks use 238 Symbolica-prepared polynomial arrays for metric traces,
+pinch translation, denominator-difference signs, UV finiteness and odd-time
+reflection. Their largest identity discrepancy is $2.89 times 10^(-12)$;
+these constraints do not independently determine every spatial tensor
+component or override a rejected library status. The initial eight measured
+IREGI/COLLIER rows remain unchanged.
+
+A private thin-N6 rank2 probe passes seven exact/sidecar checks, then both
+certified-planar retries fail among six packed N5 children. The parent is never
+evaluated: no arrays or numerical comparisons exist. The bounded rejection
+is not N6 tensor success or a performance result.
+
+Source bindings, raw outputs, failures and reproduction commands are retained
+in #raw("docs/data/results.json"). No elapsed correctness-run duration on this
+page is a benchmark. Production remains #raw("06706e2"); the optimized Rust
+performance gate remains the measured #raw("6b24c03") snapshot.
+
+#pagebreak()
 = Independent pentagon adjudication
 These checks establish selected mathematical values independently of an
 original-reference stability flag. They do not qualify every pentagon tensor,
