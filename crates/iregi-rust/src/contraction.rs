@@ -222,6 +222,8 @@ where
             exact = exact
                 .vectorize(&Dualizer::new(BorrowedDual(layout), Vec::new()))
                 .map_err(ReductionError::Preparation)?;
+        } else {
+            exact.optimize_stack();
         }
         let evaluator = exact
             .map_coeff_with_prec(

@@ -2259,6 +2259,8 @@ fn compile_exact<D: DualNumberStructure>(
         exact = exact
             .vectorize(&Dualizer::new(BorrowedDual(layout), Vec::new()))
             .map_err(ReductionError::Preparation)?;
+    } else {
+        exact.optimize_stack();
     }
     Ok(exact)
 }
