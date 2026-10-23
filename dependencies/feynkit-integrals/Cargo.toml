@@ -1,0 +1,13 @@
+[package]
+name = "feynkit-integrals"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+description = "Graph-independent affine propagator partial fractions extracted from FeynKit"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/alphal00p/gammaloop"
+publish = false
+
+[dependencies]
+symbolica.workspace = true
+thiserror = "2"

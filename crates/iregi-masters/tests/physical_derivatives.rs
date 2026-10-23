@@ -81,15 +81,32 @@ fn case(label: &'static str, values: &[i64], momentum: usize, mass: usize, compl
 fn qualify(family: ScalarIntegral, cases: Vec<Case>) {
     let filter = std::env::var("IREGI_DUAL_CASE_FILTER").ok();
     let skip = std::env::var("IREGI_DUAL_SKIP_CASE").ok();
-    let cases: Vec<_> = cases.into_iter().filter(|case| filter.as_ref().is_none_or(|filter| case.label.contains(filter)) && skip.as_ref().is_none_or(|skip| !case.label.contains(skip))).collect();
-    assert!(!cases.is_empty(), "the requested derivative fixture filter is empty");
+    let cases: Vec<_> = cases
+        .into_iter()
+        .filter(|case| {
+            filter
+                .as_ref()
+                .is_none_or(|filter| case.label.contains(filter))
+                && skip.as_ref().is_none_or(|skip| !case.label.contains(skip))
+        })
+        .collect();
+    assert!(
+        !cases.is_empty(),
+        "the requested derivative fixture filter is empty"
+    );
     eprintln!("preparing {} six-component batch evaluator", family.name());
+    let preparation_started = std::time::Instant::now();
     let mut dual = MasterEvaluator::new_dual(
         family,
         Float::new(BITS),
         HyperDual::<f64>::new(SHAPE.map(Vec::from).to_vec()),
     )
     .unwrap();
+    eprintln!(
+        "prepared {} evaluator in {:?}",
+        family.name(),
+        preparation_started.elapsed()
+    );
     let mut native =
         oneloop::NativeEvaluator::<Float>::with_binary_precision(family, BITS).unwrap();
     let weights: Vec<_> = (0..=2).map(stencil).collect();
@@ -112,7 +129,13 @@ fn qualify(family: ScalarIntegral, cases: Vec<Case>) {
         cases.len(),
         family.name()
     );
+    let evaluation_started = std::time::Instant::now();
     let outputs = dual.evaluate_batch(&input, cases.len()).unwrap();
+    eprintln!(
+        "evaluated {} batch in {:?}",
+        family.name(),
+        evaluation_started.elapsed()
+    );
     eprintln!("checking {} native finite differences", family.name());
     for (lane, fixture) in cases.into_iter().enumerate() {
         let actual = outputs
@@ -199,6 +222,16 @@ fn physical_triangle_first_second_and_mixed_derivatives() {
             ),
         ],
     );
+}
+
+#[test]
+fn physical_bubble_pseudothreshold_first_second_and_mixed_derivatives() {
+    for family in [ScalarIntegral::B0, ScalarIntegral::DB0] {
+        qualify(
+            family,
+            vec![case("massive pseudothreshold", &[1, 4, 9, 1], 0, 1, false)],
+        );
+    }
 }
 #[test]
 fn physical_box_first_second_and_mixed_derivatives() {

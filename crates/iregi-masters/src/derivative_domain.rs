@@ -21,7 +21,7 @@ pub(crate) fn domain_discriminant(family: ScalarIntegral, p: &[Atom]) -> Atom {
     let guards = match family {
         ScalarIntegral::A0 => return Atom::num(1),
         ScalarIntegral::B0 | ScalarIntegral::DB0 => {
-            vec![kallen(&p[0], &p[1], &p[2])]
+            vec![bubble_discriminant(p)]
         }
         ScalarIntegral::C0 => {
             let masses = &p[3..6];
@@ -78,6 +78,18 @@ pub(crate) fn domain_discriminant(family: ScalarIntegral, p: &[Atom]) -> Atom {
     guards.into_iter().rev().fold(Atom::num(1), |next, guard| {
         Symbol::IF.call((guard, next, Atom::num(0)))
     })
+}
+
+/// Dimensionless bubble discriminant, dividing before any squared values.
+/// The first nonzero mass is the pivot; the invariant handles massless bubbles.
+/// Its zero/nonzero classification is invariant under a common nonzero scale.
+pub(crate) fn bubble_discriminant(p: &[Atom]) -> Atom {
+    let scale = Symbol::IF.call((
+        &p[1],
+        &p[1],
+        Symbol::IF.call((&p[2], &p[2], Symbol::IF.call((&p[0], &p[0], 1)))),
+    ));
+    kallen(&(&p[0] / &scale), &(&p[1] / &scale), &(&p[2] / &scale))
 }
 
 fn kallen(invariant: &Atom, first: &Atom, second: &Atom) -> Atom {

@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 exclude = ["dependencies/oneloopmaster"]
-members = ["crates/iregi-rust", "crates/iregi-masters", "crates/iregi-prepare", "crates/iregi-cli"]
+members = ["crates/iregi-rust", "crates/iregi-masters", "crates/iregi-prepare", "crates/iregi-cli", "dependencies/feynkit-integrals"]
 
 [workspace.package]
 version = "0.1.0"

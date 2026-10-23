@@ -195,6 +195,7 @@ where
     let fixtures = [
         (ScalarIntegral::A0, vec![2, 1]),
         (ScalarIntegral::B0, vec![-3, 2, 5, 1]),
+        (ScalarIntegral::DB0, vec![-3, 2, 5, 1]),
         (ScalarIntegral::C0, vec![-1, -5, -4, 2, 3, 5, 1]),
         (
             ScalarIntegral::D0,

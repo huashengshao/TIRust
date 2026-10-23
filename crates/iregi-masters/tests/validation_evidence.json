@@ -1,0 +1,641 @@
+{
+  "schema_version": 1,
+  "recorded_date_utc": "2026-10-23",
+  "baseline_commit": "4c32ece",
+  "scope": "Scalar-master validation after the baseline checkpoint; timings are test wall times, not comparative benchmarks.",
+  "checks": [
+    {
+      "test": "numeric_boundaries",
+      "status": "passed",
+      "tests_passed": 4,
+      "seconds": 7.24,
+      "reproduce": "cargo test -p iregi-masters --test numeric_boundaries -- --test-threads=1",
+      "coverage": [
+        "One exact B0/dB0 second-order Dual plan instantiated independently as f64, DoubleFloat, and Float at 128/256/512 bits",
+        "Exact lightlike Taylor coefficients through quadratic order",
+        "Mixed input and Dual seed precisions survive reordered, growing, shrinking, and empty batches without precision padding",
+        "Primal branch errors and unsupported C0 derivative directions remain local to each lane",
+        "Imaginary B0 invariant direction agrees with i*dB0 at spacelike and absorptive points"
+      ]
+    },
+    {
+      "test": "all_master_families_preserve_doublefloat_and_float_numerics with native-batch",
+      "status": "passed",
+      "tests_passed": 1,
+      "seconds": 0.52,
+      "reproduce": "cargo test -p iregi-masters --features native-batch --test masters all_master_families_preserve_doublefloat_and_float_numerics -- --test-threads=1",
+      "coverage": [
+        "A0",
+        "B0",
+        "dB0",
+        "C0",
+        "D0"
+      ],
+      "numeric_domains": [
+        "DoubleFloat",
+        "Float(256)"
+      ],
+      "reference": "Ordinary oneloop NativeEvaluator at the same precision"
+    },
+    {
+      "test": "native_mixed_physical_branches_and_block_tails_match_symbolica",
+      "status": "passed",
+      "tests_passed": 1,
+      "seconds": 1.9,
+      "reproduce": "cargo test -p iregi-masters --features native-batch --test native_batch -- --test-threads=1",
+      "coverage": [
+        "dB0/C0/D0 real and lower-half-plane complex masses in mixed five-lane batches",
+        "All four intended physical reference lanes are explicitly required to succeed",
+        "Invalid/scaleless lane errors agree with Symbolica",
+        "Whole batches and FixedRows(2)/FixedRows(3) preserve all Laurent/UV/IR outputs, including block tails"
+      ]
+    },
+    {
+      "test": "physical_triangle_first_second_and_mixed_derivatives",
+      "status": "passed",
+      "tests_passed": 1,
+      "seconds": 12.08,
+      "reproduce": "cargo test -p iregi-masters --test physical_derivatives physical_triangle_first_second_and_mixed_derivatives -- --test-threads=1 --nocapture",
+      "precision_bits": 384,
+      "physical_cases": 4,
+      "dual_components": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          0,
+          1
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          0,
+          2
+        ]
+      ],
+      "finite_difference_step_exponents": [
+        12,
+        18,
+        24
+      ],
+      "maximum_final_scaled_error": 5.46666422659615e-28,
+      "reference": "Ordinary native scalar evaluations; five-point finite-difference weights solved exactly with Symbolica",
+      "coverage": [
+        "Real subthreshold",
+        "Real absorptive",
+        "Complex-mass reference",
+        "Complex-mass absorptive"
+      ]
+    },
+    {
+      "test": "physical_box_first_second_and_mixed_derivatives (equal complex masses only)",
+      "status": "passed",
+      "tests_passed": 1,
+      "seconds": 108.57,
+      "preparation_seconds": 25.2234,
+      "evaluation_seconds": 71.864,
+      "reproduce": "IREGI_DUAL_CASE_FILTER='equal complex' cargo test -p iregi-masters --test physical_derivatives physical_box_first_second_and_mixed_derivatives -- --test-threads=1 --nocapture",
+      "physical_cases": 1,
+      "precision_bits": 384,
+      "dual_components": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          0,
+          1
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          0,
+          2
+        ]
+      ],
+      "finite_difference_step_exponents": [
+        12,
+        18,
+        24
+      ],
+      "maximum_final_scaled_error": 1.10446293277e-34,
+      "log": "target/physical-box-equal-complex-identity.log",
+      "reference": "Ordinary native scalar evaluations; five-point finite-difference weights solved exactly with Symbolica",
+      "coverage": [
+        "Equal lower-half-plane complex masses with mixed invariant/mass directions"
+      ]
+    },
+    {
+      "test": "physical_box_first_second_and_mixed_derivatives",
+      "status": "pending_after_timeout",
+      "tests_passed": 0,
+      "timeout_seconds": 180,
+      "exit_code": 124,
+      "physical_cases_attempted": 5,
+      "precision_bits": 384,
+      "last_stage": "Evaluating the five-lane, six-component D0 batch",
+      "limitation": "The isolated equal-complex-mass D0 case passes high-precision finite differences, but the complete five-lane mixed physical D0 Dual suite remains unqualified after its evaluation timeout. Runtime optimization remains outstanding."
+    },
+    {
+      "test": "analytic_grouping_preserves_zero_primal_jets (selective Dual inlining)",
+      "status": "passed",
+      "tests_passed": 1,
+      "seconds": 8.02,
+      "log": "target/physical-grouping-dual-inline.log",
+      "coverage": [
+        "Zero-primal Taylor components",
+        "Genuine conditionals unchanged",
+        "Tiny-invariant arithmetic grouping"
+      ]
+    },
+    {
+      "test": "physical_box_first_second_and_mixed_derivatives (equal complex masses, selective Dual inlining)",
+      "status": "passed",
+      "tests_passed": 1,
+      "seconds": 80.3,
+      "preparation_seconds": 21.277027182,
+      "evaluation_seconds": 47.107490566,
+      "baseline_preparation_seconds": 25.223420377,
+      "baseline_evaluation_seconds": 71.863973368,
+      "physical_cases": 1,
+      "precision_bits": 384,
+      "dual_components": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          0,
+          1
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          0,
+          2
+        ]
+      ],
+      "finite_difference_step_exponents": [
+        12,
+        18,
+        24
+      ],
+      "maximum_final_scaled_error": 1.1044629327704601e-34,
+      "log": "target/physical-box-equal-complex-dual-inline.log",
+      "note": "Single validation observations, not a controlled performance benchmark. Full mixed D0, C0, and legacy Dual regressions on this optimization remain pending."
+    },
+    {
+      "test": "masters (selective Dual inlining)",
+      "status": "passed",
+      "tests_passed": 10,
+      "seconds": 37.69,
+      "log": "target/masters-dual-inline-qualification.log"
+    },
+    {
+      "test": "numeric_boundaries (selective Dual inlining)",
+      "status": "passed",
+      "tests_passed": 4,
+      "seconds": 13.27,
+      "log": "target/numeric-boundaries-dual-inline.log"
+    },
+    {
+      "test": "physical_triangle_first_second_and_mixed_derivatives (selective Dual inlining)",
+      "status": "passed",
+      "tests_passed": 1,
+      "seconds": 9.52,
+      "physical_cases": 4,
+      "precision_bits": 384,
+      "maximum_final_scaled_error": 5.466664226596149e-28,
+      "log": "target/physical-triangle-dual-inline.log"
+    },
+    {
+      "test": "physical_box_first_second_and_mixed_derivatives (mixed five lanes, selective Dual inlining)",
+      "status": "pending_after_timeout",
+      "tests_passed": 0,
+      "timeout_seconds": 180,
+      "exit_code": 124,
+      "preparation_seconds": 21.773620244,
+      "physical_cases_attempted": 5,
+      "last_stage": "Evaluating five physical six-component D0 lanes",
+      "log": "target/physical-box-mixed-dual-inline.log"
+    },
+    {
+      "test": "physical_bubble_pseudothreshold_first_second_and_mixed_derivatives",
+      "status": "passed",
+      "tests_passed": 1,
+      "seconds": 6.3,
+      "precision_bits": 384,
+      "families": [
+        "B0",
+        "dB0"
+      ],
+      "point": [
+        1,
+        4,
+        9,
+        1
+      ],
+      "maximum_db0_final_scaled_error": 7.796266509782118e-35,
+      "log": "target/physical-bubble-pseudothreshold.log",
+      "note": "Scale robustness and constant genuine-threshold Dual routing are separate pending checks."
+    },
+    {
+      "test": "bubble_neighborhood unit (ordinary Taylor substitution)",
+      "status": "passed",
+      "tests_passed": 5,
+      "seconds": 0.05,
+      "log": "target/bubble-pseudothreshold-unit-fixed.log"
+    },
+    {
+      "test": "complex_box_oracle example",
+      "status": "passed",
+      "numeric_domains": [
+        "f64",
+        "DoubleFloat",
+        "Float128",
+        "Float256"
+      ],
+      "reference": "Independent 18-point-per-axis defining parameter integral in validation/shifted-pentagon/contours.json",
+      "maximum_highprecision_absolute_error": 2.075e-27,
+      "reproduce": "cargo run -p iregi-masters --example complex_box_oracle",
+      "log": "target/complex-box-parameter-oracle.log"
+    },
+    {
+      "test": "pseudothreshold scale and constant-boundary integration before binary normalization",
+      "status": "failed_fixed_candidate_pending_validation",
+      "tests_passed": 0,
+      "tests_failed": 2,
+      "seconds": 6.21,
+      "error": "NonFiniteOutput at extreme common scales and constant Dual genuine threshold",
+      "log": "target/pseudothreshold-integration.log",
+      "candidate": "Frozen exact binary normalization plus collective ordinary-batch evaluation of completely constant Dual lanes."
+    },
+    {
+      "test": "pseudothreshold normalized integration",
+      "status": "passed",
+      "tests_passed": 3,
+      "seconds": 24.52,
+      "coverage": [
+        "f64/DoubleFloat/Float256 common scales2^\u00b1600 and nearby binade values",
+        "B0 and dB0 full quadratic Taylor jets",
+        "Mixed Float primal/seed precisions",
+        "True-threshold seeded error and constant-Dual collective scalar fallback"
+      ],
+      "log": "target/pseudothreshold-normalized.log",
+      "note": "Passed before final helper-only chunking for subnormal DoubleFloat factors; complete latest-source rerun pending."
+    },
+    {
+      "test": "physical B0/dB0 normalized six-component derivatives",
+      "status": "passed",
+      "tests_passed": 1,
+      "seconds": 6.24,
+      "precision_bits": 384,
+      "log": "target/physical-bubble-normalized.log"
+    },
+    {
+      "test": "binary normalization low-level before chunking",
+      "status": "failed_fixed",
+      "tests_passed": 1,
+      "tests_failed": 1,
+      "error": "DoubleFloat quotient by a subnormal exact factor produced NaN",
+      "log": "target/normalization-unit.log"
+    },
+    {
+      "test": "binary normalization chunked exact factors",
+      "status": "passed",
+      "tests_passed": 2,
+      "seconds": 0.0,
+      "coverage": [
+        "f64/DoubleFloat subnormal factors",
+        "Float binary exponents\u00b110000",
+        "Separate real/imaginary component precisions retained"
+      ],
+      "log": "target/normalization-chunked-unit.log"
+    },
+    {
+      "test": "legacy masters after full-exponent binary normalization",
+      "status": "passed",
+      "tests_passed": 10,
+      "seconds": 37.9,
+      "log": "target/masters-normalized-exact.log",
+      "note": "Before follow-up bounded-row scaling and scale-only Laurent transport; those changes require separate qualification."
+    },
+    {
+      "test": "numeric boundaries after full-exponent binary normalization",
+      "status": "passed",
+      "tests_passed": 4,
+      "seconds": 14.29,
+      "log": "target/numeric-boundaries-normalized-exact.log",
+      "note": "Before follow-up bounded-row scaling and scale-only Laurent transport; those changes require separate qualification."
+    },
+    {
+      "test": "pseudothreshold after full-exponent binary normalization",
+      "status": "passed",
+      "tests_passed": 3,
+      "seconds": 25.04,
+      "log": "target/pseudothreshold-normalized-exact.log",
+      "note": "Before follow-up bounded-row scaling and scale-only Laurent transport; those changes require separate qualification."
+    },
+    {
+      "test": "physical C0 derivatives after full-exponent binary normalization",
+      "status": "passed",
+      "tests_passed": 1,
+      "seconds": 9.85,
+      "log": "target/physical-triangle-normalized-exact.log",
+      "note": "Before follow-up bounded-row scaling and scale-only Laurent transport; those changes require separate qualification."
+    },
+    {
+      "test": "physical B0/DB0 derivatives after full-exponent binary normalization",
+      "status": "passed",
+      "tests_passed": 1,
+      "seconds": 6.3,
+      "log": "target/physical-bubble-normalized-exact.log",
+      "note": "Before follow-up bounded-row scaling and scale-only Laurent transport; those changes require separate qualification."
+    },
+    {
+      "test": "analytic grouping after full-exponent binary normalization",
+      "status": "passed",
+      "tests_passed": 1,
+      "seconds": 7.94,
+      "log": "target/physical-grouping-normalized-exact.log",
+      "note": "Before follow-up bounded-row scaling and scale-only Laurent transport; those changes require separate qualification."
+    },
+    {
+      "test": "subnormal DoubleFloat exponent selection",
+      "status": "timeout_fix_pending_validation",
+      "tests_passed": 2,
+      "tests_completed": 2,
+      "tests_total": 3,
+      "timeout_seconds": 60,
+      "log": "target/normalization-exact-unit.log",
+      "candidate": "Existing FloatLike::real_classify selects an exact pre-shift before logarithm; row scaling is additionally bounded by reversible numeric trials."
+    },
+    {
+      "test": "subnormal-safe exponent selection and binary normalization",
+      "status": "passed",
+      "tests_passed": 3,
+      "seconds": 0.01,
+      "log": "target/normalization-scale-transport-unit.log"
+    },
+    {
+      "test": "constant-kinematics Laurent scale transport",
+      "status": "passed",
+      "tests_passed": 1,
+      "seconds": 44.8,
+      "log": "target/scale-only-transport.log",
+      "coverage": [
+        "A0/B0/DB0/C0/D0 six-component mixed scale jets",
+        "B0/DB0 true-threshold scalar values with analytic scale dependence",
+        "Massless triangle and box IR double-pole scale transport",
+        "UV residues remain constant"
+      ],
+      "note": "Passed before extension of the same transport program with an exact binary exponent offset for independently normalized B0 kinematics and scale."
+    },
+    {
+      "test": "extremely separated kinematic and renormalization scales",
+      "status": "failed_followup_fix_pending",
+      "log": "target/pseudothreshold-independent-scales-fixed.log",
+      "error": "DoubleFloat t=2^-1070,mu_squared=1 produced NonFiniteOutput after a successful f64 fixture.",
+      "candidate": "Evaluate normalized B0 kinematics at unit scale, then restore actual scale via exact Symbolica Laurent transport with integer binary offset. DB0 is scale independent."
+    },
+    {
+      "test": "native scalar batch policy qualification",
+      "status": "passed",
+      "tests_passed": 1,
+      "timing_groups": 6,
+      "timing_blocks": 630,
+      "evidence": "validation/native-policy/provenance.json",
+      "result": "Whole retained; FixedRows4/8/16 slower in every family and layout with per-comparison99%bootstrap interval below parity.",
+      "note": "Controlled policy comparison on frozen optimized4c32ece; not an original-IREGI benchmark."
+    },
+    {
+      "test": "composed scale-series offset diagnostic",
+      "status": "failed_fixed",
+      "log": "target/scale-transport-diagnostic.log",
+      "error": "An offset1068 in the directly composed scale series produced NaN even with moderate scalar coefficients and unit scale inputs.",
+      "fix": "Expand exp(epsilon*formal_logarithm) first; substitute additive logarithms and binary offset into extracted Laurent coefficients afterwards."
+    },
+    {
+      "test": "formal-log scale transport with extreme binary offsets",
+      "status": "passed",
+      "tests_passed": 1,
+      "seconds": 3.49,
+      "log": "target/scale-transport-formal-unit.log",
+      "coverage": [
+        "Exact Symbolica Laurent series then substitution",
+        "Binary logarithm offsets-10000,-1070,1070,10000",
+        "Finite quadratic scale jets without evaluating the corresponding exponential"
+      ]
+    },
+    {
+      "test": "independently normalized kinematics and renormalization scale",
+      "status": "passed",
+      "tests_passed": 1,
+      "seconds": 15.57,
+      "log": "target/pseudothreshold-formal-scale-focused.log",
+      "coverage": [
+        "f64,DoubleFloat,Float256",
+        "B0 pseudothreshold kinematic scales2^-1070 and2^1000 with mu_squared1",
+        "Finite primal and first momentum jet",
+        "Inputs remain unchanged"
+      ],
+      "note": "Focused final-source check; full five-test pseudothreshold and legacy suites still require final-source qualification."
+    }
+  ],
+  "notes": [
+    "Run with RUST_MIN_STACK=67108864 and the repository environment script.",
+    "Symbolica runtime checks were serialized in this environment.",
+    "Native scalar kernels remain opt-in; Dual plans use Symbolica's batch interpreter.",
+    "Prototype precision governs mapped constants; existing input precision is preserved rather than restored or padded."
+  ],
+  "latest_final_source_qualification": {
+    "status": "passed",
+    "tests_passed": 26,
+    "evidence": "validation/scalar-masters/qualification.json",
+    "evidence_sha256": "c934c89637a335a32acb122e44dd099d5497c2f450d9843ad7bf5165b2618643",
+    "scope": "Frozen masters source including formal-log scale transport, separated kinematic/renormalization normalization, subnormal-safe exponent selection, constant-kinematic scale jets and physical C0/B0 derivative tests.",
+    "source_sha256": {
+      "crates/iregi-masters/examples/complex_box_oracle.rs": "f08b775b16f6330eade5bfaf78031ad91c0e2cd93c582492fecb2a1b95baab51",
+      "crates/iregi-masters/examples/generate_batch.rs": "55aab093697f757d8b546bb3cb378eae03ccd19ae21bab954993cbbb4f141364",
+      "crates/iregi-masters/examples/native_policy_probe.rs": "2fc3c9565493d8da93c7ab84dcb551396b0483f1293d70da9244e10437b25d21",
+      "crates/iregi-masters/src/derivative_domain.rs": "db3752669d74aed5ae8a0e36fada4765866fa824ba39b6f15f4eba03bcc56d5e",
+      "crates/iregi-masters/src/normalization.rs": "8c0eb611f7ec8019b4fcd2cc0800165aa026e2e70107bad1af7f290ac8bbed2d",
+      "crates/iregi-masters/src/exact_plan.rs": "45725ad21d3e2940cc3929a4fe4547d869fb5fc8c11c0092ed560943dee44507",
+      "crates/iregi-masters/src/pentagon6.rs": "b38091c69c03ab85e7e5f20bc2206614ceed808f6b7c4044baa2abbc9a1d940e",
+      "crates/iregi-masters/src/lib.rs": "27762fc54b1f67421ba1d0b3943a91842c923d5f182cf579d6e38c5ed4bd11ac",
+      "crates/iregi-masters/src/scale_transport.rs": "bf3b94f71dec9f33a610e5ebf854644e291ccfb1e3a04c8f5451ee04721af6dc",
+      "crates/iregi-masters/src/bubble_neighborhood.rs": "5e00cd3d1785e3ca50695969761131a769226e0fe497f7656fa993cb37d14da9",
+      "crates/iregi-masters/src/dual_validation.rs": "36038636b36db665b58bfff6058c2b34776b3826b3dee98cff076be6e941852c",
+      "crates/iregi-masters/src/native_batch.rs": "83343bc0ace655e1410077d453cf835b5b50ebe69fe67b4bf03a785a86d00fa4",
+      "crates/iregi-masters/tests/numeric_boundaries.rs": "c23dc36532548a233b3405b1d17d8eafb44e0c9919682439f4529236c54779a2",
+      "crates/iregi-masters/tests/masters.rs": "103f15512011708ac66b99d8cd45a33e5fd63aba6ec2408f3cc629c0cc0a6c77",
+      "crates/iregi-masters/tests/native_batch.rs": "fa5ce237a01139414e86360d2f8913cbeaf0053dbc2f20cdd5a7781382eeb79c",
+      "crates/iregi-masters/tests/pseudothreshold.rs": "677dbe2627ad588ec4f1967e35a8a14b138c0f0b60f487ef1f08371ad4733b6e",
+      "crates/iregi-masters/tests/physical_derivatives.rs": "06cda25481407dbf51b7de141cf31f82dba654e7587936580adcae1152aa0ffb",
+      "dependencies/oneloopmaster/src/definitions.rs": "83ab0ca0f2a77cb7a37a0eccacac62d01d9c9a1cf9c7207261561eaab84f2c22",
+      "dependencies/oneloopmaster/PATCHES.md": "c01b11126e4c8835203a80fb9f03e4cc107c45496b5ea9c85e82ebc62d640062"
+    },
+    "dependency_artifact_sha256": {
+      "target/libiregi_masters_formal_scale.rlib": "092f8ce95e2e7a23e10aea726f08ef37a942974b7e3ace17806de981b5a77b75",
+      "target/liboneloop_dual_inline.rlib": "b327cc56a2fb8533f415328e71a735517bc6afa43d4dd546e3f43f18586d1eb1",
+      "target/cargo-build/debug/deps/libsymbolica-50a6d37379d4cf7e.rlib": "e0547aca88c66be1e35d50fcd38d05eb705919dad64f649f049cc2496a3ed8b6"
+    },
+    "checks": [
+      {
+        "name": "pseudothreshold",
+        "status": "passed",
+        "tests_passed": 5,
+        "test_wall_seconds": 94.54,
+        "binary": "target/pseudothreshold-formal-scale-tests",
+        "binary_sha256": "475afd1943284ce5ae241df535ae1bfcbbad8180561931b48ec893f2b5b771ba",
+        "log": "validation/scalar-masters/pseudothreshold.log",
+        "log_sha256": "a2d271f4548be15c7d94a5aaa89906e2e7e0c4df7323bf1edb149282836b3424",
+        "command": [
+          "target/pseudothreshold-formal-scale-tests",
+          "--test-threads=1",
+          "--nocapture"
+        ]
+      },
+      {
+        "name": "masters",
+        "status": "passed",
+        "tests_passed": 10,
+        "test_wall_seconds": 39.02,
+        "binary": "target/masters-formal-scale-tests",
+        "binary_sha256": "0359a42b1067de79b563712bceb75b0ef4490eda85f5d46e1a7d57e2893ea345",
+        "log": "validation/scalar-masters/masters.log",
+        "log_sha256": "8c4270c981c951732a42d972091b8141eaa11597963965457d5cecaa9caddca1",
+        "command": [
+          "target/masters-formal-scale-tests",
+          "--test-threads=1",
+          "--nocapture"
+        ]
+      },
+      {
+        "name": "numeric_boundaries",
+        "status": "passed",
+        "tests_passed": 4,
+        "test_wall_seconds": 13.44,
+        "binary": "target/numeric_boundaries-formal-scale-tests",
+        "binary_sha256": "b8224c8f153a8f0cdce4a12b0a8c630e81eb12efd4f9c82385ee9fb18f894707",
+        "log": "validation/scalar-masters/numeric_boundaries.log",
+        "log_sha256": "6dc589b428e028182796bfd0da48f3665b300fcaf2c5ce99a2e2eb24db55c623",
+        "command": [
+          "target/numeric_boundaries-formal-scale-tests",
+          "--test-threads=1",
+          "--nocapture"
+        ]
+      },
+      {
+        "name": "physical_triangle",
+        "status": "passed",
+        "tests_passed": 1,
+        "test_wall_seconds": 9.62,
+        "binary": "target/physical_derivatives-formal-scale-tests",
+        "binary_sha256": "ba2569358771e2da2d5d758a5e8931bbc09fdd4cd70e96fb27afb3dfa7192204",
+        "log": "validation/scalar-masters/physical_triangle.log",
+        "log_sha256": "551eaa9ef0916c01c0f4eed360cbcefe80712ae19c93062ac09c0d3044092260",
+        "command": [
+          "target/physical_derivatives-formal-scale-tests",
+          "physical_triangle_first_second_and_mixed_derivatives",
+          "--test-threads=1",
+          "--nocapture"
+        ]
+      },
+      {
+        "name": "physical_bubble",
+        "status": "passed",
+        "tests_passed": 1,
+        "test_wall_seconds": 6.11,
+        "binary": "target/physical_derivatives-formal-scale-tests",
+        "binary_sha256": "ba2569358771e2da2d5d758a5e8931bbc09fdd4cd70e96fb27afb3dfa7192204",
+        "log": "validation/scalar-masters/physical_bubble.log",
+        "log_sha256": "12602abc56fbe49d35fef5b23d0ee2694e71d14808c2b16bbc91eda5b9e21f76",
+        "command": [
+          "target/physical_derivatives-formal-scale-tests",
+          "physical_bubble_pseudothreshold_first_second_and_mixed_derivatives",
+          "--test-threads=1",
+          "--nocapture"
+        ]
+      },
+      {
+        "name": "analytic_grouping",
+        "status": "passed",
+        "tests_passed": 1,
+        "test_wall_seconds": 7.95,
+        "binary": "target/physical_derivatives-formal-scale-tests",
+        "binary_sha256": "ba2569358771e2da2d5d758a5e8931bbc09fdd4cd70e96fb27afb3dfa7192204",
+        "log": "validation/scalar-masters/analytic_grouping.log",
+        "log_sha256": "610c80af5fd1abf4d5625dccc6781b159d873817bd4fa63e88faebfdab6c44a8",
+        "command": [
+          "target/physical_derivatives-formal-scale-tests",
+          "analytic_grouping_preserves_zero_primal_jets",
+          "--test-threads=1",
+          "--nocapture"
+        ]
+      },
+      {
+        "name": "normalization",
+        "status": "passed",
+        "tests_passed": 3,
+        "test_wall_seconds": 0.01,
+        "binary": "target/normalization-formal-scale-unit",
+        "binary_sha256": "58e1c1cc511e8b66017a29597c110b39de34bb2fb7971fbea11348176ef9a609",
+        "log": "validation/scalar-masters/normalization.log",
+        "log_sha256": "20c2b0101ba87636bc15c95f0e54aa38bb19c34c01e6d40a9f15798bfead5e6f",
+        "command": [
+          "target/normalization-formal-scale-unit",
+          "--test-threads=1",
+          "--nocapture"
+        ]
+      },
+      {
+        "name": "scale_transport",
+        "status": "passed",
+        "tests_passed": 1,
+        "test_wall_seconds": 3.24,
+        "binary": "target/scale-transport-formal-unit",
+        "binary_sha256": "96d7f82cecaedf214fe51fb1fd25fc80cf37b211254ad394b7dbd26609daaefe",
+        "log": "validation/scalar-masters/scale_transport.log",
+        "log_sha256": "4ebfcafafe23be86d5671d29aebd0f5b84871e4d96cf84c9382a1a6ffc1ebe52",
+        "command": [
+          "target/scale-transport-formal-unit",
+          "--test-threads=1",
+          "--nocapture"
+        ]
+      }
+    ],
+    "pending": "Full mixed five-case D0 Float384 qualification remains pending."
+  }
+}

@@ -63,6 +63,55 @@ fn finish(
     ])
 }
 
+/// Regular discriminant-zero chart for two positive real primal masses.
+///
+/// The caller must require nonzero primal `s`, zero primal Kallen discriminant,
+/// and `m0²+m1²-s > 0`. The opposite sign is the genuine two-particle threshold
+/// and must not select this chart. All supplied nilpotent directions are kept.
+pub(crate) fn pseudothreshold_coefficients(
+    supplied: &[Atom],
+    order: usize,
+    derivative: bool,
+) -> Result<[Atom; 3], MasterError> {
+    let degree = degree(order, derivative)?;
+    let p = parameters();
+    // Divide first, before forming the discriminant or its square root. This
+    // avoids squared-mass underflow for otherwise regular tiny-scale inputs.
+    let momentum = &p[0] / &p[1];
+    let mass_ratio = &p[2] / &p[1];
+    let k = Atom::num(1) + &mass_ratio - &momentum;
+    let lambda_symbol = symbolica::symbol!("iregi_master_bubble::lambda");
+    let lambda = Atom::var(lambda_symbol);
+    let z_symbol = symbolica::symbol!("iregi_master_bubble::atanh_argument");
+    let z = Atom::var(z_symbol);
+    // Expand the analytic expression first, then substitute into the resulting
+    // even polynomial. Expanding the composed square-root expression directly
+    // would ask the series engine to differentiate sqrt at zero. Symbolica
+    // normalizes the even powers after substitution; no coefficients or power
+    // reductions are implemented here.
+    let series_depth = degree.checked_mul(2).ok_or(MasterError::SizeOverflow)?;
+    let regular = (&z * symbolica::transcendental::atanh().call((&z,)))
+        .series(
+            z_symbol,
+            0,
+            u32::try_from(series_depth).map_err(|_| MasterError::SizeOverflow)?,
+        )
+        .map_err(|error| preparation(format!("pseudothreshold bubble series: {error}")))?
+        .to_atom();
+    let regular =
+        &k / &momentum * regular.replace_multiple([Replacement::new(z, lambda.sqrt() / &k)].iter());
+    let discriminant = &k * &k - Atom::num(4) * &mass_ratio;
+    let regular = regular.replace_multiple([Replacement::new(lambda, discriminant)].iter());
+    // Both arguments are positive on this chart. Separate their logarithms
+    // so a representable pair with an unrepresentable ratio remains usable.
+    let finite = Atom::num(2) - p[1].log()
+        + p[3].log()
+        + (&mass_ratio - Atom::num(1) + &momentum) / (Atom::num(2) * &momentum)
+            * (&p[1] / &p[2]).log()
+        + regular;
+    finish(finite, &p, supplied, derivative)
+}
+
 /// Equal-mass primal neighborhood, including transverse mass and momentum jets.
 pub(crate) fn equal_coefficients(
     supplied: &[Atom],
@@ -270,5 +319,31 @@ mod tests {
                 Atom::num(1) / Atom::num(6) + &s / Atom::num(27),
             );
         }
+    }
+
+    #[test]
+    fn pseudothreshold_jet_matches_regular_parameter_integral() {
+        // At s=1, m0²=4, m1²=9 the Feynman denominator is (x+2)².
+        // Its defining logarithmic integral has the following finite term
+        // and momentum derivative, without a singular discriminant limit.
+        let s_symbol = symbolica::symbol!("bubble_neighborhood_test::pseudo_s");
+        let s = Atom::var(s_symbol);
+        let p = [s.clone(), Atom::num(4), Atom::num(9), Atom::num(1)];
+        let at_point = [Replacement::new(s, Atom::num(1))];
+        let logarithm = (Atom::num(4) / Atom::num(9)).log();
+        let base = Atom::num(2) - Atom::num(4).log() + Atom::num(3) * &logarithm;
+        let slope = -Atom::num(2) - Atom::num(5) * &logarithm / Atom::num(2);
+        let value = pseudothreshold_coefficients(&p, 2, false).unwrap();
+        equal(value[0].replace_multiple(at_point.iter()), base);
+        equal(
+            value[0]
+                .derivative(s_symbol)
+                .replace_multiple(at_point.iter()),
+            slope.clone(),
+        );
+        equal(
+            pseudothreshold_coefficients(&p, 1, true).unwrap()[0].replace_multiple(at_point.iter()),
+            slope,
+        );
     }
 }

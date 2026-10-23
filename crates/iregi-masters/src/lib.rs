@@ -16,7 +16,16 @@ use std::{error::Error, fmt};
 mod bubble_neighborhood;
 mod derivative_domain;
 mod dual_validation;
+mod exact_plan;
+mod normalization;
+mod pentagon6;
+mod scale_transport;
 pub use dual_validation::validate_dual_structure;
+pub use exact_plan::ExactMasterPlan;
+pub use pentagon6::{
+    Pentagon6Batch, Pentagon6Diagnostic, Pentagon6Evaluator, Pentagon6LaneError, Pentagon6Options,
+    Pentagon6Plan,
+};
 #[cfg(feature = "native-batch")]
 mod native_batch;
 
@@ -26,7 +35,7 @@ pub use symbolica::domains::{
     float::{Complex, DoubleFloat, Float, FloatLike},
 };
 use symbolica::{
-    atom::{Atom, Symbol},
+    atom::{Atom, AtomCore, Symbol},
     domains::{float::SingleFloat, rational::Rational},
     evaluate::{BatchExpressionEvaluator, EvaluationDomain, ExpressionEvaluator},
 };
@@ -159,6 +168,16 @@ pub enum MasterBackend {
     RustBatch,
 }
 
+/// Default scalar backend selected by this crate's compiled feature set.
+/// Dual plans always use Symbolica's batch interpreter.
+pub const fn default_master_backend() -> MasterBackend {
+    if cfg!(feature = "native-batch") {
+        MasterBackend::RustBatch
+    } else {
+        MasterBackend::SymbolicaBatch
+    }
+}
+
 #[derive(Clone)]
 enum PreparedMaster<T: NativeFloat> {
     Symbolica(BatchExpressionEvaluator<Complex<T>>),
@@ -182,6 +201,11 @@ pub struct MasterEvaluator<T: NativeFloat> {
     input_workspace: Vec<Complex<T>>,
     output_workspace: Vec<Complex<T>>,
     valid_lanes: Vec<usize>,
+    normalization_scales: Vec<Option<normalization::BinaryScale>>,
+    constant_evaluator: Option<Box<MasterEvaluator<T>>>,
+    constant_input_workspace: Vec<Complex<T>>,
+    constant_lanes: Vec<usize>,
+    scale_transport: Option<scale_transport::ScaleTransport<T>>,
 }
 
 impl<T: NativeFloat> MasterEvaluator<T>
@@ -189,12 +213,7 @@ where
     Complex<T>: EvaluationDomain,
 {
     pub fn new(family: ScalarIntegral, prototype: T) -> Result<Self, MasterError> {
-        let backend = if cfg!(feature = "native-batch") {
-            MasterBackend::RustBatch
-        } else {
-            MasterBackend::SymbolicaBatch
-        };
-        Self::new_with_backend(family, prototype, backend)
+        Self::new_with_backend(family, prototype, default_master_backend())
     }
 
     /// Select the native generated kernels or the exact-expression interpreter.
@@ -205,10 +224,7 @@ where
         backend: MasterBackend,
     ) -> Result<Self, MasterError> {
         match backend {
-            MasterBackend::SymbolicaBatch => {
-                let exact = exact_scalar_master_evaluator(family)?;
-                Self::from_exact(family, prototype, None, exact)
-            }
+            MasterBackend::SymbolicaBatch => ExactMasterPlan::new(family)?.instantiate(prototype),
             MasterBackend::RustBatch => {
                 #[cfg(feature = "native-batch")]
                 {
@@ -226,6 +242,11 @@ where
                         input_workspace: Vec::new(),
                         output_workspace: Vec::new(),
                         valid_lanes: Vec::new(),
+                        normalization_scales: Vec::new(),
+                        constant_evaluator: None,
+                        constant_input_workspace: Vec::new(),
+                        constant_lanes: Vec::new(),
+                        scale_transport: None,
                     })
                 }
                 #[cfg(not(feature = "native-batch"))]
@@ -278,33 +299,7 @@ where
         prototype: T,
         dual: D,
     ) -> Result<Self, MasterError> {
-        validate_dual_structure(&dual)?;
-        let shape: Vec<_> = dual
-            .get_shape()
-            .into_iter()
-            .map(<[usize]>::to_vec)
-            .collect();
-        if shape.is_empty() || shape.len() != dual.get_len() {
-            return Err(MasterError::InvalidShape(
-                "empty or inconsistent shape".into(),
-            ));
-        }
-        if shape[0].iter().any(|&degree| degree != 0) {
-            return Err(MasterError::InvalidShape("the primal must be first".into()));
-        }
-        let (context, parameters, mut expressions) = expressions(family, true);
-        if matches!(family, ScalarIntegral::B0 | ScalarIntegral::DB0) {
-            expressions[0] = lightlike_bubble_finite(
-                &parameters,
-                dual.get_max_depth(),
-                family == ScalarIntegral::DB0,
-                &expressions[0],
-            )?;
-        }
-        let exact = context
-            .dual_evaluator(&expressions, &parameters, dual)
-            .map_err(MasterError::Preparation)?;
-        Self::from_exact(family, prototype, Some(shape), exact)
+        ExactMasterPlan::new_dual(family, dual)?.instantiate(prototype)
     }
 
     fn from_exact(
@@ -338,6 +333,11 @@ where
             input_workspace: Vec::new(),
             output_workspace: Vec::new(),
             valid_lanes: Vec::new(),
+            normalization_scales: Vec::new(),
+            constant_evaluator: None,
+            constant_input_workspace: Vec::new(),
+            constant_lanes: Vec::new(),
+            scale_transport: None,
         })
     }
 
@@ -390,14 +390,60 @@ where
         };
         self.input_workspace.clear();
         self.valid_lanes.clear();
+        self.normalization_scales.clear();
+        self.constant_input_workspace.clear();
+        self.constant_lanes.clear();
         for (lane, point) in input.chunks_exact(row_width).enumerate() {
             if let Err(error) = self.validate_point(point) {
                 result.errors[lane] = Some(error);
                 continue;
             }
+            // Constant kinematics retain the scalar boundary prescription.
+            // Scale-only jets are transported afterwards by a separate exact
+            // Laurent program, avoiding unused kinematic derivative 0/0.
+            if self.components > 1 && !self.kinematics_seeded(point) {
+                self.constant_lanes.push(lane);
+                self.constant_input_workspace.extend(
+                    point
+                        .chunks_exact(self.components)
+                        .map(|argument| argument[0].clone()),
+                );
+                continue;
+            }
             self.valid_lanes.push(lane);
             let start = self.input_workspace.len();
             self.input_workspace.extend_from_slice(point);
+            let normalization = if self.components > 1
+                && matches!(self.family, ScalarIntegral::B0 | ScalarIntegral::DB0)
+            {
+                normalization::BinaryScale::for_positive_real(&point[self.components])
+                    .or_else(|| {
+                        normalization::BinaryScale::for_positive_real(&point[2 * self.components])
+                    })
+                    .and_then(|scale| scale.bounded_by(&point[..3 * self.components]))
+            } else {
+                None
+            };
+            if let Some(scale) = normalization {
+                for value in &mut self.input_workspace[start..start + 3 * self.components] {
+                    scale.divide(value);
+                }
+                // Keep the normalized kinematics and scale separately moderate.
+                // B0's exact scale dependence is restored below; DB0 has no
+                // scale dependence. This avoids differentiating logarithms at
+                // an extreme scale just because a kinematic seed is nonzero.
+                for component in 0..self.components {
+                    self.input_workspace[start + 3 * self.components + component] = Complex::new(
+                        if component == 0 {
+                            self.prototype.one()
+                        } else {
+                            self.prototype.zero()
+                        },
+                        self.prototype.zero(),
+                    );
+                }
+            }
+            self.normalization_scales.push(normalization);
             // Reuse OneLOop's exact soft-box relabelling. Nonconstant jets at
             // massless boundaries are rejected by validate_point below.
             if self.family == ScalarIntegral::D0 {
@@ -429,17 +475,30 @@ where
                 .evaluate_batch(&self.input_workspace, &mut self.output_workspace, valid)
                 .map_err(MasterError::Evaluation)?,
         }
+        self.restore_bubble_scale(input, row_width, result_width)?;
         for (prepared, &lane) in self.valid_lanes.iter().enumerate() {
-            let output =
-                &self.output_workspace[prepared * result_width..(prepared + 1) * result_width];
             let point = &input[lane * row_width..(lane + 1) * row_width];
-            let domain = &output[5 * self.components];
             let check_discriminant = self.kinematics_seeded(point)
                 && (matches!(self.family, ScalarIntegral::C0 | ScalarIntegral::D0)
                     || (matches!(self.family, ScalarIntegral::B0 | ScalarIntegral::DB0)
                         && !point[0].is_zero()));
+            let regular_pseudothreshold = self.regular_bubble_pseudothreshold(
+                &self.input_workspace[prepared * row_width..(prepared + 1) * row_width],
+            );
+            let output =
+                &mut self.output_workspace[prepared * result_width..(prepared + 1) * result_width];
+            if self.family == ScalarIntegral::DB0 {
+                if let Some(scale) = self.normalization_scales[prepared] {
+                    for value in &mut output[..5 * self.components] {
+                        scale.divide(value);
+                    }
+                }
+            }
+            let domain = &output[5 * self.components];
             if check_discriminant
-                && (domain.is_zero() || !domain.re.is_finite() || !domain.im.is_finite())
+                && (!domain.re.is_finite()
+                    || !domain.im.is_finite()
+                    || (domain.is_zero() && !regular_pseudothreshold))
             {
                 result.errors[lane] = Some(LaneError::UnsupportedDerivativeDomain);
             } else if output[..5 * self.components]
@@ -450,6 +509,94 @@ where
             } else {
                 result.values[lane * result_width..(lane + 1) * result_width]
                     .clone_from_slice(output);
+            }
+        }
+        if !self.constant_lanes.is_empty() {
+            if self.constant_evaluator.is_none() {
+                self.constant_evaluator =
+                    Some(Box::new(Self::new(self.family, self.prototype.clone())?));
+            }
+            let constants = self
+                .constant_evaluator
+                .as_mut()
+                .unwrap()
+                .evaluate_batch(&self.constant_input_workspace, self.constant_lanes.len())?;
+            for (prepared, &lane) in self.constant_lanes.iter().enumerate() {
+                if let Some(error) = &constants.errors[prepared] {
+                    result.errors[lane] = Some(error.clone());
+                } else {
+                    for slot in 0..OUTPUTS {
+                        result.values[lane * result_width + slot * self.components] =
+                            constants.values[prepared * OUTPUTS + slot].clone();
+                    }
+                }
+            }
+            let scale_offset = (self.family.arity() - 1) * self.components;
+            let scale_seeded = self.constant_lanes.iter().any(|&lane| {
+                input[lane * row_width + scale_offset + 1..(lane + 1) * row_width]
+                    .iter()
+                    .any(|value| !value.is_zero())
+            });
+            if scale_seeded {
+                if self.scale_transport.is_none() {
+                    self.scale_transport = Some(scale_transport::ScaleTransport::new(
+                        self.shape.as_ref().unwrap(),
+                        &self.prototype,
+                    )?);
+                }
+                self.input_workspace.clear();
+                self.valid_lanes.clear();
+                for &lane in &self.constant_lanes {
+                    if result.errors[lane].is_some() {
+                        continue;
+                    }
+                    self.valid_lanes.push(lane);
+                    let start = self.input_workspace.len();
+                    self.input_workspace.resize(
+                        start + 7 * self.components,
+                        Complex::new(self.prototype.zero(), self.prototype.zero()),
+                    );
+                    for slot in 0..4 {
+                        self.input_workspace[start + slot * self.components] =
+                            result.values[lane * result_width + slot * self.components].clone();
+                    }
+                    let scale = &input[lane * row_width + scale_offset..(lane + 1) * row_width];
+                    let offset = start + 4 * self.components;
+                    self.input_workspace[offset..offset + self.components].clone_from_slice(scale);
+                    if let Some(normalization) =
+                        normalization::BinaryScale::for_positive_real(&scale[0])
+                            .and_then(|normalization| normalization.bounded_by(scale))
+                    {
+                        for value in &mut self.input_workspace[offset..offset + self.components] {
+                            normalization.divide(value);
+                        }
+                    }
+                    self.input_workspace[start + 5 * self.components] =
+                        self.input_workspace[offset].clone();
+                }
+                let valid = self.valid_lanes.len();
+                self.output_workspace.resize(
+                    valid * result_width,
+                    Complex::new(self.prototype.zero(), self.prototype.zero()),
+                );
+                self.scale_transport.as_mut().unwrap().evaluate_batch(
+                    &self.input_workspace,
+                    &mut self.output_workspace,
+                    valid,
+                )?;
+                for (prepared, &lane) in self.valid_lanes.iter().enumerate() {
+                    let output = &self.output_workspace
+                        [prepared * result_width..(prepared + 1) * result_width];
+                    if output
+                        .iter()
+                        .any(|value| !value.re.is_finite() || !value.im.is_finite())
+                    {
+                        result.errors[lane] = Some(LaneError::NonFiniteOutput);
+                    } else {
+                        result.values[lane * result_width..(lane + 1) * result_width]
+                            .clone_from_slice(output);
+                    }
+                }
             }
         }
         Ok(result)
@@ -551,6 +698,78 @@ where
         self.evaluate_real_dual_batch(input, rows, |value| &value.values)
     }
 
+    fn restore_bubble_scale(
+        &mut self,
+        input: &[Complex<T>],
+        row_width: usize,
+        result_width: usize,
+    ) -> Result<(), MasterError> {
+        if self.family != ScalarIntegral::B0
+            || !self.normalization_scales.iter().any(Option::is_some)
+        {
+            return Ok(());
+        }
+        if self.scale_transport.is_none() {
+            self.scale_transport = Some(scale_transport::ScaleTransport::new(
+                self.shape.as_ref().unwrap(),
+                &self.prototype,
+            )?);
+        }
+        let zero = Complex::new(self.prototype.zero(), self.prototype.zero());
+        let mut transport_input = Vec::new();
+        let mut prepared_indices = Vec::new();
+        for (prepared, (&lane, normalization)) in self
+            .valid_lanes
+            .iter()
+            .zip(&self.normalization_scales)
+            .enumerate()
+        {
+            let Some(normalization) = normalization else {
+                continue;
+            };
+            prepared_indices.push(prepared);
+            let start = transport_input.len();
+            transport_input.resize(start + 7 * self.components, zero.clone());
+            transport_input[start..start + 4 * self.components].clone_from_slice(
+                &self.output_workspace
+                    [prepared * result_width..prepared * result_width + 4 * self.components],
+            );
+            let scale = &input[lane * row_width + 3 * self.components..(lane + 1) * row_width];
+            let offset = start + 4 * self.components;
+            transport_input[offset..offset + self.components].clone_from_slice(scale);
+            let scale_normalization = normalization::BinaryScale::for_positive_real(&scale[0])
+                .and_then(|normalization| normalization.bounded_by(scale));
+            if let Some(scale_normalization) = scale_normalization {
+                for value in &mut transport_input[offset..offset + self.components] {
+                    scale_normalization.divide(value);
+                }
+            }
+            transport_input[start + 5 * self.components] =
+                Complex::new(self.prototype.one(), self.prototype.zero());
+            let exponent = scale_normalization
+                .map_or(0, normalization::BinaryScale::exponent)
+                .checked_sub(normalization.exponent())
+                .ok_or(MasterError::SizeOverflow)?;
+            transport_input[start + 6 * self.components] =
+                Complex::new(self.prototype.from_i64(exponent), self.prototype.zero());
+        }
+        let mut output = vec![zero; prepared_indices.len() * result_width];
+        self.scale_transport.as_mut().unwrap().evaluate_batch(
+            &transport_input,
+            &mut output,
+            prepared_indices.len(),
+        )?;
+        for (row, prepared) in prepared_indices.into_iter().enumerate() {
+            // The original normalized kinematic guard remains authoritative.
+            self.output_workspace
+                [prepared * result_width..prepared * result_width + 5 * self.components]
+                .clone_from_slice(
+                    &output[row * result_width..row * result_width + 5 * self.components],
+                );
+        }
+        Ok(())
+    }
+
     fn validate_point(&self, point: &[Complex<T>]) -> Result<(), LaneError> {
         for (slot, value) in point.iter().enumerate() {
             if !value.re.is_finite() || !value.im.is_finite() {
@@ -637,9 +856,32 @@ where
                     .any(|value| !value.is_zero())
             })
     }
+
+    // The symbolic program selects the Taylor chart only at zero discriminant.
+    // These primal domain checks distinguish the regular pseudothreshold from
+    // the genuine two-particle threshold before accepting that zero guard.
+    fn regular_bubble_pseudothreshold(&self, point: &[Complex<T>]) -> bool {
+        if !matches!(self.family, ScalarIntegral::B0 | ScalarIntegral::DB0) {
+            return false;
+        }
+        let s = &point[0];
+        let first = &point[self.components];
+        let second = &point[2 * self.components];
+        if !s.im.is_zero()
+            || s.re <= s.re.zero()
+            || !first.im.is_zero()
+            || !second.im.is_zero()
+            || first.re <= first.re.zero()
+            || second.re <= second.re.zero()
+        {
+            return false;
+        }
+        let k = first.re.one() + second.re.clone() / &first.re - s.re.clone() / &first.re;
+        k.is_finite() && k > k.zero()
+    }
 }
 
-fn lightlike_bubble_finite(
+fn regular_bubble_finite(
     p: &[Atom],
     order: usize,
     derivative: bool,
@@ -655,7 +897,31 @@ fn lightlike_bubble_finite(
         Symbol::IF.call((&p[2], massive, &second_massless[0])),
         Symbol::IF.call((&p[2], &first_massless[0], ordinary)),
     ));
-    Ok(Symbol::IF.call((&p[0], ordinary, at_zero)))
+    let pseudothreshold = bubble_neighborhood::pseudothreshold_coefficients(p, order, derivative)?;
+    // Reuse OneLOop's registered, precision-aware real-sign primitive. The
+    // surrounding real-axis and nonzero guards make its contract explicit.
+    // This also keeps constant Duals on genuine thresholds on the native
+    // scalar branch, whose prescribed DB0 value is not an analytic derivative.
+    let sign = symbolica::symbol!("oneloop::__olo_sign_nonnegative");
+    let k = Atom::num(1) + &p[2] / &p[1] - &p[0] / &p[1];
+    let mut chart = Symbol::IF.call((
+        Atom::num(1) + sign.call((k,)),
+        &pseudothreshold[0],
+        ordinary,
+    ));
+    for mass in [&p[2], &p[1]] {
+        chart = Symbol::IF.call((
+            mass,
+            Symbol::IF.call((
+                mass - mass.conj(),
+                ordinary,
+                Symbol::IF.call((Atom::num(1) + sign.call((mass,)), chart, ordinary)),
+            )),
+            ordinary,
+        ));
+    }
+    let at_nonzero = Symbol::IF.call((derivative_domain::bubble_discriminant(p), ordinary, chart));
+    Ok(Symbol::IF.call((&p[0], at_nonzero, at_zero)))
 }
 
 /// Exact scalar outputs used by the reproducible Rust batch generator.
