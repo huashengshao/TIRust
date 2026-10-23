@@ -486,8 +486,8 @@ rescue or a timing gate. See #raw("validation/physical/gghhh-guard/").
 
 #pagebreak()
 = Current implementation checkpoint
-These experiments have separate source and binary identities. They extend
-the correctness evidence; they do not replace the historical timing tables.
+Production snapshot #raw("06706e2") and private experiments have separate source
+and binary identities. Correctness evidence does not replace timing gates.
 
 == Ordinary scalar-master storage
 The default interpreter now reuses root temporaries through Symbolica's
@@ -592,6 +592,10 @@ an independent Feynman-parameter integral. Their UV residues agree.
   The original PV branch is retained unchanged; the relevant Rust comparisons
   use original IBP and the independent parameter-integral result.]
 
+#text(size: 8.5pt)[*Pending reference extension:* original IREGI versus COLLIER
+1.2.10 on identical ordinary, non-dotted N2/N3 rank0/1 inputs, batches1/32.
+Complete tensor/Laurent comparisons and timings are not yet qualified.]
+
 #pagebreak()
 = Measurement protocol
 Pin release builds to one CPU core and record thread counts, hardware, OS,
@@ -659,15 +663,14 @@ requests with analytic bubbles disabled/enabled: 480 evaluations and 1920
 slots. Nine extracted FeynKit partial-fraction and two planar formula tests
 pass; the separately qualified explicit planar API is recorded below.
 
-N6 inline native-master 128/256-bit arrays converge over 1320 complex slots
-within $6.46 times 10^(-29)$; public N6/N7 tensor arrays remain unqualified.
-Earlier rank-seven probes time out at 180/300/300/600 s. Adopted alias-use collection
-preserves 29 paired cases, 86 successful lanes and 4520 complex components.
-A frozen collector-plus-sum run again reaches the 600 s bound (601.232 s with
-teardown): primal amplitudes finish, then master activation preparation stalls.
-It produces no arrays. Plans have 330 moments, 31,670 aliases and 56 masters;
-exact-only proofs and prior failures remain in
-#raw("validation/public-highpoint/"). No performance gate follows.
+N6 inline 128/256-bit arrays converge over 1320 slots within
+$6.46 times 10^(-29)$; public N6/N7 tensor arrays remain unqualified. Adopted
+alias-use collection preserves 29 paired cases, 86 successful lanes and 4520
+components. Frozen collector-plus-sum and private amplitude-variable probes
+reach the 600 s bound (601.232/601.329 s with teardown), after primal amplitudes
+but before master activations finish; neither produces arrays. The latest
+private variant passes 48 variable-set, 34 amplitude/error and 73 semantic checks.
+Earlier timeouts remain in #raw("validation/public-highpoint/"); no timing gate follows.
 
 #pagebreak()
 = Physical fixture qualification
@@ -790,29 +793,29 @@ Exact commands and scope are retained in
   [Roundoff cache], [29/37 stability checks and 120 snapshots pass.
     Candidate rejected: two regressions/ten noisy rows. Separate accuracy-guard
     diagnostic: two regressions/six noisy rows.],
-  [CLI coefficients], [72 ordinary and 12 mixed-precision batch comparisons
-    pass across four graphs. Eight opt2 timing families: five gains/one parity/
-    two noisy. ggHH batch 32 ratio 1.0367, 99% CI 1.0237–1.0501 retains possible
-    regression; unadopted. Separate CSE research proves 892 coefficient and 223
-    homogeneity identities; 1281 raw failures remain alongside zero dimension-
-    normalized failures. No physical acceptance or timing claim follows.],
+  [CLI coefficients], [72 ordinary/12 mixed batches pass. Eight opt2 timing rows:
+    five gains/one parity/two noisy; ggHH32 ratio 1.0367, CI 1.0237–1.0501 retains
+    possible regression; unadopted. CSE proves 892 coefficient/223 homogeneity
+    identities. 1281 raw failures coexist with zero dimension-normalized
+    diagnostic failures; no physical acceptance or new timing claim.],
   [Native candidates], [Dense f64 B0/C0: two gains/six singleton parities/four
     batch32 regressions. D0 allocator: three singleton gains/two batch32
     regressions/one noisy. Shared B0/C0 kernels: one gain/two parities/seven
-    regressions/two noisy. All three candidates rejected. D0 singleton source
-    is unchanged; its gains do not establish allocator benefit.],
+    regressions/two noisy. All rejected; D0 singleton source is unchanged.
+    Separate actual A0–C0 replay passes 1782 outputs from 297 rows at $10^(-10)$;
+    native/interpreter values are not bitwise identical. Timing is unrun.],
   [Certificate candidates], [Slim RealBall module: 23 checks, including 8
     baseline controls. Separate exact-distance receipts: 49 checks and 120 exact
     snapshots against the same private RealBall baseline; argument rows unchanged.
     Fourteen timing cases give eight gains/two parities/four noisy, no qualified
-    regression. Receipts remain private; these are not IREGI comparisons.],
-  [N5 planar API], [Promoted for unit powers, with no automatic fallback. Rank 7,
-    requested 53 bits: ordinary Float128/256
-    passes 1320 slots and convergence. Mixed Float128 passes all 5280
-    four-component slots per accepted duplicate lane against Float256 boxes.
-    Transverse jets reject; 9 focused and 49 ordinary tests pass; earlier 600 s timeout remains.
-    Twenty coefficient cases with original Fortran scalar leaves pass;
-    those do not add public native-master coverage. No new performance gate.],
+    regression. Private final integration passes 12 receipt/6 accounting checks,
+    counted once with the automatic-planar followup. Final code is untimed.],
+  [N5 planar API], [Promoted explicit unit-power API: rank7 ordinary128/256
+    passes 1320 slots/convergence; mixed128 passes 5280 slots per accepted lane
+    versus256 boxes, requested53. Transverse jets reject; 9 focused/49 ordinary
+    checks and 20 Fortran-leaf coefficient cases pass. Earlier timeout remains.
+    Private automatic rank1/2 dispatch passes 69 checks; the final 18-test followup
+    is separate. No automatic rank7, production fallback or timing claim.],
   [Finite D0 certification], [Explicit API promoted: three actual public tests
     and current core Cargo checking pass. Exact represented inputs receive
     component-budget enclosures in the checked near-vacuum domain; upstream
@@ -824,9 +827,8 @@ Exact commands and scope are retained in
 with project compute held; these isolated candidates are not IREGI or end-to-end
 comparisons. Historical native 24 rows remain separate. Full paths, scopes and
 failures are in #raw("docs/data/results.json"); effects are not multiplied.
-Public-API build history retains user interruption and storage failures;
-compilation used a logged extension. Its numerical tests met the unchanged
-600 s limit. These durations are not benchmarks.]
+Public-API interruption/storage failures and logged compilation extension remain
+recorded; numerical tests met 600 s. These durations are not benchmarks.]
 #pagebreak()
 = Independent pentagon adjudication
 These checks establish selected mathematical values independently of an
@@ -848,13 +850,12 @@ verifies all 840 slots at 128/256 bits plus this coefficient below $10^(-13)$.
 #raw("validation/rescue-pentagon-rank6.json") retains the binary and assertions;
 full arrays were not printed and its exact build-source snapshot was not saved.
 
-The coherent vendored Symbolica baseline passes four internal scope tests,
-57 focused core tests and all 1320 rank-seven slots at 128/256 bits, including
-the independent coefficient. Its saved source predates later
-precision/routing edits. Current workspace compilation passes with all 329
-source/manifest hashes unchanged; later runtime checks remain separate. The
-109.44 s cold run is diagnostic, not a performance benchmark. See #raw("validation/symbolica-production-qualification.json").
-The earlier 240 s timeout and 115.35 s isolated-patch run remain historical.
+The vendored Symbolica baseline passes four scope tests, 57 core tests and
+all 1320 rank-seven slots at 128/256 bits, including the independent coefficient.
+Its source predates later precision/routing edits; its workspace compilation
+preserves 329 source/manifest hashes. The 109.44 s cold run, earlier 240 s timeout
+and 115.35 s isolated run are historical diagnostics. See
+#raw("validation/symbolica-production-qualification.json").
 
 == Physical canonical moment 54
 For $g g arrow H H H$, rank-four moment $q_0 q_3^3$ has UV degree $-2$;
@@ -893,14 +894,18 @@ isolation; the earlier quadrature-budget failure remains historical.
 Pre-vendor public DoubleFloat and Float128 tests now pass three scaled lanes
 at requested 80-bit accuracy and $10^(-23)$ normalized oracle tolerance.
 First common-mass Dual primal/derivative checks pass at $2 times 10^(-14)$,
-with zero poles. The DD/Float validation durations total 165.69 s, exceeding
-the historical 150 s combined timeout; this is no performance benchmark.
-Build identities and limits are in
-#raw("validation/shifted-pentagon/public-core-qualification.json"). A separate
-vendored paired DD E6 test passes exact stack-allocation parity. Full requested
-128-bit accuracy fails for the new small-routing fixture; higher/mixed Dual,
-broader endpoints and native E6 remain unqualified. The original complex-box reference discrepancy
-is documented in #raw("validation/shifted-pentagon/contours.json").
+with zero poles. DD/Float validation takes 165.69 s, exceeding its historical
+150 s bound; this is not a benchmark. Build scope is in
+#raw("validation/shifted-pentagon/public-core-qualification.json"). Paired
+vendored DD E6 passes exact allocation parity. Requested128 fails for the
+small-routing fixture; higher/mixed Dual, broader endpoints and native E6 remain
+unqualified. The original complex-box discrepancy is retained in
+#raw("validation/shifted-pentagon/contours.json").
+
+#text(size: 9pt)[A private input-enclosure extension passes five D0 pinches and
+two contractions at the single exact contour point $x=2/5$, Float256/request128:
+40 rectangles and 20 rounded mass slots checked. Exact unshifted geometry
+remains assumed; no quadrature certificate or production E6 qualification follows.]
 
 
 #pagebreak()

@@ -94,3 +94,11 @@ Generate `/shared/external/iregi/iregi-rust/docs/benchmark.pdf` from committed T
 Include synthetic identical-input comparisons, physical MadLoop comparisons, precision/Dual coverage, stability failures, batch scaling, environment/compiler details, dependency revisions, and reproduction commands. Rebuild after each relevant milestone and identify stale measurements explicitly.
 
 Confirmed defaults: Rust semantic API compatibility without a legacy ABI; Rust implementation with Symbolica’s GMP/MPFR dependencies allowed; external validation tools allowed; four-dimensional numerator polynomials with dimensionally regulated denominators; input preservation by default; top-loop physical examples first; performance assessed per benchmark family.
+
+## COLLIER reference comparison (user-requested extension)
+
+Use the pinned COLLIER 1.2.10 source supplied by the user as an additional optional reference. Study its published tensor-reduction methods for independently derived Symbolica implementations, retaining source provenance. Keep its build and execution isolated under the project, without changing the Rust-only core or copying its algebra routines.
+
+Compare original IREGI and COLLIER on their shared undotted topology/rank domain, starting with massive bubbles and triangles at ranks zero and one, then extending to boxes and higher-point low-rank cases and representative higher supported ranks. Record each backend's actual limits; preserve failed and unsupported cases. The first eight bubble/triangle rows are a vertical slice, not qualification of the full shared domain.
+
+Before timing, establish routing, normalization, scale, Cartesian ordering, UV/IR pole separation and complete tensor/Laurent agreement on identical inputs. Match requested outputs, optimized compiler settings and within-call cache policy; reset cross-event numerical caches. Measure singleton and batch-32 kernels separately with pinned-core paired blocks and uncertainty estimates, excluding subprocess transport. Report this comparison separately from Rust-versus-IREGI performance and update the Typst report only from qualified measurements.
