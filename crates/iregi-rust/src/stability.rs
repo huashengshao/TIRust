@@ -9,6 +9,8 @@
 //! exceptional-kinematics plans on the denominators they actually use.
 
 pub(crate) mod arguments;
+mod context;
+pub(crate) use context::GuardContext;
 pub(crate) mod quadrature;
 
 use std::{
@@ -696,16 +698,69 @@ impl StabilityPlan {
         prototype: &T,
         accuracy_bits: u32,
     ) -> Option<String> {
+        self.inspect_lane_with_accuracy_impl::<T, false>(
+            values,
+            input,
+            components,
+            prototype,
+            accuracy_bits,
+            None,
+        )
+    }
+
+    pub(crate) fn inspect_lane_with_accuracy_context<T: NativeFloat>(
+        &self,
+        values: &[Complex<T>],
+        input: &[Complex<T>],
+        components: usize,
+        prototype: &T,
+        accuracy_bits: u32,
+        context: &mut GuardContext<T>,
+    ) -> Option<String> {
+        self.inspect_lane_with_accuracy_impl::<T, true>(
+            values,
+            input,
+            components,
+            prototype,
+            accuracy_bits,
+            Some(context),
+        )
+    }
+
+    fn inspect_lane_with_accuracy_impl<T: NativeFloat, const CACHED: bool>(
+        &self,
+        values: &[Complex<T>],
+        input: &[Complex<T>],
+        components: usize,
+        prototype: &T,
+        accuracy_bits: u32,
+        mut context: Option<&mut GuardContext<T>>,
+    ) -> Option<String> {
         if components == 0 || values.len() != self.expressions.len() * components {
             return Some("invalid stability-monitor buffer".into());
         }
         let precision = prototype.get_precision();
-        let mut roundoff = OperandRoundoff::new(prototype);
+        let mut roundoff = if CACHED {
+            OperandRoundoff::with_unit(
+                prototype,
+                context.as_deref().unwrap().prototype_unit.clone(),
+            )
+        } else {
+            OperandRoundoff::new(prototype)
+        };
         // At binary64 this is 2^-34, below the 1e-10 validation target.
         // Additional precision tightens the criterion without an f64 detour.
-        let tolerance = dyadic(prototype, 19i64 - i64::from(accuracy_bits));
-        let scale = self.kinematic_scale(input, components, prototype);
-        for check in &self.checks {
+        let tolerance = if CACHED {
+            context.as_deref().unwrap().tolerance.clone()
+        } else {
+            dyadic(prototype, 19i64 - i64::from(accuracy_bits))
+        };
+        let scale = if CACHED {
+            None
+        } else {
+            Some(self.kinematic_scale(input, components, prototype))
+        };
+        for (check_index, check) in self.checks.iter().enumerate() {
             let count = if check.denominator { 1 } else { components };
             let operation_factor = prototype.from_usize(check.operations.saturating_mul(8));
             for component in 0..count {
@@ -735,7 +790,18 @@ impl StabilityPlan {
                 let reference = if check.denominator {
                     magnitude
                 } else {
-                    let natural = signed_power(&scale, check.dimension);
+                    let natural = if CACHED {
+                        let context = context.as_deref_mut().unwrap();
+                        context.natural(
+                            context.local_slots[check_index],
+                            self,
+                            input,
+                            components,
+                            prototype,
+                        )
+                    } else {
+                        signed_power(scale.as_ref().unwrap(), check.dimension)
+                    };
                     if !natural.is_finite() || natural.is_zero() {
                         return Some(format!(
                             "conditioning normalization is outside the numeric range for {}",
@@ -779,14 +845,57 @@ impl StabilityPlan {
         prototype: &T,
         accuracy_bits: u32,
     ) -> Option<String> {
+        self.inspect_primal_lane_impl::<T, false>(values, input, prototype, accuracy_bits, None)
+    }
+
+    pub(crate) fn inspect_primal_lane_context<T: NativeFloat>(
+        &self,
+        values: &[Complex<T>],
+        input: &[Complex<T>],
+        prototype: &T,
+        accuracy_bits: u32,
+        context: &mut GuardContext<T>,
+    ) -> Option<String> {
+        self.inspect_primal_lane_impl::<T, true>(
+            values,
+            input,
+            prototype,
+            accuracy_bits,
+            Some(context),
+        )
+    }
+
+    fn inspect_primal_lane_impl<T: NativeFloat, const CACHED: bool>(
+        &self,
+        values: &[Complex<T>],
+        input: &[Complex<T>],
+        prototype: &T,
+        accuracy_bits: u32,
+        mut context: Option<&mut GuardContext<T>>,
+    ) -> Option<String> {
         if values.len() != self.primal_expressions.len() {
             return Some("invalid primal stability-monitor buffer".into());
         }
         let precision = prototype.get_precision();
-        let mut roundoff = OperandRoundoff::new(prototype);
-        let tolerance = dyadic(prototype, 19i64 - i64::from(accuracy_bits));
-        let scale = self.kinematic_scale(input, 1, prototype);
-        for check in &self.primal_checks {
+        let mut roundoff = if CACHED {
+            OperandRoundoff::with_unit(
+                prototype,
+                context.as_deref().unwrap().prototype_unit.clone(),
+            )
+        } else {
+            OperandRoundoff::new(prototype)
+        };
+        let tolerance = if CACHED {
+            context.as_deref().unwrap().tolerance.clone()
+        } else {
+            dyadic(prototype, 19i64 - i64::from(accuracy_bits))
+        };
+        let scale = if CACHED {
+            None
+        } else {
+            Some(self.kinematic_scale(input, 1, prototype))
+        };
+        for (check_index, check) in self.primal_checks.iter().enumerate() {
             let value = &values[check.value];
             let amplitude = &values[check.amplitude];
             if !value.re.is_finite()
@@ -800,7 +909,12 @@ impl StabilityPlan {
                 ));
             }
             let magnitude = NativeFloat::hypot(&value.re, &value.im);
-            let natural = signed_power(&scale, check.dimension);
+            let natural = if CACHED {
+                let context = context.as_deref_mut().unwrap();
+                context.natural(context.primal_slots[check_index], self, input, 1, prototype)
+            } else {
+                signed_power(scale.as_ref().unwrap(), check.dimension)
+            };
             if !natural.is_finite() || natural.is_zero() {
                 return Some(format!(
                     "primal conditioning normalization is outside the numeric range for {}",
@@ -845,6 +959,44 @@ impl StabilityPlan {
         prototype: &T,
         accuracy_bits: u32,
     ) -> Option<String> {
+        self.inspect_output_precision_lane_impl::<T, false>(
+            values,
+            input,
+            components,
+            prototype,
+            accuracy_bits,
+            None,
+        )
+    }
+
+    pub(crate) fn inspect_output_precision_lane_context<T: NativeFloat>(
+        &self,
+        values: &[Complex<T>],
+        input: &[Complex<T>],
+        components: usize,
+        prototype: &T,
+        accuracy_bits: u32,
+        context: &mut GuardContext<T>,
+    ) -> Option<String> {
+        self.inspect_output_precision_lane_impl::<T, true>(
+            values,
+            input,
+            components,
+            prototype,
+            accuracy_bits,
+            Some(context),
+        )
+    }
+
+    fn inspect_output_precision_lane_impl<T: NativeFloat, const CACHED: bool>(
+        &self,
+        values: &[Complex<T>],
+        input: &[Complex<T>],
+        components: usize,
+        prototype: &T,
+        accuracy_bits: u32,
+        mut context: Option<&mut GuardContext<T>>,
+    ) -> Option<String> {
         if components == 0 || values.len() != self.output_dimensions.len() * components {
             return Some("invalid output-precision buffer".into());
         }
@@ -866,9 +1018,24 @@ impl StabilityPlan {
             // norm, power or precision-map work is needed here.
             return None;
         }
-        let mut roundoff = OperandRoundoff::new(prototype);
-        let tolerance = dyadic(prototype, 19i64 - i64::from(accuracy_bits));
-        let scale = self.kinematic_scale(input, components, prototype);
+        let mut roundoff = if CACHED {
+            OperandRoundoff::with_unit(
+                prototype,
+                context.as_deref().unwrap().prototype_unit.clone(),
+            )
+        } else {
+            OperandRoundoff::new(prototype)
+        };
+        let tolerance = if CACHED {
+            context.as_deref().unwrap().tolerance.clone()
+        } else {
+            dyadic(prototype, 19i64 - i64::from(accuracy_bits))
+        };
+        let scale = if CACHED {
+            None
+        } else {
+            Some(self.kinematic_scale(input, components, prototype))
+        };
         for (output, &dimension) in self.output_dimensions.iter().enumerate() {
             for component in 0..components {
                 let value = &values[output * components + component];
@@ -885,7 +1052,18 @@ impl StabilityPlan {
                         ));
                     }
                 };
-                let natural = signed_power(&scale, dimension);
+                let natural = if CACHED {
+                    let context = context.as_deref_mut().unwrap();
+                    context.natural(
+                        context.output_slots[output],
+                        self,
+                        input,
+                        components,
+                        prototype,
+                    )
+                } else {
+                    signed_power(scale.as_ref().unwrap(), dimension)
+                };
                 if !natural.is_finite() || natural.is_zero() {
                     return Some(format!(
                         "output-precision normalization is outside the numeric range in output {output}"
@@ -1074,6 +1252,15 @@ struct OperandRoundoff<'a, T: NativeFloat> {
 }
 
 impl<'a, T: NativeFloat> OperandRoundoff<'a, T> {
+    fn with_unit(prototype: &'a T, prototype_unit: T) -> Self {
+        Self {
+            prototype,
+            prototype_bits: prototype.get_precision(),
+            prototype_unit,
+            units: HashMap::new(),
+        }
+    }
+
     fn new(prototype: &'a T) -> Self {
         let prototype_bits = prototype.get_precision();
         let margin = if prototype.fixed_precision() { 0 } else { 3 };
@@ -2279,4 +2466,5 @@ mod tests {
             );
         }
     }
+    include!("stability/context_tests.rs");
 }

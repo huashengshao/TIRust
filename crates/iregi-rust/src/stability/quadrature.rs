@@ -17,8 +17,8 @@ use symbolica::{
 use crate::{ibp::MasterLeafKind, plan::ReductionPlan, types::ReductionError};
 
 use super::{
-    OperandRoundoff, StabilityPlan, collect_amplitude_variables, depends_on_amplitudes, dyadic,
-    if_parts, signed_power,
+    GuardContext, OperandRoundoff, StabilityPlan, collect_amplitude_variables,
+    depends_on_amplitudes, dyadic, if_parts, signed_power,
 };
 
 #[derive(Clone, Debug)]
@@ -219,6 +219,56 @@ impl StabilityPlan {
         accuracy_bits: u32,
         primal: Option<&[Complex<T>]>,
     ) -> Option<String> {
+        self.inspect_quadrature_lane_impl::<T, false>(
+            quadrature,
+            errors,
+            moments,
+            input,
+            components,
+            prototype,
+            accuracy_bits,
+            primal,
+            None,
+        )
+    }
+
+    pub(crate) fn inspect_quadrature_lane_context<T: NativeFloat>(
+        &self,
+        quadrature: &QuadratureStabilityPlan,
+        errors: &[Complex<T>],
+        moments: &[Complex<T>],
+        input: &[Complex<T>],
+        components: usize,
+        prototype: &T,
+        accuracy_bits: u32,
+        primal: Option<&[Complex<T>]>,
+        context: &mut GuardContext<T>,
+    ) -> Option<String> {
+        self.inspect_quadrature_lane_impl::<T, true>(
+            quadrature,
+            errors,
+            moments,
+            input,
+            components,
+            prototype,
+            accuracy_bits,
+            primal,
+            Some(context),
+        )
+    }
+
+    fn inspect_quadrature_lane_impl<T: NativeFloat, const CACHED: bool>(
+        &self,
+        quadrature: &QuadratureStabilityPlan,
+        errors: &[Complex<T>],
+        moments: &[Complex<T>],
+        input: &[Complex<T>],
+        components: usize,
+        prototype: &T,
+        accuracy_bits: u32,
+        primal: Option<&[Complex<T>]>,
+        mut context: Option<&mut GuardContext<T>>,
+    ) -> Option<String> {
         if components == 0
             || errors.len() != quadrature.checks.len() * components
             || moments.len() != quadrature.moment_outputs * components
@@ -230,11 +280,37 @@ impl StabilityPlan {
             return Some("missing primal amplitudes for propagated quadrature errors".into());
         };
         let precision = prototype.get_precision();
-        let mut roundoff = OperandRoundoff::new(prototype);
-        let tolerance = dyadic(prototype, 19i64 - i64::from(accuracy_bits));
-        let scale = self.kinematic_scale(input, components, prototype);
+        let mut roundoff = if CACHED {
+            OperandRoundoff::with_unit(
+                prototype,
+                context.as_deref().unwrap().prototype_unit.clone(),
+            )
+        } else {
+            OperandRoundoff::new(prototype)
+        };
+        let tolerance = if CACHED {
+            context.as_deref().unwrap().tolerance.clone()
+        } else {
+            dyadic(prototype, 19i64 - i64::from(accuracy_bits))
+        };
+        let scale = if CACHED {
+            None
+        } else {
+            Some(self.kinematic_scale(input, components, prototype))
+        };
         for (index, check) in quadrature.checks.iter().enumerate() {
-            let natural = signed_power(&scale, check.dimension);
+            let natural = if CACHED {
+                let context = context.as_deref_mut().unwrap();
+                context.natural(
+                    context.output_slots[check.output],
+                    self,
+                    input,
+                    components,
+                    prototype,
+                )
+            } else {
+                signed_power(scale.as_ref().unwrap(), check.dimension)
+            };
             if !natural.is_finite() || natural.is_zero() {
                 return Some(format!(
                     "quadrature-error normalization is outside the numeric range for {}",

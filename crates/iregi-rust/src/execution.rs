@@ -32,8 +32,8 @@ use crate::{
     ibp::MasterLeafKind,
     plan::{ReductionPlan, ZeroInvariantProfile},
     stability::{
-        StabilityPlan, arguments::ArgumentStabilityPlan, master_argument_precision_failure,
-        quadrature::QuadratureStabilityPlan,
+        GuardContext, StabilityPlan, arguments::ArgumentStabilityPlan,
+        master_argument_precision_failure, quadrature::QuadratureStabilityPlan,
     },
     types::{
         BatchResult, InputLayout, KinematicsBatch, LaneStatus, ReductionError, ResultMetadata,
@@ -965,6 +965,7 @@ pub struct Workspace<T: NativeFloat> {
     snapping_positive_threshold: bool,
     snapping_zero_image: bool,
     stability: Arc<StabilityPlan>,
+    guard_context: GuardContext<T>,
     quadrature: Option<QuadratureWorkspace<T>>,
     masters: Vec<MasterGroup<T>>,
     valid_lanes: Vec<usize>,
@@ -1127,7 +1128,10 @@ where
             .distance_zeros
             .as_ref()
             .map(|prepared| DistanceZeroWorkspace::instantiate(prepared, &prototype));
+        let guard_context =
+            GuardContext::new(&exact.stability, &prototype, prototype.get_precision());
         Ok(Self {
+            guard_context,
             accuracy_bits: prototype.get_precision(),
             prototype,
             basis: exact.basis.clone(),
@@ -1200,6 +1204,7 @@ where
             ));
         }
         self.accuracy_bits = bits;
+        self.guard_context.set_accuracy(&self.prototype, bits);
         for group in &mut self.masters {
             if let ScalarMasterEvaluator::Pentagon6 { options, .. } = &mut group.evaluator {
                 options.relative_tolerance = pentagon_relative_tolerance(&self.prototype, bits);
@@ -1941,6 +1946,7 @@ where
         }
         let local_monitor_width = checked_mul(self.stability.expressions().len(), self.components)?;
         for (compact, &lane) in self.successful_lanes.iter().enumerate() {
+            self.guard_context.begin_lane();
             let evaluated =
                 &self.output[compact * evaluation_width..(compact + 1) * evaluation_width];
             let (output, monitor_outputs) = evaluated.split_at(output_width);
@@ -1959,24 +1965,26 @@ where
                 result.statuses[lane] = LaneStatus::Unstable(
                     "reduction has nonfinite coefficients at this kinematic point".into(),
                 );
-            } else if let Some(reason) = self.stability.inspect_output_precision_lane(
+            } else if let Some(reason) = self.stability.inspect_output_precision_lane_context(
                 output,
                 input_row,
                 self.components,
                 &self.prototype,
                 self.accuracy_bits,
+                &mut self.guard_context,
             ) {
                 result.statuses[lane] = LaneStatus::Unstable(reason);
-            } else if let Some(reason) = self.stability.inspect_lane_with_accuracy(
+            } else if let Some(reason) = self.stability.inspect_lane_with_accuracy_context(
                 monitors,
                 input_row,
                 self.components,
                 &self.prototype,
                 self.accuracy_bits,
+                &mut self.guard_context,
             ) {
                 result.statuses[lane] = LaneStatus::Unstable(reason);
             } else if let Some(reason) = primal_values.and_then(|values| {
-                self.stability.inspect_primal_lane(
+                self.stability.inspect_primal_lane_context(
                     values,
                     if self.primal_fused {
                         input_row
@@ -1985,11 +1993,12 @@ where
                     },
                     &self.prototype,
                     self.accuracy_bits,
+                    &mut self.guard_context,
                 )
             }) {
                 result.statuses[lane] = LaneStatus::Unstable(reason);
             } else if let Some(reason) = self.quadrature.as_ref().and_then(|quadrature| {
-                self.stability.inspect_quadrature_lane(
+                self.stability.inspect_quadrature_lane_context(
                     &quadrature.plan,
                     quadrature.lane(compact, self.components),
                     output,
@@ -1998,6 +2007,7 @@ where
                     &self.prototype,
                     self.accuracy_bits,
                     primal_values,
+                    &mut self.guard_context,
                 )
             }) {
                 result.statuses[lane] = LaneStatus::Unstable(reason);
@@ -3986,4 +3996,5 @@ mod tests {
         assert_eq!(result.statuses[0], LaneStatus::Success);
         assert!(scalar.snapping_monitor.is_none());
     }
+    include!("execution/guard_context_tests.rs");
 }

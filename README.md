@@ -122,10 +122,11 @@ constraints in every Taylor component. Coordinate-input topologies remain
 available. The experimental `CertifiedScalarReductionPlan` and
 `CertifiedScalarWorkspace` check those constraints before rank-zero IBP reduction
 with six or seven propagators. Certificate tests pass, and the bounded six-point
-diagnostics completed chart preparation and workspace reduction before reaching
-the 90-second limit while preparing the coordinate-input comparison. Complete
-numerical agreement of the wrapper remains unqualified; the retained phases are
-recorded in `validation/invariant-certificate/preparation-profile/report.json`.
+scalar fixture converges at 128 and 256 bits against an independent parameter
+integral, at requested binary64 accuracy. Its binary64 cancellation rejection
+and earlier preparation timeouts remain recorded. This does not qualify all
+six/seven-point requests or high-rank tensors; see the
+[bounded qualification](validation/invariant-certificate/solve-vector/qualification-status.json).
 
 Derived scalar invariants are checked before selecting analytic branches or
 evaluating masters. Exact represented-input polynomial checks prevent a rounded
@@ -140,11 +141,13 @@ Workspaces at different precisions share this symbolic preparation while mapping
 constants directly into their own numeric domain and retaining separate scratch
 buffers. Numerical sample results are never stored in that cache.
 
-Ordinary scalar masters reuse temporary storage through Symbolica's existing
-root allocator. The instruction and arithmetic order stay unchanged; Dual
+Ordinary scalar masters, reduction evaluators and numerator contractions reuse
+temporary storage through Symbolica's existing root allocator. The instruction
+and arithmetic order stay unchanged; Dual
 preparation keeps its existing allocation path. The [paired qualification](validation/stack-reuse/production-factory/integration-qualification.json)
-records exact output agreement and diagnostic memory observations. Controlled
-performance gates are assessed separately.
+records master output agreement; the [core qualification](validation/core-stack-reuse/adoption/qualification.json)
+records the later reduction/contraction integration. Controlled performance
+gates are assessed separately.
 
 `PrecisionRescueWorkspace` provides an optional accuracy check and recovery
 path. Its default settings retry unstable samples together at 128 and 256 bits,
@@ -166,13 +169,16 @@ bash scripts/build-reference.sh
 python3 validation/reference/capture.py --write-fixtures
 python3 validation/reference/audit.py
 cargo test --workspace -- --test-threads=1
-typst compile docs/benchmark.typ docs/benchmark.pdf
+bash scripts/build-benchmark-report.sh
 ```
 
 Tests using Symbolica must respect the installed license's process and thread
 limits. The cold concurrent plan-preparation test is ignored because it requires
 a multithread-enabled Symbolica license; preparing a variant first allows the
 separate concurrent cache-lookup test to use only Rust synchronization.
+The [licensed concurrency qualification](validation/concurrent-workspaces/README.md)
+records the explicit cold test and 360 compared calls from independent concurrent
+workspaces. It contains no license key.
 Independent validation procedures and conventions are documented in
 [validation/reference](validation/reference/README.md),
 [validation/physical](validation/physical/README.md), and
