@@ -70,6 +70,8 @@ pub struct PvCompiler {
     bubble_expansions: HashMap<(Vec<usize>, bool), ScalarCompiler>,
     analytic_jet_order: u16,
     coordinate_identities: bool,
+    /// Private execution chart; its full Taylor constraints are checked by the wrapper.
+    certified_planar_chart: Option<usize>,
     preparation_notes: Vec<String>,
     coordinate_constraints: Vec<CoordinateConstraint>,
     gram_scalar_product_transform: Option<Box<dyn FnMut(Atom) -> Atom>>,
@@ -198,6 +200,7 @@ impl PvCompiler {
             bubble_expansions: HashMap::new(),
             analytic_jet_order: 0,
             coordinate_identities: false,
+            certified_planar_chart: None,
             preparation_notes: Vec::new(),
             coordinate_constraints: Vec::new(),
             gram_scalar_product_transform: None,
@@ -230,6 +233,21 @@ impl PvCompiler {
             return Err("set coordinate identity policy before compiling moments".into());
         }
         self.coordinate_identities = enabled;
+        Ok(())
+    }
+
+    /// Select a constant-one pentagon chart only behind exact input certification.
+    /// No plan containing this policy may escape the checked wrapper.
+    pub(crate) fn set_certified_planar_chart(&mut self, omitted: usize) -> Result<(), String> {
+        if self.shifts.len() != 5
+            || omitted >= 4
+            || !self.moments.is_empty()
+            || !self.coefficients.is_empty()
+        {
+            return Err("certified planar chart needs five propagators, an omitted coordinate row in 0..4, and an unused compiler".into());
+        }
+        self.certified_planar_chart = Some(omitted);
+        self.coordinate_identities = true;
         Ok(())
     }
 
@@ -859,15 +877,22 @@ impl PvCompiler {
             self.profile_preparation,
             format_args!("pentagon constant identity {active:?}"),
         );
-        let origin = &self.shifts[active[0]];
-        let mut rows: Vec<Vec<Atom>> = (0..4)
-            .map(|mu| {
-                active[1..]
-                    .iter()
-                    .map(|&i| &self.shifts[i][mu] - &origin[mu])
-                    .collect()
-            })
-            .collect();
+        let mut rows = coordinate_rows(&self.shifts, active);
+        if let Some(omitted) = self.certified_planar_chart {
+            rows.push(self.f_values(active));
+            let (_, coefficients) = constant_chart(&rows, omitted)?
+                .ok_or_else(|| "certified planar chart is structurally singular".to_string())?;
+            let relation = FivePointRelation {
+                active: Atom::num(1),
+                coefficients: coefficients
+                    .into_iter()
+                    .map(|c| self.bind_alias(c))
+                    .collect(),
+            };
+            self.five_point_relations
+                .insert(active.to_vec(), Some(relation.clone()));
+            return Ok(Some(relation));
+        }
         let _determinant = PreparationTimer::new(
             self.profile_preparation,
             format_args!("coordinate determinant {active:?}"),
@@ -929,30 +954,9 @@ impl PvCompiler {
                 self.profile_preparation,
                 format_args!("pentagon constant chart {active:?}, omitted row {omitted}"),
             );
-            let chart_rows = rows
-                .iter()
-                .enumerate()
-                .filter(|(i, _)| *i != omitted)
-                .map(|(_, row)| row.clone())
-                .collect();
-            let matrix = Matrix::from_nested_vec(chart_rows, field())
-                .map_err(|e| format!("PV pentagon constant-identity chart: {e}"))?;
-            let determinant = matrix
-                .det()
-                .map_err(|e| format!("PV pentagon constant-identity determinant: {e:?}"))?;
-            if determinant.is_zero() {
+            let Some((determinant, coefficients)) = constant_chart(&rows, omitted)? else {
                 continue;
-            }
-            let rhs = Matrix::new_vec(
-                vec![Atom::new(), Atom::new(), Atom::new(), Atom::num(1)],
-                field(),
-            );
-            let solution = matrix
-                .solve(&rhs)
-                .map_err(|e| format!("PV pentagon constant-identity solve: {e:?}"))?;
-            let mut coefficients = vec![Atom::new()];
-            coefficients.extend((0..4).map(|i| solution[(i, 0)].clone()));
-            coefficients[0] = -coefficients[1..].iter().fold(Atom::new(), |sum, c| sum + c);
+            };
             charts.push((self.bind_alias(determinant), coefficients));
         }
         let mut available = Atom::new();
@@ -1209,6 +1213,86 @@ fn compositions(total: u16, count: usize) -> Vec<Vec<u16>> {
 }
 
 use crate::ibp::{accumulate, divide_dimension, scale, zero};
+
+/// Raw polynomial predicates for the exact represented-input certificate.
+/// The first root is det(K); roots 1..5 are the four constant-one charts.
+/// This uses the same chart matrix construction as the PV identity solver.
+pub(crate) fn planar_chart_polynomials(
+    shifts: &[[Atom; 4]],
+    masses: &[Atom],
+) -> Result<Vec<Atom>, String> {
+    if shifts.len() != 5 || masses.len() != 5 {
+        return Err("planar certificate requires five shifts and squared masses".into());
+    }
+    let active = [0, 1, 2, 3, 4];
+    let mut rows = coordinate_rows(shifts, &active);
+    let mut expressions = vec![
+        Matrix::from_nested_vec(rows.clone(), field())
+            .map_err(|e| e.to_string())?
+            .det()
+            .map_err(|e| format!("planar coordinate determinant: {e:?}"))?,
+    ];
+    rows.push(
+        (1..5)
+            .map(|i| {
+                let relative = std::array::from_fn(|mu| &shifts[i][mu] - &shifts[0][mu]);
+                dot(&relative, &relative) - &masses[i] + &masses[0]
+            })
+            .collect(),
+    );
+    for omitted in 0..4 {
+        expressions.push(
+            chart_matrix(&rows, omitted)?
+                .det()
+                .map_err(|e| format!("planar constant chart determinant: {e:?}"))?,
+        );
+    }
+    Ok(expressions)
+}
+
+fn coordinate_rows(shifts: &[[Atom; 4]], active: &[usize]) -> Vec<Vec<Atom>> {
+    (0..4)
+        .map(|mu| {
+            active[1..]
+                .iter()
+                .map(|&i| &shifts[i][mu] - &shifts[active[0]][mu])
+                .collect()
+        })
+        .collect()
+}
+
+fn chart_matrix(rows: &[Vec<Atom>], omitted: usize) -> Result<Matrix<AtomField>, String> {
+    Matrix::from_nested_vec(
+        rows.iter()
+            .enumerate()
+            .filter(|(i, _)| *i != omitted)
+            .map(|(_, row)| row.clone())
+            .collect(),
+        field(),
+    )
+    .map_err(|e| format!("PV pentagon constant-identity chart: {e}"))
+}
+
+fn constant_chart(rows: &[Vec<Atom>], omitted: usize) -> Result<Option<(Atom, Vec<Atom>)>, String> {
+    let matrix = chart_matrix(rows, omitted)?;
+    let determinant = matrix
+        .det()
+        .map_err(|e| format!("PV pentagon constant-identity determinant: {e:?}"))?;
+    if determinant.is_zero() {
+        return Ok(None);
+    }
+    let rhs = Matrix::new_vec(
+        vec![Atom::new(), Atom::new(), Atom::new(), Atom::num(1)],
+        field(),
+    );
+    let solution = matrix
+        .solve(&rhs)
+        .map_err(|e| format!("PV pentagon constant-identity solve: {e:?}"))?;
+    let mut coefficients = vec![Atom::new()];
+    coefficients.extend((0..4).map(|i| solution[(i, 0)].clone()));
+    coefficients[0] = -coefficients[1..].iter().fold(Atom::new(), |sum, c| sum + c);
+    Ok(Some((determinant, coefficients)))
+}
 
 #[cfg(test)]
 mod tests {

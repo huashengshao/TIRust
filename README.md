@@ -128,6 +128,16 @@ and earlier preparation timeouts remain recorded. This does not qualify all
 six/seven-point requests or high-rank tensors; see the
 [bounded qualification](validation/invariant-certificate/solve-vector/qualification-status.json).
 
+`CertifiedPlanarReductionPlan` and `CertifiedPlanarWorkspace<T>` provide an
+explicit PV path for planar five-point tensors through rank seven. They certify
+the routing determinant in every requested Taylor component and require a
+regular constant-one chart before grouping accepted samples for batch reduction.
+Inputs remain unchanged; transverse jets and unresolved or unstable lanes retain
+diagnostics. This interface supports unit powers, dimension shift zero and
+Cartesian inputs. Ordinary reduction does not invoke it automatically. See the
+[API and qualification](docs/research/certified-planar-api.md) for supported
+settings, precision convergence and independent mixed-Dual comparisons.
+
 Derived scalar invariants are checked before selecting analytic branches or
 evaluating masters. Exact represented-input polynomial checks prevent a rounded
 zero from selecting a scaleless formula. Relative conditioning estimates also

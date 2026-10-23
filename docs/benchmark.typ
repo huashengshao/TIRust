@@ -234,20 +234,20 @@ slower, with per-comparison 99% intervals excluding parity. It uses 32 valid
 lanes, CPU 0 and 21 rotated blocks. This selects a batch policy, not IREGI
 speedup; see #raw("validation/native-policy/").]
 
-#text(size: 8.5pt)[Native allocator adoption is rejected: 24 corrected timing rows
-give two singleton parities/22 noisy rows, no batch32 gain; earlier two
-regressions remain. D0 exact old/new parity passes 40 configurations/1,488 complex
-outputs (f64/DD/Float256); interpreter differences and unmeasured D0 timing remain.
-See #raw("validation/native-stack-batch/").]
+#text(size: 8.5pt)[Native allocator adoption remains rejected. Historical 24 timing
+rows give two singleton parities/22 noisy rows; new D0 timings include two
+batch32 regressions. D0 exact old/new parity passes 40 configurations/1,488 complex
+outputs (f64/DD/Float256); interpreter differences remain. Separate candidate
+decisions appear in the optimization ledger and #raw("validation/native-stack-batch/").]
 
 #pagebreak()
 = Latest kernel snapshot: #raw("6b24c03")
-All eight massive bubble/triangle checks pass the unchanged $10^(-10)$
-criterion, maximum normalized error $2.46 times 10^(-13)$. Seven timing rows
-regress; the rank-one triangle singleton exceeds the unchanged 2%
-interval-width limit (2.357%) and remains *inconclusive*. This production
-snapshot includes ordinary-root allocation and guard-context reuse.
-The performance requirement remains unmet.
+All eight massive bubble/triangle checks pass $10^(-10)$, with maximum
+normalized error $2.46 times 10^(-13)$. Seven timing rows regress; the rank-one
+triangle singleton exceeds the unchanged 2% interval-width limit (2.357%)
+and remains *inconclusive*. This measured snapshot predates the promoted
+standalone planar API and new expression preparation. The performance
+requirement remains unmet.
 
 #figure(kind: table, caption: [*Binary64 hybrid interpreter, µs/point.*
   Latency at batch 1 and amortized cost at batch 32. Each ratio uses its
@@ -748,73 +748,75 @@ Exact commands and scope are retained in
 #pagebreak()
 = Open qualification ledger
 #report-table(table(
-  columns: (1.1fr, 2.4fr), inset: (x: 7pt, y: 4pt), stroke: table-stroke,
+  columns: (1fr, 2.7fr), inset: (x: 6pt, y: 4pt), stroke: table-stroke,
   fill: (x, y) => if y == 0 { navy } else { amber },
   table.header([Unresolved item], [Observed evidence and remaining check]),
-  [Binary64 baseline accuracy], [Historical Rust error $2.23 times 10^(-10)$
-    and original IBP error $3.40 times 10^(-10)$ fail the unchanged gate.
-    Public 128/256-bit rescue now passes at the retained rank-six point.],
-  [Broader pentagon rescue], [Rank six passes 840 slots; the saved vendored
-    baseline passes 1320 rank-seven slots and one independent coefficient.
-    Later precision/routing edits and broader domains remain unqualified.],
-  [Physical pentagon reference], [Complete Float 128/256 graph evaluations
-    pass PV/hybrid and MadLoop. Original IBP still disagrees; all-mode reports
-    remain failed. Binary64 and broader kinematics remain unqualified.],
-  [Shifted scalar domain], [Thirteen standalone checks and public finite
-    fixtures pass. The paired DD stack candidate also passes exactly.
-    Small-routing E6 at working128/256 and requested128 returns Unstable;
-    broader precision/derivative domains and native E6 remain unqualified.],
-  [Broader derivative domains], [The full five-case mixed D0 batch now passes
-    with error below $2^(-70)$. True thresholds and unsupported transverse
-    massless/Gram/Cayley domains retain typed errors; old timeouts remain.],
-  [Physical top-box binary64], [The historical CLI guard rejection remains
-    visible. Complete Float 128/256 evaluations pass; the retained 80949db
-    physical harness also passes binary64. Broader kinematics remain pending.],
-  [Supplied-product high points], [Certified N6 scalar: working128/256,
-    requested53, zero poles and invalid-lane isolation pass. Both binary64
-    variants reject at the same guard. Independent quadrature differs by
-    $1.53 times 10^(-23)$, below estimated uncertainty $6.11 times 10^(-22)$
-    (not rigorous). N7/tensor/mixed-Dual coverage remains pending.],
-  [Legacy snapping scope], [All 30 retained cases pass: 22 primary plus eight
-    verified 128/256-bit rescues. Earlier failures are preserved; generalized
-    requests and broader domains remain unqualified.],
-  [Mixed-precision accuracy], [Three retained false-success cases are repaired:
-    29 stability and six public tests pass. The active-master guard remains
-    conservative and its estimates noncertified; isolated overhead diagnostics
-    establish no optimized IREGI gate.],
-  [Runtime performance], [Interpreter: 7 regressions/1 improvement. Native:
-    5 regressions/1 parity/2 improvements, in a separate paired session.
-    5c9e3dd: 6 regressions/2 noisy; 80949db: 5 regressions/3 noisy.
-    Latest6b24c03: 7 regressions/1 noisy. Physical: six noisy rows/two failures.
-    No overall performance gate passes.],
+  [Binary64 baseline], [Historical Rust/IBP errors $2.23 times 10^(-10)$ /
+    $3.40 times 10^(-10)$ fail. Rank-six rescue passes at the retained point.],
+  [Pentagon coverage], [Rank-six rescue passes 840 slots; saved rank-seven
+    baseline passes 1320. Later precision/routing edits and broader domains
+    require qualification.],
+  [Physical pentagon], [Float 128/256 agrees with PV/hybrid and MadLoop;
+    original IBP disagrees. Binary64 and all-mode acceptance remain incomplete.],
+  [Shifted scalar], [Thirteen standalone checks and public f64 fixtures pass.
+    Small-routing E6 remains Unstable at requested 128; higher/mixed Dual and
+    broader domains remain unqualified.],
+  [Derivative domains], [Five-case mixed D0 checks pass $2^(-70)$.
+    Thresholds and unsupported transverse massless/Gram/Cayley domains retain errors.],
+  [Physical top box], [Historical binary64 guard rejection remains visible;
+    Float 128/256 and preserved 80949db binary64 checks pass at retained points.],
+  [Supplied-product N6], [Certified scalar working 128/256, requested 53 passes
+    with zero poles and invalid-lane isolation; binary64 rejects. Independent
+    difference $1.53 times 10^(-23)$ is below estimated (nonrigorous)
+    $6.11 times 10^(-22)$. N7/tensors/mixed Dual remain pending.],
+  [Legacy and precision], [All 30 retained cases pass: 22 primary and 8 rescues.
+    Three false-success cases are repaired; conservative active-master error
+    estimates remain noncertified. Broader domains remain unqualified.],
+  [Performance], [Historical 4c32 interpreter: 7 regressions/1 gain; native:
+    5 regressions/1 parity/2 gains. 5c9: 6 regressions/2 noisy; 80949: 5/3.
+    Latest 6b24: 7/1. Physical: six noisy/two failures. Overall acceptance is unmet.],
 ))
 
 == Optimization and experimental evidence
 #report-table(table(
-  columns: (1fr, 3fr), inset: (x: 6pt, y: 5pt), stroke: table-stroke,
+  columns: (1fr, 3fr), inset: (x: 6pt, y: 4pt), stroke: table-stroke,
   fill: (x, y) => if y == 0 { navy } else { pale },
-  table.header([Candidate], [Executed evidence and limit]),
-  [Core stack reuse], [76 test executions and 12 paired cases pass; a quiet
-    opt2 run preserves 92 outputs. Batch ratios 0.9873/0.9802; singleton intervals
-    include parity. Promoted #raw("d1a4b8e") passes 67 current opt2 checks;
-    the combined 6b24c03 optimized gate remains unmet.],
-  [Guard context], [62/76 isolated checks and 120 snapshots pass; six measured
-    improvements, six noisy rows, no regression. Rebased source passes 76 checks
-    and 120 snapshots; final cleanup passes 14. Adopted in #raw("6b24c03").
-    The combined optimized gate has seven regressions/one noisy row.],
-  [Roundoff cache], [29/37 stability tests and 120 snapshots pass. Measured
-    candidate rejected: two regressions, ten noisy rows, no qualified gain.
-    Separate accuracy-guard diagnostic: two regressions/six noisy rows.],
-  [Certified planar], [Private N5 rank7 Float128/256, requested53: all1320 complex
-    slots pass five independent boxes; normalized convergence is below $2^(-65)$.
-    Ten focused runs pass. Historical failures/timeouts remain; no automatic fallback.],
-  [Near-vacuum box], [18 prototype runs / 15 settings, then 96 private adapter
-    component matches. Targets: f64 40, DD 80, Float128 100, Float256 128.
-    An independent five-box contour probe passes at 256/128; production D0/E6 is unchanged.],
+  table.header([Candidate], [Executed evidence and decision]),
+  [Adopted allocation / guards], [Core allocation: 67 current opt2 checks;
+    quiet paired run preserves 92 outputs. Guard context: 76 checks and 120
+    snapshots, 14 cleanup checks; six isolated gains/six noisy rows.
+    Combined 6b24 optimized IREGI gate remains seven regressions/one noisy row.],
+  [Roundoff cache], [29/37 stability checks and 120 snapshots pass.
+    Candidate rejected: two regressions/ten noisy rows. Separate accuracy-guard
+    diagnostic: two regressions/six noisy rows.],
+  [CLI coefficients], [72 ordinary and 12 mixed-precision batch comparisons
+    pass across four graphs. Eight opt2 timing families: five gains/one parity/
+    two noisy. ggHH batch 32 ratio 1.0367, 99% CI 1.0237–1.0501 retains possible
+    regression; unadopted. All 168 paired outputs match.],
+  [Native candidates], [Dense f64 B0/C0: two gains/six singleton parities/four
+    batch32 regressions. D0 allocator: three singleton gains/two batch32
+    regressions/one noisy. Both rejected. D0 singleton source is unchanged;
+    its timing gains do not establish allocator benefit.],
+  [Certificate candidates], [Slim RealBall module: 23 checks, including 8
+    baseline controls. Separate exact-distance receipts: 49 checks and 120 exact
+    snapshots against the same private RealBall baseline; argument rows unchanged.
+    Neither adopted nor timed.],
+  [N5 planar API], [Promoted for unit powers, with no automatic fallback. Rank 7,
+    requested 53 bits: ordinary Float128/256
+    passes 1320 slots and convergence. Mixed Float128 passes all 5280
+    four-component slots per accepted duplicate lane against Float256 boxes.
+    Transverse jets reject; 9 focused and 49 ordinary tests pass; earlier 600 s timeout remains.
+    Twenty coefficient cases with original Fortran scalar leaves pass;
+    those do not add public native-master coverage. No new performance gate.],
+  [Near-vacuum adapter], [Private v3 on the 6b24 release dependency closure: six runs
+    pass 96 component matches, dispatch contracts and the five-box contour probe. Targets:
+    f64 at 40 bits, DD at 80, Float128 at 100, Float256 at 128.
+    Production D0/E6 is unchanged.],
 ))
-#text(size: 8.5pt)[Artifact paths and full candidate scopes are retained in
-#raw("docs/data/results.json"). Planar rank7 Dual and public N6
-remain unqualified. Separate allocator, native and guard effects are not multiplied.]
+#text(size: 8.5pt)[New CLI/native timings use CPU 254 and 21 paired 30 ms blocks,
+with project compute held; these isolated candidates are not IREGI or end-to-end
+comparisons. Historical native 24 rows remain separate. Full paths, scopes and
+failures are in #raw("docs/data/results.json"); effects are not multiplied.]
 #pagebreak()
 = Independent pentagon adjudication
 These checks establish selected mathematical values independently of an

@@ -1320,41 +1320,8 @@ where
         self.successful_lanes.clear();
         self.input.clear();
         for (lane, row) in batch.values.chunks_exact(input_width).enumerate() {
-            if let Some((slot, _)) = row.iter().enumerate().find(|(_, value)| !finite(value)) {
-                result.statuses[lane] = LaneStatus::InvalidInput(format!(
-                    "nonfinite input at argument {}, Taylor component {}",
-                    slot / self.components,
-                    slot % self.components,
-                ));
-                continue;
-            }
-            // mu, rather than mu², is the public interface. Squaring must not
-            // hide a negative or complex scale before master validation.
-            let scale = &row[self.layout.scale * self.components];
-            if !scale.im.is_zero() || scale.re <= scale.re.zero() {
-                result.statuses[lane] =
-                    LaneStatus::InvalidInput("mu must be positive and real".into());
-                continue;
-            }
-            if self
-                .layout
-                .shifts
-                .clone()
-                .chain(self.layout.scalar_products.clone().into_iter().flatten())
-                .any(|argument| !row[argument * self.components].im.is_zero())
-            {
-                result.statuses[lane] = LaneStatus::InvalidInput(
-                    "momentum-shift and scalar-product primal components must be real".into(),
-                );
-                continue;
-            }
-            if self.layout.masses.clone().any(|argument| {
-                let mass = &row[argument * self.components];
-                mass.im > mass.im.zero()
-            }) {
-                result.statuses[lane] = LaneStatus::InvalidInput(
-                    "squared masses must have nonpositive imaginary parts".into(),
-                );
+            if let Some(status) = validate_input_row(row, &self.layout, self.components) {
+                result.statuses[lane] = status;
                 continue;
             }
             self.valid_lanes.push(lane);
@@ -2328,6 +2295,49 @@ impl<D: DualNumberStructure> DualNumberStructure for BorrowedDual<'_, D> {
     fn get_max_depth(&self) -> usize {
         self.0.get_max_depth()
     }
+}
+
+/// Shared public-input validation. Call only after whole-buffer shape checks.
+/// The check order and error strings match the ordinary numerical interface.
+pub(crate) fn validate_input_row<T: NativeFloat>(
+    row: &[Complex<T>],
+    layout: &InputLayout,
+    components: usize,
+) -> Option<LaneStatus> {
+    if let Some((slot, _)) = row.iter().enumerate().find(|(_, value)| !finite(value)) {
+        return Some(LaneStatus::InvalidInput(format!(
+            "nonfinite input at argument {}, Taylor component {}",
+            slot / components,
+            slot % components,
+        )));
+    }
+    // mu, rather than mu², is the public interface. Squaring must not
+    // hide a negative or complex scale before master validation.
+    let scale = &row[layout.scale * components];
+    if !scale.im.is_zero() || scale.re <= scale.re.zero() {
+        return Some(LaneStatus::InvalidInput(
+            "mu must be positive and real".into(),
+        ));
+    }
+    if layout
+        .shifts
+        .clone()
+        .chain(layout.scalar_products.clone().into_iter().flatten())
+        .any(|argument| !row[argument * components].im.is_zero())
+    {
+        return Some(LaneStatus::InvalidInput(
+            "momentum-shift and scalar-product primal components must be real".into(),
+        ));
+    }
+    if layout.masses.clone().any(|argument| {
+        let mass = &row[argument * components];
+        mass.im > mass.im.zero()
+    }) {
+        return Some(LaneStatus::InvalidInput(
+            "squared masses must have nonpositive imaginary parts".into(),
+        ));
+    }
+    None
 }
 
 fn finite<T: NativeFloat>(value: &Complex<T>) -> bool {

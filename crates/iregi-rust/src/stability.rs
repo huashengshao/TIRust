@@ -1171,7 +1171,7 @@ fn master_amplitude(
         custom_normalization: None,
     };
     let polynomial = expression.to_polynomial_in_vars_with_field::<u16>(&variables, &field);
-    let mut result = Atom::new();
+    let mut contributions = Vec::with_capacity(polynomial.nterms());
     for term in &polynomial {
         if depends_on_amplitudes(term.coefficient, amplitudes)
             || term
@@ -1187,12 +1187,12 @@ fn master_amplitude(
         }
         let coefficient = Symbol::ABS.call((term.coefficient,));
         if let Some(index) = term.exponents.iter().position(|&power| power == 1) {
-            result = result + coefficient * &variable_amplitudes[index];
+            contributions.push(coefficient * &variable_amplitudes[index]);
         } else {
-            result += coefficient;
+            contributions.push(coefficient);
         }
     }
-    Ok(result)
+    Ok(Atom::add_many(contributions))
 }
 
 fn collect_amplitude_variables(

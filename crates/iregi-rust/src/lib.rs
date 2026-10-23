@@ -4,6 +4,7 @@
 #![forbid(unsafe_code)]
 
 pub mod basis;
+pub mod certified_planar;
 pub mod certified_scalar;
 pub mod contraction;
 mod convention;
@@ -19,6 +20,7 @@ pub mod snapping;
 mod stability;
 pub mod types;
 pub use contraction::{ContractionPlan, ContractionResult, ContractionWorkspace, NumeratorBatch};
+pub use certified_planar::{CertifiedPlanarReductionPlan, CertifiedPlanarWorkspace};
 pub use certified_scalar::{
     CertificateExecutionStats, CertifiedScalarReductionPlan, CertifiedScalarWorkspace,
 };

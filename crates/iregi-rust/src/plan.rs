@@ -56,6 +56,8 @@ pub struct ReductionPlan {
     /// A structural chart whose full-Taylor invariant constraints are checked
     /// by the private certified scalar entry point before numerical execution.
     certified_scalar_basis: Option<[usize; 4]>,
+    /// Fixed constant-one pentagon chart, executable only after full input certification.
+    certified_planar_chart: Option<usize>,
 }
 
 /// Exact constraints are structural: numerical values are never stored here.
@@ -77,7 +79,7 @@ type StructuralPlanCache =
 
 impl ReductionPlan {
     pub fn new(settings: ReductionSettings) -> Result<Self, ReductionError> {
-        Self::build(settings, None, None, 0, None)
+        Self::build(settings, None, None, 0, None, None)
     }
 
     /// Only the certified scalar wrapper may prepare this chart. A plan holds
@@ -86,7 +88,16 @@ impl ReductionPlan {
         settings: ReductionSettings,
         basis: [usize; 4],
     ) -> Result<Self, ReductionError> {
-        Self::build(settings, None, None, 0, Some(basis))
+        Self::build(settings, None, None, 0, Some(basis), None)
+    }
+
+    /// Private fixed chart for the checked planar wrapper. Inputs must be
+    /// recertified for every batch; this plan never contains sampled evidence.
+    pub(crate) fn new_certified_planar(
+        settings: ReductionSettings,
+        omitted_row: usize,
+    ) -> Result<Self, ReductionError> {
+        Self::build(settings, None, None, 0, None, Some(omitted_row))
     }
 
     /// An analytic Taylor neighborhood selected only for exact lightlike bubbles.
@@ -106,6 +117,7 @@ impl ReductionPlan {
             Some((jet_order, equal_masses)),
             None,
             jet_order,
+            None,
             None,
         )
     }
@@ -177,6 +189,7 @@ impl ReductionPlan {
                     variant.zero_invariants,
                     variant.analytic_jet_order,
                     self.certified_scalar_basis,
+                    self.certified_planar_chart,
                 )
                 .map(Arc::new)
             })
@@ -198,6 +211,7 @@ impl ReductionPlan {
         zero_invariants: Option<ZeroInvariantProfile>,
         analytic_jet_order: u16,
         certified_scalar_basis: Option<[usize; 4]>,
+        certified_planar_chart: Option<usize>,
     ) -> Result<Self, ReductionError> {
         let n = settings.propagators;
         if n == 0 || settings.powers.len() != n || settings.powers.iter().any(|&p| p == 0) {
@@ -209,6 +223,22 @@ impl ReductionPlan {
             return Err(ReductionError::Unsupported(
                 "preparation budget exceeds 32 tensor indices or 16 propagators".into(),
             ));
+        }
+        if let Some(omitted) = certified_planar_chart {
+            if n != 5
+                || settings.rank > 7
+                || omitted >= 4
+                || settings.algorithm != Algorithm::PassarinoVeltman
+                || settings.invariants != InvariantInput::FromShifts
+                || settings.input_policy != InputPolicy::Preserve
+                || settings.dimension_shift != 0
+                || settings.powers.iter().any(|&p| p != 1)
+                || zero_invariants.is_some()
+                || bubble_limit.is_some()
+                || certified_scalar_basis.is_some()
+            {
+                return Err(ReductionError::InvalidInput("certified planar charts require five preserved Cartesian propagators, rank at most seven, unit powers, D=4, PV, and an omitted coordinate row in 0..4".into()));
+            }
         }
         // High-point pinching identities require a four-dimensional external
         // Gram matrix. Arbitrary supplied invariants, including Dual directions
@@ -413,6 +443,7 @@ impl ReductionPlan {
                                 &distances,
                                 analytic_jet_order,
                                 snapping.clone(),
+                                certified_planar_chart,
                             )?;
                             (moments, leaves, aliases, Algorithm::PassarinoVeltman)
                         }
@@ -427,6 +458,7 @@ impl ReductionPlan {
                         &distances,
                         analytic_jet_order,
                         snapping.clone(),
+                        certified_planar_chart,
                     );
                     match pv {
                         Ok((moments, leaves, aliases)) => {
@@ -544,6 +576,7 @@ impl ReductionPlan {
                 None,
                 analytic_jet_order,
                 certified_scalar_basis,
+                certified_planar_chart,
             ) {
                 Ok(plan) if plan.algorithm_used == Algorithm::Ibp => Some(Box::new(plan)),
                 Ok(_) => {
@@ -584,6 +617,7 @@ impl ReductionPlan {
             bubble_limit,
             zero_invariants,
             certified_scalar_basis,
+            certified_planar_chart,
         })
     }
 
@@ -612,6 +646,7 @@ impl ReductionPlan {
             // Rounded invariant evaluations cannot establish new exact-zero
             // constraints beyond the certified full-Taylor Gram relations.
             && self.certified_scalar_basis.is_none()
+            && self.certified_planar_chart.is_none()
             && !(self.snapping_threshold.is_some()
                 && self.algorithm_used == Algorithm::PassarinoVeltman)
     }
@@ -645,6 +680,7 @@ fn compile_pv(
     distances: &[Vec<Atom>],
     analytic_jet_order: u16,
     snapping: Option<Rc<RefCell<LegacySnapping>>>,
+    certified_planar_chart: Option<usize>,
 ) -> Result<(Vec<[Atom; 4]>, Vec<MasterLeaf>, Vec<(Atom, Atom)>), ReductionError> {
     let mut compiler =
         PvCompiler::with_distances(shifts.to_vec(), masses.to_vec(), distances.to_vec(), true)
@@ -652,6 +688,11 @@ fn compile_pv(
     compiler
         .set_analytic_jet_order(analytic_jet_order)
         .map_err(ReductionError::Preparation)?;
+    if let Some(omitted) = certified_planar_chart {
+        compiler
+            .set_certified_planar_chart(omitted)
+            .map_err(ReductionError::Preparation)?;
+    }
     if let Some(snapping) = snapping {
         compiler
             .set_gram_scalar_product_transform(move |raw| {
@@ -1177,10 +1218,9 @@ mod tests {
 
     #[test]
     fn generalized_pv_original_generalized_fixtures_agree_in_all_modes() {
-        let fixtures: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../validation/reference/fixtures.json"
-        ))
-        .unwrap();
+        let fixtures: serde_json::Value =
+            serde_json::from_str(include_str!("../../../validation/reference/fixtures.json"))
+                .unwrap();
         let mut comparisons = 0;
         for case in fixtures["cases"].as_array().unwrap() {
             let input = &case["input"];

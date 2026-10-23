@@ -163,3 +163,15 @@ The first concrete implementation should be prepared in an isolated target
 copy, with the committed production files unchanged until these checks and
 review are complete. The user-authorized implementation goal remains broader
 than this selected validation milestone.
+
+An initial isolated implementation and exact contour probe are now archived
+in `validation/near-vacuum-adapter/qualification.json`, SHA256
+`d02fabe660b410c840fa601ff12d0ff25f7e14f6165d5e2f94df1ef4ae5dad21`.
+The final four typed runs match 96 certified mixed components against the
+qualified candidate. All five primal boxes and their exact-coefficient
+ComplexBall contraction agree with independent parameter-series oracles at
+working256/requested128. Production remains unchanged. The review identified
+eligibility/refinement filtering and unsupported-shape ordinary fallback as
+adapter work still needed before promotion. The probe deliberately excludes
+production geometry, upstream shifted-input rounding, Gauss intervals and
+quadrature truncation; the corresponding obligations above remain open.
