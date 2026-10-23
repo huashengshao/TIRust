@@ -1,0 +1,17 @@
+[package]
+name = "iregi-prepare"
+version = "0.1.0"
+edition = "2024"
+description = "FeynKit graph and Symbolica numerator preparation for iregi-rust"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+feynkit-graph.workspace = true
+feynkit-model.workspace = true
+feynkit-generator.workspace = true
+idenso.workspace = true
+serde_json.workspace = true
+spenso.workspace = true
+spenso-hep-lib.workspace = true
+symbolica.workspace = true
+thiserror.workspace = true

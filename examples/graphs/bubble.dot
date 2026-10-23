@@ -1,0 +1,9 @@
+digraph bubble {
+    graph [num="1 + 2*iregi::q0 + iregi::q0^2 - iregi::q1^2 - iregi::q2^2 - iregi::q3^2", overall_factor="1"];
+    edge [particle="phi"];
+    ext [style=invis];
+    ext -> a;
+    a -> b [lmb_id=0];
+    a -> b;
+    b -> ext;
+}

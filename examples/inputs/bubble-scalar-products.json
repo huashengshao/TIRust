@@ -1,0 +1,10 @@
+{
+  "id": "massive-bubble-supplied-invariants",
+  "rank": 2,
+  "mu": "3",
+  "scalar_products": ["0", "0", "-1"],
+  "propagators": [
+    {"shift": ["0", "0", "0", "0"], "mass_squared": ["4", "0"], "power": 1},
+    {"shift": ["0", "1", "0", "0"], "mass_squared": ["9", "0"], "power": 1}
+  ]
+}

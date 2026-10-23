@@ -1,0 +1,45 @@
+[workspace]
+resolver = "3"
+exclude = ["dependencies/oneloopmaster"]
+members = ["crates/iregi-rust", "crates/iregi-masters", "crates/iregi-prepare", "crates/iregi-cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+authors = ["huashengshao <erdissshaw@gmail.com>"]
+repository = "https://github.com/huashengshao/iregi-rust"
+
+[workspace.dependencies]
+symbolica = { version = "3.0.1", default-features = false, features = ["integer-gmp", "float-mpfr", "native_code_generation", "bincode", "serde"] }
+oneloop = { path = "dependencies/oneloopmaster", features = ["generated-evaluators", "rust-codegen"] }
+feynkit-graph = { git = "https://github.com/alphal00p/gammaloop", rev = "865afdc43fb4e6b950439d34b4ec2c38352873e7" }
+feynkit-model = { git = "https://github.com/alphal00p/gammaloop", rev = "865afdc43fb4e6b950439d34b4ec2c38352873e7", features = ["native"] }
+feynkit-generator = { git = "https://github.com/alphal00p/gammaloop", rev = "865afdc43fb4e6b950439d34b4ec2c38352873e7" }
+spenso = { git = "https://github.com/alphal00p/gammaloop", rev = "865afdc43fb4e6b950439d34b4ec2c38352873e7", default-features = false }
+spenso-hep-lib = { git = "https://github.com/alphal00p/gammaloop", rev = "865afdc43fb4e6b950439d34b4ec2c38352873e7", default-features = false }
+idenso = { git = "https://github.com/alphal00p/gammaloop", rev = "865afdc43fb4e6b950439d34b4ec2c38352873e7", default-features = false }
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["arbitrary_precision"] }
+clap = { version = "4", features = ["derive"] }
+iregi-masters = { path = "crates/iregi-masters" }
+iregi-rust = { path = "crates/iregi-rust" }
+iregi-prepare = { path = "crates/iregi-prepare" }
+
+[patch.crates-io]
+symbolica = { git = "https://github.com/alphal00p/symbolica", rev = "9cdc2949cdb153478c1eca0d40690dc0abfc616e" }
+numerica = { git = "https://github.com/alphal00p/symbolica", rev = "9cdc2949cdb153478c1eca0d40690dc0abfc616e" }
+graphica = { git = "https://github.com/alphal00p/symbolica", rev = "9cdc2949cdb153478c1eca0d40690dc0abfc616e" }
+symbolica-typst-plugin = { git = "https://github.com/symbolica-dev/symbolica-typst-plugin", rev = "57b7455b37c30f4f87353c0073e49f5225e937ab" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.bench]
+inherits = "release"
+debug = true

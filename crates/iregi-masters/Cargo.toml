@@ -1,0 +1,14 @@
+[package]
+name = "iregi-masters"
+version = "0.1.0"
+edition = "2024"
+description = "Batched Symbolica scalar masters for iregi-rust"
+license = "MIT"
+
+[features]
+default = []
+native-batch = []
+
+[dependencies]
+oneloop.workspace = true
+symbolica.workspace = true

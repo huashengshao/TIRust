@@ -1,0 +1,10 @@
+{
+  "id": "massive-triangle",
+  "rank": 2,
+  "mu": "3",
+  "propagators": [
+    {"shift": ["0", "0", "0", "0"], "mass_squared": ["4", "0"], "power": 1},
+    {"shift": ["0", "1", "0", "0"], "mass_squared": ["9", "0"], "power": 1},
+    {"shift": ["0", "0.2", "1.1", "0"], "mass_squared": ["16", "0"], "power": 1}
+  ]
+}

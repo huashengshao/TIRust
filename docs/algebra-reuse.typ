@@ -20,6 +20,14 @@ must not grow an independent polynomial, simplification or matrix engine.
 - *Numerical preparation:* Compile reusable Symbolica expressions outside
   the sample loop. Evaluation and scalar-master types must preserve the
   selected precision and all Dual components without binary64 round trips.
+- *Laurent coefficients:* IBP/PV factors and native normalization use cached
+  Symbolica #raw("series") templates and #raw("coefficient") extraction.
+  The three reuse checks are the pinned Symbolica
+  #raw("src/atom/core.rs") and #raw("src/poly/series.rs") APIs; its
+  #raw("src/derivative.rs") pole-series tests; and existing use in
+  #raw("vakint/src/projection.rs") and OneLoopMaster's
+  #raw("src/sheet_exact.rs"). No separate Laurent convolution engine is needed.
+  Symbolica also evaluates the independent Gamma/series triangle oracle.
 
 == HEPKit tensor-reduction optimizations
 The local #raw("feynkit-tensor") reducer stores repeated-vector contractions
@@ -63,16 +71,13 @@ disagreement as a visible case and adjudicate it with independent analytic,
 high-precision or parameter-integral evidence. Agreement must not mean
 reproducing a known incorrect branch.
 
-#link("https://arxiv.org/abs/1405.0301")[Alwall et al., appendix C.1: original IREGI context.] \
-#link("https://hepkit.org/docs/hepkit/TensorReducer.html")[HEPKit TensorReducer API.] \
-#link("https://arxiv.org/abs/2408.05137")[Goode et al.: symmetry-orbit tensor projectors.] \
-#link("https://arxiv.org/abs/1701.04493")[Collins and Matsumoto: Weingarten orthogonality recurrence.] \
-#link("https://github.com/alphal00p/ninjars/blob/main/docs/benchmark/benchmark.typ")[NinjaRS benchmark: report typography, table and color-style reference.]
-
 #set text(size: 8pt)
-*Local audit targets:* #raw("references/gammaloop_feynkit/crates/feynkit-tensor/src/")
-(#raw("reduction.rs"), #raw("reduction/external.rs"), #raw("orbit_projector.rs"),
-#raw("weingarten.rs")); #raw("crates/feynkit-graph/src/integrals.rs").
-Native conventions: #raw("references/madgraph/vendor/IREGI/src/")
-(#raw("IREGI4ML5_interface.f90"), #raw("ti_reduce.f90"), #raw("si_reduce.f90"),
-#raw("mis_warp.f90"), #raw("funlib.f90")).
+*Primary references:* #link("https://arxiv.org/abs/1405.0301")[Alwall et al., appendix C.1];
+#link("https://hepkit.org/docs/hepkit/TensorReducer.html")[HEPKit TensorReducer];
+#link("https://arxiv.org/abs/2408.05137")[Goode et al., tensor projectors];
+#link("https://arxiv.org/abs/1701.04493")[Collins–Matsumoto, Weingarten recurrence];
+#link("https://github.com/alphal00p/ninjars/blob/main/docs/benchmark/benchmark.typ")[NinjaRS report style].
+Local source audit: FeynKit's #raw("feynkit-tensor/src") projector modules and
+#raw("feynkit-graph/src/integrals.rs"); original IREGI's
+#raw("IREGI4ML5_interface.f90"), #raw("ti_reduce.f90"), #raw("si_reduce.f90"),
+#raw("mis_warp.f90") and #raw("funlib.f90").

@@ -1,0 +1,16 @@
+digraph gggg_up_box {
+    graph [overall_factor="-1"];
+    ext [style=invis];
+    a [int_id="V_135"];
+    b [int_id="V_135"];
+    c [int_id="V_135"];
+    d [int_id="V_135"];
+    ext -> a [particle="g", name="p1"];
+    ext -> b [particle="g", name="p2"];
+    c -> ext [particle="g", name="p3"];
+    d -> ext [particle="g", name="p4"];
+    a -> b [particle="u", lmb_id=0];
+    b -> c [particle="u"];
+    c -> d [particle="u"];
+    d -> a [particle="u"];
+}

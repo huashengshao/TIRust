@@ -1,0 +1,207 @@
+{
+  "id": "gghhh_helicity_1_equal_color_0",
+  "mu": "7.50000000000000000E+002",
+  "parameters": {
+    "UFO::{}::G": [
+      "1.21771578477671971e0",
+      "0.00000000000000000e0"
+    ],
+    "UFO::{}::MT": [
+      "1.73000000000000000e2",
+      "0.00000000000000000e0"
+    ],
+    "UFO::{}::ZERO": [
+      "0.00000000000000000e0",
+      "0.00000000000000000e0"
+    ],
+    "UFO::{}::yt": [
+      "9.93666145815006230e-1",
+      "0.00000000000000000e0"
+    ],
+    "gammalooprs::{spenso::rank1,spenso::tensor,spenso::component-labels:subscript,spenso::tensor-label:p}::P(0,spenso::{}::cind(0))": [
+      "2.50000000000000000e2",
+      "0.00000000000000000e0"
+    ],
+    "gammalooprs::{spenso::rank1,spenso::tensor,spenso::component-labels:subscript,spenso::tensor-label:p}::P(0,spenso::{}::cind(1))": [
+      "2.16506350946109649e2",
+      "0.00000000000000000e0"
+    ],
+    "gammalooprs::{spenso::rank1,spenso::tensor,spenso::component-labels:subscript,spenso::tensor-label:p}::P(0,spenso::{}::cind(2))": [
+      "0.00000000000000000e0",
+      "0.00000000000000000e0"
+    ],
+    "gammalooprs::{spenso::rank1,spenso::tensor,spenso::component-labels:subscript,spenso::tensor-label:p}::P(0,spenso::{}::cind(3))": [
+      "2.37148580733452587e-6",
+      "0.00000000000000000e0"
+    ],
+    "gammalooprs::{spenso::rank1,spenso::tensor,spenso::component-labels:subscript,spenso::tensor-label:p}::P(1,spenso::{}::cind(0))": [
+      "2.50000000000000000e2",
+      "0.00000000000000000e0"
+    ],
+    "gammalooprs::{spenso::rank1,spenso::tensor,spenso::component-labels:subscript,spenso::tensor-label:p}::P(1,spenso::{}::cind(1))": [
+      "-1.08253175473054824e2",
+      "0.00000000000000000e0"
+    ],
+    "gammalooprs::{spenso::rank1,spenso::tensor,spenso::component-labels:subscript,spenso::tensor-label:p}::P(1,spenso::{}::cind(2))": [
+      "1.87499999999999972e2",
+      "0.00000000000000000e0"
+    ],
+    "gammalooprs::{spenso::rank1,spenso::tensor,spenso::component-labels:subscript,spenso::tensor-label:p}::P(1,spenso::{}::cind(3))": [
+      "3.47334525637731179e-6",
+      "0.00000000000000000e0"
+    ],
+    "gammalooprs::{spenso::rank1,spenso::tensor,spenso::component-labels:subscript,spenso::tensor-label:p}::P(2,spenso::{}::cind(0))": [
+      "2.50000000000000000e2",
+      "0.00000000000000000e0"
+    ],
+    "gammalooprs::{spenso::rank1,spenso::tensor,spenso::component-labels:subscript,spenso::tensor-label:p}::P(2,spenso::{}::cind(1))": [
+      "-1.08253175473054824e2",
+      "0.00000000000000000e0"
+    ],
+    "gammalooprs::{spenso::rank1,spenso::tensor,spenso::component-labels:subscript,spenso::tensor-label:p}::P(2,spenso::{}::cind(2))": [
+      "-1.87499999999999972e2",
+      "0.00000000000000000e0"
+    ],
+    "gammalooprs::{spenso::rank1,spenso::tensor,spenso::component-labels:subscript,spenso::tensor-label:p}::P(2,spenso::{}::cind(3))": [
+      "3.47334525637731179e-6",
+      "0.00000000000000000e0"
+    ],
+    "gammalooprs::{spenso::rank1,spenso::tensor,spenso::component-labels:subscript,spenso::tensor-label:p}::P(3,spenso::{}::cind(0))": [
+      "3.75000004659088177e2",
+      "0.00000000000000000e0"
+    ],
+    "gammalooprs::{spenso::rank1,spenso::tensor,spenso::component-labels:subscript,spenso::tensor-label:p}::P(3,spenso::{}::cind(1))": [
+      "0.00000000000000000e0",
+      "0.00000000000000000e0"
+    ],
+    "gammalooprs::{spenso::rank1,spenso::tensor,spenso::component-labels:subscript,spenso::tensor-label:p}::P(3,spenso::{}::cind(2))": [
+      "0.00000000000000000e0",
+      "0.00000000000000000e0"
+    ],
+    "gammalooprs::{spenso::rank1,spenso::tensor,spenso::component-labels:subscript,spenso::tensor-label:p}::P(3,spenso::{}::cind(3))": [
+      "3.75000004659088177e2",
+      "0.00000000000000000e0"
+    ],
+    "gammalooprs::{spenso::rank1,spenso::tensor,spenso::component-labels:subscript,spenso::tensor-label:p}::P(4,spenso::{}::cind(0))": [
+      "3.74999995340911823e2",
+      "0.00000000000000000e0"
+    ],
+    "gammalooprs::{spenso::rank1,spenso::tensor,spenso::component-labels:subscript,spenso::tensor-label:p}::P(4,spenso::{}::cind(1))": [
+      "0.00000000000000000e0",
+      "0.00000000000000000e0"
+    ],
+    "gammalooprs::{spenso::rank1,spenso::tensor,spenso::component-labels:subscript,spenso::tensor-label:p}::P(4,spenso::{}::cind(2))": [
+      "0.00000000000000000e0",
+      "0.00000000000000000e0"
+    ],
+    "gammalooprs::{spenso::rank1,spenso::tensor,spenso::component-labels:subscript,spenso::tensor-label:p}::P(4,spenso::{}::cind(3))": [
+      "-3.74999995340911823e2",
+      "0.00000000000000000e0"
+    ],
+    "gammalooprs::{spenso::rank1,spenso::tensor}::ϵ(8,spenso::{}::cind(0))": [
+      "0.00000000000000000e0",
+      "0.00000000000000000e0"
+    ],
+    "gammalooprs::{spenso::rank1,spenso::tensor}::ϵ(8,spenso::{}::cind(1))": [
+      "7.07106781186547573e-1",
+      "0.00000000000000000e0"
+    ],
+    "gammalooprs::{spenso::rank1,spenso::tensor}::ϵ(8,spenso::{}::cind(2))": [
+      "0.00000000000000000e0",
+      "-7.07106781186547573e-1"
+    ],
+    "gammalooprs::{spenso::rank1,spenso::tensor}::ϵ(8,spenso::{}::cind(3))": [
+      "-0.00000000000000000e0",
+      "0.00000000000000000e0"
+    ],
+    "gammalooprs::{spenso::rank1,spenso::tensor}::ϵ(9,spenso::{}::cind(0))": [
+      "0.00000000000000000e0",
+      "0.00000000000000000e0"
+    ],
+    "gammalooprs::{spenso::rank1,spenso::tensor}::ϵ(9,spenso::{}::cind(1))": [
+      "7.07106781186547573e-1",
+      "0.00000000000000000e0"
+    ],
+    "gammalooprs::{spenso::rank1,spenso::tensor}::ϵ(9,spenso::{}::cind(2))": [
+      "0.00000000000000000e0",
+      "7.07106781186547573e-1"
+    ],
+    "gammalooprs::{spenso::rank1,spenso::tensor}::ϵ(9,spenso::{}::cind(3))": [
+      "-0.00000000000000000e0",
+      "0.00000000000000000e0"
+    ]
+  },
+  "propagators": [
+    {
+      "edge_id": 0,
+      "mass_squared": [
+        "2.99290000000000000e4",
+        "0.00000000000000000e0"
+      ],
+      "power": 1,
+      "shift": [
+        "0.00000000000000000e0",
+        "0.00000000000000000e0",
+        "0.00000000000000000e0",
+        "0.00000000000000000e0"
+      ]
+    },
+    {
+      "edge_id": 1,
+      "mass_squared": [
+        "2.99290000000000000e4",
+        "0.00000000000000000e0"
+      ],
+      "power": 1,
+      "shift": [
+        "3.74999995340911823e2",
+        "0.00000000000000000e0",
+        "0.00000000000000000e0",
+        "-3.74999995340911880e2"
+      ]
+    },
+    {
+      "edge_id": 2,
+      "mass_squared": [
+        "2.99290000000000000e4",
+        "0.00000000000000000e0"
+      ],
+      "power": 1,
+      "shift": [
+        "1.24999995340911823e2",
+        "-2.16506350946109649e2",
+        "0.00000000000000000e0",
+        "-3.74999997712397658e2"
+      ]
+    },
+    {
+      "edge_id": 4,
+      "mass_squared": [
+        "2.99290000000000000e4",
+        "0.00000000000000000e0"
+      ],
+      "power": 1,
+      "shift": [
+        "-1.25000004659088177e2",
+        "-1.08253175473054824e2",
+        "-1.87499999999999972e2",
+        "-3.75000001185742917e2"
+      ]
+    },
+    {
+      "edge_id": 6,
+      "mass_squared": [
+        "2.99290000000000000e4",
+        "0.00000000000000000e0"
+      ],
+      "power": 1,
+      "shift": [
+        "-3.75000004659088177e2",
+        "-0.00000000000000000e0",
+        "-0.00000000000000000e0",
+        "-3.75000004659088177e2"
+      ]
+    }
+  ],
+  "rank": 4
+}

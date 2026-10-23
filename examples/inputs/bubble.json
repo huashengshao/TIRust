@@ -1,0 +1,22 @@
+{
+  "samples": [
+    {
+      "id": "massive-bubble",
+      "rank": 2,
+      "mu": "3",
+      "propagators": [
+        {"shift": ["0", "0", "0", "0"], "mass_squared": ["4", "0"], "power": 1},
+        {"shift": ["0", "1", "0", "0"], "mass_squared": ["9", "0"], "power": 1}
+      ]
+    },
+    {
+      "id": "massive-bubble-second-scale",
+      "rank": 2,
+      "mu": "7",
+      "propagators": [
+        {"shift": ["0", "0", "0", "0"], "mass_squared": ["4", "0"], "power": 1},
+        {"shift": ["0", "1", "0", "0"], "mass_squared": ["9", "0"], "power": 1}
+      ]
+    }
+  ]
+}

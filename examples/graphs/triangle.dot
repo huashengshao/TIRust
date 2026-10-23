@@ -1,0 +1,11 @@
+digraph triangle {
+    graph [num="(1 + iregi::q0)*(2 + iregi::q1) + 3*iregi::q2*iregi::q3", overall_factor="1"];
+    edge [particle="phi"];
+    ext [style=invis];
+    ext -> a;
+    b -> ext;
+    c -> ext;
+    a -> b [lmb_id=0];
+    b -> c;
+    c -> a;
+}

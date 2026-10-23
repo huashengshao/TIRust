@@ -3,3 +3,7 @@
 **/*.profraw
 **/*.profdata
 .DS_Store
+
+# Python reference-tool bytecode
+__pycache__/
+*.pyc

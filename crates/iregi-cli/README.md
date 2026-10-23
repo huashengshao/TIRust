@@ -1,0 +1,99 @@
+# Standalone CLI
+
+Run from the repository root after `source scripts/env.sh`:
+
+```sh
+cargo run -p iregi-cli -- prepare examples/graphs/bubble.dot --model fixtures/models/phi3.json
+cargo run -p iregi-cli -- reduce --input examples/inputs/bubble.json --rank 2 --algorithm ibp
+cargo run -p iregi-cli -- run examples/graphs/bubble.dot --model fixtures/models/phi3.json --input examples/inputs/bubble.json
+cargo run -p iregi-cli -- run examples/graphs/triangle.dot --model fixtures/models/phi3.json --input examples/inputs/triangle.json --precision dd
+cargo run -p iregi-cli -- reduce --input examples/inputs/bubble.json --precision float --bits 192
+cargo run -p iregi-cli -- reduce --input examples/inputs/bubble-scalar-products.json --algorithm pv
+cargo run -p iregi-cli -- compare --fixtures validation/reference/fixtures.json
+```
+
+`prepare` uses FeynKit, Spenso, Idenso and Symbolica to return exact numerator
+coefficients, their four loop-component exponents, and the propagator routing.
+Pass `--feynman-rules` for physical graphs, `--external-wavefunctions` to include
+external states, and `--component 0,0` when selecting residual tensor axes.
+
+`reduce` and `run` accept a single sample or `{"samples":[...]}`. Each sample
+contains `propagators`, `mu`, and optionally `id`, `rank`, `dimension_shift`,
+`scalar_products`, and `parameters`. A propagator contains four `shift` components and `mass_squared`
+(either a real string or a pair of real/imaginary strings), with optional
+positive integer `power` and graph `edge_id`. All kinematic numbers must be
+quoted; bare JSON numbers are reserved for the captured binary64 reference
+fixtures used by `compare`. Decimal strings go directly through Symbolica at
+the requested precision, and strings such as `"1/3"` use exact rational parsing.
+
+The input `dimension_shift` is the full even offset in
+`D=4+dimension_shift-2*epsilon`; the CLI translates this to the core's half-shift
+convention. A batch shares topology, powers, dimension shift, and requested rank
+while every sample may have different shifts, masses, scale and parameters.
+The metric is `(+---)`, shifts are `(time,x,y,z)`, and `mu` is the scale, not its
+square. Inputs are preserved; legacy `snap=true` is rejected explicitly.
+Optional `scalar_products` supplies the real invariants `p_i.p_j` directly as
+quoted strings in upper-triangle order including the diagonal: for three
+propagators `[p0.p0,p0.p1,p0.p2,p1.p1,p1.p2,p2.p2]`. A batch uses the same
+invariant input convention throughout. Explicit shifts remain necessary for
+Cartesian numerator moments. Omitting this field computes invariants from shifts.
+
+`run` requires explicit canonical `(q+p_i)` propagators in the order printed by
+`prepare`. It validates supplied `edge_id` values against that order. For a
+reported original propagator `s*q+r` with `s=-1`, supply canonical shift `s*r`.
+Graph-derived external kinematics are not yet inferred. `parameters` maps the
+remaining coefficient symbols or function expressions, including namespaces,
+to a real numeric string or `[real,imaginary]` strings. All samples must bind
+the same parameter keys. Symbolica evaluates and contracts the numerator across
+the batch; there is no separate polynomial engine in the CLI.
+
+The rank defaults to the prepared numerator degree for `run`, otherwise the
+input rank or zero. `--rank` overrides it and cannot be below the numerator
+degree. Without an override, explicitly declared sample ranks must match the
+inferred rank. `--convention native` retains the original IREGI measure and separate
+UV/IR poles. `oneloop` and `madloop` select the corresponding core conventions;
+`run` also changes odd-degree numerator coefficients into the MadLoop loop
+variable convention before contracting MadLoop moments.
+`reduce` and `run` select their method with `--algorithm`; the `mode` field is
+used only when importing reference fixtures through `compare`.
+
+Results are JSON with decimal-string complex values, basis exponents, Laurent
+slots `[uv1,ir1,ir2,finite]`, per-sample status, fallback and analytic-limit usage, and batch
+execution counters. The output also records requested and prepared algorithms
+and preparation notes. Failed reductions have a reason and no tensor values;
+failed numerator contractions retain successfully reduced moments and omit the
+integral. Other samples remain available. Exit status is zero when all
+samples succeed, one for reported numerical/comparison failures, and two for
+input or setup errors. Preparation and one reduction execution are timed
+separately; these observations are not statistically qualified benchmarks.
+
+`compare` checks every component and pole against captured original IREGI
+fixtures. It groups matching settings into batches, retains failures in the
+report, and reports the worst error after scaling each moment by
+`Q^(4+dimension_shift+rank-2*sum(powers))`, where
+`Q=max(mu,abs(shift components),sqrt(abs(mass_squared)))`, matching the core
+oracle's characteristic scale. The mixed error denominator is
+`max(1,abs(scaled_reference))`. The default tolerance is `1e-10`.
+Nonfinite normalization or error arithmetic is reported as failure.
+`--case bubble` selects IDs containing a substring and `--algorithm ibp`
+overrides each fixture's stored method. Higher-precision comparisons still use
+the original binary64 expected values and cannot certify all extra digits.
+After building the binary, `python3 validation/cli_smoke.py` checks graph import,
+all three precision modes, contraction, supplied invariants, and lane isolation.
+
+The physical top-loop `g g -> h` example includes model-derived vertices,
+external helicity wavefunctions, and a selected equal-color component:
+
+```sh
+cargo run -p iregi-cli -- run examples/graphs/ggh_top_triangle.dot --model fixtures/models/sm.json --input validation/physical/ggh-cli-input.json --feynman-rules --external-wavefunctions --component 0,0 --convention oneloop
+python3 validation/physical/compare_cli.py --cli target/debug/iregi-rust
+```
+
+The second command requires the isolated original IREGI executable built by
+`bash scripts/build-reference.sh`. It checks all four Laurent slots of every
+tensor moment at the FeynKit routing, then compares the integrated numerator to
+the separately captured MadLoop graph with its documented color factor. Its
+report records input, executable, and reference hashes. MadLoop's own tensor
+variable differs by an affine shift, so its tensors are not compared directly
+to FeynKit's tensors. The physical comparison excludes R2 and UV counterterms,
+and retains bare poles and R1.

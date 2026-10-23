@@ -47,6 +47,7 @@ export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$IREGI_ROOT/.local/cache}"
 # This relocates the lock; it does not alter license checks or concurrency limits.
 export SYMBOLICA_LOCK_DIR="${SYMBOLICA_LOCK_DIR:-$IREGI_ROOT/.local/symbolica-locks}"
 mkdir -p -m 700 "$SYMBOLICA_LOCK_DIR"
+export SYMBOLICA_HIDE_BANNER="${SYMBOLICA_HIDE_BANNER:-1}"
 export RUST_TEST_THREADS="${RUST_TEST_THREADS:-1}"
 export CC="${CC:-$(command -v cc)}"
 export CXX="${CXX:-$(command -v c++)}"

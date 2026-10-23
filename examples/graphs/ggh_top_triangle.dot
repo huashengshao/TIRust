@@ -1,0 +1,13 @@
+digraph ggh_top_triangle {
+    graph [overall_factor="-1"];
+    ext [style=invis];
+    a [int_id="V_137"];
+    b [int_id="V_137"];
+    c [int_id="V_141"];
+    ext -> a [particle="g", name="p1"];
+    ext -> b [particle="g", name="p2"];
+    c -> ext [particle="H", name="p3"];
+    a -> b [particle="t", lmb_id=0];
+    b -> c [particle="t"];
+    c -> a [particle="t"];
+}
