@@ -1,7 +1,9 @@
 [workspace]
 resolver = "3"
 exclude = ["dependencies/oneloopmaster", "dependencies/symbolica"]
-members = ["crates/iregi-rust", "crates/iregi-masters", "crates/iregi-prepare", "crates/iregi-cli", "dependencies/feynkit-integrals"]
+members = ["crates/iregi-rust", "crates/iregi-masters", "crates/iregi-prepare", "crates/iregi-cli", "crates/iregi-python", "dependencies/feynkit-integrals"]
+# Routine Rust builds keep the optional Python host and rendering closure out.
+default-members = ["crates/iregi-rust", "crates/iregi-masters", "crates/iregi-prepare", "crates/iregi-cli", "dependencies/feynkit-integrals"]
 
 [workspace.package]
 version = "0.1.0"
@@ -32,6 +34,9 @@ symbolica = { path = "dependencies/symbolica" }
 numerica = { path = "dependencies/symbolica/lib/numerica" }
 graphica = { path = "dependencies/symbolica/lib/graphica" }
 symbolica-typst-plugin = { git = "https://github.com/symbolica-dev/symbolica-typst-plugin", rev = "57b7455b37c30f4f87353c0073e49f5225e937ab" }
+# The shared notebook components require the matching lean Typst owner sources.
+typst-library = { git = "https://github.com/alphal00p/gammaloop", rev = "865afdc43fb4e6b950439d34b4ec2c38352873e7" }
+typst-svg = { git = "https://github.com/alphal00p/gammaloop", rev = "865afdc43fb4e6b950439d34b4ec2c38352873e7" }
 
 [profile.release]
 lto = "thin"

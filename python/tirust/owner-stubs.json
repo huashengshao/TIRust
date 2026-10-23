@@ -1,0 +1,31 @@
+{
+  "purpose": "private type-only mirrors; no runtime shadow packages",
+  "symbolica_base_revision": "9cdc2949",
+  "feynkit_revision": "865afdc43fb4e6b950439d34b4ec2c38352873e7",
+  "files": [
+    {
+      "owner_source": ".local/cargo-home/git/checkouts/symbolica-7e92af2066df6214/9cdc294/symbolica.pyi",
+      "owner_sha256": "cd9ae8824d2817da7b3a33974ee2b355c71e88c84bff54154a8bcf5580198959",
+      "output": "symbolica/core.pyi",
+      "sha256": "cf09f394787c481b8ca5b07c54d02216e6a98381c480b02066f1fff5180d028f"
+    },
+    {
+      "owner_source": ".local/cargo-home/git/checkouts/gammaloop-277a30c7f1437c23/865afdc/crates/feynkit-py/python/symbolica/community/hepkit/__init__.pyi",
+      "owner_sha256": "73f69c626bd9a62454428652e55dcc337e0073bf4ebaaa5cc96630efda3cf87f",
+      "output": "symbolica/community/hepkit/__init__.pyi",
+      "sha256": "413303d3efe951b8ef05c77be84db3e14275e39fbd719bc8ce7fd2a3280b322d"
+    },
+    {
+      "owner_source": ".local/cargo-home/git/checkouts/gammaloop-277a30c7f1437c23/865afdc/docs/api/python/spynso3.pyi",
+      "owner_sha256": "2957e9b8512e7af39085c87363edbea1f6b25024cbedbd3db6a4e1c20a5db7e5",
+      "output": "symbolica/community/tensor/__init__.pyi",
+      "sha256": "93e94dd1ae6c8a077cf12bdb07811524db26aebfb9b11d48c04631a973feecc0"
+    },
+    {
+      "owner_source": ".local/cargo-home/git/checkouts/gammaloop-277a30c7f1437c23/865afdc/crates/linnet-render-py/python/symbolica/community/graph/__init__.pyi",
+      "owner_sha256": "2cc6412f6cac5bcf1ecb7eeac4be8db9c38707738f09545b5ad1162c81a6d2c1",
+      "output": "symbolica/community/graph/__init__.pyi",
+      "sha256": "8ceb4bc1abab6eee32219560b7303e2c3ba713f84c191b5fe8a6cd56acb4fe47"
+    }
+  ]
+}

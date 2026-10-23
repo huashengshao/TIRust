@@ -3,6 +3,7 @@
 from collections import Counter
 from dataclasses import replace
 from pathlib import Path
+from statistics import median
 import sys
 import tempfile
 import unittest
@@ -16,12 +17,16 @@ sys.path.insert(0, str(NOTEBOOKS))
 
 from _presentation import (  # noqa: E402
     KERNEL_SOURCE,
+    COHORT_CHOICES,
+    JOINT_SOURCE,
     BenchmarkRow,
     benchmark_grid,
     cards,
     hero,
     laurent_cards,
     load_kernel_snapshot,
+    load_benchmark_cohort,
+    load_joint_snapshot,
     load_reference_times,
     project_root,
     ratio_chart,
@@ -106,6 +111,78 @@ class GalleryEvidenceTests(unittest.TestCase):
         self.assertIn("TIRust divided by IREGI", markup)
         self.assertIn("99 percent confidence intervals", markup)
         self.assertEqual(markup.count("<circle"), len(self.rows))
+
+    def test_same_cohort_ratios_match_all_forty_saved_results(self):
+        expected_counts = {
+            ("baselineTIRust", "iregi"): {"regression": 7, "inconclusive-short-block": 1},
+            ("candidateTIRust", "iregi"): {"regression": 6, "improvement": 1, "inconclusive-short-block": 1},
+            ("baselineTIRust", "collier"): {"regression": 7, "inconclusive-short-block": 1},
+            ("candidateTIRust", "collier"): {"regression": 7, "inconclusive-short-block": 1},
+            ("candidateTIRust", "baselineTIRust"): {"improvement": 7, "inconclusive-short-block": 1},
+        }
+        checked = 0
+        for (numerator, denominator), counts in expected_counts.items():
+            source, rows = load_joint_snapshot(self.root, numerator, denominator)
+            self.assertEqual(Counter(row.timing_status for row in rows), counts)
+            self.assertEqual(len(rows), 8)
+            for saved, row in zip(source["rows"], rows, strict=True):
+                exact = next(r for r in saved["ratios"]
+                             if (r["numerator"], r["denominator"]) == (numerator, denominator))
+                self.assertEqual(row.ratio, exact["statistics"]["median"])
+                self.assertEqual(row.ci99, tuple(exact["statistics"]["ci99"]))
+                self.assertEqual(row.timing_status, exact["gate"])
+                self.assertEqual(row.tirust_us,
+                                 median(saved["engine_samples_ns"][numerator]) / (1000 * row.batch))
+                self.assertEqual(row.reference_us,
+                                 median(saved["engine_samples_ns"][denominator]) / (1000 * row.batch))
+                self.assertEqual(row.numerical_status, "passed")
+                checked += 1
+        self.assertEqual(checked, 40)
+
+    def test_short_family_uses_row_gate_and_remains_amber(self):
+        source, rows = load_joint_snapshot(self.root)
+        self.assertEqual(source["rows"][0]["ratios"][0]["statistics"]["gate"], "correctness-failed")
+        self.assertEqual(rows[0].timing_status, "inconclusive-short-block")
+        markup = benchmark_grid(rows)
+        self.assertIn("#fff0c7", markup)
+        self.assertIn("TIRust (selected) / COLLIER", markup)
+        self.assertIn("TIRust (selected) divided by COLLIER", ratio_chart(rows))
+
+    def test_new_evidence_hash_mismatch_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / JOINT_SOURCE
+            source.parent.mkdir(parents=True)
+            source.write_text('{"rows": []}\n')
+            with self.assertRaisesRegex(ValueError, "Benchmark evidence changed"):
+                load_joint_snapshot(root)
+
+    def test_only_measured_tirust_numerator_comparisons_are_allowed(self):
+        for pair in [("collier", "iregi"), ("iregi", "candidateTIRust"),
+                     ("candidateTIRust", "unmeasured")]:
+            with self.assertRaisesRegex(ValueError, "TIRust in the numerator"):
+                load_joint_snapshot(self.root, *pair)
+
+    def test_historical_and_private_cohorts_are_separate_choices(self):
+        self.assertEqual(len(COHORT_CHOICES), 6)
+        for choice in COHORT_CHOICES.values():
+            metadata, rows = load_benchmark_cohort(self.root, choice)
+            self.assertEqual(len(rows), 8)
+            self.assertIn("Historical", metadata["scope"])
+            if choice == "historical":
+                self.assertEqual(metadata["source"], KERNEL_SOURCE)
+                self.assertEqual(rows, self.rows)
+            else:
+                self.assertEqual(metadata["source"], JOINT_SOURCE)
+                self.assertIn("posthoc", metadata["analysis"])
+        with self.assertRaisesRegex(ValueError, "separately measured"):
+            load_benchmark_cohort(self.root, "cross-session")
+
+    def test_mixed_comparison_labels_cannot_silently_share_a_chart(self):
+        _, direct = load_joint_snapshot(self.root)
+        for display in (benchmark_grid, ratio_chart):
+            with self.assertRaisesRegex(ValueError, "separate tables"):
+                display([self.rows[0], direct[0]])
 
 
 if __name__ == "__main__":

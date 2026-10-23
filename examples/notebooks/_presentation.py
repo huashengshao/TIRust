@@ -8,6 +8,7 @@ from html import escape
 import json
 from math import isfinite, log, log2
 from pathlib import Path
+from statistics import median
 from typing import Any, Iterable, Sequence
 
 
@@ -16,6 +17,20 @@ KERNEL_SHA256 = "6469c9c172f32ce3b9dea53defa9d716856c107bccce7669919ce1edc960979
 KERNEL_REVISION = "6b24c0372022e22606a1ac85f30c7fa579fb41f0"
 COLLIER_SOURCE = "validation/collier-reference/timing-initial8/summary.json"
 COLLIER_SHA256 = "d7cfc7eae1f14eaad7b67a4bf839be40f2c64a2a4851f5dc8833ce3329235cc3"
+JOINT_SOURCE = "validation/selected-native-four-engine/posthoc-revision2/summary.json"
+JOINT_SHA256 = "424cb4028459324b796085e5446c979f75de796eb0aa747e6f2335f654116275"
+JOINT_QUALIFICATION_SOURCE = "validation/selected-native-four-engine/posthoc-revision2/qualification.json"
+JOINT_QUALIFICATION_SHA256 = "d2b079c44198e8dec4a4f9ac4ec587a2a05984fa267c2a6a9e76d5041186cea4"
+JOINT_FROZEN_SOURCE = "validation/selected-native-four-engine/v3-frozen/qualification.json"
+JOINT_FROZEN_SHA256 = "58f8492040cd4de48f14b5dedfc6eb1707719297f737ec18dcd98cae0fec8035"
+COHORT_CHOICES = {
+    "Private selected TIRust / COLLIER · posthoc": "selected-collier",
+    "Private selected TIRust / IREGI · posthoc": "selected-iregi",
+    "Private baseline TIRust / COLLIER · posthoc": "baseline-collier",
+    "Private baseline TIRust / IREGI · posthoc": "baseline-iregi",
+    "Private selected / baseline TIRust · posthoc": "selected-baseline",
+    "Historical production kernel · TIRust / IREGI": "historical",
+}
 
 
 def project_root(start: str | Path) -> Path:
@@ -59,7 +74,7 @@ def theme() -> str:
     .tirust-small { display:block; font:.69rem system-ui; line-height:1.5;
       font-weight:400; color:var(--muted); margin-top:.25rem; }
     .tirust-overflow { overflow-x:auto; }
-    .tirust-chart { width:100%; height:auto; }
+    .tirust-chart { width:100%; min-width:930px; height:auto; }
     @media (prefers-color-scheme:dark) {
       .tirust { --navy:#d1e4f7; --ink:#d8e4f1; --muted:#a3b4c6;
         --border:#34495e; --paper:#182b3e; }
@@ -120,6 +135,8 @@ class BenchmarkRow:
     numerical_status: str
     timing_status: str
     max_error: float | None
+    tirust_label: str = "TIRust"
+    reference_label: str = "IREGI"
 
 
 def load_kernel_snapshot(root: Path) -> tuple[dict[str, Any], tuple[BenchmarkRow, ...]]:
@@ -162,6 +179,81 @@ def load_reference_times(root: Path) -> tuple[dict[str, Any], list[dict[str, Any
     return data, rows
 
 
+def load_joint_snapshot(
+    root: Path, numerator: str = "candidateTIRust", denominator: str = "collier",
+) -> tuple[dict[str, Any], tuple[BenchmarkRow, ...]]:
+    """Read a saved same-quartet comparison; never reconstruct a timing ratio."""
+    labels = {
+        "baselineTIRust": "TIRust (baseline)",
+        "candidateTIRust": "TIRust (selected)",
+        "iregi": "IREGI", "collier": "COLLIER",
+    }
+    allowed = {
+        ("baselineTIRust", "iregi"), ("baselineTIRust", "collier"),
+        ("candidateTIRust", "iregi"), ("candidateTIRust", "collier"),
+        ("candidateTIRust", "baselineTIRust"),
+    }
+    if (numerator, denominator) not in allowed:
+        raise ValueError("Choose a measured comparison with TIRust in the numerator.")
+    data = _checked_json(root, JOINT_SOURCE, JOINT_SHA256)
+    qualified = _checked_json(root, JOINT_QUALIFICATION_SOURCE, JOINT_QUALIFICATION_SHA256)
+    frozen = _checked_json(root, JOINT_FROZEN_SOURCE, JOINT_FROZEN_SHA256)
+    if (data["global_admission_errors"] or not qualified["posthoc"]
+            or qualified["new_timing_or_kernel_runs"] != 0
+            or frozen["numerical_admission"] != "passed-all8-before-and-after-and-controls"):
+        raise ValueError("The frozen four-engine qualification does not admit this display.")
+    rows = []
+    for row in data["rows"]:
+        if row["admission_errors"]:
+            raise ValueError(f"Unqualified numerical family: {row['id']}")
+        measured = next(r for r in row["ratios"]
+                        if (r["numerator"], r["denominator"]) == (numerator, denominator))
+        stats = measured["statistics"]
+        width = row["batch"]
+        prefix, rank, _ = row["id"].split("-", 2)
+        rows.append(BenchmarkRow(
+            family=row["id"], propagators=int(prefix[1:]), rank=int(rank[1:]), batch=width,
+            tirust_us=median(row["engine_samples_ns"][numerator]) / (1000 * width),
+            reference_us=median(row["engine_samples_ns"][denominator]) / (1000 * width),
+            ratio=stats["median"], ci99=tuple(stats["ci99"]),
+            numerical_status="passed", timing_status=measured["gate"], max_error=None,
+            tirust_label=labels[numerator], reference_label=labels[denominator],
+        ))
+    return data, tuple(rows)
+
+
+def load_benchmark_cohort(root: Path, selection: str) -> tuple[dict[str, str], tuple[BenchmarkRow, ...]]:
+    """Keep historical production and private posthoc cohorts explicitly separate."""
+    if selection == "historical":
+        data, rows = load_kernel_snapshot(root)
+        return {
+            "source": KERNEL_SOURCE, "snapshot": KERNEL_REVISION[:7],
+            "protocol": "41 paired blocks · 99% CI",
+            "scope": "Historical production kernel: all eight numerical cases pass; seven regressions and one noisy timing remain visible. Later public APIs and private candidates are not timed by this run.",
+            "kernel_scope": data["protocol"]["kernel_scope"],
+            "cache_policy": data["protocol"]["cache_policy"],
+            "analysis": "Original paired analysis; no later cohort or candidate ratio is combined with it.",
+        }, rows
+    pairs = {
+        "selected-collier": ("candidateTIRust", "collier"),
+        "selected-iregi": ("candidateTIRust", "iregi"),
+        "baseline-collier": ("baselineTIRust", "collier"),
+        "baseline-iregi": ("baselineTIRust", "iregi"),
+        "selected-baseline": ("candidateTIRust", "baselineTIRust"),
+    }
+    if selection not in pairs:
+        raise ValueError("Choose one of the separately measured benchmark cohorts.")
+    _, rows = load_joint_snapshot(root, *pairs[selection])
+    return {
+        "source": JOINT_SOURCE, "snapshot": "Private v3 · posthoc revision 2",
+        "protocol": "48 four-engine quartets · 99% CI",
+        "scope": "Historical private prototypes, not current production: baseline uses Symbolica masters; selected uses native A0/B0/C0 for plain f64. No backend adoption or complete performance acceptance follows. Bubble rank 0 singleton remains short-block inconclusive.",
+        "kernel_scope": "Complete tensor/Laurent reduction call for identical massive Euclidean N2/N3 ranks 0/1, batches 1/32. Preparation and subprocess transport excluded; every array and pole probe checked before and after timing.",
+        "cache_policy": "Reused workspaces, numerical recomputation and cleared reference caches; ten warm calls, 48 quartets covering all 24 engine permutations twice, CPU 254. Every block must reach 100 ms; the one 99.893971 ms block remains inconclusive.",
+        "analysis": "Explicit posthoc saved-data correction: original conservative 35 cohort-failed/five short verdicts remain archived. Independently reviewed clean-terminal checks permit family gates while all 40 sample arrays, medians, 99% CIs and widths remain unchanged. No repeated timing, altered threshold or cross-session quotient. " + JOINT_QUALIFICATION_SOURCE,
+    }, rows
+
+
 def _ratio_background(row: BenchmarkRow) -> str:
     if row.ratio is None or not isfinite(row.ratio) or row.ratio <= 0:
         return "#e9edf1"
@@ -173,8 +265,10 @@ def _ratio_background(row: BenchmarkRow) -> str:
 
 
 def benchmark_grid(rows: Sequence[BenchmarkRow]) -> str:
+    numerator, denominator = _comparison_labels(rows)
     header = "".join(f"<th>{escape(name)}</th>" for name in (
-        "Family", "Batch", "TIRust µs/point", "IREGI µs/point", "TIRust / IREGI", "Qualification",
+        "Family", "Batch", f"{numerator} µs/point", f"{denominator} µs/point",
+        f"{numerator} / {denominator}", "Qualification",
     ))
     body = []
     for row in rows:
@@ -194,6 +288,7 @@ def benchmark_grid(rows: Sequence[BenchmarkRow]) -> str:
 
 
 def ratio_chart(rows: Sequence[BenchmarkRow]) -> str:
+    numerator, denominator = _comparison_labels(rows)
     measured = [row for row in rows if row.ratio is not None and row.ci99 is not None]
     if not measured:
         return '<div class="tirust">No paired ratio is measured in this selection.</div>'
@@ -219,5 +314,12 @@ def ratio_chart(rows: Sequence[BenchmarkRow]) -> str:
         marks.append(f'<text x="8" y="{y+4}" fill="#42566a">{escape(label)}</text>')
         marks.append(f'<line x1="{position(row.ci99[0]):.2f}" x2="{position(row.ci99[1]):.2f}" y1="{y}" y2="{y}" stroke="{color}" stroke-width="3"/>')
         marks.append(f'<circle cx="{position(row.ratio):.2f}" cy="{y}" r="5" fill="{color}"/>')
-    title = "TIRust divided by IREGI: paired medians with 99 percent confidence intervals; below one is faster"
-    return f'<svg class="tirust-chart" viewBox="0 0 {width} {height}" role="img" aria-label="{title}" style="font:12px system-ui;background:#fff;border-radius:10px"><title>{title}</title>' + "".join(marks) + "</svg>"
+    title = escape(f"{numerator} divided by {denominator}: paired medians with 99 percent confidence intervals; below one is faster")
+    return f'<div class="tirust tirust-overflow"><svg class="tirust-chart" viewBox="0 0 {width} {height}" role="img" aria-label="{title}" style="font:12px system-ui;background:#fff;border-radius:10px"><title>{title}</title>' + "".join(marks) + "</svg></div>"
+
+
+def _comparison_labels(rows: Sequence[BenchmarkRow]) -> tuple[str, str]:
+    labels = {(row.tirust_label, row.reference_label) for row in rows}
+    if len(labels) > 1:
+        raise ValueError("Display separately measured comparisons in separate tables.")
+    return next(iter(labels), ("TIRust", "IREGI"))

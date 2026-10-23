@@ -80,6 +80,12 @@
 #let shared-collier = data.at("collier_shared_attempt004_summary", default: none)
 #let joint-direct = data.at("selected_native_four_engine_row_local", default: none)
 #let python-checkpoint = data.at("python_interface_compile_checkpoint", default: none)
+#let n5-identities = data.at("collier_n5_identity_audit_qualification", default: none)
+#let n7-exact = data.at("private_thin_n7_exact_qualification", default: none)
+#let rank7-failed = data.at("private_thin_n6_rank7_failed128_audit", default: none)
+#let python-runtime = data.at("python_interface_baseline_runtime_qualification", default: none)
+#let notebook-native = data.at("native_notebook_baseline_partial_qualification", default: none)
+#let rank7-oracle = data.at("private_thin_n6_rank7_component126_oracle", default: none)
 #let collier-cell(r) = table.cell(
   fill: if not r.correctness_passed or r.gate in ("inconclusive-noise", "inconclusive-short-block") {
     amber
@@ -508,6 +514,90 @@ Raw samples and reproduction: #raw("validation/benchmark/baseline-6b24c03-licens
   dotted and shifted-dimension COLLIER coverage is unqualified. Sources:
   #raw("validation/collier-reference/shared/attempt004/") and
   #raw("validation/collier-reference/shared/attempt005/").
+]
+
+#if n5-identities != none [
+  #pagebreak()
+  #set text(size: 9.5pt)
+  #set par(leading: 0.5em)
+  = Independent checks and retained failures
+  == Massive N5 reference identities
+  Three retained positive-F massive, undotted N5 branches at ranks 0–2 pass
+  independent prefix, pinch/denominator/trace and cyclic/reversed-routing checks.
+  Batch 32 cycles those same three branches; it does not add 32 distinct
+  kinematic configurations. These synthetic checks use the reference codes,
+  separately from TIRust reduction, physical numerators and MadLoop.
+
+  #report-table(table(
+    columns: (1.6fr, 1fr, 1fr, 1.4fr), inset: (x: 7pt, y: 9pt),
+    stroke: table-stroke, fill: (x, y) => if y == 0 { navy } else { rgb("#d9f0d3") },
+    table.header([Independent check], [Residual records], [Complex slots], [Maximum normalized error]),
+    [Rank prefixes], [924], [3696], [0],
+    [Pinch / denominator / trace], [756], [3024], [$3.135 times 10^(-12)$],
+    [Cyclic / reversed routing], [360], [1440], [$4.101 times 10^(-12)$],
+    [Finiteness / pole zeros], [3357], [10071], [0],
+  ))
+
+  All 5397 residual records / 18,231 complex comparisons pass the unchanged
+  $10^(-10)$ gate. The saved-data audit independently verifies 511,509
+  assertions and 346 archive members, including 465 admitted native lanes and
+  13,428 unique native complex pairs. The earlier capture's audit-pending
+  status is immutable; the separate completed audit supplement supplies this
+  result. No higher-rank, singular, dotted, dimension-shift, physical or timing
+  qualification follows. Source:
+  #raw("validation/collier-reference/shared/identities006/correctness001/audit001/").
+
+  #if n7-exact != none [
+    == Private N7: exact tests only
+    A frozen private N7 source build passes 17 exact tests. Its ignored
+    generic variant-constructor test remains unrun. Source/build/test receipt review is distinct
+    from numerical integral evaluation: no N7 full-array agreement, precision
+    convergence, public adoption or performance is established. Source:
+    #raw("validation/highpoint-thin-n7-exact/").
+  ]
+
+  #if rank7-failed != none [
+    == Private N6 rank 7: failed Float128 comparison
+    The retained Float128/requested-53 singleton returns 330 moments / 1320
+    native complex Laurent slots, including 990 exact zero pole slots. Its
+    unchanged original-IBP comparison fails 90 finite slots: 12 at rank 6 and
+    78 at rank 7. Maximum normalized error is $2.539 times 10^(-9)$ against
+    $10^(-10)$. A completed process and reported stable status do not qualify
+    the complete array.
+
+    For this real positive-F point, the independent analytic real-zero identity
+    has no TIRust violations; original IBP and Hybrid each violate it in 88
+    slots. This explains 88 of the failed original-IBP complex comparisons from the
+    reference real residual alone. It does not certify the remaining imaginary
+    values or overturn the failed complete-array gate. Original PV stays
+    explicitly unstable. Two saved quadrature witnesses are limited diagnostics,
+    without rigorous error bounds or a causal cache-bug conclusion.
+
+    A separate Float256 diagnostic saves the same 1320 slots and 990 exact zero
+    poles. Across Float128/256, the maximum observed normalized difference is
+    $5.421 times 10^(-32)$, below $2^(-80)$. Original IBP, PV and Hybrid still
+    disagree in 90, 151 and 109 slots respectively; unstable PV remains
+    unqualified. This observed refinement is diagnostic: complete-array
+    accuracy and precision-convergence acceptance remain false, with no
+    high-rank adoption, lifecycle or timing result.
+    The immutable saved-data packet and its initial missing-file failure are
+    preserved at
+    #raw("validation/checkpoint-audits/2026-10-24-thin-n6-rank7-128/").
+    The separate terminal capture and independent audit are at
+    #raw("validation/highpoint-thin-n6-rank7-phase/").
+    #if rank7-oracle != none [
+      #parbreak()
+      *One-component quadrature diagnostic.* For moment 126, $q_0^6$, six
+      fixed-rule calculations (orders 12/16/20, two maps) give
+      $(0, -0.05166894942216114)$. The estimated normalized uncertainty is
+      $3.113 times 10^(-15)$ and is nonrigorous. Discrepancy plus that estimated
+      margin is $3.249 times 10^(-15)$ for TIRust Float128, within the
+      $10^(-10)$ diagnostic gate; original IBP and Hybrid give
+      $4.274 times 10^(-10)$ and $4.267 times 10^(-10)$, outside it.
+      PV remains natively rejected. This supports one finite component;
+      complete-array acceptance stays failed. Source: #raw(rank7-oracle.source).
+    ]
+  ]
 ]
 
 #pagebreak()
@@ -1277,22 +1367,82 @@ performance gate remains the measured #raw("6b24c03") snapshot.
   benchmark. Source: #raw("validation/selected-native-initialization-order/").
 
   #if python-checkpoint != none [
-    == Python interface: compile and source typing
+    == Python interface: historical compile and source typing
     The PyO3 standalone/native crate passes Cargo checking with one shared
     Symbolica/Numerica/Graphica/PyO3/FeynKit owner identity. Its ordinary source
     consumer passes basedpyright with zero errors and warnings. This checks
-    compilation and source-facing type signatures; installed-wheel typing,
-    numerical assertions and full Community-host integration remain pending.
+    compilation and source-facing type signatures; installed-wheel typing and
+    execution require the separate runtime evidence below.
     The initial build timeout and retained mypy/upstream-stub failures are
     preserved rather than counted as successful checks.
 
-    Three marimo 0.24.0 notebooks pass strict source lint, and nine
-    evidence/display-helper tests pass. Their real graph, numerator, reduction,
-    precision and Dual examples are still awaiting native-wheel execution and
-    HTML/visual qualification. No notebook runtime success is claimed. Sources:
+    The initial notebook source capsule retains its original strict lint and
+    nine display-helper tests. Later explorer, browser and native notebook
+    checks are separately source-bound; historical results do not qualify a
+    later source revision. Sources:
     #raw("validation/python-interface/checkpoint-compile/") and
-    #raw("validation/python-notebooks/").
+    #raw("validation/python-notebooks/qualification.json").
   ]
+]
+
+#if notebook-native != none [
+  #pagebreak()
+  #set text(size: 9.5pt)
+  #set par(leading: 0.5em)
+  = Python and notebook runtime
+  #if python-runtime != none [
+    == Inspected native wheel baseline
+    The exact baseline wheel builds, installs and passes shared-owner identity,
+    packaged font/stub checks and installed-consumer typing. Of 29 focused
+    tests, 28 pass; the real upstream graph renderer fails with
+    #raw("painted coordinates must be numbers"). Numerical, precision, Dual,
+    dotted, batch, contraction and shared tensor/graph interoperability checks
+    pass independently of that rendering failure. Tests use the actual shared
+    upstream types from the installed native host.
+
+    Release-wheel performance, general mathematical-domain acceptance and full
+    Community-host integration remain unqualified. Historical
+    #raw("6b24c03") measurements describe an earlier kernel.
+    Source: #raw(python-runtime.source).
+  ]
+
+  == Actual native notebook execution: partial result
+  The inspected wheel is installed into the marimo 0.24.0 notebook environment.
+  Four native test methods complete: two pass, two have three rendering-error
+  occurrences. The successful controls check the dotted bubble against its
+  mass Dual derivative, precision distinctions beyond binary64, failed-lane
+  isolation and an edited-topology guard. Finite-difference values are
+  displayed; this test adds no independent finite-difference acceptance gate.
+
+  #report-table(table(
+    columns: (1fr, 1.45fr, 1.2fr, 1.75fr), inset: (x: 7pt, y: 12pt),
+    stroke: table-stroke, fill: (x, y) => if y == 0 { navy } else if y == 1 { amber } else { rgb("#d9f0d3") },
+    table.header([Notebook], [Actual checks], [HTML export], [Qualified scope]),
+    [01: Graph → integral], [Real renderer errors], [21 cells / 1 error], [Bubble, triangle Float and bubble DoubleFloat stop before their numerical assertions.],
+    [02: Dots and derivatives], [Numerical controls pass], [19 successful cells], [Massive bubble identity, exact-input digits and invalid-neighbor masking.],
+    [03: Benchmarks], [3 tests / 6 cohort choices], [11 successful cells], [Frozen evidence only; no numerical extension imported.],
+  ))
+
+  Both native exports and the original error remain archived. Rendering-dependent
+  numerical assertions remain unrun; full gallery qualification remains open.
+  Graph/math browser checks of the native notebooks are pending. Source:
+  #raw("validation/python-notebooks/native-wheel003/").
+
+  == Benchmark explorer and readable narrow charts
+  The separate explorer source revision passes strict lint and 15
+  evidence/display-helper tests, including all forty saved ratios and eighty
+  CI endpoints. Actual marimo execution retains every cohort and its original
+  short/noisy gates. Static Chromium desktop/narrow-dark checks preserve eight
+  ratio cells and render without request, HTTP, console or page failures.
+
+  The chart now keeps a 930 px SVG inside controlled horizontal overflow,
+  preserving readable labels within a 348 px narrow viewport; the document
+  stays 390 px wide. Desktop cells and narrow/dark grid/chart crops were
+  visually inspected. Earlier loader failure and small-chart screenshots
+  remain historical. The export requires the official marimo CDN frontend and
+  has no reactive backend; browser snapshots do not qualify numerical controls.
+  Sources: #raw("validation/python-notebooks/chart-readable/") and its separate
+  source/runtime/browser predecessors.
 ]
 
 #if typed-e6 != none [

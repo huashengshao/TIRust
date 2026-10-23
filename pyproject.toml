@@ -1,0 +1,36 @@
+[build-system]
+requires = ["maturin>=1.9,<2"]
+build-backend = "maturin"
+
+[project]
+name = "tirust"
+version = "0.1.0"
+description = "Batched one-loop tensor integral reduction with Symbolica"
+readme = "python/README.md"
+requires-python = ">=3.10"
+dependencies = ["numpy>=2.0,<3"]
+authors = [{ name = "huashengshao", email = "erdissshaw@gmail.com" }]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Programming Language :: Rust",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering :: Physics",
+  "Typing :: Typed",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+notebooks = ["marimo==0.24.0"]
+
+[project.urls]
+Repository = "https://github.com/huashengshao/iregi-rust"
+
+[tool.maturin]
+manifest-path = "crates/iregi-python/Cargo.toml"
+module-name = "tirust._tirust"
+python-source = "python"
+features = ["standalone", "native"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]
+addopts = "-ra"

@@ -13,20 +13,19 @@ app = marimo.App(width="medium", app_title="TIRust · benchmark explorer")
 def _():
     import marimo as mo
     from _presentation import (
-        KERNEL_REVISION,
-        KERNEL_SOURCE,
+        COHORT_CHOICES,
         benchmark_grid,
         cards,
         hero,
-        load_kernel_snapshot,
+        load_benchmark_cohort,
         load_reference_times,
         project_root,
         ratio_chart,
         theme,
     )
     return (
-        KERNEL_REVISION, KERNEL_SOURCE, benchmark_grid, cards, hero,
-        load_kernel_snapshot, load_reference_times, mo, project_root,
+        COHORT_CHOICES, benchmark_grid, cards, hero,
+        load_benchmark_cohort, load_reference_times, mo, project_root,
         ratio_chart, theme,
     )
 
@@ -53,23 +52,34 @@ def _(hero, mo, theme):
 
 
 @app.cell
-def _(load_kernel_snapshot, load_reference_times, project_root):
+def _(COHORT_CHOICES, mo):
+    cohort_choice = mo.ui.dropdown(
+        COHORT_CHOICES,
+        value="Private selected TIRust / COLLIER · posthoc",
+        allow_select_none=False, label="Measured comparison",
+    )
+    cohort_choice
+    return (cohort_choice,)
+
+
+@app.cell
+def _(cohort_choice, load_benchmark_cohort, load_reference_times, project_root):
     checkout = project_root(__file__)
-    kernel_data, kernel_rows = load_kernel_snapshot(checkout)
+    benchmark_data, benchmark_rows = load_benchmark_cohort(checkout, cohort_choice.value)
     reference_data, reference_rows = load_reference_times(checkout)
-    return checkout, kernel_data, kernel_rows, reference_data, reference_rows
+    return benchmark_data, benchmark_rows, checkout, reference_data, reference_rows
 
 
 @app.cell(hide_code=True)
-def _(KERNEL_REVISION, cards, kernel_data, kernel_rows, mo):
+def _(benchmark_data, benchmark_rows, cards, mo):
     mo.vstack([
         mo.Html(cards([
-            ("Numerical comparisons", f"{sum(row.numerical_status == 'passed' for row in kernel_rows)} / {len(kernel_rows)} passed"),
-            ("Timing protocol", f"{kernel_data['protocol']['repeats']} paired blocks · 99% CI"),
-            ("Source snapshot", KERNEL_REVISION[:7]),
+            ("Numerical comparisons", f"{sum(row.numerical_status == 'passed' for row in benchmark_rows)} / {len(benchmark_rows)} passed"),
+            ("Timing protocol", benchmark_data["protocol"]),
+            ("Source snapshot", benchmark_data["snapshot"]),
         ])),
         mo.callout(
-            mo.md("**Historical snapshot.** These measurements identify the `6b24c03` tensor kernel. Later public APIs, preparation changes and private optimization candidates are not timed by this run. All eight numerical comparisons pass; seven performance regressions and one noisy result remain visible."),
+            mo.md(benchmark_data["scope"]),
             kind="warn",
         ),
     ])
@@ -91,8 +101,8 @@ def _(mo):
 
 
 @app.cell
-def _(batch_choice, kernel_rows, topology_choice):
-    selected_rows = tuple(row for row in kernel_rows
+def _(batch_choice, benchmark_rows, topology_choice):
+    selected_rows = tuple(row for row in benchmark_rows
         if (topology_choice.value is None or row.propagators == topology_choice.value)
         and (batch_choice.value is None or row.batch == batch_choice.value))
     return (selected_rows,)
@@ -109,12 +119,13 @@ def _(benchmark_grid, mo, ratio_chart, selected_rows):
 
 
 @app.cell(hide_code=True)
-def _(KERNEL_SOURCE, kernel_data, mo):
+def _(benchmark_data, mo):
     mo.accordion({
-        "What is timed?": mo.md(kernel_data["protocol"]["kernel_scope"]),
-        "Cache policy": mo.md(kernel_data["protocol"]["cache_policy"]),
+        "What is timed?": mo.md(benchmark_data["kernel_scope"]),
+        "Cache policy and timing protocol": mo.md(benchmark_data["cache_policy"]),
         "Numerical validation": mo.md("Every requested Cartesian tensor component and every separated UV/IR/finite coefficient is compared before timing. The mixed dimensionally normalized tolerance is `1e-10`. An unstable or unsupported lane cannot supply successful zero coefficients."),
-        "Reproducible source": mo.md(f"Committed evidence: `{KERNEL_SOURCE}`. The notebook verifies its SHA-256 before displaying the snapshot. Full environment, samples and uncertainty protocol remain in that file."),
+        "Analysis and qualification": mo.md(benchmark_data["analysis"]),
+        "Reproducible source": mo.md(f"Committed evidence: `{benchmark_data['source']}`. The notebook verifies its SHA-256 before displaying the snapshot. Full environment, samples and uncertainty protocol remain in that file. The private cohort additionally verifies its original numerical qualification and separate posthoc qualification."),
     })
     return
 
@@ -131,7 +142,7 @@ def _(mo, reference_data, reference_rows):
         """),
         mo.ui.table(reference_rows, selection=None, show_column_summaries=False),
         mo.callout(
-            mo.md("A direct **TIRust / COLLIER** ratio is **pending**. Dividing times from these separate sessions would not be a paired measurement. The short-block family remains inconclusive, and dotted propagators are outside this COLLIER comparison."),
+            mo.md("The direct **TIRust / COLLIER** choices above use their own same-session, four-engine cohort. These archival reference times remain separate; dividing values from different sessions would not be a paired comparison. Short-block families remain inconclusive, and dotted propagators are outside the COLLIER comparisons."),
             kind="info",
         ),
         mo.md(f"**Reference timing scope:** {reference_data['timing_boundary']}."),

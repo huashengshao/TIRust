@@ -95,6 +95,29 @@ fn tiny_exact_coefficients_are_never_discarded() {
 }
 
 #[test]
+fn oversized_loop_exponents_are_errors_without_integer_wraparound() {
+    // Each expression is one monomial: no enormous sum is expanded.
+    for exponent in ["65536", "2147483648", "4294967295", "4294967296", "18446744073709551616"] {
+        let expression = Atom::parse(&format!("iregi::q0^{exponent}"), "iregi_prepare_test", Default::default()).unwrap();
+        assert!(matches!(polynomial_from_expression(&expression, loop_variables()), Err(PrepareError::NonPolynomial(_))));
+    }
+    let expression = parse!("iregi::q0^65535");
+    let prepared = polynomial_from_expression(&expression, loop_variables()).unwrap();
+    assert_eq!(prepared.terms.len(), 1);
+    assert_eq!(prepared.terms[0].exponents, [65535, 0, 0, 0]);
+}
+
+#[test]
+fn invalid_or_duplicate_loop_variables_are_errors() {
+    let expression = parse!("iregi::q0+1");
+    for invalid in [Atom::one(), parse!("iregi::q0+iregi::q1"), parse!("iregi::q0^2"), parse!("iregi::q1")] {
+        let mut variables = loop_variables();
+        variables[0] = invalid;
+        assert!(matches!(polynomial_from_expression(&expression, variables), Err(PrepareError::NonPolynomial(_))));
+    }
+}
+
+#[test]
 fn feynman_rules_can_be_applied_without_python() {
     let options = PrepareOptions {
         source: NumeratorSource::FeynmanRules,

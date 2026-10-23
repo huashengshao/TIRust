@@ -197,7 +197,7 @@ pub fn prepare_diagram(
     let tensor = tensor
         .with_checked_expression(diagram.model().expand_couplings(&expression))
         .map_err(|e| PrepareError::Tensor(e.to_string()))?;
-    let scalar = component_expression(tensor, options.component.as_deref())?;
+    let scalar = scalar_component_expression(tensor, options.component.as_deref())?;
     let variables = loop_variables();
     let replacements = (0..4).flat_map(|component| {
         ["spenso::cind", "spenso::find"].map(move |index_head| {
@@ -279,6 +279,15 @@ pub fn polynomial_from_expression(
     expression: &Atom,
     variables: [Atom; 4],
 ) -> Result<PreparedNumerator, PrepareError> {
+    for (index, variable) in variables.iter().enumerate() {
+        if !matches!(variable.as_view(), AtomView::Var(_))
+            || variables[..index].contains(variable)
+        {
+            return Err(PrepareError::NonPolynomial(
+                "loop components must be four distinct plain symbols".into(),
+            ));
+        }
+    }
     let expanded = expression.expand();
     // Every exact nonzero coefficient is retained, regardless of magnitude.
     // Statistical zero tests may classify inconclusive probes as zero.
@@ -287,7 +296,9 @@ pub fn polynomial_from_expression(
         cancel_check_on_division: true,
         custom_normalization: None,
     };
-    let polynomial = expanded.to_polynomial_in_vars_with_field::<u16>(variables.as_slice(), &field);
+    // Symbolica owns extraction. A wider exponent type lets us report the
+    // public u16 interface limit instead of panicking in narrow conversion.
+    let polynomial = expanded.to_polynomial_in_vars_with_field::<u32>(variables.as_slice(), &field);
     if polynomial.variables().len() != variables.len()
         || polynomial
             .variables()
@@ -306,8 +317,11 @@ pub fn polynomial_from_expression(
                 term.coefficient.to_canonical_string(),
             ));
         }
-        let exponents: [u16; 4] = term
-            .exponents
+        let exponents: [u16; 4] = term.exponents.iter()
+            .map(|&power| u16::try_from(power).map_err(|_| {
+                PrepareError::NonPolynomial("loop component exponent exceeds u16::MAX".into())
+            }))
+            .collect::<Result<Vec<_>, _>>()?
             .try_into()
             .map_err(|_| PrepareError::NonPolynomial("unexpected variable ordering".into()))?;
         terms.push(PolynomialTerm {
@@ -321,7 +335,12 @@ pub fn polynomial_from_expression(
 type Tensor = ParamTensor<ShadowedStructure<AbstractIndex>>;
 type Net = Network<NetworkStore<Tensor, Atom>, ExplicitKey<AbstractIndex>, Symbol, AbstractIndex>;
 
-fn component_expression(
+/// Contract a symbolic tensor and select a component in its logical axis order.
+///
+/// A scalar requires no selection. Open tensors require one coordinate per
+/// declared axis; Spenso validates shape and maps logical to stored components.
+/// The input tensor is owned, so preparation never mutates an upstream wrapper.
+pub fn scalar_component_expression(
     tensor: SymbolicTensor<PartialStructure>,
     component: Option<&[usize]>,
 ) -> Result<Atom, PrepareError> {

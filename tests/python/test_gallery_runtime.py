@@ -103,10 +103,14 @@ class BenchmarkGalleryTests(unittest.TestCase):
         self.assertEqual(len(definitions["selected_rows"]), 8)
         self.assertEqual(len(definitions["reference_rows"]), 8)
         self.assertTrue(all(row.ratio > 1 for row in definitions["selected_rows"]))
+        self.assertTrue(all(row.reference_label == "COLLIER" for row in definitions["selected_rows"]))
+        self.assertEqual(sum(row.timing_status == "inconclusive-short-block"
+                             for row in definitions["selected_rows"]), 1)
 
     def test_explorer_filters_without_changing_qualification(self):
         import marimo as mo
         _, definitions = load_app("03_benchmark_explorer.py").run(defs={
+            "cohort_choice": mo.ui.dropdown({"Historical": "historical"}, value="Historical"),
             "topology_choice": mo.ui.dropdown({"Triangle": 3}, value="Triangle"),
             "batch_choice": mo.ui.dropdown({"Singleton": 1}, value="Singleton"),
         })
@@ -115,6 +119,18 @@ class BenchmarkGalleryTests(unittest.TestCase):
         self.assertTrue(all(row.propagators == 3 and row.batch == 1 for row in rows))
         self.assertEqual({row.timing_status for row in rows},
                          {"regression", "inconclusive-noise"})
+
+    def test_private_cohort_selector_preserves_its_own_gates(self):
+        import marimo as mo
+        _, definitions = load_app("03_benchmark_explorer.py").run(defs={
+            "cohort_choice": mo.ui.dropdown({"Selected / IREGI": "selected-iregi"}, value="Selected / IREGI"),
+            "topology_choice": mo.ui.dropdown({"Triangle": 3}, value="Triangle"),
+            "batch_choice": mo.ui.dropdown({"Singleton": 1}, value="Singleton"),
+        })
+        rows = definitions["selected_rows"]
+        self.assertEqual(len(rows), 2)
+        self.assertTrue(all(row.reference_label == "IREGI" for row in rows))
+        self.assertEqual({row.timing_status for row in rows}, {"regression", "improvement"})
 
 
 if __name__ == "__main__":

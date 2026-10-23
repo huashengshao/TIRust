@@ -1,0 +1,31 @@
+[package]
+name = "iregi-python"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "TIRust Python and Symbolica Community bindings"
+publish = false
+
+[lib]
+name = "_tirust"
+crate-type = ["rlib", "cdylib"]
+
+[features]
+default = ["native"]
+native = ["feynkit-py/native", "spynso3/native", "linnet-render-py/native"]
+standalone = ["pyo3/extension-module", "pyo3/abi3-py310"]
+
+[dependencies]
+iregi-rust.workspace = true
+iregi-masters.workspace = true
+iregi-prepare.workspace = true
+feynkit-graph.workspace = true
+feynkit-py = { git = "https://github.com/alphal00p/gammaloop", rev = "865afdc43fb4e6b950439d34b4ec2c38352873e7", default-features = false }
+spynso3 = { git = "https://github.com/alphal00p/gammaloop", rev = "865afdc43fb4e6b950439d34b4ec2c38352873e7", default-features = false }
+linnet-render-py = { git = "https://github.com/alphal00p/gammaloop", rev = "865afdc43fb4e6b950439d34b4ec2c38352873e7", default-features = false }
+symbolica-data = { git = "https://github.com/alphal00p/gammaloop", rev = "865afdc43fb4e6b950439d34b4ec2c38352873e7" }
+typst-renderer = { git = "https://github.com/alphal00p/gammaloop", rev = "865afdc43fb4e6b950439d34b4ec2c38352873e7" }
+symbolica = { workspace = true, features = ["python_export"] }
+pyo3 = { version = "=0.28.3", features = ["multiple-pymethods"] }
