@@ -1,0 +1,52 @@
+{
+  "status": "posthoc-revision2-saved-data-analysis-qualified-per-family",
+  "posthoc": true,
+  "new_timing_or_kernel_runs": 0,
+  "analysis_executions": 1,
+  "source_review_passed": true,
+  "independent_output_review_passed": true,
+  "all40_non_gate_statistics_exactly_unchanged": true,
+  "original_conservative_verdict_retained": true,
+  "all_families_retained": 8,
+  "ratios_retained": 40,
+  "gate_counts": {
+    "baselineTIRust/iregi": {
+      "inconclusive-short-block": 1,
+      "regression": 7
+    },
+    "candidateTIRust/iregi": {
+      "inconclusive-short-block": 1,
+      "regression": 6,
+      "improvement": 1
+    },
+    "baselineTIRust/collier": {
+      "inconclusive-short-block": 1,
+      "regression": 7
+    },
+    "candidateTIRust/collier": {
+      "inconclusive-short-block": 1,
+      "regression": 7
+    },
+    "candidateTIRust/baselineTIRust": {
+      "inconclusive-short-block": 1,
+      "improvement": 7
+    }
+  },
+  "production_adoption": false,
+  "default_backend_change": false,
+  "current_production_source_equality_claimed": false,
+  "source_bound_prototype": "historical067core; selected plainf64A0B0C0 candidate",
+  "bindings": {
+    "summary.json": "424cb4028459324b796085e5446c979f75de796eb0aa747e6f2335f654116275",
+    "analyze_posthoc.py": "bc27a250e261da14f5b70c73b273d8fe073f31a1c503426ad31ec6754d2ce810",
+    "terminal_admission.py": "9dba093aafd7d5a5ec6fb96ce280e0ad70fb74ad123e162b4013750df29c2a72",
+    "mutation_controls.py": "f17eb51fe2bd4711f4760121947613dadbd8499e25f218ad74529a1155756a78",
+    "mutation-controls.json": "6bf318a2d53590a1c76abff9754afcd0aac405c422b583709e406c86e21af2d1",
+    "independent-source-review.json": "71bb8916df7ad61323f2288995b848d843d5a310fbe637ca0c12e997fe59e36a",
+    "independent-output-review.json": "964629513b2695dea4d384e013a5e6025a11b741102628d6e665085dc0f56190"
+  },
+  "original_frozen_manifest_sha256": "74ad69af781dc09c892fe8655f6b96fe1654d62860381ff06cd382767f679c54",
+  "original_summary_sha256": "e4b807914566d52e61798848344a59455f21f839d70f2faa2fca592f3a2513c3",
+  "raw_sha256": "c6621c221f1e0526ac50e4b1e5785e5f296e600b6f00277f4882f15ef42547e8",
+  "receipt_sha256": "1db4c97f2bd0e256e14b9603e840ce22f7cd98e127f0f0673aa6e8f7cfe1e3b3"
+}

@@ -1,0 +1,37 @@
+{
+  "status": "frozen-analysis-all-families-retained-unqualified",
+  "scope": "private historical optimized baseline TIRust and selected-native candidate TIRust against original IREGI/COLLIER; no current production equivalence or adoption",
+  "timing_attempts": 1,
+  "families": 8,
+  "ratios": 40,
+  "quartets_per_family": 48,
+  "raw_responses": 1666,
+  "numerical_admission": "passed-all8-before-and-after-and-controls",
+  "frozen_gate_counts": {
+    "inconclusive-short-block": 5,
+    "correctness-or-cohort-failed": 35
+  },
+  "global_failure_source": "aggregate receipt status includes one row-local short block; frozen analyzer requires completed",
+  "short_block": {
+    "id": "n2-r0-massive",
+    "batch": 1,
+    "quartet": 32,
+    "raw_serial": 159,
+    "engine": "collier",
+    "iterations": 134147,
+    "elapsed_ns": 99893971.0,
+    "minimum_ns": 100000000
+  },
+  "corrected_analysis_executed": false,
+  "production_adoption": false,
+  "ratio_direction": "TIRust/reference; candidateTIRust/baselineTIRust",
+  "bindings": {
+    "timing-quiet254/receipt.json": "1db4c97f2bd0e256e14b9603e840ce22f7cd98e127f0f0673aa6e8f7cfe1e3b3",
+    "timing-quiet254/raw.jsonl.gz": "b9677125ef2ba77f4a811edf2b192488caa757d37809bcd365b0ff3c2c9f2f14",
+    "timing-quiet254/summary.json": "e4b807914566d52e61798848344a59455f21f839d70f2faa2fca592f3a2513c3",
+    "timing-quiet254/independent-protocol-audit.json": "17b6b38d0867e6c55f4da393d5468b5075d387630a80146ffb7eee5b27a01d8a",
+    "timing-quiet254/independent-statistics-audit.json": "7610a9582ec98766e9827b962d380ab93fc75da9af2a9fa309df031003db7469",
+    "quiet-window/window.json": "b0732ce52571c766fbb019a14ec8370ed6fb8d97fcf4b7f6171337d0dbb201b5",
+    "quiet-window/completion.json": "ddf52a62db1e3ca37de74b9385ec342d96b3f25baafaf9f6260fcfda12d8e42f"
+  }
+}

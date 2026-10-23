@@ -76,6 +76,10 @@
 #let latest-experiments = data.at("latest_isolated_timing_cohorts", default: none)
 #let lazy-cohort = data.at("lazy_receipt_capture_performance", default: none)
 #let typed-e6 = data.at("private_direct_e6_n2_typed", default: none)
+#let thin-mask = data.at("private_thin_n6_rank2_mask", default: none)
+#let shared-collier = data.at("collier_shared_attempt004_summary", default: none)
+#let joint-direct = data.at("selected_native_four_engine_row_local", default: none)
+#let python-checkpoint = data.at("python_interface_compile_checkpoint", default: none)
 #let collier-cell(r) = table.cell(
   fill: if not r.correctness_passed or r.gate in ("inconclusive-noise", "inconclusive-short-block") {
     amber
@@ -104,6 +108,28 @@
     text(size: 7pt)[99% CI #fixed(row.latency_ratio_ci99.at(0), digits: 4)–#fixed(row.latency_ratio_ci99.at(1), digits: 4)]
     linebreak()
     text(size: 8pt, weight: "semibold", verdict)
+  },
+)
+#let joint-ratio-cell(row) = table.cell(
+  fill: if row.gate == "inconclusive-short-block" { amber }
+    else { ratio-fill(row.statistics.median) }, {
+    set par(leading: 0.25em, justify: false)
+    let verdict = if row.gate == "inconclusive-short-block" { "Short block" }
+      else if row.gate == "improvement" { "Gain" }
+      else if row.gate == "regression" { "Slower" } else { "Inconclusive" }
+    text(size: 11pt, weight: "bold")[#fixed(row.statistics.median, digits: 3)]
+    linebreak()
+    text(size: 6.4pt)[#fixed(row.statistics.ci99.at(0), digits: 3)–#fixed(row.statistics.ci99.at(1), digits: 3)]
+    linebreak()
+    text(size: 7pt, weight: "semibold", verdict)
+  },
+)
+#let reference-coverage-cell(row) = table.cell(
+  fill: if row.status == "accepted-COLI" { rgb("#d9f0d3") } else { amber }, {
+    set par(leading: 0.25em, justify: false)
+    text(size: 9pt, weight: "semibold", if row.status == "accepted-COLI" {
+      "COLI admitted"
+    } else { "Unqualified" })
   },
 )
 #let benchmark-cell(r) = table.cell(fill: ratio-fill(r.paired_ratio), {
@@ -336,6 +362,59 @@ Historical sessions used different CPUs and timing protocols; only each
 session's paired reference supports its verdict, with no causal revision speedup.
 Raw samples and reproduction: #raw("validation/benchmark/baseline-6b24c03-licensed/").
 
+#if joint-direct != none [
+  #pagebreak()
+  = Direct TIRust / IREGI / COLLIER comparison
+  Private optimized prototypes compare the complete reduction call on the same
+  massive Euclidean N2/N3 rank0/1 inputs. *B* is baseline TIRust with Symbolica
+  masters; *S* is the same TIRust prototype selecting native A0/B0/C0 for plain
+  f64. IREGI uses Hybrid and COLLIER uses COLI mode 1. Every ratio below has
+  TIRust in the numerator; all forty results remain visible.
+
+  #figure(kind: table, caption: [*Same-cohort paired latency ratios and 99% CIs.*
+    B and S denote TIRust variants, not separate reference libraries.
+    Below one favors the numerator. Amber preserves the short-block family.],
+    report-table(table(
+      columns: (1fr, 1.1fr, 1.1fr, 1.1fr, 1.1fr, 1.1fr),
+      align: (x, y) => if x == 0 { left + horizon } else { center + horizon },
+      inset: (x: 5pt, y: 10pt), stroke: table-stroke,
+      fill: (x, y) => if y == 0 { navy } else { none },
+      table.header([Family / batch], [TIRust B /\ IREGI], [TIRust S /\ IREGI],
+        [TIRust B /\ COLLIER], [TIRust S /\ COLLIER], [TIRust S /\ TIRust B]),
+      ..for row in joint-direct.snapshot.rows {
+        let label = if row.id.starts-with("n2") { "Bubble" } else { "Triangle" }
+        let rank = if row.id.contains("r0") { 0 } else { 1 }
+        ([*#label r#rank*\ batch #row.batch], ..row.ratios.map(joint-ratio-cell))
+      },
+    )),
+  )
+
+  *Selected versus COLLIER: seven regressions, one inconclusive family.*
+  Selected versus IREGI has six regressions, one gain (triangle rank 0 singleton)
+  and one inconclusive family. Selected versus baseline has seven gains and
+  one inconclusive family. Baseline/reference comparisons each retain seven
+  regressions and one inconclusive family. No production/default adoption or
+  complete performance acceptance follows.
+
+  *Explicit posthoc analysis revision2.* The original frozen analyzer marked
+  five ratios short-block-inconclusive and 35 cohort-failed because one local
+  short block set the aggregate status. A separately reviewed saved-data
+  correction verifies clean termination and every original global check before
+  assigning family gates. All forty sample arrays, medians, CIs, widths and
+  numerical order-stratum statistics are unchanged; the conservative verdict remains
+  archived. No new timing, threshold change, omitted family or repeated cohort.
+
+  One COLLIER block in bubble rank 0/batch 1 lasts 99.893971 ms, below 100 ms;
+  all five ratios of that family remain inconclusive. Protocol: CPU 254, ten
+  warm calls, 48 quartets per family containing all 24 permutations of the four
+  engines twice, shared fixed iterations, 100 ms blocks, 10,000 paired bootstrap
+  resamples, 99% CIs and 2% width gate. Every complete tensor/Laurent array and
+  native pole probe passes before and after timing. Transport is excluded.
+  This is a source-bound historical prototype, not the current production
+  build. Sources: #raw("validation/selected-native-four-engine/v3-frozen/") and
+  #raw("validation/selected-native-four-engine/posthoc-revision2/").
+]
+
 #if collier != none [
   #pagebreak()
   = Archival reference timings: IREGI and COLLIER
@@ -343,8 +422,8 @@ Raw samples and reproduction: #raw("validation/benchmark/baseline-6b24c03-licens
   (mode 2) with COLLIER 1.2.10 COLI (mode 1). Each row requests the complete
   Cartesian tensor array and all four native Laurent slots. This is a
   reference-library comparison, separate from the TIRust performance gate.
-  No TIRust/COLLIER ratio is inferred from different sessions. A jointly
-  measured four-engine comparison is pending.
+  No TIRust/COLLIER ratio is inferred from different sessions. The direct
+  four-engine cohort has its own separate source-bound table.
 
   #figure(kind: table, caption: [*Archival binary64 reference timings, µs/point.*
     Batch 1 is latency; batch 32 is amortized cost per point.
@@ -378,9 +457,57 @@ Raw samples and reproduction: #raw("validation/benchmark/baseline-6b24c03-licens
   *Measurement protocol.* #collier.protocol_note
 
   Ordinary non-dotted, fixed-dimension cases have zero IR poles; regulator
-  probes are untimed. Higher points/ranks, singular or IR-divergent families
-  and physical numerators remain pending. Raw observations and reproduction:
+  probes are untimed. This archival timing cohort does not qualify higher
+  points/ranks, singular or IR-divergent families or physical numerators.
+  Raw observations and reproduction:
   #raw(collier.source).
+]
+
+#if shared-collier != none [
+  #pagebreak()
+  = Extended reference coverage: N2–N7
+  A separate correctness-only capture extends the ordinary, massive Euclidean
+  reference matrix. Each cell keeps the native COLLIER admission status;
+  numerical output from a rejected call cannot qualify a comparison. This
+  table contains no additional timings and no new TIRust performance claim.
+
+  #figure(kind: table, caption: [*All 34 reference rows, including failures.*
+    COLI-admitted means native status accepted and the complete native
+    tensor/Laurent array agrees with IREGI within $10^(-10)$.
+    This table does not establish independent higher-point identities.],
+    report-table(table(
+      columns: (1fr, 1.4fr, 1.4fr),
+      align: (x, y) => if x == 0 { left + horizon } else { center + horizon },
+      inset: (x: 7pt, y: 5pt), stroke: table-stroke,
+      fill: (x, y) => if y == 0 { navy } else { none },
+      table.header([Propagators / rank], [Batch 1], [Batch 32]),
+      ..for row in shared-collier.snapshot.rows.filter(r => r.batch_width == 1) {
+        let paired = shared-collier.snapshot.rows.find(r => r.id == row.id and r.batch_width == 32)
+        ([*N#row.n / rank #row.rank*], reference-coverage-cell(row), reference-coverage-cell(paired))
+      },
+    )),
+  )
+
+  *17 COLI-admitted, 17 unqualified rows.* The six N5 rank 0–2 rows
+  have maximum normalized disagreement $4.76 times 10^(-12)$; the N6
+  rank 0 singleton reaches $2.60 times 10^(-13)$. Existing N4 rank 1–3
+  rejections remain visible. Other higher-point calls retain COLI accuracy
+  flags −1/−2 and DD error flag −10. Both policies and all raw statuses
+  remain in the evidence; library code and rejection criteria are unchanged.
+
+  Attempt004 retained 239 validated isolated responses. Attempt005 appends
+  only its eight missing requests, with no repeated capture or timing. The
+  final N7 rank 2/batch 32 case retains unstable original PV, a nominally
+  successful IBP result disagreeing with Hybrid by 0.520 normalized, and
+  rejected COLLIER outputs. The N6 rank 2 mass-deformed IREGI disagreement
+  of 1.97 also remains unresolved.
+
+  The independent saved-artifact/lane-gather audit verifies 81,086 assertions,
+  54,224 admitted native complex pairs and 5,427 rejected null slots.
+  This is distinct from independent mathematical identities. IR-divergent,
+  dotted and shifted-dimension COLLIER coverage is unqualified. Sources:
+  #raw("validation/collier-reference/shared/attempt004/") and
+  #raw("validation/collier-reference/shared/attempt005/").
 ]
 
 #pagebreak()
@@ -1068,19 +1195,105 @@ these constraints do not independently determine every spatial tensor
 component or override a rejected library status. The initial eight measured
 IREGI/COLLIER rows remain unchanged.
 
-A private thin-N6 rank2 probe passes seven exact/sidecar checks, then both
-certified-planar retries fail among six packed N5 children. The parent is never
-evaluated: no arrays or numerical comparisons exist. The bounded rejection
-is not N6 tensor success or a performance result.
+A retained *initial unmasked* thin-N6 rank2 probe passes seven exact/sidecar
+checks, then both certified-planar retries fail among six packed N5 children;
+that attempt produces no parent arrays. The later private mask followup has
+separate source, numerical and lifecycle qualification below. Neither changes
+the production N6/N7 domain or establishes performance parity.
 
-Planned Python work adds PyO3 bindings and reactive marimo notebooks following
-#raw("PLAN.md")'s pinned Community extension guide. No executed binding or
-notebook qualification is claimed here.
+PyO3 bindings and three reactive marimo notebook sources now follow
+#raw("PLAN.md")'s pinned Community extension guide. Compile/type checks and
+notebook lint are distinct from installed-wheel execution; their bounded
+checkpoint appears separately. Native notebook runtime remains unqualified.
 
 Source bindings, raw outputs, failures and reproduction commands are retained
 in #raw("docs/data/results.json"). No elapsed correctness-run duration on this
 page is a benchmark. Production remains #raw("06706e2"); the optimized TIRust
 performance gate remains the measured #raw("6b24c03") snapshot.
+
+#if thin-mask != none [
+  #pagebreak()
+  #set text(size: 9.5pt)
+  #set par(leading: 0.5em)
+  = Additional execution qualification
+  == Private N6 rank-two mask followup
+  Fourteen exact checks qualify the thin child assembly, full-shape zero-mask
+  certificates, cache/context binding and route envelopes. Float128 and
+  Float256, both requested 53, return all 60 native complex Laurent slots for
+  the retained base point. Maximum normalized disagreement with original IREGI
+  is $1.165 times 10^(-12)$ against the unchanged $10^(-10)$ gate; maximum
+  128/256 difference is $1.474 times 10^(-34)$ against $2^(-80)$.
+
+  #report-table(table(
+    columns: (1.15fr, 1fr, 2.3fr), inset: (x: 8pt, y: 8pt),
+    stroke: table-stroke, fill: (x, y) => if y == 0 { navy } else { pale },
+    table.header([Check], [Retained count], [Scope]),
+    [Precision comparison], [2 × 60 slots], [One retained base point at Float128/256; requested 53.],
+    [Lifecycle], [11 calls / 17 accepted lanes], [1020 complex slots; seven explicit rejection controls and two empty resets.],
+    [Singleton agreement], [Zero differences], [Values, precision and signed zeros agree with separate singleton calls.],
+    [Independent audit], [327 bindings / 1140 slots], [Saved-data arithmetic and source-archive audit; no kernel rerun.],
+  ))
+
+  The lifecycle corpus includes base/scaled points, mixed valid/invalid batches,
+  reordering, chunks and resets. It shows isolation and absence of partial
+  successful arrays; a rejected status alone does not prove the mathematical
+  failure cause. The ordinary primal sensitivity estimate remains nonrigorous
+  for compounded Taylor errors, and imported quadrature errors are unsupported.
+
+  Strict scope: private FromShifts/Preserve, unit powers, no dimension shift,
+  N6 rank 2, native raw components. Numerical Dual, complex masses, N7, rank 7,
+  generalized inputs, production adoption and performance remain unqualified.
+  The earlier unmasked rejection and the 30 s exact-test timeout with zero completed
+  tests remain preserved. The later unchanged 14-test gate passes within its
+  separately declared 180 s bound. Sources:
+  #raw("validation/highpoint-thin-n6-mask/") and its independent checkpoint audit.
+
+  == Private generic rank-three extension
+  A separate generic assembly passes 25 exact structural/integrand/context
+  tests. At the retained N6 rank 3 base point, Float128/256 with requested 53
+  each return all 140 native complex Laurent slots, including 105 exact zero
+  poles. Maximum original-IREGI discrepancy is $2.426 times 10^(-12)$ against
+  $10^(-10)$; precision difference is $1.474 times 10^(-34)$ against $2^(-80)$.
+  The exact tests cover structural identities through rank 7; numerical rank 7
+  is not qualified. This separate package adds no rank 3 lifecycle, numerical
+  Dual, generalized/SuppliedG, N7, public adoption or performance result.
+  The initial test compile failure and historical rank 7 timeouts remain.
+  Source: #raw("validation/highpoint-thin-n6-generic/").
+
+  == Initialization-order diagnostic
+  Two fresh processes retain 55 complete responses: seven control requests and
+  48 case requests. All numerical admissions pass; 37 within-process exact
+  comparisons have zero differences. CASE-first reproduces all 32 saved case
+  responses and all three controls exactly. CONTROL-first reproduces a one-ULP
+  C0 difference and changes 24 finite imaginary tensor values per backend in
+  the batch 32 rank-one triangle, by at most nine ULP ($2.50 times 10^(-16)$).
+  The whole-case master captures and input/status/diagnostic records remain exact.
+
+  Registration/operand-order source facts suggest a mechanism, but no paired
+  instruction exports establish the cause. This is an untimed, schedule-associated
+  diagnostic, not universal determinism or an accuracy-threshold change.
+  The failed v2 preflight remains unmeasured. A later four-engine cohort uses
+  its separately reviewed CASE-first protocol; no diagnostic duration is a
+  benchmark. Source: #raw("validation/selected-native-initialization-order/").
+
+  #if python-checkpoint != none [
+    == Python interface: compile and source typing
+    The PyO3 standalone/native crate passes Cargo checking with one shared
+    Symbolica/Numerica/Graphica/PyO3/FeynKit owner identity. Its ordinary source
+    consumer passes basedpyright with zero errors and warnings. This checks
+    compilation and source-facing type signatures; installed-wheel typing,
+    numerical assertions and full Community-host integration remain pending.
+    The initial build timeout and retained mypy/upstream-stub failures are
+    preserved rather than counted as successful checks.
+
+    Three marimo 0.24.0 notebooks pass strict source lint, and nine
+    evidence/display-helper tests pass. Their real graph, numerator, reduction,
+    precision and Dual examples are still awaiting native-wheel execution and
+    HTML/visual qualification. No notebook runtime success is claimed. Sources:
+    #raw("validation/python-interface/checkpoint-compile/") and
+    #raw("validation/python-notebooks/").
+  ]
+]
 
 #if typed-e6 != none [
   #pagebreak()
