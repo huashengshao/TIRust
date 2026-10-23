@@ -3,12 +3,13 @@
 //! For up to four denominators the coefficients obey Denner--Dittmaier
 //! Eqs. (5.10)--(5.11), including the epsilon-dependent trace denominator.
 //! Five-point Cartesian moments use the complete four-dimensional external
-//! basis directly; six/seven-point moments use exact denominator identities.
+//! basis or an exact constant denominator identity on a constrained family;
+//! six/seven-point moments use exact denominator identities.
 //! This avoids introducing a dimension-shifted pentagon divided by epsilon.
 //! Symbolica owns matrix solution, expression arithmetic and polynomial
 //! collection. Integer compositions below enumerate tensor indices only.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Instant};
 
 use symbolica::{
     atom::{Atom, AtomCore, AtomView, Symbol},
@@ -33,6 +34,26 @@ struct Geometry {
     inverse_z: Vec<Vec<Atom>>,
 }
 
+#[derive(Clone)]
+struct FivePointRelation {
+    active: Atom,
+    coefficients: Vec<Atom>,
+}
+
+/// A rank constraint required by a lazily selected coordinate identity.
+/// The executor must certify the raw polynomial on exact represented inputs;
+/// a zero obtained through floating-point cancellation is insufficient.
+#[derive(Clone, Debug)]
+pub(crate) struct CoordinateConstraint {
+    /// Alias whose graph reachability determines whether this topology is used.
+    pub owner: Atom,
+    /// Nonzero only when the rank-deficient identity branch is selected.
+    pub active: Atom,
+    /// Raw-coordinate polynomial, without aliases or master dependence.
+    pub expression: Atom,
+    pub label: String,
+}
+
 /// An independent PV compiler for unit propagator powers in D=4-2epsilon.
 /// The returned tensors have four-dimensional Cartesian numerator indices.
 /// Values use the same native four Laurent slots as [`ScalarCompiler`].
@@ -43,15 +64,21 @@ pub struct PvCompiler {
     substitutions: Vec<Replacement>,
     numeric_kinematics: bool,
     alias_enabled: bool,
+    profile_preparation: bool,
     aliases: Vec<(Atom, Atom)>,
     scalar: ScalarCompiler,
     bubble_expansions: HashMap<(Vec<usize>, bool), ScalarCompiler>,
     analytic_jet_order: u16,
+    coordinate_identities: bool,
+    preparation_notes: Vec<String>,
+    coordinate_constraints: Vec<CoordinateConstraint>,
+    gram_scalar_product_transform: Option<Box<dyn FnMut(Atom) -> Atom>>,
     coefficients: HashMap<CoefficientKey, [Atom; 4]>,
     geometry: HashMap<Vec<usize>, Geometry>,
     moments: HashMap<(Vec<usize>, [u16; 4]), [Atom; 4]>,
     generated: HashMap<(Vec<usize>, u16), HashMap<Atom, [Atom; 4]>>,
     denominator_identities: HashMap<Vec<usize>, Vec<Atom>>,
+    five_point_relations: HashMap<Vec<usize>, Option<FivePointRelation>>,
     z: [Atom; 4],
 }
 
@@ -85,7 +112,9 @@ impl PvCompiler {
                     .collect()
             })
             .collect();
-        Self::with_distances(shifts, mass_squared, distances, alias_enabled)
+        let mut compiler = Self::with_distances(shifts, mass_squared, distances, alias_enabled)?;
+        compiler.coordinate_identities = true;
+        Ok(compiler)
     }
 
     /// Use prescribed squared distances, as required by IREGI's supplied
@@ -163,15 +192,21 @@ impl PvCompiler {
             substitutions,
             numeric_kinematics,
             alias_enabled,
+            profile_preparation: std::env::var_os("IREGI_PV_PREPARATION_PROFILE").is_some(),
             aliases,
             scalar,
             bubble_expansions: HashMap::new(),
             analytic_jet_order: 0,
+            coordinate_identities: false,
+            preparation_notes: Vec::new(),
+            coordinate_constraints: Vec::new(),
+            gram_scalar_product_transform: None,
             coefficients: HashMap::new(),
             geometry: HashMap::new(),
             moments: HashMap::new(),
             generated: HashMap::new(),
             denominator_identities: HashMap::new(),
+            five_point_relations: HashMap::new(),
             z: std::array::from_fn(|mu| Atom::var(symbolica::symbol!(format!("iregi::pv_z{mu}")))),
         })
     }
@@ -187,6 +222,42 @@ impl PvCompiler {
         Ok(())
     }
 
+    /// Permit identities derived from the supplied four-vector coordinates.
+    /// Enable only when invariants are derived from those same coordinates;
+    /// arbitrary authoritative scalar products do not satisfy this contract.
+    pub fn set_coordinate_identities(&mut self, enabled: bool) -> Result<(), String> {
+        if !self.moments.is_empty() || !self.coefficients.is_empty() {
+            return Err("set coordinate identity policy before compiling moments".into());
+        }
+        self.coordinate_identities = enabled;
+        Ok(())
+    }
+
+    /// Exact-domain limitations encountered while constructing this plan.
+    pub fn preparation_notes(&self) -> &[String] {
+        &self.preparation_notes
+    }
+
+    pub(crate) fn coordinate_constraints(&self) -> &[CoordinateConstraint] {
+        &self.coordinate_constraints
+    }
+
+    /// Override each raw `(p_i-p_origin) dot (p_j-p_origin)` used by PV
+    /// Gram matrices. Intended for explicit legacy on-shell snapping only;
+    /// the default and supplied-scalar-product interfaces preserve inputs.
+    /// Any aliases emitted by the transform must be registered before the
+    /// PV aliases, since a recurrence can depend on a transformed product.
+    pub fn set_gram_scalar_product_transform(
+        &mut self,
+        transform: impl FnMut(Atom) -> Atom + 'static,
+    ) -> Result<(), String> {
+        if !self.coefficients.is_empty() || !self.moments.is_empty() || !self.geometry.is_empty() {
+            return Err("set the PV Gram transform before compiling moments".into());
+        }
+        self.gram_scalar_product_transform = Some(Box::new(transform));
+        Ok(())
+    }
+
     /// Shared exact definitions in dependency order; empty for an inline compiler.
     pub fn aliases(&self) -> &[(Atom, Atom)] {
         if self.alias_enabled {
@@ -198,23 +269,37 @@ impl PvCompiler {
 
     fn cache_value(&mut self, values: [Atom; 4]) -> [Atom; 4] {
         if self.alias_enabled {
-            values.map(|body| {
-                if matches!(body.as_view(), AtomView::Num(_) | AtomView::Var(_)) {
-                    return body;
-                }
-                let alias = Atom::var(symbolica::symbol!(format!(
-                    "iregi::pv_node_{}",
-                    self.aliases.len()
-                )));
-                self.aliases.push((alias.clone(), body));
-                alias
-            })
+            values.map(|body| self.bind_alias(body))
         } else if self.numeric_kinematics {
             // Exact numeric coefficients collapse to a short master-linear sum.
-            values.map(|value| value.expand())
+            let started = self.profile_preparation.then(Instant::now);
+            let values = values.map(|value| value.expand());
+            if let Some(started) = started {
+                let elapsed = started.elapsed();
+                if elapsed.as_millis() >= 10 {
+                    eprintln!(
+                        "PV prepare exact master-linear expansion: {elapsed:?}, {} moments and {} coefficients cached",
+                        self.moments.len(),
+                        self.coefficients.len()
+                    );
+                }
+            }
+            values
         } else {
             values
         }
+    }
+
+    fn bind_alias(&mut self, body: Atom) -> Atom {
+        if !self.alias_enabled || matches!(body.as_view(), AtomView::Num(_) | AtomView::Var(_)) {
+            return body;
+        }
+        let alias = Atom::var(symbolica::symbol!(format!(
+            "iregi::pv_node_{}",
+            self.aliases.len()
+        )));
+        self.aliases.push((alias.clone(), body));
+        alias
     }
 
     pub fn leaves(&self) -> &[MasterLeaf] {
@@ -276,9 +361,54 @@ impl PvCompiler {
                 accumulate(&mut result, factor, &value);
             }
             result
+        } else if active.len() == 5 {
+            self.five_point_moment(active, exponents)?
         } else if rank == 0 {
             self.scalar(active)?
-        } else if active.len() == 5 {
+        } else {
+            self.generate_rank(active, rank)?;
+            let monomial = monomial(&self.z, &exponents);
+            let weighted = self.generated[&(active.to_vec(), rank)]
+                .get(&monomial)
+                .cloned()
+                .unwrap_or_else(zero);
+            let divisor =
+                factorial(rank) / exponents.iter().map(|&n| factorial(n)).product::<Atom>();
+            scale(&weighted, &(Atom::num(1) / divisor))
+        };
+        let result = self.cache_value(result);
+        self.moments.insert(key, result.clone());
+        Ok(result)
+    }
+
+    fn five_point_moment(
+        &mut self,
+        active: &[usize],
+        exponents: [u16; 4],
+    ) -> Result<[Atom; 4], String> {
+        let relation = if self.coordinate_identities {
+            self.five_point_constant_relation(active)?
+        } else {
+            None
+        };
+        let pinched = if let Some(relation) = &relation {
+            let mut value = zero();
+            for (i, coefficient) in relation.coefficients.iter().enumerate() {
+                if !coefficient.is_zero() {
+                    let child = self.moment(&without(active, i), exponents)?;
+                    accumulate(&mut value, coefficient, &child);
+                }
+            }
+            if relation.active == Atom::num(1) {
+                return Ok(value);
+            }
+            Some(value)
+        } else {
+            None
+        };
+        let ordinary = if exponents.iter().all(|&n| n == 0) {
+            self.scalar(active)?
+        } else {
             let g = self.geometry(active)?;
             let mu = exponents.iter().position(|&n| n > 0).unwrap();
             let mut rest = exponents;
@@ -297,20 +427,16 @@ impl PvCompiler {
                 accumulate(&mut result, &factor, &rhs);
             }
             result
-        } else {
-            self.generate_rank(active, rank)?;
-            let monomial = monomial(&self.z, &exponents);
-            let weighted = self.generated[&(active.to_vec(), rank)]
-                .get(&monomial)
-                .cloned()
-                .unwrap_or_else(zero);
-            let divisor =
-                factorial(rank) / exponents.iter().map(|&n| factorial(n)).product::<Atom>();
-            scale(&weighted, &(Atom::num(1) / divisor))
         };
-        let result = self.cache_value(result);
-        self.moments.insert(key, result.clone());
-        Ok(result)
+        Ok(
+            if let (Some(relation), Some(pinched)) = (relation, pinched) {
+                std::array::from_fn(|slot| {
+                    conditional(&relation.active, &pinched[slot], &ordinary[slot])
+                })
+            } else {
+                ordinary
+            },
+        )
     }
 
     /// Generate the polynomial integral of `(z_mu q^mu)^rank` and let
@@ -320,6 +446,10 @@ impl PvCompiler {
         if self.generated.contains_key(&key) {
             return Ok(());
         }
+        let _generation = PreparationTimer::new(
+            self.profile_preparation,
+            format_args!("rank polynomial {active:?}, rank {rank}"),
+        );
         let n = active.len();
         let origin = self.shifts[active[0]].clone();
         let translated: Vec<[Atom; 4]> = active[1..]
@@ -354,6 +484,12 @@ impl PvCompiler {
         }
         let mut collected: HashMap<Atom, [Atom; 4]> = HashMap::new();
         for slot in 0..4 {
+            let _collection = PreparationTimer::new(
+                self.profile_preparation,
+                format_args!(
+                    "polynomial coefficient collection {active:?}, rank {rank}, slot {slot}"
+                ),
+            );
             for (key, coefficient) in expression[slot].coefficient_list::<u16>(&self.z) {
                 collected.entry(key).or_insert_with(zero)[slot] = coefficient;
             }
@@ -598,20 +734,39 @@ impl PvCompiler {
             .iter()
             .map(|&i| std::array::from_fn(|mu| &self.shifts[i][mu] - &origin[mu]))
             .collect();
-        let rows = active[1..]
-            .iter()
-            .map(|&i| {
-                active[1..]
-                    .iter()
-                    .map(|&j| {
-                        &self.distances[active[0]][i] + &self.distances[active[0]][j]
-                            - &self.distances[i][j]
-                    })
-                    .collect()
-            })
-            .collect();
+        let rows = if let Some(transform) = &mut self.gram_scalar_product_transform {
+            // Original IREGI snaps dot products at this call site, before
+            // multiplying by two; reconstructing this matrix from separately
+            // snapped squared distances would give different semantics.
+            shifts
+                .iter()
+                .map(|p| {
+                    shifts
+                        .iter()
+                        .map(|q| Atom::num(2) * transform(dot(p, q)))
+                        .collect()
+                })
+                .collect()
+        } else {
+            active[1..]
+                .iter()
+                .map(|&i| {
+                    active[1..]
+                        .iter()
+                        .map(|&j| {
+                            &self.distances[active[0]][i] + &self.distances[active[0]][j]
+                                - &self.distances[i][j]
+                        })
+                        .collect()
+                })
+                .collect()
+        };
         let matrix =
             Matrix::from_nested_vec(rows, field()).map_err(|e| format!("PV Gram matrix: {e}"))?;
+        let _inverse = PreparationTimer::new(
+            self.profile_preparation,
+            format_args!("Gram inversion {active:?}"),
+        );
         let inverse = matrix
             .inv()
             .map_err(|e| format!("PV singular Gram matrix for {active:?}: {e:?}"))?;
@@ -631,10 +786,159 @@ impl PvCompiler {
         Ok(geometry)
     }
 
+    /// Rank-deficient pentagons can admit a constant denominator identity
+    /// even though their four-dimensional external Gram matrix is singular.
+    /// For generic coordinates, retain four lazy rank-three charts. A chart
+    /// is used only at exactly zero coordinate determinant: no small-number
+    /// projection or replacement by an approximate relation is made here.
+    fn five_point_constant_relation(
+        &mut self,
+        active: &[usize],
+    ) -> Result<Option<FivePointRelation>, String> {
+        if let Some(relation) = self.five_point_relations.get(active) {
+            return Ok(relation.clone());
+        }
+        let _relation = PreparationTimer::new(
+            self.profile_preparation,
+            format_args!("pentagon constant identity {active:?}"),
+        );
+        let origin = &self.shifts[active[0]];
+        let mut rows: Vec<Vec<Atom>> = (0..4)
+            .map(|mu| {
+                active[1..]
+                    .iter()
+                    .map(|&i| &self.shifts[i][mu] - &origin[mu])
+                    .collect()
+            })
+            .collect();
+        let _determinant = PreparationTimer::new(
+            self.profile_preparation,
+            format_args!("coordinate determinant {active:?}"),
+        );
+        let coordinate_determinant = Matrix::from_nested_vec(rows.clone(), field())
+            .map_err(|e| format!("PV pentagon coordinate matrix: {e}"))?
+            .det()
+            .map_err(|e| format!("PV pentagon coordinate determinant: {e:?}"))?;
+        drop(_determinant);
+        if matches!(coordinate_determinant.as_view(), AtomView::Num(_))
+            && !coordinate_determinant.is_zero()
+        {
+            self.five_point_relations.insert(active.to_vec(), None);
+            return Ok(None);
+        }
+        rows.push(self.f_values(active));
+        if coordinate_determinant.together().is_zero() {
+            // Structural identities remain exact under every allowed symbolic
+            // variation, so their full Dual jets require no primal projection.
+            let matrix = Matrix::from_nested_vec(rows, field())
+                .map_err(|e| format!("PV pentagon denominator matrix: {e}"))?;
+            let rhs = Matrix::new_vec(
+                vec![
+                    Atom::new(),
+                    Atom::new(),
+                    Atom::new(),
+                    Atom::new(),
+                    Atom::num(1),
+                ],
+                field(),
+            );
+            let relation = matrix.solve_any(&rhs).ok().map(|solution| {
+                let mut coefficients = vec![Atom::new()];
+                coefficients.extend((0..4).map(|i| solution[(i, 0)].clone()));
+                coefficients[0] = -coefficients[1..].iter().fold(Atom::new(), |sum, c| sum + c);
+                FivePointRelation {
+                    active: Atom::num(1),
+                    coefficients: coefficients
+                        .into_iter()
+                        .map(|c| self.bind_alias(c))
+                        .collect(),
+                }
+            });
+            self.five_point_relations
+                .insert(active.to_vec(), relation.clone());
+            return Ok(relation);
+        }
+        if self.analytic_jet_order > 0 {
+            let note = "Generic rank-three pentagon pinching is disabled for Dual layouts until every Taylor coefficient of the coordinate-rank constraint is certified; structurally exact rank-three families remain supported";
+            if !self.preparation_notes.iter().any(|value| value == note) {
+                self.preparation_notes.push(note.into());
+            }
+            self.five_point_relations.insert(active.to_vec(), None);
+            return Ok(None);
+        }
+        let mut charts = Vec::new();
+        for omitted in 0..4 {
+            let _chart = PreparationTimer::new(
+                self.profile_preparation,
+                format_args!("pentagon constant chart {active:?}, omitted row {omitted}"),
+            );
+            let chart_rows = rows
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| *i != omitted)
+                .map(|(_, row)| row.clone())
+                .collect();
+            let matrix = Matrix::from_nested_vec(chart_rows, field())
+                .map_err(|e| format!("PV pentagon constant-identity chart: {e}"))?;
+            let determinant = matrix
+                .det()
+                .map_err(|e| format!("PV pentagon constant-identity determinant: {e:?}"))?;
+            if determinant.is_zero() {
+                continue;
+            }
+            let rhs = Matrix::new_vec(
+                vec![Atom::new(), Atom::new(), Atom::new(), Atom::num(1)],
+                field(),
+            );
+            let solution = matrix
+                .solve(&rhs)
+                .map_err(|e| format!("PV pentagon constant-identity solve: {e:?}"))?;
+            let mut coefficients = vec![Atom::new()];
+            coefficients.extend((0..4).map(|i| solution[(i, 0)].clone()));
+            coefficients[0] = -coefficients[1..].iter().fold(Atom::new(), |sum, c| sum + c);
+            charts.push((self.bind_alias(determinant), coefficients));
+        }
+        let mut available = Atom::new();
+        let mut coefficients = vec![Atom::new(); 5];
+        for (determinant, candidate) in charts.into_iter().rev() {
+            available = conditional(&determinant, &Atom::num(1), &available);
+            for (coefficient, value) in coefficients.iter_mut().zip(candidate) {
+                *coefficient = conditional(&determinant, &value, coefficient);
+            }
+        }
+        let relation = if available.is_zero() {
+            None
+        } else {
+            let determinant_alias = self.bind_alias(coordinate_determinant.clone());
+            let enabled = conditional(&determinant_alias, &Atom::new(), &available);
+            let enabled = self.bind_alias(enabled);
+            self.coordinate_constraints.push(CoordinateConstraint {
+                owner: enabled.clone(),
+                active: enabled.clone(),
+                expression: coordinate_determinant,
+                label: format!("rank-three pentagon coordinate identity {active:?}"),
+            });
+            Some(FivePointRelation {
+                active: enabled,
+                coefficients: coefficients
+                    .into_iter()
+                    .map(|c| self.bind_alias(c))
+                    .collect(),
+            })
+        };
+        self.five_point_relations
+            .insert(active.to_vec(), relation.clone());
+        Ok(relation)
+    }
+
     pub(crate) fn denominator_identity(&mut self, active: &[usize]) -> Result<Vec<Atom>, String> {
         if let Some(factors) = self.denominator_identities.get(active) {
             return Ok(factors.clone());
         }
+        let _identity = PreparationTimer::new(
+            self.profile_preparation,
+            format_args!("high-point denominator identity {active:?}"),
+        );
         let origin = &self.shifts[active[0]];
         let relative: Vec<[Atom; 4]> = active[1..]
             .iter()
@@ -644,8 +948,6 @@ impl PvCompiler {
             .map(|mu| relative.iter().map(|p| p[mu].clone()).collect())
             .collect();
         rows.push(self.f_values(active));
-        let matrix = Matrix::from_nested_vec(rows, field())
-            .map_err(|e| format!("PV denominator system: {e}"))?;
         let rhs = Matrix::new_vec(
             vec![
                 Atom::new(),
@@ -656,6 +958,79 @@ impl PvCompiler {
             ],
             field(),
         );
+        // A generic seven-point system has six possible five-column bases.
+        // One symbolic pivot choice can vanish on an otherwise regular lane.
+        // Keep all bases and select them lazily by their exact determinants.
+        // On overlaps the identities agree as functions of q, including Dual
+        // jets; changing the algebraic chart is not a physical branch change.
+        let symbolic_seven = active.len() == 7
+            && rows
+                .iter()
+                .flatten()
+                .any(|a| !matches!(a.as_view(), AtomView::Num(_)));
+        if symbolic_seven {
+            let mut charts = Vec::new();
+            for omitted in (0..6).rev() {
+                let _chart = PreparationTimer::new(
+                    self.profile_preparation,
+                    format_args!("seven-point chart {active:?}, omitted column {omitted}"),
+                );
+                let columns: Vec<_> = (0..6).filter(|&i| i != omitted).collect();
+                let matrix = Matrix::from_nested_vec(
+                    rows.iter()
+                        .map(|row| columns.iter().map(|&i| row[i].clone()).collect())
+                        .collect(),
+                    field(),
+                )
+                .map_err(|e| format!("PV denominator chart: {e}"))?;
+                let _determinant = PreparationTimer::new(
+                    self.profile_preparation,
+                    format_args!("seven-point chart determinant"),
+                );
+                let determinant = matrix
+                    .det()
+                    .map_err(|e| format!("PV denominator chart determinant: {e:?}"))?;
+                drop(_determinant);
+                if determinant.is_zero() {
+                    continue;
+                }
+                let _solve = PreparationTimer::new(
+                    self.profile_preparation,
+                    format_args!("seven-point chart solve"),
+                );
+                let solution = matrix
+                    .solve(&rhs)
+                    .map_err(|e| format!("PV denominator chart solution: {e:?}"))?;
+                drop(_solve);
+                let mut factors = vec![Atom::new(); active.len()];
+                for (i, &column) in columns.iter().enumerate() {
+                    factors[column + 1] = solution[(i as u32, 0)].clone();
+                }
+                factors[0] = -factors[1..]
+                    .iter()
+                    .fold(Atom::new(), |sum, value| sum + value);
+                charts.push((self.bind_alias(determinant), factors));
+            }
+            if let Some((_, mut factors)) = charts.pop() {
+                // If every chart is singular, the final chart still has an
+                // active zero denominator. Runtime guards reject that lane.
+                // Returning zero here would incorrectly report success.
+                for (determinant, candidate) in charts.into_iter().rev() {
+                    for (factor, candidate) in factors.iter_mut().zip(candidate) {
+                        *factor = conditional(&determinant, &candidate, factor);
+                    }
+                }
+                let factors: Vec<_> = factors
+                    .into_iter()
+                    .map(|factor| self.bind_alias(factor))
+                    .collect();
+                self.denominator_identities
+                    .insert(active.to_vec(), factors.clone());
+                return Ok(factors);
+            }
+        }
+        let matrix = Matrix::from_nested_vec(rows, field())
+            .map_err(|e| format!("PV denominator system: {e}"))?;
         let solution = matrix
             .solve_any(&rhs)
             .map_err(|e| format!("PV degenerate denominator identity: {e:?}"))?;
@@ -669,6 +1044,36 @@ impl PvCompiler {
         self.denominator_identities
             .insert(active.to_vec(), factors.clone());
         Ok(factors)
+    }
+}
+
+struct PreparationTimer {
+    started: Option<Instant>,
+    label: String,
+}
+
+impl PreparationTimer {
+    fn new(enabled: bool, label: std::fmt::Arguments<'_>) -> Self {
+        let label = if enabled {
+            label.to_string()
+        } else {
+            String::new()
+        };
+        if enabled {
+            eprintln!("PV prepare begin {label}");
+        }
+        Self {
+            started: enabled.then(Instant::now),
+            label,
+        }
+    }
+}
+
+impl Drop for PreparationTimer {
+    fn drop(&mut self) {
+        if let Some(started) = self.started {
+            eprintln!("PV prepare end {}: {:?}", self.label, started.elapsed());
+        }
     }
 }
 
@@ -1207,6 +1612,265 @@ mod tests {
     }
 
     #[test]
+    fn seven_point_chart_switch_preserves_identity_and_dual_jet() {
+        use symbolica::{
+            domains::{dual::HyperDual, float::Complex, rational::Rational},
+            evaluate::{Dualizer, ExpressionEvaluator},
+        };
+        let x = Atom::var(symbolica::symbol!("iregi::pv_chart_mass_offset"));
+        let shifts = exact_shifts(&[
+            [0, 0, 0, 0],
+            [0, 1, 0, 0],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1],
+            [1, 0, 0, 0],
+            [1, 1, 1, 1],
+            [2, 3, 5, 7],
+        ]);
+        let mut masses: Vec<_> = [4, 9, 16, 25, 36, 74, 64]
+            .into_iter()
+            .map(Atom::num)
+            .collect();
+        masses[5] = &masses[5] + &x;
+        let mut compiler = PvCompiler::with_aliases(shifts.clone(), masses.clone()).unwrap();
+        let mut first_rows: Vec<Vec<Atom>> = (0..4)
+            .map(|mu| shifts[1..6].iter().map(|p| p[mu].clone()).collect())
+            .collect();
+        first_rows.push(compiler.f_values(&[0, 1, 2, 3, 4, 5]));
+        let first_determinant = Matrix::from_nested_vec(first_rows, field())
+            .unwrap()
+            .det()
+            .unwrap();
+        assert!(
+            first_determinant
+                .replace(x.clone())
+                .with(Atom::new())
+                .is_zero()
+        );
+        assert!(
+            !first_determinant
+                .replace(x.clone())
+                .with(Atom::num(1))
+                .is_zero()
+        );
+        let factors = compiler
+            .denominator_identity(&(0..7).collect::<Vec<_>>())
+            .unwrap();
+        // At x=0, the first five columns have a homogeneous denominator
+        // relation, so their chart is singular and cannot produce 1. The last
+        // propagator restores the rank and must enter an alternative chart.
+        let mut expressions = factors.clone();
+        expressions.push(factors.iter().fold(Atom::new(), |sum, c| sum + c));
+        for mu in 0..4 {
+            expressions.push((0..7).fold(Atom::new(), |sum, i| sum + &factors[i] * &shifts[i][mu]));
+        }
+        expressions.push((0..7).fold(Atom::new(), |sum, i| {
+            sum + &factors[i] * (dot(&shifts[i], &shifts[i]) - &masses[i])
+        }));
+        let exact: ExpressionEvaluator<Complex<Rational>> =
+            Atom::evaluator_multiple(&expressions, &[x])
+                .add_aliases(compiler.aliases().iter().cloned())
+                .unwrap()
+                .direct_translation(true)
+                .horner_iterations(0)
+                .cores(1)
+                .build()
+                .unwrap();
+        let exact = exact
+            .vectorize(&Dualizer::new(
+                HyperDual::<f64>::new(vec![vec![0], vec![1]]),
+                vec![],
+            ))
+            .unwrap();
+        let mut evaluator = exact.map_coeff(&|a| f64::from(a.re.clone()));
+        for mass_offset in [0., 1., -2.] {
+            let mut output = vec![0.; expressions.len() * 2];
+            evaluator.evaluate(&[mass_offset, 1.], &mut output);
+            assert!(output.iter().all(|value| value.is_finite()));
+            if mass_offset == 0. {
+                assert!(output[6 * 2].abs() > 1e-5, "alternate chart was not used");
+            }
+            for identity in 7..expressions.len() {
+                let expected = if identity + 1 == expressions.len() {
+                    1.
+                } else {
+                    0.
+                };
+                assert!((output[identity * 2] - expected).abs() < 1e-12);
+                assert!(output[identity * 2 + 1].abs() < 1e-12);
+            }
+        }
+    }
+
+    #[test]
+    fn planar_pentagon_all_rank_seven_moments_obey_independent_box_identity() {
+        let shifts = exact_shifts(&[
+            [0, 0, 0, 0],
+            [0, 1, 0, 0],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1],
+            [0, 1, 1, 1],
+        ]);
+        let masses = [4, 9, 16, 25, 36].into_iter().map(Atom::num).collect();
+        let mut compiler = PvCompiler::new(shifts, masses).unwrap();
+        let active = [0, 1, 2, 3, 4];
+        // Independently expanding these particular denominators gives
+        // 2 D0 - D1 - D2 - D3 + D4 = 6, for every loop momentum.
+        let weights = [2, -1, -1, -1, 1];
+        for monomial in crate::basis::tensor_basis(7) {
+            let actual = compiler.compile_moment(monomial.0).unwrap();
+            let mut expected = zero();
+            for (i, weight) in weights.into_iter().enumerate() {
+                let box_moment = compiler.moment(&without(&active, i), monomial.0).unwrap();
+                accumulate(
+                    &mut expected,
+                    &(Atom::num(weight) / Atom::num(6)),
+                    &box_moment,
+                );
+            }
+            for slot in 0..4 {
+                assert!(
+                    (&actual[slot] - &expected[slot]).together().is_zero(),
+                    "{monomial:?}, slot {slot}"
+                );
+            }
+        }
+        assert!(compiler.leaves().iter().all(|leaf| leaf.active.len() <= 4));
+    }
+
+    #[test]
+    fn generic_planar_pentagon_branch_is_lazy_and_preserves_ordinary_points() {
+        use symbolica::{
+            domains::{float::Complex, rational::Rational},
+            evaluate::ExpressionEvaluator,
+        };
+        let x = Atom::var(symbolica::symbol!("iregi::pv_planar_departure"));
+        let points = [
+            [0, 0, 0, 0],
+            [0, 1, 0, 0],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1],
+            [0, 1, 1, 1],
+        ];
+        let mut shifts = exact_shifts(&points);
+        shifts[4][0] = x.clone();
+        let masses: Vec<_> = [4, 9, 16, 25, 36].into_iter().map(Atom::num).collect();
+        let basis = crate::basis::tensor_basis(2);
+        let mut compiler = PvCompiler::with_aliases(shifts.clone(), masses.clone()).unwrap();
+        let expressions: Vec<_> = basis
+            .iter()
+            .flat_map(|m| compiler.compile_moment(m.0).unwrap())
+            .collect();
+        let mut parameters = vec![x.clone()];
+        parameters.extend(
+            compiler
+                .leaves()
+                .iter()
+                .flat_map(|leaf| leaf.slots.iter().cloned()),
+        );
+        let exact: ExpressionEvaluator<Complex<Rational>> =
+            Atom::evaluator_multiple(&expressions, &parameters)
+                .add_aliases(compiler.aliases().iter().cloned())
+                .unwrap()
+                .direct_translation(true)
+                .horner_iterations(0)
+                .cores(1)
+                .build()
+                .unwrap();
+        let mut evaluator = exact.map_coeff(&|value| {
+            Complex::new(f64::from(value.re.clone()), f64::from(value.im.clone()))
+        });
+        let mut inputs: Vec<_> = (0..parameters.len())
+            .map(|i| Complex::new(1. / (i as f64 + 1.), 1. / (i as f64 + 3.)))
+            .collect();
+        // At +/-1, a three-vector box pinch has a null Gram matrix. Use
+        // +/-2 to compare against ordinary points with regular descendants.
+        for departure in [0, 2, -2] {
+            inputs[0] = Complex::new(f64::from(departure), 0.);
+            let mut exact_points = points;
+            exact_points[4][0] = departure;
+            let mut independent =
+                PvCompiler::with_aliases(exact_shifts(&exact_points), masses.clone()).unwrap();
+            let roots: Vec<_> = basis
+                .iter()
+                .flat_map(|m| independent.compile_moment(m.0).unwrap())
+                .collect();
+            let expected: ExpressionEvaluator<Complex<Rational>> =
+                Atom::evaluator_multiple(&roots, &parameters)
+                    .add_aliases(independent.aliases().iter().cloned())
+                    .unwrap()
+                    .direct_translation(true)
+                    .horner_iterations(0)
+                    .cores(1)
+                    .build()
+                    .unwrap();
+            let mut expected = expected.map_coeff(&|value| {
+                Complex::new(f64::from(value.re.clone()), f64::from(value.im.clone()))
+            });
+            let mut actual = vec![Complex::new(0., 0.); roots.len()];
+            let mut reference = actual.clone();
+            evaluator.evaluate(&inputs, &mut actual);
+            expected.evaluate(&inputs, &mut reference);
+            for (slot, (a, b)) in actual.iter().zip(reference).enumerate() {
+                assert!(
+                    a.re.is_finite() && a.im.is_finite(),
+                    "departure {departure}, slot {slot}"
+                );
+                assert!(
+                    (a.re - b.re).abs() < 1e-10 * (1. + b.re.abs())
+                        && (a.im - b.im).abs() < 1e-10 * (1. + b.im.abs()),
+                    "departure {departure}, slot {slot}: {a:?} vs {b:?}"
+                );
+            }
+        }
+        let mut dual = PvCompiler::with_aliases(shifts, masses).unwrap();
+        dual.set_analytic_jet_order(1).unwrap();
+        assert!(
+            dual.five_point_constant_relation(&[0, 1, 2, 3, 4])
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            dual.preparation_notes()
+                .iter()
+                .any(|note| note.contains("every Taylor coefficient"))
+        );
+    }
+
+    #[test]
+    fn gram_transform_uses_raw_products_at_each_origin() {
+        use std::{cell::RefCell, rc::Rc};
+        let mut compiler = PvCompiler::with_distances(
+            exact_shifts(&[[1, 0, 0, 0], [1, 1, 0, 0], [1, 0, 2, 0]]),
+            vec![Atom::num(4); 3],
+            vec![
+                vec![Atom::new(), Atom::num(-1), Atom::num(-1)],
+                vec![Atom::num(-1), Atom::new(), Atom::num(-1)],
+                vec![Atom::num(-1), Atom::num(-1), Atom::new()],
+            ],
+            false,
+        )
+        .unwrap();
+        let products = Rc::new(RefCell::new(Vec::new()));
+        let captured = products.clone();
+        compiler
+            .set_gram_scalar_product_transform(move |raw| {
+                captured.borrow_mut().push(raw.clone());
+                raw + Atom::num(1)
+            })
+            .unwrap();
+        compiler.geometry(&[0, 1, 2]).unwrap();
+        let changed_origin = compiler.geometry(&[1, 2]).unwrap();
+        assert_eq!(*products.borrow(), [-1, 0, 0, -4, -5].map(Atom::num));
+        assert!(
+            (&changed_origin.inverse_z[0][0] + Atom::num(1) / Atom::num(8))
+                .together()
+                .is_zero()
+        );
+        assert!(compiler.set_gram_scalar_product_transform(|a| a).is_err());
+    }
+
+    #[test]
     fn singular_six_point_subspace_is_an_explicit_error() {
         // Retained from the initial oracle corpus: a null transverse subspace
         // makes a four-denominator pinch Gram matrix singular. Pure PV must
@@ -1245,14 +1909,64 @@ mod tests {
         ];
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let mut failures = Vec::new();
-        for (n, translation) in (1..=7).map(|n| (n, [0, 0, 0, 0])).chain([
-            (2, [1, -2, 3, -1]),
-            (3, [1, -2, 3, -1]),
-            (5, [1, -2, 3, -1]),
-        ]) {
-            let points = base_points.map(|p| std::array::from_fn(|mu| p[mu] + translation[mu]));
-            let max_rank = 7;
-            let masses: Vec<i32> = (0..n).map(|i| (i as i32 + 2).pow(2)).collect();
+        let selected_n: Vec<usize> = std::env::var("IREGI_PV_ORACLE_N")
+            .map(|s| {
+                s.split(',')
+                    .map(|v| v.parse().expect("IREGI_PV_ORACLE_N must contain integers"))
+                    .collect()
+            })
+            .unwrap_or_else(|_| (1..=7).collect());
+        assert!(selected_n.iter().all(|&n| (1..=7).contains(&n)));
+        let variants: Vec<String> = std::env::var("IREGI_PV_ORACLE_VARIANT")
+            .unwrap_or_else(|_| "base,translated,order_reversed,loop_reversed".into())
+            .split(',')
+            .map(str::to_owned)
+            .collect();
+        assert!(variants.iter().all(|v| {
+            ["base", "translated", "order_reversed", "loop_reversed"].contains(&v.as_str())
+        }));
+        let max_rank = std::env::var("IREGI_PV_ORACLE_RANK")
+            .map(|v| v.parse::<u16>().expect("rank must be an integer"))
+            .unwrap_or(7);
+        assert!(max_rank <= 7);
+        let output_dir = root.join("validation/pv-high-rank/oracle-runs");
+        std::fs::create_dir_all(&output_dir).unwrap();
+        for (n, variant) in selected_n
+            .into_iter()
+            .flat_map(|n| variants.iter().map(move |variant| (n, variant)))
+        {
+            let translation = if variant == "translated" {
+                [1, -2, 3, -1]
+            } else {
+                [0, 0, 0, 0]
+            };
+            let mut points: Vec<_> = base_points[..n]
+                .iter()
+                .map(|p| std::array::from_fn(|mu| p[mu] + translation[mu]))
+                .collect();
+            let mut masses: Vec<i32> = (0..n).map(|i| (i as i32 + 2).pow(2)).collect();
+            if variant == "order_reversed" {
+                points.reverse();
+                masses.reverse();
+            }
+            if variant == "loop_reversed" {
+                for p in &mut points {
+                    for component in p {
+                        *component = -*component;
+                    }
+                }
+            }
+            let record_path = output_dir.join(format!("n{n}-{variant}-rank{max_rank}.json"));
+            let mut record = serde_json::json!({"propagators":n,"variant":variant,"rank":max_rank,"shifts":points,"mass_squared":masses,"mu":3,"tolerance":"1e-10 mixed after dimensional normalization","status":"started",
+                "rust_evaluation":"Exact numeric-specialized Symbolica PV coefficients evaluated in binary64 with original Fortran scalar master leaves; not the public Rust Workspace or native Rust masters",
+                "reference_evaluation":"Original IREGI IBP, complete tensor array",
+                "normalization":"Native IREGI; UV, IR single, IR double, finite"});
+            std::fs::write(
+                &record_path,
+                serde_json::to_string_pretty(&record).unwrap() + "\n",
+            )
+            .unwrap();
+            eprintln!("PV oracle preparing n={n} variant={variant} rank={max_rank}");
             let mut compiler = PvCompiler::new(
                 exact_shifts(&points[..n]),
                 masses.iter().copied().map(Atom::num).collect(),
@@ -1261,14 +1975,26 @@ mod tests {
             let basis = crate::basis::tensor_basis(max_rank);
             let compiled = basis
                 .iter()
-                .map(|m| compiler.compile_moment(m.0))
+                .enumerate()
+                .map(|(index, m)| {
+                    if index == 0 || basis[index - 1].rank() != m.rank() {
+                        eprintln!("PV oracle n={n} variant={variant}: preparing rank {} at moment {index}/{}", m.rank(), basis.len());
+                    }
+                    compiler.compile_moment(m.0)
+                })
                 .collect::<Result<Vec<_>, _>>();
             let compiled = match compiled {
                 Ok(compiled) => compiled,
                 Err(error) => {
-                    failures.push(format!(
-                        "n={n} translation={translation:?}: preparation failed: {error}"
-                    ));
+                    let failure = format!("n={n} variant={variant}: preparation failed: {error}");
+                    failures.push(failure.clone());
+                    record["status"] = serde_json::json!("preparation_failed");
+                    record["failure"] = serde_json::json!(failure);
+                    std::fs::write(
+                        &record_path,
+                        serde_json::to_string_pretty(&record).unwrap() + "\n",
+                    )
+                    .unwrap();
                     continue;
                 }
             };
@@ -1312,11 +2038,23 @@ mod tests {
                 })
                 .collect();
             eprintln!(
-                "PV oracle n={n} rank={max_rank} translation={translation:?}: {} master leaves",
+                "PV oracle n={n} rank={max_rank} variant={variant}: {} master leaves",
                 compiler.leaves().len()
             );
             assert_eq!(results.len(), compiler.leaves().len() + 1);
-            assert_eq!(results["target"]["stable"], true, "reference topology {n}");
+            record["reference"] = results["target"].clone();
+            if results["target"]["stable"] != true {
+                record["status"] = serde_json::json!("reference_unstable");
+                std::fs::write(
+                    &record_path,
+                    serde_json::to_string_pretty(&record).unwrap() + "\n",
+                )
+                .unwrap();
+                failures.push(format!(
+                    "n={n} variant={variant}: original IBP reports instability"
+                ));
+                continue;
+            }
             // Compare dimensionless values at the unchanged 1e-10 mixed
             // tolerance. A rank-r N-point tensor has mass dimension r+4-2N.
             let mut scale_squared = masses
@@ -1332,6 +2070,10 @@ mod tests {
             }
             let failures_before = failures.len();
             let mut max_scaled_error = 0.0_f64;
+            let mut discrepancy_rows = Vec::new();
+            let mut actual_moments: Vec<[[String; 2]; 4]> = (0..basis.len())
+                .map(|_| std::array::from_fn(|_| std::array::from_fn(|_| String::new())))
+                .collect();
             for component in 0..2 {
                 let mut values: HashMap<Atom, f64> = HashMap::new();
                 for (i, leaf) in compiler.leaves().iter().enumerate() {
@@ -1353,17 +2095,38 @@ mod tests {
                             .as_f64()
                             .unwrap()
                             / unit;
+                        actual_moments[i][slot][component] = format!("{actual:.17e}");
                         let scaled_error = (actual - expected).abs() / (1. + expected.abs());
                         max_scaled_error = max_scaled_error.max(scaled_error);
-                        if !actual.is_finite() || scaled_error >= 1e-10 {
+                        if !actual.is_finite()
+                            || !expected.is_finite()
+                            || !scaled_error.is_finite()
+                            || scaled_error >= 1e-10
+                        {
                             failures.push(format!(
-                                "n={n} translation={translation:?} monomial={:?} slot={slot} component={component} normalized actual={actual:.16e} expected={expected:.16e}",basis[i]));
+                                "n={n} variant={variant} monomial={:?} slot={slot} component={component} normalized actual={actual:.16e} expected={expected:.16e}",basis[i]));
+                            discrepancy_rows.push(serde_json::json!({"moment":i,"monomial":basis[i].0,"slot":slot,"component":component,"actual_normalized":format!("{actual:.17e}"),"expected_normalized":format!("{expected:.17e}"),"mixed_error":format!("{scaled_error:.17e}")}));
                         }
                     }
                 }
             }
+            record["status"] = serde_json::json!(if discrepancy_rows.is_empty() {
+                "passed"
+            } else {
+                "failed"
+            });
+            record["moments"] = serde_json::json!(basis.len());
+            record["master_leaves"] = serde_json::json!(compiler.leaves().len());
+            record["rust_original_master_moments_normalized"] = serde_json::json!(actual_moments);
+            record["max_mixed_error"] = serde_json::json!(format!("{max_scaled_error:.17e}"));
+            record["discrepancies"] = serde_json::json!(discrepancy_rows);
+            std::fs::write(
+                &record_path,
+                serde_json::to_string_pretty(&record).unwrap() + "\n",
+            )
+            .unwrap();
             eprintln!(
-                "PV oracle n={n} translation={translation:?}: {} failures, maximum normalized mixed error {max_scaled_error:.8e}",
+                "PV oracle n={n} variant={variant}: {} failures, maximum normalized mixed error {max_scaled_error:.8e}",
                 failures.len() - failures_before
             );
         }

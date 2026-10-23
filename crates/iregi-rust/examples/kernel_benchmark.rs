@@ -146,6 +146,7 @@ fn run(request: &Request, prepared: &mut Option<Prepared>) -> Result<Value, Stri
     let stats = prepared.workspace.last_execution();
     Ok(json!({
         "id": request.id, "precision": "binary64", "plan_reused": reused,
+        "master_backend": format!("{:?}", iregi_masters::default_master_backend()),
         "preparation_ns": preparation_ns, "degrees": prepared.degrees,
         "stable": every_call_successful, "lanes": lanes, "total_ns": totals,
         "profiled": request.profile,
@@ -156,6 +157,7 @@ fn run(request: &Request, prepared: &mut Option<Prepared>) -> Result<Value, Stri
         "execution": {
             "input_rows": stats.input_rows, "argument_rows": stats.argument_rows,
             "master_family_batches": stats.master_family_batches, "master_rows": stats.master_rows,
+            "pentagon_box_rows": stats.pentagon_box_rows,
             "reduction_rows": stats.reduction_rows, "fallback_rows": stats.fallback_rows,
             "fallback_successes": stats.fallback_successes, "analytic_rows": stats.analytic_rows,
         },

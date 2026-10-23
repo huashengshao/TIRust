@@ -17,6 +17,7 @@ as successful cases.
 | `iregi-masters` | Instruction-major oneloopmaster evaluation with separated UV/IR poles and Dual components |
 | `iregi-prepare` | FeynKit DOT/model import, Feynman rules, Idenso/Spenso contractions and Symbolica polynomial extraction |
 | `iregi-cli` | The standalone `iregi-rust` binary |
+| `feynkit-integrals` | Graph-independent affine partial fractions extracted from the pinned FeynKit source; planner integration is pending |
 
 The reduction library does not depend on graph preparation, Python, MadGraph or
 Fortran. Reference builds and generated physical-process code stay under
@@ -37,7 +38,8 @@ cargo run --release -p iregi-cli -- run examples/graphs/triangle.dot \
   --precision float --bits 256
 ```
 
-Quote decimal inputs to retain their precision. See the
+Quote kinematic decimal inputs to preserve their precision. The comparison
+fixture reader also preserves JSON number tokens exactly. See the
 [CLI documentation](crates/iregi-cli/README.md) for batch JSON, complex squared
 masses, physical numerator preparation, and reference comparisons. Dependencies
 and exact revisions are pinned in `Cargo.toml` and `Cargo.lock`. Symbolica's
@@ -86,6 +88,33 @@ working precision. Independent workspaces own their numerical scratch storage.
 `ReductionPlan::input_layout()` describes the exact argument ranges. Supplied
 invariants are authoritative; Cartesian shifts still specify tensor components.
 
+For generalized scalar integrals, `ScalarReductionPlan`,
+`ScalarKinematicsBatch` and `ScalarWorkspace` accept only the packed scalar
+products, squared masses and scale. Set rank zero in `ReductionSettings` and
+choose the desired positive propagator powers and dimension shift. No momentum
+coordinates are required. This interface uses the same batch executor and
+supports the same ordinary and Dual numeric types.
+These ordinary interfaces reject supplied-scalar-product inputs with six or more
+propagators. Their high-point identities require four-dimensional Gram
+constraints in every Taylor component. Coordinate-input topologies remain
+available. The experimental `CertifiedScalarReductionPlan` and
+`CertifiedScalarWorkspace` check those constraints before rank-zero IBP reduction
+with six or seven propagators. The certificate tests pass, but the integrated
+six-point wrapper exceeded a 90-second preparation limit and remains unqualified.
+
+Derived scalar invariants are checked before selecting analytic branches or
+evaluating masters. Exact represented-input polynomial checks prevent a rounded
+zero from selecting a scaleless formula. Relative conditioning estimates also
+detect severe cancellation in nonzero invariants, including Taylor components
+and mixed input precisions. A rejected lane returns `Unstable` and can be retried
+through precision rescue; the conditioning estimates are not certified error
+bounds.
+
+Plans cache exact prepared instructions separately for each ordered Dual shape.
+Workspaces at different precisions share this symbolic preparation while mapping
+constants directly into their own numeric domain and retaining separate scratch
+buffers. Numerical sample results are never stored in that cache.
+
 `PrecisionRescueWorkspace` provides an optional accuracy check and recovery
 path. Its default settings retry unstable samples together at 128 and 256 bits,
 require every Laurent and Taylor component to converge, and only then round to
@@ -109,8 +138,11 @@ cargo test --workspace -- --test-threads=1
 typst compile docs/benchmark.typ docs/benchmark.pdf
 ```
 
-Tests using Symbolica must respect the installed license's process-concurrency
-limit. Independent validation procedures and conventions are documented in
+Tests using Symbolica must respect the installed license's process and thread
+limits. The cold concurrent plan-preparation test is ignored because it requires
+a multithread-enabled Symbolica license; preparing a variant first allows the
+separate concurrent cache-lookup test to use only Rust synchronization.
+Independent validation procedures and conventions are documented in
 [validation/reference](validation/reference/README.md),
 [validation/physical](validation/physical/README.md), and
 [validation/pv-high-rank](validation/pv-high-rank/README.md).

@@ -8,8 +8,11 @@ cargo run -p iregi-cli -- reduce --input examples/inputs/bubble.json --rank 2 --
 cargo run -p iregi-cli -- run examples/graphs/bubble.dot --model fixtures/models/phi3.json --input examples/inputs/bubble.json
 cargo run -p iregi-cli -- run examples/graphs/triangle.dot --model fixtures/models/phi3.json --input examples/inputs/triangle.json --precision dd
 cargo run -p iregi-cli -- reduce --input examples/inputs/bubble.json --precision float --bits 192
+cargo run -p iregi-cli -- reduce --input examples/inputs/bubble.json --precision float --bits 128 --accuracy-bits 53
 cargo run -p iregi-cli -- reduce --input examples/inputs/bubble-scalar-products.json --algorithm pv
 cargo run -p iregi-cli -- compare --fixtures validation/reference/fixtures.json
+cargo run -p iregi-cli -- compare --case C0_power2_1_1_rank2 --algorithm ibp --rescue
+cargo run -p iregi-cli -- compare --fixtures validation/reference/snapping/reductions.json --case bubble_near_mass_mode1
 ```
 
 `prepare` uses FeynKit, Spenso, Idenso and Symbolica to return exact numerator
@@ -19,24 +22,71 @@ external states, and `--component 0,0` when selecting residual tensor axes.
 
 `reduce` and `run` accept a single sample or `{"samples":[...]}`. Each sample
 contains `propagators`, `mu`, and optionally `id`, `rank`, `dimension_shift`,
-`scalar_products`, and `parameters`. A propagator contains four `shift` components and `mass_squared`
+`scalar_products`, `snap`, `threshold`, and `parameters`. A propagator contains four `shift` components and `mass_squared`
 (either a real string or a pair of real/imaginary strings), with optional
 positive integer `power` and graph `edge_id`. All kinematic numbers must be
 quoted; bare JSON numbers are reserved for the captured binary64 reference
 fixtures used by `compare`. Decimal strings go directly through Symbolica at
 the requested precision, and strings such as `"1/3"` use exact rational parsing.
+Decimal negative zero retains its sign.
+
+`--accuracy-bits N` sets the core's accuracy parameter independently of working
+precision. Its nominal tolerance is `2^(19-N)`; for example, `N=53` gives about
+`5.82e-11`. It must be positive and no greater than the output precision. Omitting
+the option retains the existing default, which uses the output precision.
+This target governs numerical stability checks, not a certified error bound.
+The separate `compare --tolerance` controls agreement with reference fixtures.
+
+`--rescue` independently verifies every successful or unstable tensor lane at
+two higher precisions, then rounds converged results back to the output type.
+For binary64 and DoubleFloat the defaults are 128 and 256 bits. For arbitrary
+precision, the first rescue precision is the next power of two above the output
+precision, at least 128 bits; verification uses twice that precision.
+`--rescue-bits` and `--verification-bits` override these choices and require
+`output bits < rescue bits < verification bits`. Invalid input and unsupported
+master domains remain failures.
+
+Rescue promotes the already parsed input exactly; it cannot recover decimal
+digits rounded during binary64 parsing. Use `--precision float` to parse the
+original decimal strings at higher precision. Verification covers tensor
+moments. Numerator coefficients and contraction run at output precision and are
+not independently verified by tensor rescue.
 
 The input `dimension_shift` is the full even offset in
 `D=4+dimension_shift-2*epsilon`; the CLI translates this to the core's half-shift
-convention. A batch shares topology, powers, dimension shift, and requested rank
+convention. A batch shares topology, powers, dimension shift, requested rank,
+and snapping policy/threshold
 while every sample may have different shifts, masses, scale and parameters.
 The metric is `(+---)`, shifts are `(time,x,y,z)`, and `mu` is the scale, not its
-square. Inputs are preserved; legacy `snap=true` is rejected explicitly.
+square. The default `snap: false` preserves derived scalar products.
+`snap: true` explicitly selects the original on-shell snapping policy, with
+default exact threshold `1/1000000`. `threshold` accepts a nonnegative decimal,
+scientific or rational string; a JSON numeric threshold token is also retained
+exactly without a binary64 conversion. The threshold is used only when snapping
+is enabled. Zero disables relative matching for positive reference masses but
+retains the original massless absolute `1e-3` rule.
+
+Legacy snapping acts at internal real scalar-product calls, including PV cross
+products. Supplied shifts, masses and widths remain unchanged. Coordinate input
+currently supports this policy through four propagators; five or more returns
+an explicit unsupported error. A zero threshold with a negative reference mass
+can make the original policy map a zero scalar product to a nonzero value;
+affected lanes are rejected because that Cayley-diagonal domain is unsupported.
+Some pure-IBP kinematics also return explicit instability diagnostics; enabling
+snapping does not imply that every original-IREGI configuration is qualified.
+Independent legacy-policy comparisons currently cover ordinary rank-two
+bubbles, triangles and boxes. Generalized powers and dimension shifts receive
+the same policy, but do not yet have separate numerical qualification.
 Optional `scalar_products` supplies the real invariants `p_i.p_j` directly as
 quoted strings in upper-triangle order including the diagonal: for three
 propagators `[p0.p0,p0.p1,p0.p2,p1.p1,p1.p2,p2.p2]`. A batch uses the same
 invariant input convention throughout. Explicit shifts remain necessary for
 Cartesian numerator moments. Omitting this field computes invariants from shifts.
+Supplied scalar products remain authoritative and bypass legacy snapping,
+including its coordinate-input restriction. This bypass is recorded in the
+preparation notes. The core separately rejects supplied scalar products with
+six or more propagators until their four-dimensional Gram constraints can be
+validated across every Taylor component.
 
 `run` requires explicit canonical `(q+p_i)` propagators in the order printed by
 `prepare`. It validates supplied `edge_id` values against that order. For a
@@ -60,7 +110,14 @@ used only when importing reference fixtures through `compare`.
 Results are JSON with decimal-string complex values, basis exponents, Laurent
 slots `[uv1,ir1,ir2,finite]`, per-sample status, fallback and analytic-limit usage, and batch
 execution counters. The output also records requested and prepared algorithms
-and preparation notes. Failed reductions have a reason and no tensor values;
+and preparation notes. `input_policy` records the requested preserve/snapping
+policy and exact threshold; comparison cases carry the same field.
+`precision_control` records the accuracy and verification
+policy. Per-sample `precision_rescue` preserves the primary status, convergence
+result, and whether a successful primary result agreed with verification.
+`rescue_execution` records requested, accepted and corrected samples, with
+separate counters for both higher-precision evaluations; `execution` retains
+the primary counters. Failed reductions have a reason and no tensor values;
 failed numerator contractions retain successfully reduced moments and omit the
 integral. Other samples remain available. Exit status is zero when all
 samples succeed, one for reported numerical/comparison failures, and two for
@@ -75,6 +132,8 @@ report, and reports the worst error after scaling each moment by
 oracle's characteristic scale. The mixed error denominator is
 `max(1,abs(scaled_reference))`. The default tolerance is `1e-10`.
 Nonfinite normalization or error arithmetic is reported as failure.
+Execution counters on comparison cases describe the shared settings batch named
+by `execution_batch_ids`; those repeated counters must not be summed per case.
 `--case bubble` selects IDs containing a substring and `--algorithm ibp`
 overrides each fixture's stored method. Higher-precision comparisons still use
 the original binary64 expected values and cannot certify all extra digits.
@@ -97,3 +156,11 @@ report records input, executable, and reference hashes. MadLoop's own tensor
 variable differs by an affine shift, so its tensors are not compared directly
 to FeynKit's tensors. The physical comparison excludes R2 and UV counterterms,
 and retains bare poles and R1.
+
+The CLI crate also exposes `iregi_cli::input` for its exact input schema and
+parsing, and `iregi_cli::numerator::{CoefficientPlan, CoefficientWorkspace}`
+for preparing and reusing batched Symbolica coefficient evaluators. Numerical
+coefficient evaluation is separate from graph preparation and core tensor
+reduction. The in-process `physical_benchmark` example uses these same helpers;
+its measurement boundaries and correctness gates are documented in
+[`validation/benchmark/PHYSICAL.md`](../../validation/benchmark/PHYSICAL.md).

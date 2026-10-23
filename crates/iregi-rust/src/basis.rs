@@ -32,12 +32,21 @@ mod tests {
     use super::*;
     #[test]
     fn reference_rank_two_order() {
-        assert_eq!(tensor_basis(2)[5..], [
-            Monomial([2,0,0,0]), Monomial([1,1,0,0]), Monomial([1,0,1,0]),
-            Monomial([1,0,0,1]), Monomial([0,2,0,0]), Monomial([0,1,1,0]),
-            Monomial([0,1,0,1]), Monomial([0,0,2,0]), Monomial([0,0,1,1]),
-            Monomial([0,0,0,2]),
-        ]);
+        assert_eq!(
+            tensor_basis(2)[5..],
+            [
+                Monomial([2, 0, 0, 0]),
+                Monomial([1, 1, 0, 0]),
+                Monomial([1, 0, 1, 0]),
+                Monomial([1, 0, 0, 1]),
+                Monomial([0, 2, 0, 0]),
+                Monomial([0, 1, 1, 0]),
+                Monomial([0, 1, 0, 1]),
+                Monomial([0, 0, 2, 0]),
+                Monomial([0, 0, 1, 1]),
+                Monomial([0, 0, 0, 2]),
+            ]
+        );
         assert_eq!(tensor_basis(7).len(), 330);
     }
 }

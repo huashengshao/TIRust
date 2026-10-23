@@ -207,26 +207,52 @@ where
                 "rescue requires 0 < accuracy_bits <= output bits < working_bits < verification_bits".into(),
             ));
         }
-        let (mut primary, mut working, mut verification) = match dual {
-            Some(dual) => (
-                Workspace::<T>::new_dual(plan, prototype.clone(), BorrowedDual(dual))?,
-                Workspace::<Float>::new_dual(
-                    plan,
-                    Float::new(settings.working_bits),
-                    BorrowedDual(dual),
-                )?,
-                Workspace::<Float>::new_dual(
-                    plan,
-                    Float::new(settings.verification_bits),
-                    BorrowedDual(dual),
-                )?,
-            ),
-            None => (
-                Workspace::<T>::new(plan, prototype.clone())?,
-                Workspace::<Float>::new(plan, Float::new(settings.working_bits))?,
-                Workspace::<Float>::new(plan, Float::new(settings.verification_bits))?,
-            ),
+        // Specialize the mathematical plan once for this Dual algebra. Calling
+        // Workspace::new_dual with the original zero-jet plan at each precision
+        // would otherwise repeat the complete symbolic tensor preparation.
+        let specialized = if let Some(dual) = dual {
+            iregi_masters::validate_dual_structure(dual)
+                .map_err(|error| ReductionError::Preparation(error.to_string()))?;
+            let order = u16::try_from(dual.get_max_depth()).map_err(|_| {
+                ReductionError::Preparation("Dual jet order exceeds the supported u16 range".into())
+            })?;
+            if order == plan.analytic_jet_order {
+                None
+            } else {
+                Some(plan.with_analytic_jet_order(order)?)
+            }
+        } else {
+            None
         };
+        let plan = specialized.as_deref().unwrap_or(plan);
+        #[cfg(test)]
+        let started = std::time::Instant::now();
+        let mut primary = match dual {
+            Some(dual) => Workspace::<T>::new_dual(plan, prototype.clone(), BorrowedDual(dual))?,
+            None => Workspace::<T>::new(plan, prototype.clone())?,
+        };
+        #[cfg(test)]
+        preparation_marker("primary workspace prepared", started);
+        let mut working = match dual {
+            Some(dual) => Workspace::<Float>::new_dual(
+                plan,
+                Float::new(settings.working_bits),
+                BorrowedDual(dual),
+            )?,
+            None => Workspace::<Float>::new(plan, Float::new(settings.working_bits))?,
+        };
+        #[cfg(test)]
+        preparation_marker("working-precision workspace prepared", started);
+        let mut verification = match dual {
+            Some(dual) => Workspace::<Float>::new_dual(
+                plan,
+                Float::new(settings.verification_bits),
+                BorrowedDual(dual),
+            )?,
+            None => Workspace::<Float>::new(plan, Float::new(settings.verification_bits))?,
+        };
+        #[cfg(test)]
+        preparation_marker("verification workspace prepared", started);
         primary.set_accuracy_precision(accuracy_bits)?;
         working.set_accuracy_precision(accuracy_bits)?;
         verification.set_accuracy_precision(accuracy_bits)?;
@@ -340,6 +366,25 @@ where
                 })?;
                 let input = &high_batch.values[compact * input_width..(compact + 1) * input_width];
                 self.compare(low, high, input, batch.components, 8)?;
+                #[cfg(test)]
+                if std::env::var_os("IREGI_RESCUE_PROFILE").is_some()
+                    && let Some(moment) = self
+                        .plan
+                        .basis
+                        .iter()
+                        .position(|moment| moment.0 == [5, 0, 0, 1])
+                {
+                    let index = (moment * 4 + 3) * batch.components;
+                    eprintln!(
+                        "precision coefficient lane={lane}, moment=[5,0,0,1], slot=finite, Taylor component=0: bits={} real={} imag={}; bits={} real={} imag={}",
+                        self.settings.working_bits,
+                        low[index].re,
+                        low[index].im,
+                        self.settings.verification_bits,
+                        high[index].re,
+                        high[index].im,
+                    );
+                }
                 let rounded: Vec<_> = high
                     .iter()
                     .map(|value| {
@@ -570,6 +615,13 @@ fn max(a: Float, b: Float) -> Float {
     if a > b { a } else { b }
 }
 
+#[cfg(test)]
+fn preparation_marker(label: &str, started: std::time::Instant) {
+    if std::env::var_os("IREGI_RESCUE_PROFILE").is_some() {
+        eprintln!("{label} after {:?}", started.elapsed());
+    }
+}
+
 struct BorrowedDual<'a, D>(&'a D);
 impl<D: DualNumberStructure> DualNumberStructure for BorrowedDual<'_, D> {
     fn get_len(&self) -> usize {
@@ -748,14 +800,27 @@ mod tests {
     #[test]
     #[ignore = "full high-rank high-precision qualification; run explicitly"]
     fn five_point_rank_six_verifies_the_preserved_precision_discrepancy() {
+        verify_highpoint_precision_discrepancy(6);
+    }
+
+    #[test]
+    #[ignore = "full high-rank high-precision qualification; run explicitly"]
+    fn five_point_rank_seven_verifies_every_component_at_two_precisions() {
+        verify_highpoint_precision_discrepancy(7);
+    }
+
+    fn verify_highpoint_precision_discrepancy(rank: u16) {
         let started = std::time::Instant::now();
-        let mut settings = ReductionSettings::new(5, 6);
+        let mut settings = ReductionSettings::new(5, rank);
         settings.algorithm = Algorithm::PassarinoVeltman;
-        eprintln!("preparing the complete rank-six pentagon plan");
+        eprintln!("preparing the complete rank-{rank} pentagon plan");
         let plan = ReductionPlan::new(settings).unwrap();
         eprintln!(
-            "plan prepared after {:?}; preparing three precision workspaces",
-            started.elapsed()
+            "plan prepared after {:?}: {} moments, {} aliases, {} master leaves; preparing three precision workspaces",
+            started.elapsed(),
+            plan.basis.len(),
+            plan.aliases.len(),
+            plan.leaves.len(),
         );
         let mut values: Vec<_> = [
             [0.0, 0.0, 0.0, 0.0],
@@ -782,6 +847,9 @@ mod tests {
             "workspaces prepared after {:?}; evaluating the batch",
             started.elapsed()
         );
+        workspace.primary.set_profiling(true);
+        workspace.working.set_profiling(true);
+        workspace.verification.set_profiling(true);
         let result = workspace
             .reduce_batch(&KinematicsBatch {
                 rows: 1,
@@ -790,22 +858,38 @@ mod tests {
             })
             .unwrap();
         eprintln!("batch evaluated after {:?}", started.elapsed());
+        eprintln!(
+            "execution stages: primary={:?}, working={:?}, verification={:?}",
+            workspace.primary.last_profile(),
+            workspace.working.last_profile(),
+            workspace.verification.last_profile(),
+        );
+        eprintln!(
+            "execution diagnostics: primary={:?}, working={:?}, verification={:?}",
+            workspace.primary.last_diagnostics(),
+            workspace.working.last_diagnostics(),
+            workspace.verification.last_diagnostics(),
+        );
+        eprintln!(
+            "primary status: {:?}; precision status: {:?}; batch counters: {:?}",
+            workspace.last_primary_statuses()[0],
+            workspace.last_rescue_statuses()[0],
+            workspace.last_execution(),
+        );
         let index = plan
             .basis()
             .iter()
             .position(|moment| moment.0 == [5, 0, 0, 1])
             .unwrap();
         let value = result.lane(0).unwrap()[4 * index + 3];
-        // Independent exact-coefficient/native-master probe at 128/256 bits;
-        // see validation/pv-high-rank/precision-probe.json for provenance.
+        eprintln!("independent-oracle coefficient [5,0,0,1]: {value:?}");
+        // Independently confirmed by Feynman-simplex quadrature (reported
+        // error 2.77e-15), as well as the exact-coefficient/native-master probe
+        // at 128/256 bits. Provenance: validation/pv-high-rank/
+        // pentagon-simplex-oracle.json and precision-probe.json.
         let expected = -2.43837893544712293939249874984327534762e-3;
         assert!(value.re.abs() < 1e-13);
         assert!((value.im - expected).abs() < 1e-13, "{value:?}");
-        eprintln!(
-            "primary status: {:?}; precision status: {:?}",
-            workspace.last_primary_statuses()[0],
-            workspace.last_rescue_statuses()[0]
-        );
         assert_eq!(workspace.last_execution().accepted_rows, 1);
     }
 }

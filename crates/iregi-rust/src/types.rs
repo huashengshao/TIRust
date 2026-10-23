@@ -41,6 +41,28 @@ pub enum InvariantInput {
     SuppliedScalarProducts,
 }
 
+/// Whether derived real scalar products follow the historical on-shell policy.
+/// Supplied scalar products remain authoritative under either policy.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum InputPolicy {
+    #[default]
+    Preserve,
+    /// An exact nonnegative decimal or rational threshold avoids a binary64
+    /// configuration round trip. Zero retains the historical massless 1e-3
+    /// absolute rule while disabling relative matching for positive masses.
+    /// Coordinate-input topologies with five or more propagators are currently
+    /// rejected until their non-bilinear invariant identities are validated.
+    LegacyOnShell { threshold: String },
+}
+
+impl InputPolicy {
+    pub fn legacy_onshell() -> Self {
+        Self::LegacyOnShell {
+            threshold: "1/1000000".into(),
+        }
+    }
+}
+
 /// Argument ranges in one input row, before its Taylor-component expansion.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InputLayout {
@@ -62,6 +84,8 @@ pub struct ReductionSettings {
     pub tensor_weights: TensorWeights,
     #[serde(default)]
     pub invariants: InvariantInput,
+    #[serde(default)]
+    pub input_policy: InputPolicy,
 }
 
 impl ReductionSettings {
@@ -75,6 +99,7 @@ impl ReductionSettings {
             convention: Convention::IregiNative,
             tensor_weights: TensorWeights::Components,
             invariants: InvariantInput::FromShifts,
+            input_policy: InputPolicy::Preserve,
         }
     }
 }

@@ -87,8 +87,10 @@ shift, so tiny seeds cannot silently lose represented bits. A separately
 normalized scale is restored by the exact Laurent transport below, including
 an integer multiple of `log(2)` for the difference of frozen exponents. This
 keeps both scale and mass arguments moderate when their original ratio is
-unrepresentable. DB0 is scale independent and retains its inverse kinematic
-scale factor. The positive-mass chart also uses separate mass and scale logs.
+unrepresentable. DB0 is scale independent in these supported regular seeded
+neighborhoods and retains its inverse kinematic scale factor. Its one-massless
+on-shell IR branch is handled only for constant kinematics through full Laurent
+scale transport. The positive-mass chart also uses separate mass and scale logs.
 
 ## Constant kinematics and scale-only jets
 

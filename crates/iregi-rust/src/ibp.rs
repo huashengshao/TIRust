@@ -11,11 +11,11 @@
 //! available A0--D0 Laurent coefficients through the finite term. The original
 //! code completes such intermediate requests through a four-dimensional PV
 //! tensor-coefficient path. Completing an ordinary four-dimensional tensor
-//! through that path is valid. Its interpretation as a standalone shifted
-//! scalar requires an independent check against the defining integral; the
-//! current implementation does not assume that equivalence. Direct requests
-//! remain explicit errors until a genuine higher-dimensional master is
-//! available. See the dimension-shift discussion and Eq. (6) of
+//! through that path is valid. Its standalone shifted-scalar output disagrees
+//! with independently converged defining-integral checks recorded in
+//! `validation/shifted-pentagon/evidence.json`. Direct requests remain errors
+//! by default. A caller with a qualified genuine D6 backend can explicitly
+//! enable typed pentagon leaves. See the dimension-shift discussion and Eq. (6) of
 //! [Kozlov--Lee](https://arxiv.org/html/1512.01165v2).
 
 use std::{
@@ -27,7 +27,7 @@ use std::{
 };
 
 use symbolica::{
-    atom::{Atom, AtomCore, AtomView},
+    atom::{Atom, AtomCore, AtomView, Symbol},
     domains::{atom::AtomField, integer::Integer},
     id::Replacement,
     tensors::matrix::Matrix,
@@ -41,9 +41,20 @@ pub struct ScalarRequest {
     pub dimension_shift: i16,
 }
 
-/// A unit-power, unshifted A0, B0, C0, or D0 requested from the scalar backend.
+/// The normalization and dimension of a scalar backend request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum MasterLeafKind {
+    /// Unit-power A0, B0, C0, or D0 in `4-2 epsilon` dimensions.
+    FourDimensional,
+    /// A genuine unit-power pentagon in `6-2 epsilon` dimensions.
+    /// Its finite-domain qualification belongs to the numerical backend.
+    SixDimensionalPentagon,
+}
+
+/// A unit-power scalar master, with routing preserved by active indices.
 #[derive(Clone, Debug)]
 pub struct MasterLeaf {
+    pub kind: MasterLeafKind,
     pub active: Vec<usize>,
     /// `[UV single, IR single, IR double, finite]`, in OneLOop normalization.
     pub slots: [Atom; 4],
@@ -98,6 +109,8 @@ pub struct ScalarCompiler {
     cache: HashMap<ScalarRequest, [Atom; 4]>,
     geometry: HashMap<Vec<usize>, Geometry>,
     exceptional_geometry: HashMap<Vec<usize>, ExceptionalGeometry>,
+    regular_bubble_geometry: HashMap<Vec<usize>, Option<(Atom, Vec<Vec<Atom>>)>>,
+    gram_regular_bubbles: bool,
     degenerate_families: HashMap<Vec<usize>, DegenerateFamily>,
     routing: Option<Vec<[Atom; 4]>>,
     routing_relations: HashMap<Vec<usize>, Option<RoutingRelation>>,
@@ -106,6 +119,7 @@ pub struct ScalarCompiler {
     reduce_degenerate_masters: bool,
     alias_enabled: bool,
     physical_poles: bool,
+    six_dimensional_pentagon: bool,
     alias_namespace: usize,
     aliases: Vec<(Atom, Atom)>,
     pub leaves: Vec<MasterLeaf>,
@@ -122,6 +136,8 @@ impl ScalarCompiler {
             cache: HashMap::new(),
             geometry: HashMap::new(),
             exceptional_geometry: HashMap::new(),
+            regular_bubble_geometry: HashMap::new(),
+            gram_regular_bubbles: false,
             degenerate_families: HashMap::new(),
             routing: None,
             routing_relations: HashMap::new(),
@@ -130,6 +146,7 @@ impl ScalarCompiler {
             reduce_degenerate_masters: false,
             alias_enabled: false,
             physical_poles: false,
+            six_dimensional_pentagon: false,
             alias_namespace: SCALAR_ALIAS_NAMESPACE.fetch_add(1, Ordering::Relaxed),
             aliases: Vec::new(),
             leaves: Vec::new(),
@@ -163,18 +180,46 @@ impl ScalarCompiler {
         &self.aliases
     }
 
+    /// Permit genuine finite D6 pentagon leaves instead of an unsupported-master
+    /// diagnostic. The numerical caller must enforce the qualified finite
+    /// domain and propagate quadrature failures; this is not a box-only
+    /// approximation or a claim about singular/massless endpoints.
+    pub fn enable_six_dimensional_pentagon(&mut self) -> Result<(), String> {
+        if !self.cache.is_empty() {
+            return Err("enable the D6 pentagon backend before compiling requests".into());
+        }
+        self.six_dimensional_pentagon = true;
+        Ok(())
+    }
+
     /// Supply four-dimensional routing for exact denominator identities.
     /// The caller must ensure R's squared distances agree with these shifts;
     /// an independently supplied scalar-product matrix need not satisfy this.
     /// Relations are structural and cached by active propagator indices.
     pub fn set_routing(&mut self, shifts: Vec<[Atom; 4]>) -> Result<(), String> {
-        if shifts.len() != self.r.len() {
+        self.set_certified_linear_coordinates(shifts)
+    }
+
+    /// Supply four linear coordinates on a certified external-momentum span.
+    ///
+    /// Unlike [`Self::set_routing`], these need not be Cartesian coordinates
+    /// and their Minkowski squares need not reproduce R. The caller must
+    /// certify, for every numerical sample and every Taylor component, that
+    /// their linear dependencies exactly equal those of the external shifts.
+    /// For example, four independent Gram covectors provide such coordinates
+    /// on a certified rank-four span. Distances and denominator constants
+    /// continue to come exclusively from the original R matrix.
+    pub(crate) fn set_certified_linear_coordinates(
+        &mut self,
+        coordinates: Vec<[Atom; 4]>,
+    ) -> Result<(), String> {
+        if coordinates.len() != self.r.len() {
             return Err("scalar routing must have one four-vector per propagator".into());
         }
         if !self.cache.is_empty() {
             return Err("set scalar routing before compiling any requests".into());
         }
-        self.routing = Some(shifts);
+        self.routing = Some(coordinates);
         self.routing_relations.clear();
         Ok(())
     }
@@ -192,6 +237,18 @@ impl ScalarCompiler {
         if let Some(expansion) = &mut self.lightlike_bubble {
             expansion.base.enable_physical_poles()?;
         }
+        Ok(())
+    }
+
+    /// Use the analytic S-matrix recurrence for two-point requests satisfying
+    /// `h >= sum(powers)-2`. This includes ordinary tensor descendants and
+    /// avoids a Cayley-R denominator at thresholds and pseudothresholds.
+    /// A lazy Symbolica branch retains the existing route when det(S)=0.
+    pub fn enable_gram_regular_bubbles(&mut self) -> Result<(), String> {
+        if !self.cache.is_empty() {
+            return Err("enable Gram-regular bubbles before compiling requests".into());
+        }
+        self.gram_regular_bubbles = true;
         Ok(())
     }
 
@@ -367,7 +424,16 @@ impl ScalarCompiler {
             .enumerate()
             .filter_map(|(i, p)| (*p != 0).then_some(i))
             .collect();
-        let value = self.compile_uncached(&request, &active)?;
+        let mut value = self.compile_uncached(&request, &active)?;
+        let total: i32 = request.powers.iter().map(|&power| i32::from(power)).sum();
+        if self.gram_regular_bubbles
+            && self.lightlike_bubble.is_none()
+            && active.len() == 2
+            && i32::from(request.dimension_shift) >= total - 2
+            && (request.dimension_shift != 0 || total != 2)
+        {
+            value = self.compile_gram_regular_bubble(&request, &active, value)?;
+        }
         let value = self.cache_value(value);
         self.cache.insert(request, value.clone());
         Ok(value)
@@ -441,6 +507,9 @@ impl ScalarCompiler {
             if let Some(relation) = self.routing_relation(active)? {
                 return self.compile_routing_relation(request, active, &relation);
             }
+            if self.six_dimensional_pentagon {
+                return Ok(self.pentagon6_master(active));
+            }
             return Err("IBP dimension recurrence has a zero epsilon-independent divisor for 5 propagators at shift 1; ordinary four-dimensional tensors may use PV completion, but a standalone shifted scalar is not determined by the available A0-D0 Laurent orders".into());
         }
         if h == 0
@@ -487,6 +556,10 @@ impl ScalarCompiler {
                 accumulate(&mut result, &geometry.b[i], &value);
             }
             return Ok(result);
+        }
+
+        if active.len() == 5 && h == 1 && raised.is_none() && self.six_dimensional_pentagon {
+            return Ok(self.pentagon6_master(active));
         }
 
         // Scalar N>=5 reduction at epsilon^0. For N=5 the omitted
@@ -772,7 +845,11 @@ impl ScalarCompiler {
     }
 
     fn master(&mut self, active: &[usize]) -> [Atom; 4] {
-        if let Some(leaf) = self.leaves.iter().find(|leaf| leaf.active == active) {
+        if let Some(leaf) = self
+            .leaves
+            .iter()
+            .find(|leaf| leaf.kind == MasterLeafKind::FourDimensional && leaf.active == active)
+        {
             return self.master_poles(active, leaf.slots.clone());
         }
         let id = active
@@ -784,10 +861,37 @@ impl ScalarCompiler {
             Atom::var(symbolica::symbol!(format!("iregi::master_{id}_{slot}")))
         });
         self.leaves.push(MasterLeaf {
+            kind: MasterLeafKind::FourDimensional,
             active: active.to_vec(),
             slots: slots.clone(),
         });
         self.master_poles(active, slots)
+    }
+
+    fn pentagon6_master(&mut self, active: &[usize]) -> [Atom; 4] {
+        let slots = if let Some(leaf) = self.leaves.iter().find(|leaf| {
+            leaf.kind == MasterLeafKind::SixDimensionalPentagon && leaf.active == active
+        }) {
+            leaf.slots.clone()
+        } else {
+            let id = active
+                .iter()
+                .map(usize::to_string)
+                .collect::<Vec<_>>()
+                .join("_");
+            // Preserve the uniform four-symbol parameter layout, even though
+            // the qualified finite backend supplies zero for all pole slots.
+            let slots = std::array::from_fn(|slot| {
+                Atom::var(symbolica::symbol!(format!("iregi::master_d6_{id}_{slot}")))
+            });
+            self.leaves.push(MasterLeaf {
+                kind: MasterLeafKind::SixDimensionalPentagon,
+                active: active.to_vec(),
+                slots: slots.clone(),
+            });
+            slots
+        };
+        [Atom::new(), Atom::new(), Atom::new(), slots[3].clone()]
     }
 
     fn master_poles(&self, active: &[usize], mut slots: [Atom; 4]) -> [Atom; 4] {
@@ -813,12 +917,149 @@ impl ScalarCompiler {
             .extend_from_slice(&expansion.base.aliases[expansion.copied_aliases..]);
         expansion.copied_aliases = expansion.base.aliases.len();
         for leaf in &expansion.base.leaves {
-            if !self.leaves.iter().any(|known| known.active == leaf.active) {
+            if !self
+                .leaves
+                .iter()
+                .any(|known| known.kind == leaf.kind && known.active == leaf.active)
+            {
                 self.leaves.push(leaf.clone());
             }
         }
         self.lightlike_bubble = Some(expansion);
         result
+    }
+
+    fn compile_gram_regular_bubble(
+        &mut self,
+        request: &ScalarRequest,
+        active: &[usize],
+        ordinary: [Atom; 4],
+    ) -> Result<[Atom; 4], String> {
+        if !self.regular_bubble_geometry.contains_key(active) {
+            let mut rows = vec![vec![Atom::num(1); 3]; 3];
+            rows[0][0] = Atom::Zero;
+            for (i, &original_i) in active.iter().enumerate() {
+                for (j, &original_j) in active.iter().enumerate() {
+                    rows[i + 1][j + 1] = self.r[original_i][original_j].clone();
+                }
+            }
+            let matrix = Matrix::from_nested_vec(rows, exact_field()).map_err(|error| {
+                format!("cannot construct Symbolica bubble S matrix: {error:?}")
+            })?;
+            let determinant = matrix.det().map_err(|error| {
+                format!("cannot calculate Symbolica bubble S determinant: {error:?}")
+            })?;
+            let geometry = if determinant.is_zero() {
+                None
+            } else {
+                let inverse = matrix.inv().map_err(|error| {
+                    format!("cannot invert Symbolica bubble S matrix: {error:?}")
+                })?;
+                let values = (0..3)
+                    .map(|i| (0..3).map(|j| inverse[(i, j)].clone()).collect())
+                    .collect();
+                Some((self.cache_atom(determinant), values))
+            };
+            // This is not an exceptional-geometry entry: R may be invertible.
+            self.regular_bubble_geometry
+                .insert(active.to_vec(), geometry);
+        }
+        let Some((determinant, inverse)) = self.regular_bubble_geometry[active].clone() else {
+            return Ok(ordinary);
+        };
+        let value = self.compile_s_bubble_value(request, active, &inverse)?;
+        Ok(std::array::from_fn(|pole| {
+            Symbol::IF.call((&determinant, &value[pole], &ordinary[pole]))
+        }))
+    }
+
+    fn compile_s_bubble_value(
+        &mut self,
+        request: &ScalarRequest,
+        active: &[usize],
+        inverse: &[Vec<Atom>],
+    ) -> Result<[Atom; 4], String> {
+        if active.iter().any(|&i| request.powers[i] > 1) {
+            self.compile_unsummed_s(request, active, inverse)
+        } else {
+            let mut lower = request.clone();
+            lower.dimension_shift = lower
+                .dimension_shift
+                .checked_sub(1)
+                .ok_or("IBP dimension shift underflow")?;
+            // Full Eq. (18), expressed through S^-1. Retaining S^-1[0,0]
+            // is essential for derivatives transverse to det(R)=0.
+            let mut value = scale(&self.compile(lower.clone())?, &(-&inverse[0][0]));
+            for (i, &original_i) in active.iter().enumerate() {
+                accumulate(
+                    &mut value,
+                    &(-&inverse[i + 1][0]),
+                    &self.compile(decrement(&lower, original_i))?,
+                );
+            }
+            let total: i32 = request.powers.iter().map(|&power| i32::from(power)).sum();
+            Ok(divide_dimension(
+                &value,
+                3 + 2 * i32::from(request.dimension_shift) - total,
+            ))
+        }
+    }
+
+    /// Eqs. (10), (14), (19): S * (0, w_j J_h(w+e_j)) equals
+    /// (-J_(h-1)(w), T_i). The unsummed row is valid throughout det(S)!=0;
+    /// unlike the shortened singular-R dimension relation it drops no term.
+    fn compile_unsummed_s(
+        &mut self,
+        request: &ScalarRequest,
+        active: &[usize],
+        inverse: &[Vec<Atom>],
+    ) -> Result<[Atom; 4], String> {
+        let h = i32::from(request.dimension_shift);
+        let total: i32 = request.powers.iter().map(|&power| i32::from(power)).sum();
+        let local_l = active
+            .iter()
+            .position(|&i| request.powers[i] > 1)
+            .ok_or("unsummed S recurrence requires a raised propagator power")?;
+        let original_l = active[local_l];
+        let w = decrement(request, original_l);
+        let row = &inverse[local_l + 1];
+        let mut lower = w.clone();
+        lower.dimension_shift = lower
+            .dimension_shift
+            .checked_sub(1)
+            .ok_or("IBP dimension shift underflow")?;
+        let mut result = zero();
+        if !row[0].is_zero() {
+            accumulate(&mut result, &(-&row[0]), &self.compile(lower)?);
+        }
+        let base = self.compile(w.clone())?;
+        let common = scale(
+            &multiply_dimension(&base, 5 + 2 * h - total),
+            &Atom::num(-1),
+        );
+        for (i, &original_i) in active.iter().enumerate() {
+            if row[i + 1].is_zero() {
+                continue;
+            }
+            let mut term = common.clone();
+            let lower_i = decrement(&w, original_i);
+            for &original_j in active {
+                let mut child = lower_i.clone();
+                child.powers[original_j] = child.powers[original_j]
+                    .checked_add(1)
+                    .ok_or("IBP propagator power overflow")?;
+                accumulate(
+                    &mut term,
+                    &Atom::num(i64::from(w.powers[original_j])),
+                    &self.compile(child)?,
+                );
+            }
+            accumulate(&mut result, &row[i + 1], &term);
+        }
+        Ok(scale(
+            &result,
+            &(Atom::num(1) / Atom::num(i64::from(w.powers[original_l]))),
+        ))
     }
 
     fn compile_exceptional(
@@ -848,48 +1089,7 @@ impl ScalarCompiler {
                     }
                     return Ok(divide_dimension(&result, a));
                 }
-                // The unsummed IBP relation avoids division by epsilon.
-                let local_l = active.iter().position(|&i| request.powers[i] > 1)
-                    .ok_or("singular IBP recurrence at zero dimension divisor requires PV tensor reduction")?;
-                let original_l = active[local_l];
-                let w = decrement(request, original_l);
-                let row = &inverse[local_l + 1];
-                let mut lower = w.clone();
-                lower.dimension_shift = lower
-                    .dimension_shift
-                    .checked_sub(1)
-                    .ok_or("IBP dimension shift underflow")?;
-                let mut result = zero();
-                if !row[0].is_zero() {
-                    accumulate(&mut result, &(-&row[0]), &self.compile(lower)?);
-                }
-                let base = self.compile(w.clone())?;
-                let common = scale(
-                    &multiply_dimension(&base, 5 + 2 * h - total),
-                    &Atom::num(-1),
-                );
-                for (i, &original_i) in active.iter().enumerate() {
-                    if row[i + 1].is_zero() {
-                        continue;
-                    }
-                    let mut term = common.clone();
-                    let lower_i = decrement(&w, original_i);
-                    for &original_j in active {
-                        let mut child = lower_i.clone();
-                        child.powers[original_j] += 1;
-                        let value = self.compile(child)?;
-                        accumulate(
-                            &mut term,
-                            &Atom::num(i64::from(w.powers[original_j])),
-                            &value,
-                        );
-                    }
-                    accumulate(&mut result, &row[i + 1], &term);
-                }
-                Ok(scale(
-                    &result,
-                    &(Atom::num(1) / Atom::num(i64::from(w.powers[original_l]))),
-                ))
+                self.compile_unsummed_s(request, active, &inverse)
             }
             ExceptionalGeometry::NullVector(vector) => {
                 let c = -&vector[0];
@@ -1233,6 +1433,121 @@ mod tests {
     }
 
     #[test]
+    fn analytic_bubble_s_rows_equal_ordinary_ibp_and_singular_limits() {
+        let m0 = Atom::var(symbolica::symbol!("s_bubble_test::m0"));
+        let m1 = Atom::var(symbolica::symbol!("s_bubble_test::m1"));
+        let s = Atom::var(symbolica::symbol!("s_bubble_test::s"));
+        let r = vec![
+            vec![Atom::num(-2) * &m0, &s - &m0 - &m1],
+            vec![&s - &m0 - &m1, Atom::num(-2) * &m1],
+        ];
+        let matrix = Matrix::from_nested_vec(
+            vec![
+                vec![Atom::Zero, Atom::num(1), Atom::num(1)],
+                vec![Atom::num(1), r[0][0].clone(), r[0][1].clone()],
+                vec![Atom::num(1), r[1][0].clone(), r[1][1].clone()],
+            ],
+            exact_field(),
+        )
+        .unwrap()
+        .inv()
+        .unwrap();
+        let inverse: Vec<Vec<Atom>> = (0..3)
+            .map(|i| (0..3).map(|j| matrix[(i, j)].clone()).collect())
+            .collect();
+        // At det(R)=0 the scalar master maps are not independent. Use their
+        // analytic values at mu²=1: the B0 Feynman polynomial is (x+2)^2.
+        let log2 = Symbol::LOG.call((Atom::num(2),));
+        let log3 = Symbol::LOG.call((Atom::num(3),));
+        let masters = [
+            (
+                "0",
+                [
+                    Atom::num(4),
+                    Atom::Zero,
+                    Atom::Zero,
+                    Atom::num(4) * (Atom::num(1) - Atom::num(2) * &log2),
+                ],
+            ),
+            (
+                "1",
+                [
+                    Atom::num(9),
+                    Atom::Zero,
+                    Atom::Zero,
+                    Atom::num(9) * (Atom::num(1) - Atom::num(2) * &log3),
+                ],
+            ),
+            (
+                "0_1",
+                [
+                    Atom::num(1),
+                    Atom::Zero,
+                    Atom::Zero,
+                    Atom::num(2) + Atom::num(4) * &log2 - Atom::num(6) * &log3,
+                ],
+            ),
+        ];
+        let physical_masters = |mut expression: Atom| {
+            for (id, values) in &masters {
+                for (pole, value) in values.iter().enumerate() {
+                    expression = expression
+                        .replace(Atom::var(symbolica::symbol!(format!(
+                            "iregi::master_{id}_{pole}"
+                        ))))
+                        .with(value.clone());
+                }
+            }
+            expression
+        };
+        for (powers, dimension_shift) in [
+            (vec![1, 1], 1),
+            (vec![1, 1], 2),
+            (vec![2, 1], 1),
+            (vec![1, 2], 1),
+            (vec![3, 1], 2),
+            (vec![2, 2], 2),
+        ] {
+            let request = ScalarRequest {
+                powers,
+                dimension_shift,
+            };
+            let mut ordinary = ScalarCompiler::new(r.clone()).unwrap();
+            let expected = ordinary.compile(request.clone()).unwrap();
+            let mut analytic = ScalarCompiler::new(r.clone()).unwrap();
+            let actual = analytic
+                .compile_s_bubble_value(&request, &[0, 1], &inverse)
+                .unwrap();
+            for pole in 0..4 {
+                equal(&actual[pole], expected[pole].clone());
+            }
+            // At the pseudothreshold, the original structurally singular-R
+            // recurrence independently supplies the same Laurent values after
+            // imposing the physical relation between the scalar masters.
+            let mut singular = ScalarCompiler::new(vec![
+                vec![Atom::num(-8), Atom::num(-12)],
+                vec![Atom::num(-12), Atom::num(-18)],
+            ])
+            .unwrap();
+            let expected = singular.compile(request).unwrap();
+            for pole in 0..4 {
+                let actual = actual[pole]
+                    .together()
+                    .replace(m0.clone())
+                    .with(Atom::num(4))
+                    .replace(m1.clone())
+                    .with(Atom::num(9))
+                    .replace(s.clone())
+                    .with(Atom::num(1));
+                equal(
+                    &physical_masters(actual),
+                    physical_masters(expected[pole].clone()),
+                );
+            }
+        }
+    }
+
+    #[test]
     fn scalar_dag_preserves_inline_results_and_reuses_nodes() {
         let r = vec![
             vec![Atom::num(-4), Atom::num(-8), Atom::num(-9)],
@@ -1366,6 +1681,59 @@ mod tests {
                 });
             equal(&constant, Atom::num(if homogeneous { 0 } else { 1 }));
             assert_eq!(compiler.routing_relations.len(), 1);
+        }
+    }
+
+    #[test]
+    fn certified_covectors_preserve_cartesian_denominator_relations() {
+        for homogeneous in [false, true] {
+            let (shifts, r) = routing_fixture(6, homogeneous);
+            // An invertible linear map of the true coordinates. Its Euclidean
+            // or Minkowski squares deliberately differ from physical R.
+            let covectors = shifts
+                .iter()
+                .map(|p| {
+                    [
+                        &p[0] + Atom::num(2) * &p[1],
+                        &p[1] + &p[2],
+                        &p[2] + Atom::num(3) * &p[3],
+                        Atom::num(2) * &p[3],
+                    ]
+                })
+                .collect();
+            let mut compiler = ScalarCompiler::new(r.clone()).unwrap();
+            compiler
+                .set_certified_linear_coordinates(covectors)
+                .unwrap();
+            let relation = compiler
+                .routing_relation(&[0, 1, 2, 3, 4, 5])
+                .unwrap()
+                .unwrap();
+            assert_eq!(relation.constant_one, !homogeneous);
+            equal(
+                &relation
+                    .coefficients
+                    .iter()
+                    .fold(Atom::new(), |sum, c| sum + c),
+                Atom::new(),
+            );
+            for component in 0..4 {
+                equal(
+                    &relation
+                        .coefficients
+                        .iter()
+                        .zip(&shifts)
+                        .fold(Atom::new(), |sum, (c, p)| sum + c * &p[component]),
+                    Atom::new(),
+                );
+            }
+            let constant = relation
+                .coefficients
+                .iter()
+                .enumerate()
+                .skip(1)
+                .fold(Atom::new(), |sum, (i, c)| sum + c * (&r[i][0] - &r[0][0]));
+            equal(&constant, Atom::num(if homogeneous { 0 } else { 1 }));
         }
     }
 
@@ -1844,6 +2212,37 @@ mod tests {
             powers: vec![1; 5],
             dimension_shift: 1,
         }));
+    }
+
+    #[test]
+    fn genuine_pentagon_leaf_requires_opt_in_and_preserves_finite_slot() {
+        let r: Vec<Vec<Atom>> = (0..5)
+            .map(|i| {
+                (0..5)
+                    .map(|j| Atom::num(if i == j { -2 } else { 0 }))
+                    .collect()
+            })
+            .collect();
+        let request = ScalarRequest {
+            powers: vec![1; 5],
+            dimension_shift: 1,
+        };
+        let mut disabled = ScalarCompiler::new(r.clone()).unwrap();
+        assert!(disabled.compile(request.clone()).is_err());
+        let mut compiler = ScalarCompiler::new(r).unwrap();
+        compiler.enable_six_dimensional_pentagon().unwrap();
+        let first = compiler.compile(request.clone()).unwrap();
+        let second = compiler.compile(request).unwrap();
+        assert_eq!(first, second);
+        assert_eq!(compiler.leaves.len(), 1);
+        assert_eq!(
+            compiler.leaves[0].kind,
+            MasterLeafKind::SixDimensionalPentagon
+        );
+        assert_eq!(compiler.leaves[0].active, vec![0, 1, 2, 3, 4]);
+        assert!(first[..3].iter().all(AtomCore::is_zero));
+        assert_eq!(first[3], compiler.leaves[0].slots[3]);
+        assert!(compiler.enable_six_dimensional_pentagon().is_err());
     }
 
     #[test]

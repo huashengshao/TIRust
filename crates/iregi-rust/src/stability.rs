@@ -2,10 +2,14 @@
 //!
 //! These are conservative floating-point *estimates*, not certified error
 //! bounds. Symbolica expands only individual, bounded recurrence bodies and
-//! evaluates all monitor expressions alongside the ordinary batch. In
-//! particular, an alias graph is never expanded recursively. This preserves
-//! the shared recurrence DAG and lets analytic exceptional-kinematics plans
-//! be checked according to the denominators they actually use.
+//! evaluates local monitors alongside the ordinary batch. A separate primal
+//! batch propagates absolute scalar-master contributions through the shared
+//! alias DAG; ABS is never differentiated to invent Taylor error bounds.
+//! Aliases are not expanded recursively, and lazy branches keep analytic
+//! exceptional-kinematics plans on the denominators they actually use.
+
+pub(crate) mod arguments;
+pub(crate) mod quadrature;
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -13,10 +17,11 @@ use iregi_masters::NativeFloat;
 use symbolica::{
     atom::{Atom, AtomCore, AtomView, Symbol},
     coefficient::CoefficientView,
-    domains::{float::Complex, integer::Integer, rational::Rational},
+    domains::{atom::AtomField, float::Complex, integer::Integer, rational::Rational},
 };
 
 use crate::{
+    ibp::MasterLeafKind,
     plan::ReductionPlan,
     types::{InputLayout, ReductionError},
 };
@@ -33,16 +38,33 @@ struct Check {
     label: String,
 }
 
+#[derive(Clone, Debug)]
+struct PrimalCheck {
+    value: usize,
+    amplitude: usize,
+    dimension: i32,
+    label: String,
+}
+
 /// Immutable monitor expressions for one reduction graph.
 ///
 /// The executor appends `expressions()` to its ordinary expression roots and
 /// evaluates them using the same aliases, numeric domain, and Dualizer.
+/// `primal_expressions()` use a separate batch without the Dualizer.
 #[derive(Clone, Debug)]
 pub(crate) struct StabilityPlan {
     expressions: Vec<Atom>,
     predicate_aliases: Vec<(Atom, Atom)>,
     master_activations: Vec<Atom>,
     master_activation_aliases: Vec<(Atom, Atom)>,
+    primal_expressions: Vec<Atom>,
+    primal_aliases: Vec<(Atom, Atom)>,
+    primal_checks: Vec<PrimalCheck>,
+    snapping_expressions: Vec<Atom>,
+    snapping_aliases: Vec<(Atom, Atom)>,
+    snapping_labels: Vec<String>,
+    snapping_threshold: Option<Atom>,
+    snapping_zero_image: Option<Atom>,
     checks: Vec<Check>,
     layout: InputLayout,
 }
@@ -54,6 +76,14 @@ impl StabilityPlan {
             predicate_aliases: Vec::new(),
             master_activations: Vec::new(),
             master_activation_aliases: Vec::new(),
+            primal_expressions: Vec::new(),
+            primal_aliases: Vec::new(),
+            primal_checks: Vec::new(),
+            snapping_expressions: Vec::new(),
+            snapping_aliases: Vec::new(),
+            snapping_labels: Vec::new(),
+            snapping_threshold: None,
+            snapping_zero_image: None,
             checks: Vec::new(),
             layout: plan.layout.clone(),
         };
@@ -69,8 +99,15 @@ impl StabilityPlan {
             dimensions.insert(parameter.clone(), if squared { 2 } else { 1 });
         }
         for leaf in &plan.leaves {
+            let integration_dimension = match leaf.kind {
+                MasterLeafKind::FourDimensional => 4,
+                MasterLeafKind::SixDimensionalPentagon => 6,
+            };
             for slot in &leaf.slots {
-                dimensions.insert(slot.clone(), 4 - 2 * leaf.active.len() as i32);
+                dimensions.insert(
+                    slot.clone(),
+                    integration_dimension - 2 * leaf.active.len() as i32,
+                );
             }
         }
         let definitions: HashMap<_, _> = plan.aliases.iter().cloned().collect();
@@ -146,7 +183,9 @@ impl StabilityPlan {
                 &mut indices,
             );
         }
+        monitor.prepare_primal_amplitudes(plan, &reachable, base_dimension)?;
         monitor.prepare_master_activations(plan);
+        monitor.prepare_snapping_diagnostics(plan)?;
         Ok(monitor)
     }
 
@@ -156,6 +195,247 @@ impl StabilityPlan {
 
     pub(crate) fn aliases(&self) -> &[(Atom, Atom)] {
         &self.predicate_aliases
+    }
+
+    /// Master-contribution amplitudes are evaluated on primals only. Applying
+    /// the Dualizer to ABS would not produce bounds for Taylor coefficients.
+    pub(crate) fn primal_expressions(&self) -> &[Atom] {
+        &self.primal_expressions
+    }
+
+    pub(crate) fn primal_aliases(&self) -> &[(Atom, Atom)] {
+        &self.primal_aliases
+    }
+
+    /// Primal strict-comparison residuals, guarded by the demand for their
+    /// owning predicates. Unused queries are omitted; inactive paths yield one.
+    pub(crate) fn snapping_expressions(&self) -> &[Atom] {
+        &self.snapping_expressions
+    }
+
+    pub(crate) fn snapping_aliases(&self) -> &[(Atom, Atom)] {
+        &self.snapping_aliases
+    }
+
+    pub(crate) fn snapping_labels(&self) -> &[String] {
+        &self.snapping_labels
+    }
+
+    /// A representability probe for the threshold, equal to one when no
+    /// snapping predicate is demanded. Exact zero remains zero on active paths.
+    pub(crate) fn snapping_threshold(&self) -> Option<&Atom> {
+        self.snapping_threshold.as_ref()
+    }
+
+    /// Compatibility probe for compilers that require a zero Gram/Cayley
+    /// diagonal. It is zero on paths without a relevant snapping operation.
+    pub(crate) fn snapping_zero_image(&self) -> Option<&Atom> {
+        self.snapping_zero_image.as_ref()
+    }
+
+    fn prepare_snapping_diagnostics(&mut self, plan: &ReductionPlan) -> Result<(), ReductionError> {
+        if plan.snapping_diagnostics.is_empty() && !plan.snapping_zero_image_required {
+            return Ok(());
+        }
+        // Activation aliases contain a subset of existing aliases plus fresh
+        // predicates. Keep their topological order without duplicate names.
+        let mut seen = BTreeSet::new();
+        let aliases: Vec<_> = plan
+            .aliases
+            .iter()
+            .chain(&self.predicate_aliases)
+            .chain(&self.primal_aliases)
+            .chain(&self.master_activation_aliases)
+            .filter(|(alias, _)| seen.insert(alias.clone()))
+            .cloned()
+            .collect();
+        let definitions: HashMap<_, _> = aliases.iter().cloned().collect();
+        let masters: BTreeSet<_> = plan
+            .leaves
+            .iter()
+            .flat_map(|leaf| leaf.slots.iter().cloned())
+            .collect();
+        let mut safe_aliases = BTreeSet::new();
+        for (alias, body) in &aliases {
+            if parameter_only(body, &definitions, &masters, &safe_aliases) {
+                safe_aliases.insert(alias.clone());
+            }
+        }
+        let always = Atom::num(1);
+        let mut uses = HashMap::new();
+        for root in plan
+            .moments
+            .iter()
+            .flatten()
+            .chain(&self.expressions)
+            .chain(&self.primal_expressions)
+        {
+            collect_alias_uses(root.as_view(), &always, &definitions, &mut uses);
+        }
+        for (arguments, active) in plan.master_arguments.iter().zip(&self.master_activations) {
+            // The activation predicate itself must be classified, but scalar
+            // arguments are relevant only when this leaf is requested.
+            collect_alias_uses(active.as_view(), &always, &definitions, &mut uses);
+            for argument in arguments {
+                collect_alias_uses(argument.as_view(), active, &definitions, &mut uses);
+            }
+        }
+        // Match the executor's actual classifiers. General zero-profile
+        // dispatch is disabled for legacy-snapped PV, whose scalar products
+        // need not be bilinear; whole lightlike bubbles still use their own
+        // analytic classifier. A discarded classifier must not demand probes.
+        if plan.zero_profile_dispatch_allowed() {
+            for i in 0..plan.settings.propagators {
+                for j in i + 1..plan.settings.propagators {
+                    collect_alias_uses(
+                        plan.distances[i][j].as_view(),
+                        &always,
+                        &definitions,
+                        &mut uses,
+                    );
+                }
+            }
+        } else if plan.settings.propagators == 2 && !plan.special_kinematics {
+            collect_alias_uses(
+                plan.distances[0][1].as_view(),
+                &always,
+                &definitions,
+                &mut uses,
+            );
+        }
+        let mut predicate_indices = HashMap::new();
+        let mut predicates = Vec::new();
+        let mut demanded = HashMap::new();
+        for (alias, body) in aliases.iter().rev() {
+            let Some(paths) = uses.remove(alias) else {
+                continue;
+            };
+            let union = union_paths(paths);
+            // Diagnostics run before masters. A master-conditioned use must
+            // conservatively request the parameter-only comparison rather
+            // than introduce a circular pre-master evaluator dependency.
+            let active = if parameter_only(&union, &definitions, &masters, &safe_aliases) {
+                intern_named_predicate(
+                    union,
+                    "iregi::snapping_active_path",
+                    &mut predicates,
+                    &mut predicate_indices,
+                )
+            } else {
+                always.clone()
+            };
+            collect_alias_uses(body.as_view(), &active, &definitions, &mut uses);
+            demanded.insert(alias.clone(), active);
+        }
+        let mut active_paths = BTreeSet::new();
+        for diagnostic in &plan.snapping_diagnostics {
+            let Some(active) = demanded.get(&diagnostic.owner) else {
+                continue;
+            };
+            if !parameter_only(
+                &diagnostic.expression,
+                &definitions,
+                &masters,
+                &safe_aliases,
+            ) {
+                return Err(ReductionError::Preparation(format!(
+                    "snapping diagnostic depends on a scalar master: {}",
+                    diagnostic.label
+                )));
+            }
+            self.snapping_expressions
+                .push(guarded(active, diagnostic.expression.clone(), true));
+            self.snapping_labels.push(diagnostic.label.clone());
+            active_paths.insert(active.clone());
+        }
+        if self.snapping_expressions.is_empty() && !plan.snapping_zero_image_required {
+            return Ok(());
+        }
+        // A diagonal-only IBP tadpole may require the compatibility probe even
+        // though no ordinary off-diagonal query appears in its reduced graph.
+        let any_active = if plan.snapping_zero_image_required {
+            always
+        } else {
+            union_paths(active_paths)
+        };
+        self.snapping_threshold = plan
+            .snapping_threshold
+            .as_ref()
+            .map(|threshold| guarded(&any_active, threshold.clone(), true));
+        self.snapping_zero_image = plan
+            .snapping_zero_image
+            .as_ref()
+            .map(|value| guarded(&any_active, value.clone(), false));
+        let all_aliases: Vec<_> = aliases.into_iter().chain(predicates).collect();
+        let all_definitions: HashMap<_, _> = all_aliases.iter().cloned().collect();
+        let mut reachable = BTreeSet::new();
+        let mut pending: Vec<_> = self
+            .snapping_expressions
+            .iter()
+            .chain(self.snapping_threshold.iter())
+            .chain(self.snapping_zero_image.iter())
+            .cloned()
+            .collect();
+        while let Some(expression) = pending.pop() {
+            for symbol in expression.get_all_symbols(false) {
+                let alias = Atom::var(symbol);
+                if let Some(body) = all_definitions.get(&alias) {
+                    if reachable.insert(alias) {
+                        pending.push(body.clone());
+                    }
+                }
+            }
+        }
+        self.snapping_aliases = all_aliases
+            .into_iter()
+            .filter(|(alias, _)| reachable.contains(alias))
+            .collect();
+        Ok(())
+    }
+
+    fn prepare_primal_amplitudes(
+        &mut self,
+        plan: &ReductionPlan,
+        reachable: &HashMap<Atom, Atom>,
+        base_dimension: i32,
+    ) -> Result<(), ReductionError> {
+        let mut amplitudes: HashMap<_, _> = plan
+            .leaves
+            .iter()
+            .flat_map(|leaf| leaf.slots.iter())
+            .map(|slot| (slot.clone(), Symbol::ABS.call((slot,))))
+            .collect();
+        for (alias, body) in &plan.aliases {
+            if !reachable.contains_key(alias) || !depends_on_amplitudes(body, &amplitudes) {
+                continue;
+            }
+            let amplitude = master_amplitude(body, &amplitudes)?;
+            let handle = Atom::var(symbolica::symbol!(format!(
+                "iregi::master_amplitude_{}",
+                self.primal_aliases.len()
+            )));
+            self.primal_aliases.push((handle.clone(), amplitude));
+            amplitudes.insert(alias.clone(), handle);
+        }
+        for (basis, slots) in plan.basis.iter().zip(&plan.moments) {
+            for (pole, expression) in slots.iter().enumerate() {
+                if !depends_on_amplitudes(expression, &amplitudes) {
+                    continue;
+                }
+                let amplitude = master_amplitude(expression, &amplitudes)?;
+                let value = self.primal_expressions.len();
+                self.primal_expressions.push(expression.clone());
+                let amplitude_index = self.primal_expressions.len();
+                self.primal_expressions.push(amplitude);
+                self.primal_checks.push(PrimalCheck {
+                    value,
+                    amplitude: amplitude_index,
+                    dimension: base_dimension + basis.rank() as i32,
+                    label: format!("moment {:?}, Laurent slot {pole}", basis.0),
+                });
+            }
+        }
+        Ok(())
     }
 
     /// One kinematic predicate per scalar leaf, including monitor demand.
@@ -174,6 +454,7 @@ impl StabilityPlan {
             .aliases
             .iter()
             .chain(&self.predicate_aliases)
+            .chain(&self.primal_aliases)
             .cloned()
             .collect();
         let mut definitions: HashMap<_, _> = aliases.iter().cloned().collect();
@@ -194,7 +475,13 @@ impl StabilityPlan {
         }
         let mut uses = HashMap::new();
         let always = Atom::num(1);
-        for expression in plan.moments.iter().flatten().chain(&self.expressions) {
+        for expression in plan
+            .moments
+            .iter()
+            .flatten()
+            .chain(&self.expressions)
+            .chain(&self.primal_expressions)
+        {
             collect_alias_uses(expression.as_view(), &always, &definitions, &mut uses);
         }
         let mut predicates = Vec::new();
@@ -470,6 +757,69 @@ impl StabilityPlan {
         None
     }
 
+    /// Estimate the sensitivity to one working-precision unit of perturbation
+    /// in every scalar master. Shared recurrence paths propagate absolute
+    /// amplitudes, so earlier cancellations remain visible at later nodes.
+    /// This is a primal sensitivity estimate, not a bound on backend errors or
+    /// on compounded Taylor-component errors; local Dual checks remain active.
+    pub(crate) fn inspect_primal_lane<T: NativeFloat>(
+        &self,
+        values: &[Complex<T>],
+        input: &[Complex<T>],
+        prototype: &T,
+        accuracy_bits: u32,
+    ) -> Option<String> {
+        if values.len() != self.primal_expressions.len() {
+            return Some("invalid primal stability-monitor buffer".into());
+        }
+        let precision = prototype.get_precision();
+        let unit = dyadic(prototype, 1i64 - i64::from(precision));
+        let tolerance = dyadic(prototype, 19i64 - i64::from(accuracy_bits));
+        let scale = self.kinematic_scale(input, 1, prototype);
+        for check in &self.primal_checks {
+            let value = &values[check.value];
+            let amplitude = &values[check.amplitude];
+            if !value.re.is_finite()
+                || !value.im.is_finite()
+                || !amplitude.re.is_finite()
+                || !amplitude.im.is_finite()
+            {
+                return Some(format!(
+                    "nonfinite primal master-amplitude monitor for {}",
+                    check.label
+                ));
+            }
+            let magnitude = NativeFloat::hypot(&value.re, &value.im);
+            let natural = signed_power(&scale, check.dimension);
+            if !natural.is_finite() || natural.is_zero() {
+                return Some(format!(
+                    "primal conditioning normalization is outside the numeric range for {}",
+                    check.label
+                ));
+            }
+            let reference = if magnitude > natural {
+                magnitude
+            } else {
+                natural
+            };
+            let target = tolerance.clone() * reference;
+            let estimate = unit.clone() * NativeFloat::hypot(&amplitude.re, &amplitude.im);
+            if !target.is_finite() || target.is_zero() {
+                return Some(format!(
+                    "primal conditioning tolerance is outside the numeric range for {}",
+                    check.label
+                ));
+            }
+            if !estimate.is_finite() || estimate > target {
+                return Some(format!(
+                    "estimated compounded master cancellation exceeds 2^(19-{accuracy_bits}) at working precision {precision} in {}; primal-only sensitivity estimate, not a certified error bound",
+                    check.label
+                ));
+            }
+        }
+        None
+    }
+
     fn kinematic_scale<T: NativeFloat>(
         &self,
         input: &[Complex<T>],
@@ -506,6 +856,113 @@ impl StabilityPlan {
         } else {
             scale
         }
+    }
+}
+
+fn depends_on_amplitudes(expression: &Atom, amplitudes: &HashMap<Atom, Atom>) -> bool {
+    expression
+        .get_all_symbols(false)
+        .into_iter()
+        .any(|symbol| amplitudes.contains_key(&Atom::var(symbol)))
+}
+
+/// Symbolica extracts the affine coefficients in immediate recurrence inputs.
+/// Aliases are never substituted recursively. Conditional subexpressions are
+/// polynomial generators of their own, with separately constructed lazy
+/// amplitudes, preserving branches even when IF occurs below a sum/product.
+fn master_amplitude(
+    expression: &Atom,
+    amplitudes: &HashMap<Atom, Atom>,
+) -> Result<Atom, ReductionError> {
+    if let Some(amplitude) = amplitudes.get(expression) {
+        return Ok(amplitude.clone());
+    }
+    if !depends_on_amplitudes(expression, amplitudes) {
+        return Ok(Symbol::ABS.call((expression,)));
+    }
+    if let Some((condition, yes, no)) = if_parts(expression.as_view()) {
+        return Ok(Symbol::IF.call((
+            condition,
+            master_amplitude(&yes.to_owned(), amplitudes)?,
+            master_amplitude(&no.to_owned(), amplitudes)?,
+        )));
+    }
+    let mut variables = BTreeSet::new();
+    collect_amplitude_variables(expression.as_view(), amplitudes, &mut variables);
+    let variables: Vec<_> = variables.into_iter().collect();
+    let variable_amplitudes = variables
+        .iter()
+        .map(|variable| master_amplitude(variable, amplitudes))
+        .collect::<Result<Vec<_>, _>>()?;
+    let field = AtomField {
+        statistical_zero_test: false,
+        cancel_check_on_division: false,
+        custom_normalization: None,
+    };
+    let polynomial = expression.to_polynomial_in_vars_with_field::<u16>(&variables, &field);
+    let mut result = Atom::new();
+    for term in &polynomial {
+        if depends_on_amplitudes(term.coefficient, amplitudes)
+            || term
+                .exponents
+                .iter()
+                .map(|&power| u32::from(power))
+                .sum::<u32>()
+                > 1
+        {
+            return Err(ReductionError::Preparation(format!(
+                "primal stability monitor requires affine scalar-master dependence: {expression}"
+            )));
+        }
+        let coefficient = Symbol::ABS.call((term.coefficient,));
+        if let Some(index) = term.exponents.iter().position(|&power| power == 1) {
+            result = result + coefficient * &variable_amplitudes[index];
+        } else {
+            result += coefficient;
+        }
+    }
+    Ok(result)
+}
+
+fn collect_amplitude_variables(
+    expression: AtomView<'_>,
+    amplitudes: &HashMap<Atom, Atom>,
+    variables: &mut BTreeSet<Atom>,
+) {
+    if if_parts(expression).is_some() {
+        let value = expression.to_owned();
+        if depends_on_amplitudes(&value, amplitudes) {
+            variables.insert(value);
+        }
+        return;
+    }
+    match expression {
+        AtomView::Var(_) => {
+            let value = expression.to_owned();
+            if amplitudes.contains_key(&value) {
+                variables.insert(value);
+            }
+        }
+        AtomView::Add(sum) => {
+            for term in sum {
+                collect_amplitude_variables(term, amplitudes, variables);
+            }
+        }
+        AtomView::Mul(product) => {
+            for term in product {
+                collect_amplitude_variables(term, amplitudes, variables);
+            }
+        }
+        AtomView::Pow(power) => {
+            collect_amplitude_variables(power.get_base(), amplitudes, variables);
+            collect_amplitude_variables(power.get_exp(), amplitudes, variables);
+        }
+        AtomView::Fun(function) => {
+            for term in function {
+                collect_amplitude_variables(term, amplitudes, variables);
+            }
+        }
+        AtomView::Num(_) => {}
     }
 }
 
@@ -589,16 +1046,22 @@ fn intern_activation_predicate(
     aliases: &mut Vec<(Atom, Atom)>,
     indices: &mut HashMap<Atom, Atom>,
 ) -> Atom {
+    intern_named_predicate(expression, "iregi::master_active_path", aliases, indices)
+}
+
+fn intern_named_predicate(
+    expression: Atom,
+    namespace: &str,
+    aliases: &mut Vec<(Atom, Atom)>,
+    indices: &mut HashMap<Atom, Atom>,
+) -> Atom {
     if expression == Atom::num(1) || expression.is_zero() {
         return expression;
     }
     if let Some(alias) = indices.get(&expression) {
         return alias.clone();
     }
-    let alias = Atom::var(symbolica::symbol!(format!(
-        "iregi::master_active_path_{}",
-        aliases.len()
-    )));
+    let alias = Atom::var(symbolica::symbol!(format!("{namespace}_{}", aliases.len())));
     indices.insert(expression.clone(), alias.clone());
     aliases.push((alias.clone(), expression));
     alias
@@ -805,6 +1268,14 @@ mod tests {
             predicate_aliases: Vec::new(),
             master_activations: Vec::new(),
             master_activation_aliases: Vec::new(),
+            primal_expressions: Vec::new(),
+            primal_aliases: Vec::new(),
+            primal_checks: Vec::new(),
+            snapping_expressions: Vec::new(),
+            snapping_aliases: Vec::new(),
+            snapping_labels: Vec::new(),
+            snapping_threshold: None,
+            snapping_zero_image: None,
             checks: vec![Check {
                 value: 0,
                 terms: vec![1, 2],
@@ -824,6 +1295,288 @@ mod tests {
 
     fn complex<T: NativeFloat>(value: T) -> Complex<T> {
         Complex::new(value.clone(), value.zero())
+    }
+
+    fn evaluate_snapping(
+        monitor: &StabilityPlan,
+        parameters: &[Atom],
+        rows: &[[f64; 6]],
+    ) -> Vec<Vec<f64>> {
+        use symbolica::evaluate::ExpressionEvaluator;
+        let mut expressions = monitor.snapping_expressions().to_vec();
+        expressions.extend(monitor.snapping_threshold().cloned());
+        expressions.extend(monitor.snapping_zero_image().cloned());
+        let exact: ExpressionEvaluator<Complex<Rational>> =
+            Atom::evaluator_multiple(&expressions, parameters)
+                .add_aliases(monitor.snapping_aliases().iter().cloned())
+                .unwrap()
+                .direct_translation(true)
+                .horner_iterations(0)
+                .cores(1)
+                .build()
+                .unwrap();
+        let mut evaluator = exact
+            .map_coeff_with_prec(
+                &|value| {
+                    Complex::new(
+                        0.0f64.from_rational(&value.re),
+                        0.0f64.from_rational(&value.im),
+                    )
+                },
+                53,
+            )
+            .into_batch_evaluator();
+        let input: Vec<_> = rows.iter().flatten().copied().map(complex).collect();
+        let mut output = vec![complex(0.0); rows.len() * expressions.len()];
+        evaluator
+            .evaluate_batch(&input, &mut output, rows.len())
+            .unwrap();
+        output
+            .chunks_exact(expressions.len())
+            .map(|row| row.iter().map(|value| value.re).collect())
+            .collect()
+    }
+
+    #[test]
+    fn snapping_boundaries_follow_query_demand_and_skip_discarded_queries() {
+        use crate::{Algorithm, ReductionSettings, snapping::LegacySnapping};
+        let mut settings = ReductionSettings::new(1, 0);
+        settings.algorithm = Algorithm::PassarinoVeltman;
+        let mut plan = ReductionPlan::new(settings).unwrap();
+        let mut snapping = LegacySnapping::new(&plan.parameters[4..5], "1/8").unwrap();
+        let used = snapping.snap_scalar_product(plan.parameters[0].clone(), "used query");
+        let _unused =
+            snapping.snap_scalar_product(Atom::num(Rational::from((1, 2))), "discarded query");
+        plan.aliases = snapping.aliases().to_vec();
+        plan.snapping_aliases = plan.aliases.clone();
+        plan.snapping_diagnostics = snapping.diagnostics().to_vec();
+        plan.snapping_threshold = Some(Atom::num(Rational::from((1, 8))));
+        plan.moments = vec![[
+            Symbol::IF.call((&plan.parameters[1], used, Atom::new())),
+            Atom::new(),
+            Atom::new(),
+            Atom::new(),
+        ]];
+        let monitor = StabilityPlan::prepare(&plan).unwrap();
+        assert!(
+            monitor
+                .snapping_labels()
+                .iter()
+                .any(|label| label.contains("used query"))
+        );
+        assert!(
+            !monitor
+                .snapping_labels()
+                .iter()
+                .any(|label| label.contains("discarded query"))
+        );
+        let values = evaluate_snapping(
+            &monitor,
+            &plan.parameters,
+            &[
+                [0.5, 0.0, 0.0, 0.0, 4.0, 3.0],
+                [0.5, 1.0, 0.0, 0.0, 4.0, 3.0],
+                [2.0, 1.0, 0.0, 0.0, 4.0, 3.0],
+            ],
+        );
+        assert!(values[0].iter().all(|&value| value == 1.0));
+        assert!(values[1].contains(&0.0));
+        assert!(
+            values[2]
+                .iter()
+                .all(|value| value.is_finite() && *value != 0.0)
+        );
+        assert_eq!(*values[1].last().unwrap(), 0.125);
+    }
+
+    #[test]
+    fn snapping_used_only_by_active_master_arguments_is_monitored() {
+        use crate::{Algorithm, ReductionSettings, snapping::LegacySnapping};
+        let mut settings = ReductionSettings::new(1, 0);
+        settings.algorithm = Algorithm::PassarinoVeltman;
+        let mut plan = ReductionPlan::new(settings).unwrap();
+        let mut snapping = LegacySnapping::new(&plan.parameters[4..5], "1/8").unwrap();
+        let query = snapping.snap_scalar_product(plan.parameters[0].clone(), "master argument");
+        plan.aliases = snapping.aliases().to_vec();
+        plan.snapping_aliases = plan.aliases.clone();
+        plan.snapping_diagnostics = snapping.diagnostics().to_vec();
+        plan.snapping_threshold = Some(Atom::num(Rational::from((1, 8))));
+        plan.master_arguments[0][0] = query;
+        plan.moments = vec![[
+            Symbol::IF.call((&plan.parameters[1], &plan.leaves[0].slots[0], Atom::new())),
+            Atom::new(),
+            Atom::new(),
+            Atom::new(),
+        ]];
+        let monitor = StabilityPlan::prepare(&plan).unwrap();
+        assert!(
+            monitor
+                .snapping_labels()
+                .iter()
+                .any(|label| label.contains("master argument"))
+        );
+        let values = evaluate_snapping(
+            &monitor,
+            &plan.parameters,
+            &[
+                [0.5, 0.0, 0.0, 0.0, 4.0, 3.0],
+                [0.5, 1.0, 0.0, 0.0, 4.0, 3.0],
+            ],
+        );
+        assert!(values[0].iter().all(|&value| value == 1.0));
+        assert!(values[1].contains(&0.0));
+    }
+
+    #[test]
+    fn snapping_diagonal_probe_preserves_unused_scalar_tadpoles() {
+        use crate::{Algorithm, InputPolicy, ReductionSettings};
+        let mut settings = ReductionSettings::new(1, 0);
+        settings.algorithm = Algorithm::Ibp;
+        settings.input_policy = InputPolicy::LegacyOnShell {
+            threshold: "0".into(),
+        };
+        let scalar = ReductionPlan::new(settings.clone()).unwrap();
+        let unused = StabilityPlan::prepare(&scalar).unwrap();
+        assert!(unused.snapping_expressions().is_empty());
+        assert!(unused.snapping_threshold().is_none());
+        assert!(unused.snapping_zero_image().is_none());
+
+        settings.rank = 2;
+        let tensor = ReductionPlan::new(settings).unwrap();
+        assert!(tensor.snapping_zero_image_required);
+        let required = StabilityPlan::prepare(&tensor).unwrap();
+        assert!(required.snapping_threshold().is_some());
+        assert!(required.snapping_zero_image().is_some());
+        let values = evaluate_snapping(
+            &required,
+            &tensor.parameters,
+            &[
+                [0.0, 0.0, 0.0, 0.0, -4.0, 3.0],
+                [0.0, 0.0, 0.0, 0.0, 4.0, 3.0],
+            ],
+        );
+        assert_eq!(*values[0].last().unwrap(), -4.0);
+        assert_eq!(*values[1].last().unwrap(), 0.0);
+    }
+
+    #[test]
+    fn master_amplitudes_keep_nested_branches_and_reject_nonlinear_masters() {
+        let x = Atom::var(symbolica::symbol!("iregi_test::amplitude_master"));
+        let p = Atom::var(symbolica::symbol!("iregi_test::amplitude_parameter"));
+        let amplitudes = HashMap::from([(x.clone(), Symbol::ABS.call((&x,)))]);
+        let conditional = Symbol::IF.call((&p, &x, Atom::num(2) * &x));
+        let expression = Atom::num(3) * &conditional + Atom::num(7);
+        let expected = Atom::num(3)
+            * Symbol::IF.call((
+                &p,
+                Symbol::ABS.call((&x,)),
+                Atom::num(2) * Symbol::ABS.call((&x,)),
+            ))
+            + Atom::num(7);
+        assert_eq!(
+            master_amplitude(&expression, &amplitudes).unwrap(),
+            expected
+        );
+        assert!(master_amplitude(&x.pow(2), &amplitudes).is_err());
+        assert!(master_amplitude(&Symbol::EXP.call((&x,)), &amplitudes).is_err());
+    }
+
+    #[test]
+    fn pentagon_master_cancellation_triggers_precision_rescue() {
+        use crate::{
+            Algorithm, KinematicsBatch, LaneStatus, PrecisionRescueWorkspace, ReductionSettings,
+            RescueSettings, basis::Monomial, convention::convert_convention, pv::PvCompiler,
+        };
+
+        // The independently preserved 128/256-bit probe in
+        // validation/pv-high-rank/precision-probe.json fixes this point and
+        // component. Compile only that actual PV moment, retaining its full
+        // recurrence DAG and batched scalar masters, to keep this regression
+        // smaller than the separate complete rank-six qualification run.
+        let points = [
+            [0i64, 0, 0, 0],
+            [0, 1, 0, 0],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1],
+            [1, 0, 0, 0],
+        ];
+        let masses = [4i64, 9, 16, 25, 36];
+        let mut settings = ReductionSettings::new(5, 0);
+        settings.algorithm = Algorithm::PassarinoVeltman;
+        let mut plan = ReductionPlan::new(settings).unwrap();
+        let mut compiler = PvCompiler::with_aliases(
+            points.iter().map(|point| point.map(Atom::num)).collect(),
+            masses.map(Atom::num).to_vec(),
+        )
+        .unwrap();
+        let monomial = Monomial([5, 0, 0, 1]);
+        let moment = compiler.compile_moment(monomial.0).unwrap();
+        plan.settings.rank = 6;
+        plan.basis = vec![monomial];
+        plan.moments = vec![convert_convention(&moment, monomial, &plan.settings)];
+        plan.aliases = compiler.aliases().to_vec();
+        plan.leaves = compiler.leaves().to_vec();
+        plan.master_arguments = plan
+            .leaves
+            .iter()
+            .map(|leaf| {
+                let pairs: &[(usize, usize)] = match leaf.active.len() {
+                    1 => &[],
+                    2 => &[(0, 1)],
+                    3 => &[(0, 1), (1, 2), (0, 2)],
+                    4 => &[(0, 1), (1, 2), (2, 3), (0, 3), (0, 2), (1, 3)],
+                    _ => unreachable!(),
+                };
+                let mut arguments: Vec<_> = pairs
+                    .iter()
+                    .map(|&(i, j)| {
+                        let difference = std::array::from_fn::<_, 4, _>(|mu| {
+                            points[leaf.active[i]][mu] - points[leaf.active[j]][mu]
+                        });
+                        Atom::num(
+                            difference[0] * difference[0]
+                                - difference[1] * difference[1]
+                                - difference[2] * difference[2]
+                                - difference[3] * difference[3],
+                        )
+                    })
+                    .collect();
+                arguments.extend(leaf.active.iter().map(|&i| Atom::num(masses[i])));
+                arguments.push(Atom::num(9));
+                arguments
+            })
+            .collect();
+        // The fixture already compiles its exact zero-invariant branches.
+        plan.special_kinematics = true;
+        let values: Vec<_> = points
+            .into_iter()
+            .flatten()
+            .chain(masses)
+            .chain([3])
+            .map(|value| complex(value as f64))
+            .collect();
+        let batch = KinematicsBatch {
+            rows: 1,
+            components: 1,
+            values,
+        };
+        let mut workspace =
+            PrecisionRescueWorkspace::new(&plan, 0.0, RescueSettings::default()).unwrap();
+        let result = workspace.reduce_batch(&batch).unwrap();
+        let LaneStatus::Unstable(reason) = &workspace.last_primary_statuses()[0] else {
+            panic!("the pentagon primary must be rejected by its stability estimate")
+        };
+        assert!(
+            reason.contains("compounded master cancellation"),
+            "{reason}"
+        );
+        assert_eq!(workspace.last_execution().requested_rows, 1);
+        assert_eq!(workspace.last_execution().accepted_rows, 1);
+        assert!(matches!(result.statuses[0], LaneStatus::Success));
+        let finite = result.lane(0).unwrap()[3];
+        let expected = -2.43837893544712293939249874984327534762e-3;
+        assert!(finite.re.abs() < 1e-13);
+        assert!((finite.im - expected).abs() < 1e-13, "{finite:?}");
     }
 
     #[test]
@@ -1096,6 +1849,7 @@ mod tests {
             Atom::new(),
         ]];
         plan.leaves.push(crate::ibp::MasterLeaf {
+            kind: crate::ibp::MasterLeafKind::FourDimensional,
             active: vec![0],
             slots,
         });

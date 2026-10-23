@@ -471,6 +471,85 @@
         "Inputs remain unchanged"
       ],
       "note": "Focused final-source check; full five-test pseudothreshold and legacy suites still require final-source qualification."
+    },
+    {
+      "test": "full five-case physical D0 first/second/mixed batch final qualification",
+      "name": "physical_box_full",
+      "status": "passed",
+      "tests_passed": 1,
+      "test_wall_seconds": 224.83,
+      "binary": "target/physical_derivatives-formal-scale-tests",
+      "binary_sha256": "ba2569358771e2da2d5d758a5e8931bbc09fdd4cd70e96fb27afb3dfa7192204",
+      "log": "validation/scalar-masters/physical_box_full.log",
+      "log_sha256": "b789341112e5627cafc6f9d34d856c317b31c62931d7ac32ad0d9508f68e4671",
+      "command": [
+        "target/physical_derivatives-formal-scale-tests",
+        "physical_box_first_second_and_mixed_derivatives",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "timeout_seconds": 360,
+      "precision_bits": 384,
+      "physical_cases": 5,
+      "dual_components": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          0,
+          1
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          0,
+          2
+        ]
+      ],
+      "finite_difference_step_exponents": [
+        12,
+        18,
+        24
+      ],
+      "acceptance": "maximum scaled discrepancy below2^-70 at final step, with convergence checks",
+      "preparation_seconds": 21.972047642,
+      "batch_evaluation_seconds": 167.837543509,
+      "final_errors": [
+        {
+          "case": "D0 subthreshold",
+          "final_scaled_error": "1.59675925087944670212329753620462111466686443386471554744779116584347e-40"
+        },
+        {
+          "case": "D0 absorptive",
+          "final_scaled_error": "2.844953613470999622776583254358676150273784896144252352060636927056597201790e-34"
+        },
+        {
+          "case": "D0 complex absorptive",
+          "final_scaled_error": "2.5243514977329004510221487293856269433592335002826981389585916389901195999e-30"
+        },
+        {
+          "case": "D0 equal mass absorptive",
+          "final_scaled_error": "3.8377970757338580318280269412147464995078438319199052184923831944034636297298e-33"
+        },
+        {
+          "case": "D0 equal complex masses",
+          "final_scaled_error": "1.104462932770460043496373857585840951552856086462344095254771607748863356477e-34"
+        }
+      ],
+      "maximum_final_scaled_error": 2.5243514977329006e-30,
+      "case_filters": "Both IREGI_DUAL_CASE_FILTER and IREGI_DUAL_SKIP_CASE explicitly unset.",
+      "note": "Completes the same full mixed fixture that exceeded an earlier180s bound; no precision or accuracy relaxation. Validation wall times are not comparative benchmarks."
     }
   ],
   "notes": [
@@ -481,10 +560,10 @@
   ],
   "latest_final_source_qualification": {
     "status": "passed",
-    "tests_passed": 26,
+    "tests_passed": 27,
     "evidence": "validation/scalar-masters/qualification.json",
-    "evidence_sha256": "c934c89637a335a32acb122e44dd099d5497c2f450d9843ad7bf5165b2618643",
-    "scope": "Frozen masters source including formal-log scale transport, separated kinematic/renormalization normalization, subnormal-safe exponent selection, constant-kinematic scale jets and physical C0/B0 derivative tests.",
+    "evidence_sha256": "e91fba53c77b6a1296efb397b4e2242bb33dddbd34ac8468c056db46c2f40766",
+    "scope": "Frozen masters source including formal-log scale transport, separated kinematic/renormalization normalization, subnormal-safe exponent selection, constant-kinematic scale jets and physical C0/B0 derivative tests. Full five-case physical D0 Float384 mixed batch now passes unchanged tolerances.",
     "source_sha256": {
       "crates/iregi-masters/examples/complex_box_oracle.rs": "f08b775b16f6330eade5bfaf78031ad91c0e2cd93c582492fecb2a1b95baab51",
       "crates/iregi-masters/examples/generate_batch.rs": "55aab093697f757d8b546bb3cb378eae03ccd19ae21bab954993cbbb4f141364",
@@ -634,8 +713,86 @@
           "--test-threads=1",
           "--nocapture"
         ]
+      },
+      {
+        "name": "physical_box_full",
+        "status": "passed",
+        "tests_passed": 1,
+        "test_wall_seconds": 224.83,
+        "binary": "target/physical_derivatives-formal-scale-tests",
+        "binary_sha256": "ba2569358771e2da2d5d758a5e8931bbc09fdd4cd70e96fb27afb3dfa7192204",
+        "log": "validation/scalar-masters/physical_box_full.log",
+        "log_sha256": "b789341112e5627cafc6f9d34d856c317b31c62931d7ac32ad0d9508f68e4671",
+        "command": [
+          "target/physical_derivatives-formal-scale-tests",
+          "physical_box_first_second_and_mixed_derivatives",
+          "--test-threads=1",
+          "--nocapture"
+        ],
+        "timeout_seconds": 360,
+        "precision_bits": 384,
+        "physical_cases": 5,
+        "dual_components": [
+          [
+            0,
+            0
+          ],
+          [
+            1,
+            0
+          ],
+          [
+            0,
+            1
+          ],
+          [
+            2,
+            0
+          ],
+          [
+            1,
+            1
+          ],
+          [
+            0,
+            2
+          ]
+        ],
+        "finite_difference_step_exponents": [
+          12,
+          18,
+          24
+        ],
+        "acceptance": "maximum scaled discrepancy below2^-70 at final step, with convergence checks",
+        "preparation_seconds": 21.972047642,
+        "batch_evaluation_seconds": 167.837543509,
+        "final_errors": [
+          {
+            "case": "D0 subthreshold",
+            "final_scaled_error": "1.59675925087944670212329753620462111466686443386471554744779116584347e-40"
+          },
+          {
+            "case": "D0 absorptive",
+            "final_scaled_error": "2.844953613470999622776583254358676150273784896144252352060636927056597201790e-34"
+          },
+          {
+            "case": "D0 complex absorptive",
+            "final_scaled_error": "2.5243514977329004510221487293856269433592335002826981389585916389901195999e-30"
+          },
+          {
+            "case": "D0 equal mass absorptive",
+            "final_scaled_error": "3.8377970757338580318280269412147464995078438319199052184923831944034636297298e-33"
+          },
+          {
+            "case": "D0 equal complex masses",
+            "final_scaled_error": "1.104462932770460043496373857585840951552856086462344095254771607748863356477e-34"
+          }
+        ],
+        "maximum_final_scaled_error": 2.5243514977329006e-30,
+        "case_filters": "Both IREGI_DUAL_CASE_FILTER and IREGI_DUAL_SKIP_CASE explicitly unset.",
+        "note": "Completes the same full mixed fixture that exceeded an earlier180s bound; no precision or accuracy relaxation. Validation wall times are not comparative benchmarks."
       }
     ],
-    "pending": "Full mixed five-case D0 Float384 qualification remains pending."
+    "pending": "None within the listed fixture qualification; unsupported derivative domains remain explicit and performance qualification is separate."
   }
 }

@@ -3,11 +3,19 @@
 use crate::{
     basis::{Monomial, tensor_basis},
     convention::convert_convention,
-    ibp::{MasterLeaf, ScalarCompiler, ScalarRequest},
+    ibp::{MasterLeaf, MasterLeafKind, ScalarCompiler, ScalarRequest},
     pv::PvCompiler,
-    types::{Algorithm, InputLayout, InvariantInput, ReductionError, ReductionSettings},
+    snapping::{LegacySnapping, SnapDiagnostic, exact_threshold},
+    types::{
+        Algorithm, InputLayout, InputPolicy, InvariantInput, ReductionError, ReductionSettings,
+    },
 };
-use std::collections::HashMap;
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    rc::Rc,
+    sync::{Arc, Mutex, OnceLock},
+};
 use symbolica::{
     atom::{Atom, AtomCore},
     domains::{atom::AtomField, integer::Integer},
@@ -15,15 +23,29 @@ use symbolica::{
 
 #[derive(Clone, Debug)]
 pub struct ReductionPlan {
+    pub(crate) execution_cache: crate::execution::ExactExecutionCache,
+    variant_cache: StructuralPlanCache,
     pub(crate) settings: ReductionSettings,
     pub(crate) basis: Vec<Monomial>,
     pub(crate) parameters: Vec<Atom>,
     pub(crate) layout: InputLayout,
     pub(crate) distances: Vec<Vec<Atom>>,
+    /// Polynomial distances in original inputs, before the optional on-shell
+    /// policy. These certify numerical zeros without undoing intentional snaps.
+    pub(crate) raw_distances: Vec<Vec<Atom>>,
     pub(crate) moments: Vec<[Atom; 4]>,
     pub(crate) leaves: Vec<MasterLeaf>,
     pub(crate) master_arguments: Vec<Vec<Atom>>,
     pub(crate) aliases: Vec<(Atom, Atom)>,
+    /// Invariant-only definitions required by argument and diagnostic lowering.
+    pub(crate) snapping_aliases: Vec<(Atom, Atom)>,
+    pub(crate) snapping_diagnostics: Vec<SnapDiagnostic>,
+    /// The effective threshold, absent for preserved and supplied-G inputs.
+    pub(crate) snapping_threshold: Option<Atom>,
+    /// A zero-threshold negative reference can violate the zero-distance
+    /// diagonal assumed by the recurrence. Reject only demanded matrix paths.
+    pub(crate) snapping_zero_image: Option<Atom>,
+    pub(crate) snapping_zero_image_required: bool,
     pub(crate) fallback: Option<Box<ReductionPlan>>,
     algorithm_used: Algorithm,
     preparation_notes: Vec<String>,
@@ -31,6 +53,9 @@ pub struct ReductionPlan {
     pub(crate) analytic_jet_order: u16,
     bubble_limit: Option<(u16, bool)>,
     zero_invariants: Option<ZeroInvariantProfile>,
+    /// A structural chart whose full-Taylor invariant constraints are checked
+    /// by the private certified scalar entry point before numerical execution.
+    certified_scalar_basis: Option<[usize; 4]>,
 }
 
 /// Exact constraints are structural: numerical values are never stored here.
@@ -40,9 +65,28 @@ pub(crate) struct ZeroInvariantProfile {
     pub distances: Vec<(usize, usize)>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct PlanVariant {
+    analytic_jet_order: u16,
+    bubble_equal_masses: Option<bool>,
+    zero_invariants: Option<ZeroInvariantProfile>,
+}
+
+type StructuralPlanCache =
+    Arc<Mutex<HashMap<PlanVariant, Arc<OnceLock<Result<Arc<ReductionPlan>, ReductionError>>>>>>;
+
 impl ReductionPlan {
     pub fn new(settings: ReductionSettings) -> Result<Self, ReductionError> {
-        Self::build(settings, None, None, 0)
+        Self::build(settings, None, None, 0, None)
+    }
+
+    /// Only the certified scalar wrapper may prepare this chart. A plan holds
+    /// no numerical certificate; that wrapper rechecks every input batch.
+    pub(crate) fn new_certified_scalar(
+        settings: ReductionSettings,
+        basis: [usize; 4],
+    ) -> Result<Self, ReductionError> {
+        Self::build(settings, None, None, 0, Some(basis))
     }
 
     /// An analytic Taylor neighborhood selected only for exact lightlike bubbles.
@@ -57,17 +101,21 @@ impl ReductionPlan {
                 "lightlike bubble requires two propagators".into(),
             ));
         }
-        Self::build(settings, Some((jet_order, equal_masses)), None, jet_order)
+        Self::build(
+            settings,
+            Some((jet_order, equal_masses)),
+            None,
+            jet_order,
+            None,
+        )
     }
 
-    pub(crate) fn with_analytic_jet_order(&self, order: u16) -> Result<Self, ReductionError> {
-        let bubble_limit = self.bubble_limit.map(|(_, equal)| (order, equal));
-        Self::build(
-            self.settings.clone(),
-            bubble_limit,
-            self.zero_invariants.clone(),
-            order,
-        )
+    pub(crate) fn with_analytic_jet_order(&self, order: u16) -> Result<Arc<Self>, ReductionError> {
+        self.variant(PlanVariant {
+            analytic_jet_order: order,
+            bubble_equal_masses: self.bubble_limit.map(|(_, equal)| equal),
+            zero_invariants: self.zero_invariants.clone(),
+        })
     }
 
     /// Prepare an exact invariant profile. The runtime must verify each selected
@@ -75,7 +123,7 @@ impl ReductionPlan {
     pub(crate) fn with_zero_invariants(
         &self,
         mut profile: ZeroInvariantProfile,
-    ) -> Result<Self, ReductionError> {
+    ) -> Result<Arc<Self>, ReductionError> {
         let n = self.settings.propagators;
         if profile.masses.len() != n
             || profile
@@ -94,12 +142,54 @@ impl ReductionPlan {
         }
         profile.distances.sort_unstable();
         profile.distances.dedup();
-        Self::build(
-            self.settings.clone(),
-            None,
-            Some(profile),
-            self.analytic_jet_order,
-        )
+        self.variant(PlanVariant {
+            analytic_jet_order: self.analytic_jet_order,
+            bubble_equal_masses: None,
+            zero_invariants: Some(profile),
+        })
+    }
+
+    fn variant(&self, variant: PlanVariant) -> Result<Arc<Self>, ReductionError> {
+        if variant.analytic_jet_order == self.analytic_jet_order
+            && variant.bubble_equal_masses == self.bubble_limit.map(|(_, equal)| equal)
+            && variant.zero_invariants == self.zero_invariants
+        {
+            // Do not insert self into its own cache: even an immutable clone
+            // would retain this cache and create an ownership cycle.
+            return Ok(Arc::new(self.clone()));
+        }
+        let entry = self
+            .variant_cache
+            .lock()
+            .map_err(|_| ReductionError::Preparation("structural plan cache lock poisoned".into()))?
+            .entry(variant.clone())
+            .or_default()
+            .clone();
+        // No cache lock is held while preparing fallback/profile recurrences.
+        // Every newly built child receives fresh caches, with no parent link.
+        entry
+            .get_or_init(|| {
+                Self::build(
+                    self.settings.clone(),
+                    variant
+                        .bubble_equal_masses
+                        .map(|equal| (variant.analytic_jet_order, equal)),
+                    variant.zero_invariants,
+                    variant.analytic_jet_order,
+                    self.certified_scalar_basis,
+                )
+                .map(Arc::new)
+            })
+            .as_ref()
+            .map(Arc::clone)
+            .map_err(|error| match error {
+                ReductionError::InvalidInput(reason) => {
+                    ReductionError::InvalidInput(reason.clone())
+                }
+                ReductionError::Preparation(reason) => ReductionError::Preparation(reason.clone()),
+                ReductionError::Unsupported(reason) => ReductionError::Unsupported(reason.clone()),
+                ReductionError::Evaluation(reason) => ReductionError::Evaluation(reason.clone()),
+            })
     }
 
     fn build(
@@ -107,6 +197,7 @@ impl ReductionPlan {
         bubble_limit: Option<(u16, bool)>,
         zero_invariants: Option<ZeroInvariantProfile>,
         analytic_jet_order: u16,
+        certified_scalar_basis: Option<[usize; 4]>,
     ) -> Result<Self, ReductionError> {
         let n = settings.propagators;
         if n == 0 || settings.powers.len() != n || settings.powers.iter().any(|&p| p == 0) {
@@ -119,18 +210,76 @@ impl ReductionPlan {
                 "preparation budget exceeds 32 tensor indices or 16 propagators".into(),
             ));
         }
+        // High-point pinching identities require a four-dimensional external
+        // Gram matrix. Arbitrary supplied invariants, including Dual directions
+        // transverse to that variety, do not satisfy those identities. Until
+        // every Taylor component is checked, do not accept this input domain.
+        if let Some(chart) = certified_scalar_basis {
+            if !(6..=7).contains(&n)
+                || settings.rank != 0
+                || settings.algorithm != Algorithm::Ibp
+                || settings.invariants != InvariantInput::SuppliedScalarProducts
+                || chart.iter().any(|&index| index == 0 || index >= n)
+                || chart
+                    .iter()
+                    .enumerate()
+                    .any(|(i, index)| chart[..i].contains(index))
+            {
+                return Err(ReductionError::InvalidInput(
+                    "certified scalar charts require six or seven propagators, rank-zero IBP, supplied scalar products, and four distinct nonzero propagator indices".into(),
+                ));
+            }
+        }
+        if settings.invariants == InvariantInput::SuppliedScalarProducts
+            && n >= 6
+            && certified_scalar_basis.is_none()
+        {
+            return Err(ReductionError::Unsupported(
+                "supplied scalar products with six or more propagators require validated four-dimensional Gram constraints in every Taylor component; coordinate inputs remain supported".into(),
+            ));
+        }
+        let requested_threshold = match &settings.input_policy {
+            InputPolicy::Preserve => None,
+            InputPolicy::LegacyOnShell { threshold } => Some(exact_threshold(threshold)?),
+        };
+        let snapping_threshold = if settings.invariants == InvariantInput::FromShifts {
+            requested_threshold
+        } else {
+            None
+        };
+        if snapping_threshold.is_some() && n >= 5 {
+            return Err(ReductionError::Unsupported(
+                "legacy on-shell snapping for five or more propagators awaits independent validation of coordinate identities with non-bilinear snapped invariants".into(),
+            ));
+        }
         let shifts: Vec<[Atom; 4]> = (0..n)
             .map(|i| std::array::from_fn(|mu| variable(&format!("p{i}_{mu}"))))
             .collect();
         let masses: Vec<_> = (0..n).map(|i| variable(&format!("m2_{i}"))).collect();
+        let snapping = match (&settings.input_policy, settings.invariants) {
+            (InputPolicy::LegacyOnShell { threshold }, InvariantInput::FromShifts) => Some(
+                Rc::new(RefCell::new(LegacySnapping::new(&masses, threshold)?)),
+            ),
+            _ => None,
+        };
         let mu = variable("mu");
         let mut parameters: Vec<Atom> = shifts.iter().flatten().cloned().collect();
         let mut distances = vec![vec![Atom::new(); n]; n];
+        let mut raw_distances = distances.clone();
         let scalar_products = match settings.invariants {
             InvariantInput::FromShifts => {
                 for i in 0..n {
                     for j in i + 1..n {
-                        distances[i][j] = squared_difference(&shifts[i], &shifts[j]);
+                        let raw = squared_difference(&shifts[i], &shifts[j]);
+                        raw_distances[i][j] = raw.clone();
+                        raw_distances[j][i] = raw.clone();
+                        distances[i][j] = if let Some(snapping) = &snapping {
+                            snapping
+                                .borrow_mut()
+                                .snap_scalar_product(raw, format!("(p{i}-p{j})²"))
+                        } else {
+                            raw
+                        };
                         distances[j][i] = distances[i][j].clone();
                     }
                 }
@@ -152,6 +301,8 @@ impl ReductionPlan {
                         distances[i][j] =
                             &products[i][i] + &products[j][j] - Atom::num(2) * &products[i][j];
                         distances[j][i] = distances[i][j].clone();
+                        raw_distances[i][j] = distances[i][j].clone();
+                        raw_distances[j][i] = distances[i][j].clone();
                     }
                 }
                 Some(start..parameters.len())
@@ -179,7 +330,14 @@ impl ReductionPlan {
             return Err(ReductionError::Unsupported("PV currently requires unit propagator powers and zero dimension shift; use IBP or hybrid".into()));
         }
         let mut preparation_notes = Vec::new();
-        let (mut moments, leaves, aliases, algorithm_used) = match algorithm_used {
+        if matches!(settings.input_policy, InputPolicy::LegacyOnShell { .. }) {
+            preparation_notes.push(if snapping.is_some() {
+                "Legacy on-shell policy applies to individual scalar products; input momenta and masses are preserved".into()
+            } else {
+                "Supplied scalar products bypass the legacy on-shell policy, matching the original supplied-invariant interface".into()
+            });
+        }
+        let (mut moments, leaves, mut aliases, algorithm_used) = match algorithm_used {
             Algorithm::Ibp => {
                 match compile_ibp(
                     &settings,
@@ -189,23 +347,42 @@ impl ReductionPlan {
                     &distances,
                     bubble_limit,
                     zero_invariants.as_ref(),
+                    certified_scalar_basis,
                 ) {
                     Ok((moments, leaves, aliases)) => (moments, leaves, aliases, Algorithm::Ibp),
-                    Err(error) if ordinary && n >= 5 && !special_kinematics => {
+                    Err(error)
+                        if ordinary
+                            && n >= 5
+                            && !special_kinematics
+                            && certified_scalar_basis.is_none() =>
+                    {
                         // Original IBP also completes its four-dimensional
                         // high-point tensor system with PV at zero dimension
                         // coefficients. This does not replace an independent
                         // higher-dimensional scalar integral by box masters.
                         preparation_notes.push(format!("IBP tensor completion uses PV: {error}"));
-                        let (moments, leaves, aliases) =
-                            compile_pv(&basis, &shifts, &masses, &distances, analytic_jet_order)?;
+                        let (moments, leaves, aliases) = compile_pv(
+                            &basis,
+                            &shifts,
+                            &masses,
+                            &distances,
+                            analytic_jet_order,
+                            snapping.clone(),
+                        )?;
                         (moments, leaves, aliases, Algorithm::PassarinoVeltman)
                     }
                     Err(error) => return Err(error),
                 }
             }
             Algorithm::PassarinoVeltman | Algorithm::Hybrid => {
-                let pv = compile_pv(&basis, &shifts, &masses, &distances, analytic_jet_order);
+                let pv = compile_pv(
+                    &basis,
+                    &shifts,
+                    &masses,
+                    &distances,
+                    analytic_jet_order,
+                    snapping.clone(),
+                );
                 match pv {
                     Ok((moments, leaves, aliases)) => {
                         (moments, leaves, aliases, Algorithm::PassarinoVeltman)
@@ -221,6 +398,7 @@ impl ReductionPlan {
                             &distances,
                             bubble_limit,
                             zero_invariants.as_ref(),
+                            certified_scalar_basis,
                         )?;
                         (moments, leaves, aliases, Algorithm::Ibp)
                     }
@@ -228,7 +406,47 @@ impl ReductionPlan {
                 }
             }
         };
+        let (snapping_aliases, snapping_diagnostics, snapping_zero_image) =
+            snapping.as_ref().map_or_else(
+                || (Vec::new(), Vec::new(), None),
+                |snapping| {
+                    let mut snapping = snapping.borrow_mut();
+                    // The compatibility-only query must not create independent
+                    // boundary diagnostics or make an unused policy active.
+                    let diagnostics = snapping.diagnostics().to_vec();
+                    let zero_image = snapping_threshold
+                        .as_ref()
+                        .filter(|value| value.is_zero())
+                        .map(|_| {
+                            snapping.snap_scalar_product(Atom::Zero, "zero-distance compatibility")
+                        });
+                    (snapping.aliases().to_vec(), diagnostics, zero_image)
+                },
+            );
+        let snapping_zero_image_required = snapping_zero_image.is_some()
+            && n == 1
+            && algorithm_used == Algorithm::Ibp
+            && (settings.rank > 0 || !ordinary);
+        if !snapping_aliases.is_empty() {
+            let mut ordered = snapping_aliases.clone();
+            ordered.append(&mut aliases);
+            aliases = ordered;
+        }
+        let base_uv_degree = 4 + 2 * i32::from(settings.dimension_shift)
+            - 2 * settings
+                .powers
+                .iter()
+                .map(|&power| i32::from(power))
+                .sum::<i32>();
         for (moment, monomial) in moments.iter_mut().zip(&basis) {
+            // Only the requested output is UV convergent. Intermediate UV
+            // poles remain available to the recurrence's finite rational terms.
+            let rank = i32::try_from(monomial.rank()).map_err(|_| {
+                ReductionError::Unsupported("tensor rank exceeds UV power-counting range".into())
+            })?;
+            if base_uv_degree + rank < 0 {
+                moment[0] = Atom::Zero;
+            }
             *moment = convert_convention(moment, *monomial, &settings);
         }
         let master_arguments = leaves
@@ -238,15 +456,15 @@ impl ReductionPlan {
                 let mut args = Vec::new();
                 let mut distance =
                     |i: usize, j: usize| args.push(distances[active[i]][active[j]].clone());
-                match active.len() {
-                    1 => {}
-                    2 => distance(0, 1),
-                    3 => {
+                match (leaf.kind, active.len()) {
+                    (MasterLeafKind::FourDimensional, 1) => {}
+                    (MasterLeafKind::FourDimensional, 2) => distance(0, 1),
+                    (MasterLeafKind::FourDimensional, 3) => {
                         distance(0, 1);
                         distance(1, 2);
                         distance(0, 2);
                     }
-                    4 => {
+                    (MasterLeafKind::FourDimensional, 4) => {
                         distance(0, 1);
                         distance(1, 2);
                         distance(2, 3);
@@ -254,7 +472,14 @@ impl ReductionPlan {
                         distance(0, 2);
                         distance(1, 3);
                     }
-                    _ => unreachable!("scalar compiler only emits one through four point masters"),
+                    (MasterLeafKind::SixDimensionalPentagon, 5) => {
+                        for i in 0..5 {
+                            for j in i + 1..5 {
+                                distance(i, j);
+                            }
+                        }
+                    }
+                    _ => unreachable!("scalar compiler emitted an inconsistent master kind"),
                 }
                 args.extend(active.iter().map(|&i| masses[i].clone()));
                 args.push(mu.pow(2));
@@ -267,7 +492,13 @@ impl ReductionPlan {
         {
             let mut fallback_settings = settings.clone();
             fallback_settings.algorithm = Algorithm::Ibp;
-            match Self::build(fallback_settings, None, None, analytic_jet_order) {
+            match Self::build(
+                fallback_settings,
+                None,
+                None,
+                analytic_jet_order,
+                certified_scalar_basis,
+            ) {
                 Ok(plan) if plan.algorithm_used == Algorithm::Ibp => Some(Box::new(plan)),
                 Ok(_) => {
                     preparation_notes.push("Independent IBP fallback is unavailable for this topology; its tensor completion also uses PV".into());
@@ -282,15 +513,23 @@ impl ReductionPlan {
             None
         };
         Ok(Self {
+            execution_cache: Default::default(),
+            variant_cache: Default::default(),
             settings,
             basis,
             parameters,
             layout,
             distances,
+            raw_distances,
             moments,
             leaves,
             master_arguments,
             aliases,
+            snapping_aliases,
+            snapping_diagnostics,
+            snapping_threshold,
+            snapping_zero_image,
+            snapping_zero_image_required,
             fallback,
             algorithm_used,
             preparation_notes,
@@ -298,6 +537,7 @@ impl ReductionPlan {
             analytic_jet_order,
             bubble_limit,
             zero_invariants,
+            certified_scalar_basis,
         })
     }
 
@@ -319,6 +559,16 @@ impl ReductionPlan {
     pub fn algorithm_used(&self) -> Algorithm {
         self.algorithm_used
     }
+    /// An IBP invariant profile cannot replace the distinct direct-dot Gram
+    /// matrix selected by legacy PV snapping.
+    pub(crate) fn zero_profile_dispatch_allowed(&self) -> bool {
+        !self.special_kinematics
+            // Rounded invariant evaluations cannot establish new exact-zero
+            // constraints beyond the certified full-Taylor Gram relations.
+            && self.certified_scalar_basis.is_none()
+            && !(self.snapping_threshold.is_some()
+                && self.algorithm_used == Algorithm::PassarinoVeltman)
+    }
     pub fn preparation_notes(&self) -> &[String] {
         &self.preparation_notes
     }
@@ -329,6 +579,17 @@ impl ReductionPlan {
     pub fn expressions(&self) -> &[[Atom; 4]] {
         &self.moments
     }
+
+    /// Locally guarded comparison probes for the effective legacy policy.
+    /// Runtime evaluation must also respect each probe owner's branch demand.
+    pub fn snapping_diagnostics(&self) -> &[SnapDiagnostic] {
+        &self.snapping_diagnostics
+    }
+
+    /// Exact threshold expression, absent when the policy has no effect.
+    pub fn snapping_threshold(&self) -> Option<&Atom> {
+        self.snapping_threshold.as_ref()
+    }
 }
 
 fn compile_pv(
@@ -337,6 +598,7 @@ fn compile_pv(
     masses: &[Atom],
     distances: &[Vec<Atom>],
     analytic_jet_order: u16,
+    snapping: Option<Rc<RefCell<LegacySnapping>>>,
 ) -> Result<(Vec<[Atom; 4]>, Vec<MasterLeaf>, Vec<(Atom, Atom)>), ReductionError> {
     let mut compiler =
         PvCompiler::with_distances(shifts.to_vec(), masses.to_vec(), distances.to_vec(), true)
@@ -344,6 +606,15 @@ fn compile_pv(
     compiler
         .set_analytic_jet_order(analytic_jet_order)
         .map_err(ReductionError::Preparation)?;
+    if let Some(snapping) = snapping {
+        compiler
+            .set_gram_scalar_product_transform(move |raw| {
+                snapping
+                    .borrow_mut()
+                    .snap_scalar_product(raw, "PV Gram scalar product")
+            })
+            .map_err(ReductionError::Preparation)?;
+    }
     let moments = basis
         .iter()
         .map(|m| compiler.compile_moment(m.0))
@@ -364,6 +635,7 @@ fn compile_ibp(
     supplied_distances: &[Vec<Atom>],
     bubble_limit: Option<(u16, bool)>,
     zero_invariants: Option<&ZeroInvariantProfile>,
+    certified_basis: Option<[usize; 4]>,
 ) -> Result<(Vec<[Atom; 4]>, Vec<MasterLeaf>, Vec<(Atom, Atom)>), ReductionError> {
     // Independent squared-distance symbols keep exact matrix elimination small.
     // Symbolica shares their definitions across the recurrence graph.
@@ -395,12 +667,48 @@ fn compile_ibp(
         },
     }
     .map_err(ReductionError::Preparation)?;
+    if let Some(basis) = certified_basis {
+        // The opt-in scalar wrapper certifies that these four Gram covectors
+        // preserve every external linear dependency in every Taylor component.
+        // They are coordinates on the span, not reconstructed Cartesian shifts;
+        // original squared distances and masses remain authoritative in R.
+        let coordinates = (0..n)
+            .map(|i| {
+                std::array::from_fn(|axis| {
+                    let anchor = basis[axis];
+                    (&supplied_distances[0][anchor] + &supplied_distances[0][i]
+                        - &supplied_distances[anchor][i])
+                        / Atom::num(2)
+                })
+            })
+            .collect();
+        compiler
+            .set_certified_linear_coordinates(coordinates)
+            .map_err(ReductionError::Preparation)?;
+    } else if settings.invariants == InvariantInput::FromShifts
+        && settings.input_policy == InputPolicy::Preserve
+    {
+        compiler
+            .set_routing(shifts.to_vec())
+            .map_err(ReductionError::Preparation)?;
+    }
     compiler
         .enable_aliases()
         .map_err(ReductionError::Preparation)?;
     compiler
         .enable_physical_poles()
         .map_err(ReductionError::Preparation)?;
+    compiler
+        .enable_gram_regular_bubbles()
+        .map_err(ReductionError::Preparation)?;
+    if settings.dimension_shift != 0 || settings.powers.iter().any(|&power| power != 1) {
+        // Ordinary four-dimensional high-point tensors retain the existing
+        // PV completion. Genuine generalized requests require the independent
+        // shifted master; its backend enforces a finite parameter domain.
+        compiler
+            .enable_six_dimensional_pentagon()
+            .map_err(ReductionError::Preparation)?;
+    }
     let t: [Atom; 4] = std::array::from_fn(|i| variable(&format!("aux{i}")));
     let metric = t[0].pow(2) - t[1].pow(2) - t[2].pow(2) - t[3].pow(2);
     let projections: Vec<Atom> = shifts
@@ -512,4 +820,256 @@ fn compositions(total: u16, count: usize) -> Vec<Vec<u16>> {
         }
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Convention, Workspace};
+    use iregi_masters::Float;
+    use symbolica::domains::{dual::HyperDual, float::Complex, rational::Rational};
+
+    fn settings(n: usize, rank: u16) -> ReductionSettings {
+        let mut settings = ReductionSettings::new(n, rank);
+        settings.algorithm = Algorithm::Ibp;
+        settings.convention = Convention::OneLoop;
+        settings
+    }
+
+    #[test]
+    fn certified_scalar_chart_rejects_unsupported_domains_and_invalid_bases() {
+        let mut configuration = settings(6, 0);
+        configuration.invariants = InvariantInput::SuppliedScalarProducts;
+        assert!(matches!(
+            ReductionPlan::new(configuration.clone()),
+            Err(ReductionError::Unsupported(_))
+        ));
+        for chart in [[0, 1, 2, 3], [1, 1, 3, 4], [1, 2, 3, 6]] {
+            assert!(matches!(
+                ReductionPlan::new_certified_scalar(configuration.clone(), chart),
+                Err(ReductionError::InvalidInput(_))
+            ));
+        }
+        let mut non_scalar = configuration.clone();
+        non_scalar.rank = 1;
+        let mut coordinate_input = configuration.clone();
+        coordinate_input.invariants = InvariantInput::FromShifts;
+        let mut pv = configuration.clone();
+        pv.algorithm = Algorithm::PassarinoVeltman;
+        let mut hybrid = configuration;
+        hybrid.algorithm = Algorithm::Hybrid;
+        let mut five = settings(5, 0);
+        five.invariants = InvariantInput::SuppliedScalarProducts;
+        let mut eight = settings(8, 0);
+        eight.invariants = InvariantInput::SuppliedScalarProducts;
+        for invalid in [non_scalar, coordinate_input, pv, hybrid, five, eight] {
+            assert!(matches!(
+                ReductionPlan::new_certified_scalar(invalid, [1, 2, 3, 4]),
+                Err(ReductionError::InvalidInput(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn nontrivial_dual_specializations_share_exact_work_across_precisions() {
+        let plan = ReductionPlan::new(settings(1, 0)).unwrap();
+        let shape = HyperDual::<Complex<Rational>>::new(vec![vec![0], vec![1]]);
+        let binary = Workspace::new_dual(&plan, 0., shape.clone()).unwrap();
+        let specialized = plan.with_analytic_jet_order(1).unwrap();
+        let first = specialized
+            .execution_cache
+            .lock()
+            .unwrap()
+            .values()
+            .next()
+            .unwrap()
+            .get()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .clone();
+        let precise = Workspace::new_dual(&plan, Float::new(256), shape).unwrap();
+        let again = plan.with_analytic_jet_order(1).unwrap();
+        let second = again
+            .execution_cache
+            .lock()
+            .unwrap()
+            .values()
+            .next()
+            .unwrap()
+            .get()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .clone();
+        assert!(Arc::ptr_eq(&specialized, &again));
+        assert!(Arc::ptr_eq(&first, &second));
+        assert_eq!(binary.binary_precision(), 53);
+        assert_eq!(precise.binary_precision(), 256);
+
+        // Same total degree, different Taylor-component order: the tensor
+        // plan is shared, while each exact flattened program remains distinct.
+        let first_shape = vec![vec![0, 0], vec![1, 0], vec![0, 1]];
+        let second_shape = vec![vec![0, 0], vec![0, 1], vec![1, 0]];
+        let first = Workspace::new_dual(
+            &plan,
+            0.,
+            HyperDual::<Complex<Rational>>::new(first_shape.clone()),
+        )
+        .unwrap();
+        let second = Workspace::new_dual(
+            &plan,
+            0.,
+            HyperDual::<Complex<Rational>>::new(second_shape.clone()),
+        )
+        .unwrap();
+        assert_eq!(first.dual_shape().unwrap(), first_shape);
+        assert_eq!(second.dual_shape().unwrap(), second_shape);
+        let cache = specialized.execution_cache.lock().unwrap();
+        assert_eq!(cache.len(), 3);
+        let first = cache[&Some(first_shape)].get().unwrap().as_ref().unwrap();
+        let second = cache[&Some(second_shape)].get().unwrap().as_ref().unwrap();
+        assert!(!Arc::ptr_eq(first, second));
+    }
+
+    #[test]
+    fn canonical_profiles_are_shared_and_variant_caches_do_not_form_cycles() {
+        let weak = {
+            let plan = ReductionPlan::new(settings(2, 0)).unwrap();
+            let first = plan
+                .with_zero_invariants(ZeroInvariantProfile {
+                    masses: vec![true, true],
+                    distances: vec![(1, 0), (0, 1)],
+                })
+                .unwrap();
+            let second = plan
+                .with_zero_invariants(ZeroInvariantProfile {
+                    masses: vec![true, true],
+                    distances: vec![(0, 1)],
+                })
+                .unwrap();
+            assert!(Arc::ptr_eq(&first, &second));
+            let _binary = Workspace::new(&first, 0.).unwrap();
+            let _precise = Workspace::new(&second, Float::new(256)).unwrap();
+            assert_eq!(first.execution_cache.lock().unwrap().len(), 1);
+            Arc::downgrade(&first)
+        };
+        assert!(weak.upgrade().is_none());
+    }
+
+    fn assert_concurrent_variant_lookup(plan: Arc<ReductionPlan>) {
+        let handles: Vec<_> = (0..4)
+            .map(|_| {
+                let plan = plan.clone();
+                std::thread::spawn(move || plan.with_analytic_jet_order(2).unwrap())
+            })
+            .collect();
+        let variants: Vec<_> = handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect();
+        assert!(
+            variants
+                .iter()
+                .all(|variant| Arc::ptr_eq(variant, &variants[0]))
+        );
+        let weak = Arc::downgrade(&variants[0]);
+        drop(variants);
+        drop(plan);
+        assert!(weak.upgrade().is_none());
+    }
+
+    #[test]
+    fn warm_specializations_support_concurrent_cache_lookup() {
+        let plan = Arc::new(ReductionPlan::new(settings(1, 0)).unwrap());
+        // Initialize Symbolica's exact graph on the current licensed thread.
+        // Worker threads receive only the completed Rust cache entry, so they
+        // cannot enter any Symbolica construction or Atom-cloning code.
+        let variant = plan.with_analytic_jet_order(2).unwrap();
+        let entry = plan
+            .variant_cache
+            .lock()
+            .unwrap()
+            .get(&PlanVariant {
+                analytic_jet_order: 2,
+                bubble_equal_masses: None,
+                zero_invariants: None,
+            })
+            .unwrap()
+            .clone();
+        let handles: Vec<_> = (0..4)
+            .map(|_| {
+                let entry = entry.clone();
+                std::thread::spawn(move || entry.get().unwrap().as_ref().unwrap().clone())
+            })
+            .collect();
+        for handle in handles {
+            assert!(Arc::ptr_eq(&handle.join().unwrap(), &variant));
+        }
+        let weak = Arc::downgrade(&variant);
+        drop(variant);
+        drop(entry);
+        drop(plan);
+        assert!(weak.upgrade().is_none());
+    }
+
+    #[test]
+    #[ignore = "cold preparation on worker threads requires a multithread-enabled Symbolica license"]
+    fn cold_specializations_are_initialized_once_across_threads() {
+        assert_concurrent_variant_lookup(Arc::new(ReductionPlan::new(settings(1, 0)).unwrap()));
+    }
+
+    #[test]
+    fn final_uv_power_counting_preserves_ir_and_dimension_shifted_residues() {
+        eprintln!("UV fixture: dotted bubble in four dimensions");
+        let mut dotted = settings(2, 0);
+        dotted.powers = vec![2, 1];
+        let convergent = ReductionPlan::new(dotted.clone()).unwrap();
+        assert!(convergent.moments[0][0].is_zero());
+        assert!(!convergent.moments[0][3].is_zero());
+        eprintln!("UV fixture: dotted bubble in six dimensions");
+        dotted.dimension_shift = 1;
+        let shifted = ReductionPlan::new(dotted).unwrap();
+        assert!(!shifted.moments[0][0].is_zero());
+
+        eprintln!("UV fixture: scaleless bubble UV/IR cancellation");
+        let bubble = ReductionPlan::new(settings(2, 0))
+            .unwrap()
+            .with_zero_invariants(ZeroInvariantProfile {
+                masses: vec![true; 2],
+                distances: vec![(0, 1)],
+            })
+            .unwrap();
+        assert_eq!(bubble.moments[0][0], Atom::num(1));
+        assert_eq!(bubble.moments[0][1], Atom::num(-1));
+
+        eprintln!("UV fixture: massless on-shell triangle IR double pole");
+        let triangle = ReductionPlan::new(settings(3, 0))
+            .unwrap()
+            .with_zero_invariants(ZeroInvariantProfile {
+                masses: vec![true; 3],
+                distances: vec![(0, 1), (0, 2)],
+            })
+            .unwrap();
+        assert!(triangle.moments[0][0].is_zero());
+        assert!(!triangle.moments[0][2].is_zero());
+    }
+
+    #[test]
+    #[ignore = "expensive generic five-to-seven-point symbolic preparation; run with an explicit time budget"]
+    fn final_uv_power_counting_high_point_symbolic_preparation() {
+        for (n, rank) in [(5, 2), (6, 0), (7, 0)] {
+            let started = std::time::Instant::now();
+            eprintln!("UV high-point fixture: preparing {n} propagators, rank {rank}");
+            let mut configuration = settings(n, rank);
+            configuration.algorithm = Algorithm::PassarinoVeltman;
+            let plan = ReductionPlan::new(configuration).unwrap();
+            assert!(plan.moments.iter().all(|moment| moment[0].is_zero()));
+            assert!(plan.moments.iter().any(|moment| !moment[3].is_zero()));
+            eprintln!(
+                "UV high-point fixture: {n} propagators, rank {rank} passed in {:?}",
+                started.elapsed()
+            );
+        }
+    }
 }

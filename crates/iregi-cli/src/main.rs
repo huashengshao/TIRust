@@ -1,19 +1,17 @@
 //! Standalone graph preparation, tensor reduction and independent comparison.
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use iregi_cli::input::*;
 use iregi_masters::{Complex, DoubleFloat, Float, NativeFloat};
 use iregi_prepare::{NumeratorSource, PrepareOptions, PreparedGraph, prepare_dot};
 use iregi_rust::{
-    Algorithm, ContractionPlan, ContractionWorkspace, Convention, InvariantInput, KinematicsBatch,
-    NumeratorBatch, ReductionPlan, ReductionSettings, Workspace, basis::Monomial,
+    Algorithm, BatchResult, ContractionPlan, ContractionWorkspace, Convention, ExecutionStats,
+    KinematicsBatch, NumeratorBatch, PrecisionRescueWorkspace, ReductionPlan, ReductionSettings,
+    RescueScalar, RescueSettings, RescueStatus, RescueTrigger, Workspace,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, fs, path::PathBuf, process::ExitCode, time::Instant};
-use symbolica::{
-    atom::{Atom, AtomCore},
-    domains::rational::Rational,
-    evaluate::{EvaluationDomain, ExpressionEvaluator},
-};
+use symbolica::{atom::AtomCore, evaluate::EvaluationDomain};
 
 type CliResult<T> = Result<T, String>;
 
@@ -100,6 +98,160 @@ struct NumericArgs {
     /// Binary working precision for --precision float.
     #[arg(long,default_value_t=128,value_parser=clap::value_parser!(u32).range(2..))]
     bits: u32,
+    /// Accuracy parameter N for the core tolerance 2^(19-N); defaults to output precision.
+    #[arg(long,value_parser=clap::value_parser!(u32).range(1..))]
+    accuracy_bits: Option<u32>,
+    /// Verify every successful or unstable tensor lane at two higher precisions.
+    #[arg(long)]
+    rescue: bool,
+    /// First rescue precision; defaults to the next power of two above output bits, at least 128.
+    #[arg(long,requires="rescue",value_parser=clap::value_parser!(u32).range(2..))]
+    rescue_bits: Option<u32>,
+    /// Independent verification precision; defaults to twice --rescue-bits.
+    #[arg(long,requires="rescue",value_parser=clap::value_parser!(u32).range(2..))]
+    verification_bits: Option<u32>,
+}
+
+#[derive(Clone, Copy)]
+struct NumericPolicy {
+    output_bits: u32,
+    accuracy_bits: u32,
+    rescue: Option<RescueSettings>,
+}
+
+impl NumericArgs {
+    fn resolve(&self, output_bits: u32) -> CliResult<NumericPolicy> {
+        let accuracy_bits = self.accuracy_bits.unwrap_or(output_bits);
+        if accuracy_bits == 0 || accuracy_bits > output_bits {
+            return Err("--accuracy-bits must be positive and no greater than the selected output precision".into());
+        }
+        let rescue = if self.rescue {
+            let working_bits = if let Some(bits) = self.rescue_bits {
+                bits
+            } else {
+                output_bits
+                    .checked_add(1)
+                    .and_then(|bits| bits.max(128).checked_next_power_of_two())
+                    .ok_or("output precision is too large to select default rescue precisions")?
+            };
+            let verification_bits = match self.verification_bits {
+                Some(bits) => bits,
+                None => working_bits.checked_mul(2).ok_or(
+                    "rescue precision is too large to select a default verification precision",
+                )?,
+            };
+            if working_bits <= output_bits || verification_bits <= working_bits {
+                return Err(
+                    "--rescue requires output bits < --rescue-bits < --verification-bits".into(),
+                );
+            }
+            Some(RescueSettings {
+                working_bits,
+                verification_bits,
+                accuracy_bits: Some(accuracy_bits),
+                trigger: RescueTrigger::VerifyAllSuccessful,
+            })
+        } else {
+            if self.rescue_bits.is_some() || self.verification_bits.is_some() {
+                return Err("--rescue-bits and --verification-bits require --rescue".into());
+            }
+            None
+        };
+        Ok(NumericPolicy {
+            output_bits,
+            accuracy_bits,
+            rescue,
+        })
+    }
+}
+
+impl NumericPolicy {
+    fn json(&self) -> Value {
+        json!({"output_bits":self.output_bits,"accuracy_bits":self.accuracy_bits,
+            "tolerance_definition":"2^(19-accuracy_bits); a numerical convergence target, not a certified error bound",
+            "rescue":self.rescue.map(|settings|json!({"trigger":"verify_all_successful",
+                "working_bits":settings.working_bits,"verification_bits":settings.verification_bits})),
+            "verification_scope":if self.rescue.is_some(){"tensor_moments"}else{"none"},
+            "input_promotion":"exactly promotes the already parsed output-domain input; does not recover decimal digits rounded during input parsing",
+            "scope":"tensor coefficients at the exactly represented input; numerator evaluation and contraction use output precision and are not independently verified by tensor rescue"})
+    }
+}
+
+enum NumericalWorkspace<T: RescueScalar> {
+    Ordinary(Workspace<T>),
+    Verified(PrecisionRescueWorkspace<T>),
+}
+
+impl<T: RescueScalar> NumericalWorkspace<T>
+where
+    Complex<T>: EvaluationDomain,
+{
+    fn new(plan: &ReductionPlan, prototype: T, policy: NumericPolicy) -> CliResult<Self> {
+        if let Some(settings) = policy.rescue {
+            Ok(Self::Verified(
+                PrecisionRescueWorkspace::new(plan, prototype, settings)
+                    .map_err(|e| e.to_string())?,
+            ))
+        } else {
+            let mut workspace = Workspace::new(plan, prototype).map_err(|e| e.to_string())?;
+            workspace
+                .set_accuracy_precision(policy.accuracy_bits)
+                .map_err(|e| e.to_string())?;
+            Ok(Self::Ordinary(workspace))
+        }
+    }
+
+    fn reduce_batch(&mut self, batch: &KinematicsBatch<T>) -> CliResult<BatchResult<T>> {
+        match self {
+            Self::Ordinary(workspace) => workspace.reduce_batch(batch),
+            Self::Verified(workspace) => workspace.reduce_batch(batch),
+        }
+        .map_err(|e| e.to_string())
+    }
+
+    fn execution(&self) -> Value {
+        execution_json(match self {
+            Self::Ordinary(workspace) => workspace.last_execution(),
+            Self::Verified(workspace) => workspace.last_execution().primary,
+        })
+    }
+
+    fn rescue_execution(&self) -> Value {
+        match self {
+            Self::Ordinary(_) => json!({"enabled":false}),
+            Self::Verified(workspace) => {
+                let stats = workspace.last_execution();
+                json!({"enabled":true,"requested_rows":stats.requested_rows,"accepted_rows":stats.accepted_rows,
+                    "corrected_successful_rows":stats.corrected_successful_rows,
+                    "working":execution_json(stats.working),"verification":execution_json(stats.verification)})
+            }
+        }
+    }
+
+    fn lane_rescue(&self, row: usize) -> Value {
+        let Self::Verified(workspace) = self else {
+            return json!({"status":"not_requested"});
+        };
+        let mut value = match &workspace.last_rescue_statuses()[row] {
+            RescueStatus::NotRequested => json!({"status":"not_requested"}),
+            RescueStatus::Converged {
+                working_bits,
+                verification_bits,
+                primary_agreed,
+            } => {
+                json!({"status":"converged","working_bits":working_bits,"verification_bits":verification_bits,"primary_agreed":primary_agreed})
+            }
+            RescueStatus::Rejected(reason) => json!({"status":"rejected","reason":reason}),
+        };
+        value["primary_status"] = json!(format!("{:?}", workspace.last_primary_statuses()[row]));
+        value
+    }
+}
+
+fn execution_json(stats: ExecutionStats) -> Value {
+    json!({"input_rows":stats.input_rows,"argument_rows":stats.argument_rows,"master_family_batches":stats.master_family_batches,
+        "master_rows":stats.master_rows,"pentagon_box_rows":stats.pentagon_box_rows,"reduction_rows":stats.reduction_rows,
+        "fallback_rows":stats.fallback_rows,"fallback_successes":stats.fallback_successes,"analytic_rows":stats.analytic_rows})
 }
 #[derive(Args)]
 struct ReduceArgs {
@@ -139,57 +291,6 @@ struct CompareArgs {
     #[arg(long, default_value = "1e-10")]
     tolerance: String,
 }
-#[derive(Clone, Debug, Deserialize)]
-#[serde(untagged)]
-enum Literal {
-    Text(String),
-    Number(serde_json::Number),
-}
-#[derive(Clone, Debug, Deserialize)]
-#[serde(untagged)]
-enum ComplexLiteral {
-    Pair([Literal; 2]),
-    Real(Literal),
-}
-#[derive(Clone, Debug, Deserialize)]
-struct Propagator {
-    shift: [Literal; 4],
-    mass_squared: ComplexLiteral,
-    #[serde(default = "unit_power")]
-    power: u16,
-    #[serde(default)]
-    edge_id: Option<usize>,
-}
-fn unit_power() -> u16 {
-    1
-}
-#[derive(Clone, Debug, Deserialize)]
-struct Sample {
-    #[serde(default)]
-    id: String,
-    propagators: Vec<Propagator>,
-    /// Packed upper triangle p_i.p_j, row-major including the diagonal.
-    #[serde(default)]
-    scalar_products: Option<Vec<Literal>>,
-    mu: Literal,
-    /// Full even offset: D=4+dimension_shift-2*epsilon.
-    #[serde(default)]
-    dimension_shift: i16,
-    #[serde(default)]
-    rank: Option<u16>,
-    #[serde(default)]
-    mode: Option<u8>,
-    #[serde(default)]
-    snap: bool,
-    #[serde(default)]
-    parameters: BTreeMap<String, ComplexLiteral>,
-}
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum InputDocument {
-    Batch { samples: Vec<Sample> },
-    Single(Sample),
-}
 #[derive(Deserialize)]
 struct Fixtures {
     schema_version: u32,
@@ -198,6 +299,7 @@ struct Fixtures {
 #[derive(Deserialize)]
 struct Fixture {
     input: Sample,
+    #[serde(alias = "reference")]
     expected: Expected,
     #[serde(default)]
     reference_repaired: bool,
@@ -342,188 +444,45 @@ fn dispatch_reduction(
     let key = serde_json::to_string(&settings).unwrap();
     for sample in &samples {
         if settings_key(sample, rank, args.algorithm.into(), args.convention.into())? != key {
-            return Err("batch samples must share topology, powers, dimension shift, and scalar-product input convention".into());
+            return Err("batch samples must share topology, powers, dimension shift, scalar-product input convention, and snapping policy/threshold".into());
         }
     }
     match args.numeric.precision {
-        Precision::F64 => reduce(&samples, settings, 0f64, graph),
-        Precision::Dd => reduce(&samples, settings, DoubleFloat::from(0.), graph),
-        Precision::Float => reduce(&samples, settings, Float::new(args.numeric.bits), graph),
+        Precision::F64 => reduce(&samples, settings, 0f64, graph, &args.numeric),
+        Precision::Dd => reduce(
+            &samples,
+            settings,
+            DoubleFloat::from(0.),
+            graph,
+            &args.numeric,
+        ),
+        Precision::Float => reduce(
+            &samples,
+            settings,
+            Float::new(args.numeric.bits),
+            graph,
+            &args.numeric,
+        ),
     }
 }
-fn settings(
-    sample: &Sample,
-    rank: u16,
-    algorithm: Algorithm,
-    convention: Convention,
-) -> CliResult<ReductionSettings> {
-    if sample.snap {
-        return Err(format!(
-            "sample {} requests legacy snapping; this CLI preserves kinematics",
-            sample.id
-        ));
-    }
-    if sample.dimension_shift % 2 != 0 {
-        return Err("dimension_shift must be even: D=4+dimension_shift-2*epsilon".into());
-    }
-    let mut settings = ReductionSettings::new(sample.propagators.len(), rank);
-    if let Some(products) = &sample.scalar_products {
-        let n = sample.propagators.len();
-        let expected = n
-            .checked_add(1)
-            .and_then(|m| n.checked_mul(m))
-            .map(|m| m / 2)
-            .ok_or("too many scalar-product entries")?;
-        if products.len() != expected {
-            return Err(format!(
-                "sample {} supplies {} scalar products; expected {} packed upper-triangle entries",
-                sample.id,
-                products.len(),
-                expected
-            ));
-        }
-        settings.invariants = InvariantInput::SuppliedScalarProducts;
-    }
-    settings.powers = sample.propagators.iter().map(|p| p.power).collect();
-    settings.dimension_shift = sample.dimension_shift / 2;
-    settings.algorithm = algorithm;
-    settings.convention = convention;
-    Ok(settings)
-}
-fn settings_key(
-    sample: &Sample,
-    rank: u16,
-    algorithm: Algorithm,
-    convention: Convention,
-) -> CliResult<String> {
-    Ok(serde_json::to_string(&settings(sample, rank, algorithm, convention)?).unwrap())
-}
-/// Symbolica rounds decimal strings directly at the destination precision.
-/// Rational expressions remain exact until conversion; neither uses binary64.
-fn parse_real<T: NativeFloat>(
-    literal: &Literal,
-    prototype: &T,
-    allow_numbers: bool,
-) -> CliResult<T> {
-    let text=match literal {
-        Literal::Text(text)=>text.clone(),Literal::Number(n) if allow_numbers=>n.to_string(),
-        Literal::Number(_)=>return Err("quote numerical input values as strings; bare JSON numbers are accepted only by compare for binary64 reference data".into()),
-    };
-    let rational = if text.contains('/') {
-        let expression = Atom::parse(&text, "iregi_cli", Default::default())
-            .map_err(|e| format!("invalid rational {text:?}: {e}"))?;
-        Rational::try_from(&expression).map_err(|e| format!("invalid rational {text:?}: {e}"))?
-    } else {
-        Float::parse(&text, Some(prototype.get_precision()))
-            .map_err(|e| format!("invalid decimal {text:?}: {e}"))?
-            .try_to_rational()
-            .ok_or_else(|| format!("input {text:?} must be finite"))?
-    };
-    let value = prototype.from_rational(&rational);
-    if !value.is_finite() {
-        return Err(format!("input {text:?} exceeds the selected numeric range"));
-    }
-    Ok(value)
-}
-fn parse_complex<T: NativeFloat>(
-    literal: &ComplexLiteral,
-    prototype: &T,
-    allow_numbers: bool,
-) -> CliResult<Complex<T>> {
-    match literal {
-        ComplexLiteral::Real(x) => Ok(Complex::new(
-            parse_real(x, prototype, allow_numbers)?,
-            prototype.zero(),
-        )),
-        ComplexLiteral::Pair([re, im]) => Ok(Complex::new(
-            parse_real(re, prototype, allow_numbers)?,
-            parse_real(im, prototype, allow_numbers)?,
-        )),
-    }
-}
-fn pack<T: NativeFloat>(
-    samples: &[Sample],
-    prototype: &T,
-    allow_numbers: bool,
-) -> CliResult<KinematicsBatch<T>> {
-    let mut values = Vec::new();
-    for sample in samples {
-        for p in &sample.propagators {
-            for x in &p.shift {
-                values.push(Complex::new(
-                    parse_real(x, prototype, allow_numbers)?,
-                    prototype.zero(),
-                ));
-            }
-        }
-        if let Some(products) = &sample.scalar_products {
-            for product in products {
-                values.push(Complex::new(
-                    parse_real(product, prototype, allow_numbers)?,
-                    prototype.zero(),
-                ));
-            }
-        }
-        for p in &sample.propagators {
-            values.push(parse_complex(&p.mass_squared, prototype, allow_numbers)?);
-        }
-        values.push(Complex::new(
-            parse_real(&sample.mu, prototype, allow_numbers)?,
-            prototype.zero(),
-        ));
-    }
-    Ok(KinematicsBatch {
-        rows: samples.len(),
-        components: 1,
-        values,
-    })
-}
-fn format_complex<T: NativeFloat>(v: &Complex<T>, bits: u32) -> [String; 2] {
-    let digits = (u64::from(bits) * 30103 / 100000 + 3) as usize;
-    [
-        format!("{:.*e}", digits, v.re),
-        format!("{:.*e}", digits, v.im),
-    ]
-}
-
-fn characteristic_scale<T: NativeFloat>(sample: &Sample, prototype: &T) -> CliResult<T> {
-    let mut scale = parse_real(&sample.mu, prototype, true)?;
-    for propagator in &sample.propagators {
-        for component in &propagator.shift {
-            let value = parse_real(component, prototype, true)?;
-            let magnitude = NativeFloat::hypot(&value, &prototype.zero());
-            if magnitude > scale {
-                scale = magnitude;
-            }
-        }
-        let mass_squared = parse_complex(&propagator.mass_squared, prototype, true)?;
-        let mass_scale = NativeFloat::hypot(&mass_squared.re, &mass_squared.im).sqrt();
-        if mass_scale > scale {
-            scale = mass_scale;
-        }
-    }
-    if !scale.is_finite() || scale <= prototype.zero() {
-        return Err("invalid characteristic scale for reference comparison".into());
-    }
-    Ok(scale)
-}
-
-fn reduce<T: NativeFloat>(
+fn reduce<T: RescueScalar>(
     samples: &[Sample],
     settings: ReductionSettings,
     prototype: T,
     graph: Option<&PreparedGraph>,
+    numeric: &NumericArgs,
 ) -> CliResult<(Value, bool)>
 where
     Complex<T>: EvaluationDomain,
 {
+    let policy = numeric.resolve(prototype.get_precision())?;
     let batch = pack(samples, &prototype, false)?;
     let started = Instant::now();
     let plan = ReductionPlan::new(settings.clone()).map_err(|e| e.to_string())?;
-    let mut workspace = Workspace::new(&plan, prototype.clone()).map_err(|e| e.to_string())?;
+    let mut workspace = NumericalWorkspace::new(&plan, prototype.clone(), policy)?;
     let preparation_seconds = started.elapsed().as_secs_f64();
     let started = Instant::now();
-    let result = workspace.reduce_batch(&batch).map_err(|e| e.to_string())?;
+    let result = workspace.reduce_batch(&batch)?;
     let reduction_seconds = started.elapsed().as_secs_f64();
     let contracted = if let Some(graph) = graph {
         Some(contract(graph, samples, &plan, &result, &prototype)?)
@@ -534,7 +493,8 @@ where
     let rows: Vec<_> = samples
         .iter()
         .enumerate()
-        .map(|(row, sample)| match result.lane(row) {
+        .map(|(row, sample)| {
+            let mut value = match result.lane(row) {
             Ok(values) => {
                 let moments: Vec<_> = values
                     .chunks_exact(4)
@@ -563,17 +523,19 @@ where
                 all_success = false;
                 json!({"id":sample.id,"status":"failed","reason":format!("{status:?}"),"fallback_used":result.fallback_used[row],"analytic_used":result.analytic_used[row]})
             }
+            };
+            value["precision_rescue"] = workspace.lane_rescue(row);
+            value
         })
         .collect();
-    let stats = workspace.last_execution();
     let mut output = json!({"schema_version":1,"precision_bits":prototype.get_precision(),"settings":settings,
+        "input_policy":settings.input_policy,
+        "precision_control":policy.json(),
         "algorithm_requested":settings.algorithm,"algorithm_used":plan.algorithm_used(),"preparation_notes":plan.preparation_notes(),
         "basis":result.basis,"poles":["uv1","ir1","ir2","finite"],"samples":rows,
         "timing":{"plan_and_workspace_seconds":preparation_seconds,"reduction_seconds":reduction_seconds,
-            "note":"single observed execution; includes Rust masters, excludes file I/O and graph preparation; not a statistically qualified benchmark"},
-        "execution":{"input_rows":stats.input_rows,"argument_rows":stats.argument_rows,"master_family_batches":stats.master_family_batches,
-            "master_rows":stats.master_rows,"reduction_rows":stats.reduction_rows,
-            "fallback_rows":stats.fallback_rows,"fallback_successes":stats.fallback_successes,"analytic_rows":stats.analytic_rows}});
+            "note":"one reduction workspace call, including enabled precision rescue and Rust masters; excludes file I/O, graph preparation, numerator evaluation and contraction; not a statistically qualified benchmark"},
+        "execution":workspace.execution(),"rescue_execution":workspace.rescue_execution()});
     if let Some(graph) = graph {
         output["graph"] = graph_json(graph);
         output["kinematics_contract"] = json!(
@@ -594,70 +556,33 @@ where
     Complex<T>: EvaluationDomain,
 {
     let names: Vec<_> = samples[0].parameters.keys().cloned().collect();
-    for sample in samples {
-        if sample.parameters.keys().cloned().collect::<Vec<_>>() != names {
-            return Err("all samples must bind the same numerator parameter names".into());
-        }
+    if samples
+        .iter()
+        .any(|sample| sample.parameters.keys().ne(names.iter()))
+    {
+        return Err("all samples must bind the same numerator parameter names".into());
     }
-    let parameters = names
-        .iter()
-        .map(|n| Atom::parse(n, "iregi_cli", Default::default()))
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("numerator parameter: {e}"))?;
-    let expressions: Vec<_> = graph
-        .numerator
-        .terms
-        .iter()
-        .map(|term| term.coefficient.clone())
+    let valid: Vec<_> = (0..samples.len())
+        .filter(|&row| result.lane(row).is_ok())
         .collect();
-    let width = expressions.len();
-    let mut input = Vec::new();
-    let mut valid = Vec::new();
-    for (row, sample) in samples.iter().enumerate() {
-        if result.lane(row).is_ok() {
-            valid.push(row);
-            for name in &names {
-                input.push(parse_complex(&sample.parameters[name], prototype, false)?);
-            }
-        }
-    }
     if valid.is_empty() {
         return Ok(vec![None; samples.len()]);
     }
+    let coefficient_plan = iregi_cli::numerator::CoefficientPlan::new(graph, names)?;
+    let mut coefficient_workspace =
+        iregi_cli::numerator::CoefficientWorkspace::new(&coefficient_plan, prototype.clone());
+    let compact_samples: Vec<_> = valid.iter().map(|&row| samples[row].clone()).collect();
+    let input = coefficient_plan.pack(&compact_samples, prototype)?;
+    let output = coefficient_workspace.evaluate(&input, valid.len())?;
+    let width = coefficient_plan.support().len();
     let mut coefficients =
         vec![Complex::new(prototype.zero(), prototype.zero()); samples.len() * width];
-    if width != 0 {
-        let exact: ExpressionEvaluator<Complex<Rational>> = Atom::evaluator_multiple(&expressions, &parameters)
-            .direct_translation(true).horner_iterations(0).cores(1).build()
-            .map_err(|e| format!("numerator parameters incomplete or unsupported: {e}; bind remaining coefficient symbols/functions in the input parameters map"))?;
-        let mut evaluator = exact
-            .map_coeff_with_prec(
-                &|v| {
-                    Complex::new(
-                        prototype.from_rational(&v.re),
-                        prototype.from_rational(&v.im),
-                    )
-                },
-                prototype.get_precision(),
-            )
-            .into_batch_evaluator();
-        let mut output =
-            vec![Complex::new(prototype.zero(), prototype.zero()); valid.len() * width];
-        evaluator
-            .evaluate_batch(&input, &mut output, valid.len())
-            .map_err(|e| format!("numerator coefficient evaluation: {e}"))?;
-        for (compact, &row) in valid.iter().enumerate() {
-            coefficients[row * width..(row + 1) * width]
-                .clone_from_slice(&output[compact * width..(compact + 1) * width]);
-        }
+    for (compact, &row) in valid.iter().enumerate() {
+        coefficients[row * width..(row + 1) * width]
+            .clone_from_slice(&output.values[compact * width..(compact + 1) * width]);
     }
-    let support: Vec<_> = graph
-        .numerator
-        .terms
-        .iter()
-        .map(|term| Monomial(term.exponents))
-        .collect();
-    let contraction_plan = ContractionPlan::new(plan, &support).map_err(|e| e.to_string())?;
+    let contraction_plan =
+        ContractionPlan::new(plan, coefficient_plan.support()).map_err(|e| e.to_string())?;
     let mut workspace = ContractionWorkspace::new(&contraction_plan, prototype.clone())
         .map_err(|e| e.to_string())?;
     let contracted = workspace
@@ -685,7 +610,109 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use symbolica::domains::float::SingleFloat;
+    use iregi_rust::{InputPolicy, InvariantInput};
+    use symbolica::domains::{float::SingleFloat, rational::Rational};
+
+    fn numeric_options(options: &[&str]) -> NumericArgs {
+        let mut arguments = vec!["iregi-rust", "reduce", "--input", "unused.json"];
+        arguments.extend_from_slice(options);
+        let Command::Reduce(args) = Cli::try_parse_from(arguments).unwrap().command else {
+            unreachable!()
+        };
+        args.numeric
+    }
+
+    #[test]
+    fn precision_policy_defaults_preserve_behavior_and_scale_rescue() {
+        let plain = numeric_options(&[]).resolve(53).unwrap();
+        assert_eq!(plain.accuracy_bits, 53);
+        assert!(plain.rescue.is_none());
+        let binary64 = numeric_options(&["--rescue"]).resolve(53).unwrap();
+        assert_eq!(binary64.rescue.unwrap().working_bits, 128);
+        assert_eq!(binary64.rescue.unwrap().verification_bits, 256);
+        assert_eq!(
+            binary64.rescue.unwrap().trigger,
+            RescueTrigger::VerifyAllSuccessful
+        );
+        let high = numeric_options(&["--rescue", "--accuracy-bits", "53"])
+            .resolve(256)
+            .unwrap();
+        assert_eq!(high.accuracy_bits, 53);
+        assert_eq!(high.rescue.unwrap().working_bits, 512);
+        assert_eq!(high.rescue.unwrap().verification_bits, 1024);
+        let explicit = numeric_options(&[
+            "--rescue",
+            "--rescue-bits",
+            "192",
+            "--verification-bits",
+            "384",
+        ])
+        .resolve(160)
+        .unwrap();
+        assert_eq!(explicit.rescue.unwrap().working_bits, 192);
+        assert_eq!(explicit.rescue.unwrap().verification_bits, 384);
+    }
+
+    #[test]
+    fn precision_policy_rejects_inconsistent_accuracy_and_verification() {
+        assert!(
+            numeric_options(&["--accuracy-bits", "54"])
+                .resolve(53)
+                .is_err()
+        );
+        assert!(
+            numeric_options(&["--rescue", "--rescue-bits", "128"])
+                .resolve(128)
+                .is_err()
+        );
+        assert!(
+            numeric_options(&[
+                "--rescue",
+                "--rescue-bits",
+                "128",
+                "--verification-bits",
+                "128"
+            ])
+            .resolve(53)
+            .is_err()
+        );
+        assert!(
+            Cli::try_parse_from([
+                "iregi-rust",
+                "reduce",
+                "--input",
+                "unused.json",
+                "--rescue-bits",
+                "128"
+            ])
+            .is_err()
+        );
+        assert!(numeric_options(&["--rescue"]).resolve(u32::MAX).is_err());
+    }
+
+    #[test]
+    fn decimal_negative_zero_survives_input_conversion() {
+        for text in ["-0", "-0.0", "-0e20"] {
+            let literal = Literal::Text(text.into());
+            assert!(
+                parse_real(&literal, &0f64, false)
+                    .unwrap()
+                    .is_sign_negative()
+            );
+            assert!(
+                parse_real(&literal, &DoubleFloat::from(0.), false)
+                    .unwrap()
+                    .into_inner()
+                    .hi()
+                    .is_sign_negative()
+            );
+            assert!(
+                parse_real(&literal, &Float::new(160), false)
+                    .unwrap()
+                    .is_sign_negative()
+            );
+        }
+    }
 
     #[test]
     fn decimal_input_keeps_bits_beyond_binary64() {
@@ -721,6 +748,68 @@ mod tests {
         let precise = parse_real(&literal, &Float::new(160), true).unwrap();
         assert!(precise > Float::with_val(160, 1));
         assert!(parse_real(&literal, &Float::new(160), false).is_err());
+    }
+
+    #[test]
+    fn legacy_policy_defaults_and_threshold_tokens_are_forwarded_exactly() {
+        let mut sample: Sample = serde_json::from_str(
+            r#"{"propagators":[{"shift":["0","0","0","0"],"mass_squared":"4"}],"mu":"3"}"#,
+        )
+        .unwrap();
+        let make_settings =
+            |sample: &Sample| settings(sample, 0, Algorithm::Ibp, Convention::IregiNative).unwrap();
+        assert_eq!(make_settings(&sample).input_policy, InputPolicy::Preserve);
+        sample.snap = true;
+        assert_eq!(
+            make_settings(&sample).input_policy,
+            InputPolicy::legacy_onshell()
+        );
+        for threshold in ["0", "1/8", "1.0000000000000000000000001e-6"] {
+            sample.threshold = Some(Literal::Text(threshold.into()));
+            let configuration = make_settings(&sample);
+            assert_eq!(
+                configuration.input_policy,
+                InputPolicy::LegacyOnShell {
+                    threshold: threshold.into()
+                }
+            );
+            assert_eq!(
+                serde_json::to_value(configuration).unwrap()["input_policy"]["LegacyOnShell"]["threshold"],
+                threshold
+            );
+        }
+        let threshold = "0.0000010000000000000000000000001";
+        let document: InputDocument = serde_json::from_str(&format!(
+            r#"{{"propagators":[{{"shift":["0","0","0","0"],"mass_squared":"4"}}],"mu":"3","snap":true,"threshold":{threshold}}}"#,
+        )).unwrap();
+        let InputDocument::Single(sample) = document else {
+            panic!("expected one sample")
+        };
+        assert_eq!(
+            make_settings(&sample).input_policy,
+            InputPolicy::LegacyOnShell {
+                threshold: threshold.into()
+            }
+        );
+    }
+
+    #[test]
+    fn unsupported_or_invalid_legacy_configuration_is_rejected_by_core() {
+        let mut sample: Sample = serde_json::from_str(
+            r#"{"propagators":[{"shift":["0","0","0","0"],"mass_squared":"4"}],"mu":"3","snap":true,"threshold":"-1e-6"}"#,
+        ).unwrap();
+        assert!(matches!(
+            ReductionPlan::new(
+                settings(&sample, 0, Algorithm::Ibp, Convention::IregiNative).unwrap()
+            ),
+            Err(iregi_rust::ReductionError::InvalidInput(_))
+        ));
+        sample.threshold = None;
+        sample.propagators = vec![sample.propagators[0].clone(); 5];
+        assert!(
+            matches!(ReductionPlan::new(settings(&sample, 0, Algorithm::Ibp, Convention::IregiNative).unwrap()),
+            Err(iregi_rust::ReductionError::Unsupported(reason)) if reason.contains("five or more"))
+        );
     }
 
     #[test]
@@ -772,10 +861,11 @@ mod tests {
     }
 }
 
-fn compare<T: NativeFloat>(args: &CompareArgs, prototype: T) -> CliResult<(Value, bool)>
+fn compare<T: RescueScalar>(args: &CompareArgs, prototype: T) -> CliResult<(Value, bool)>
 where
     Complex<T>: EvaluationDomain,
 {
+    let policy = args.numeric.resolve(prototype.get_precision())?;
     let fixtures: Fixtures =
         serde_json::from_str(&read(&args.fixtures)?).map_err(|e| format!("fixture JSON: {e}"))?;
     if fixtures.schema_version != 1 {
@@ -824,25 +914,38 @@ where
         let samples: Vec<_> = fixtures.iter().map(|f| f.input.clone()).collect();
         let attempt: CliResult<_> = (|| {
             let plan = ReductionPlan::new(settings.clone()).map_err(|e| e.to_string())?;
-            let mut workspace =
-                Workspace::new(&plan, prototype.clone()).map_err(|e| e.to_string())?;
-            let result = workspace
-                .reduce_batch(&pack(&samples, &prototype, true)?)
-                .map_err(|e| e.to_string())?;
+            let mut workspace = NumericalWorkspace::new(&plan, prototype.clone(), policy)?;
+            let result = workspace.reduce_batch(&pack(&samples, &prototype, true)?)?;
             Ok((
                 result,
                 plan.algorithm_used(),
                 plan.preparation_notes().to_vec(),
+                (0..samples.len())
+                    .map(|row| workspace.lane_rescue(row))
+                    .collect::<Vec<_>>(),
+                workspace.execution(),
+                workspace.rescue_execution(),
             ))
         })();
         match attempt {
             Err(error) => {
                 failures += fixtures.len();
                 for fixture in &fixtures {
-                    rows.push(json!({"id":fixture.input.id,"status":"failed","reason":error,"algorithm_requested":settings.algorithm}));
+                    rows.push(json!({"id":fixture.input.id,"status":"failed","reason":error,"algorithm_requested":settings.algorithm,"input_policy":settings.input_policy}));
                 }
             }
-            Ok((result, algorithm_used, preparation_notes)) => {
+            Ok((
+                result,
+                algorithm_used,
+                preparation_notes,
+                rescue_diagnostics,
+                execution,
+                rescue_execution,
+            )) => {
+                let execution_ids: Vec<_> = fixtures
+                    .iter()
+                    .map(|fixture| fixture.input.id.as_str())
+                    .collect();
                 for (row, fixture) in fixtures.iter().enumerate() {
                     let evaluation = (|| -> CliResult<(T, usize)> {
                         if !fixture.expected.stable {
@@ -926,14 +1029,20 @@ where
                             }
                             rows.push(json!({"id":fixture.input.id,"status":if passed{"passed"}else{"failed"},"max_normalized_error":format!("{error:e}"),
                             "algorithm_requested":settings.algorithm,"algorithm_used":algorithm_used,"preparation_notes":preparation_notes,
+                            "input_policy":settings.input_policy,
                             "fallback_used":result.fallback_used[row],"analytic_used":result.analytic_used[row],
+                            "precision_rescue":rescue_diagnostics[row],"execution":execution,"rescue_execution":rescue_execution,
+                            "execution_scope":"settings_batch","execution_batch_ids":execution_ids,
                             "worst_moment":worst/4,"worst_pole":worst%4,"reference_repaired":fixture.reference_repaired}));
                         }
                         Err(reason) => {
                             failures += 1;
                             rows.push(
                                 json!({"id":fixture.input.id,"status":"failed","reason":reason,"algorithm_requested":settings.algorithm,
-                                "algorithm_used":algorithm_used,"preparation_notes":preparation_notes,"fallback_used":result.fallback_used[row],"analytic_used":result.analytic_used[row]}),
+                                "algorithm_used":algorithm_used,"preparation_notes":preparation_notes,"fallback_used":result.fallback_used[row],"analytic_used":result.analytic_used[row],
+                                "input_policy":settings.input_policy,
+                                "precision_rescue":rescue_diagnostics[row],"execution":execution,"rescue_execution":rescue_execution,
+                                "execution_scope":"settings_batch","execution_batch_ids":execution_ids}),
                             );
                         }
                     }
@@ -944,6 +1053,7 @@ where
     rows.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
     Ok((
         json!({"schema_version":1,"precision_bits":prototype.get_precision(),"tolerance":args.tolerance,
+        "precision_control":policy.json(),
         "error_definition":"abs(actual-reference)/Q^dimension divided by max(1,abs(reference/Q^dimension)); Q=max(mu,abs(shift components),sqrt(abs(mass_squared)))",
         "cases":rows,"failed":failures,"passed":rows.len()-failures,
         "reference":"captured original IREGI binary64 values; no reference process transport is timed"}),

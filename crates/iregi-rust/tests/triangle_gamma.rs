@@ -44,8 +44,15 @@ fn gamma_ratio(powers: [u16; 3], h: i16, s: &Atom, eps: &Atom) -> Atom {
         / Atom::num(Integer::factorial((c - 1) as u32))
 }
 
-fn verify(cases: impl IntoIterator<Item = ([u16; 3], i16)>) -> usize {
-    let s = Atom::var(symbolica::symbol!("triangle_gamma_oracle::s"));
+fn verify(cases: impl IntoIterator<Item = ([u16; 3], i16)>, analytic_bubbles: bool) -> usize {
+    // Keep the original arbitrary-invariant identity. The second mode selects
+    // the production S branch with an exact nonzero invariant, so Symbolica
+    // resolves IF(det(S), ...) without assumptions about a symbolic predicate.
+    let s = if analytic_bubbles {
+        Atom::num(-3)
+    } else {
+        Atom::var(symbolica::symbol!("triangle_gamma_oracle::s"))
+    };
     // L=log(-s/mu^2), with the same analytic branch as the scalar masters.
     let log = Atom::var(symbolica::symbol!("triangle_gamma_oracle::L"));
     let finite = Atom::var(symbolica::symbol!("triangle_gamma_oracle::F"));
@@ -55,6 +62,9 @@ fn verify(cases: impl IntoIterator<Item = ([u16; 3], i16)>) -> usize {
     r[0][2] = s.clone();
     r[2][0] = s.clone();
     let mut compiler = ScalarCompiler::new(r).unwrap();
+    if analytic_bubbles {
+        compiler.enable_gram_regular_bubbles().unwrap();
+    }
     let c0 = Atom::num(1) / (&s * eps.pow(2)) - &log / (&s * &eps) + &finite;
     let mut count = 0;
     for (powers, h) in cases {
@@ -110,7 +120,9 @@ fn verify(cases: impl IntoIterator<Item = ([u16; 3], i16)>) -> usize {
         }
         count += 1;
     }
-    eprintln!("Gamma oracle validated {count} requests and all native Laurent slots");
+    eprintln!(
+        "Gamma oracle validated {count} requests and all native Laurent slots; analytic bubbles {analytic_bubbles}"
+    );
     count
 }
 
@@ -129,7 +141,8 @@ fn every_triangle_tensor_coefficient_through_rank_seven_matches_gamma_formula() 
             }
         }
     }
-    assert_eq!(verify(cases), 200);
+    assert_eq!(verify(cases.iter().copied(), false), 200);
+    assert_eq!(verify(cases, true), 200);
 }
 
 #[test]
@@ -152,5 +165,6 @@ fn generalized_triangle_powers_and_dimensions_match_gamma_formula() {
             cases.insert((powers, h));
         }
     }
-    assert_eq!(verify(cases), 40);
+    assert_eq!(verify(cases.iter().copied(), false), 40);
+    assert_eq!(verify(cases, true), 40);
 }
