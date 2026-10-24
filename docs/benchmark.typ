@@ -92,6 +92,9 @@
 #let native-metadata = data.at("native_f64_opt_in_compatibility_completion", default: none)
 #let n7-failed = data.at("private_n7_rank0_failed_attempt", default: none)
 #let scheduler-fixture = data.at("private_uniform_branch_scheduler_fixture", default: none)
+#let public-six = data.at("public_six_point_api_qualification", default: none)
+#let public-six-cargo = data.at("public_six_point_api_current_cargo", default: none)
+#let current-dual = data.at("c0d0_dual_identity_qualification", default: none)
 #let collier-cell(r) = table.cell(
   fill: if not r.correctness_passed or r.gate in ("inconclusive-noise", "inconclusive-short-block") {
     amber
@@ -212,14 +215,15 @@ all historical measurements below retain their original source snapshots.]
   [Local PyO3 wheel], [17/17 numerical and 12/12 interoperability tests, including the actual SVG renderer; installed consumer typing has zero errors/warnings.], [Passed],
   [Dotted propagators], [Generalized powers/dimension shifts have their strongest retained coverage at N≤4. The current wheel/gallery checks the dotted bubble against its mass Dual derivative.], [Scoped],
   [Example gallery], [4/4 native test methods; three successful HTML exports; all three rendered at desktop and narrow dark sizes in real Chromium.], [Passed],
-  [Six / seven points], [Explicit N6 rank≤3 integration awaits its own gate; private rank2/3 fixtures remain separate. The first N7 scalar capture times out before workspace/arrays; its independent oracle is insufficiently converged.], [Open],
+  [Six / seven points], [Explicit restricted N6 rank≤3 API: isolated Float rank2/3 checks and current Cargo rank3 replay pass. N7 numerical arrays and broader high-point coverage remain open.], [Scoped],
   [Performance], [Historical private selected TIRust/COLLIER: seven slower families and one short inconclusive family. No new timing or default-backend adoption.], [Unmet],
 ))
 #text(size: 8.5pt)[Local Linux/Python 3.13 execution qualifies the named examples and
 focused API tests. Release distributions, other platforms, separate Community-host
-loading and a reactive numerical browser frontend remain unqualified. Historical
-C0/D0 higher mixed-Dual finite-difference evidence is retained separately; the
-current wheel checks do not rerun that complete suite.]
+loading and a reactive numerical browser frontend remain unqualified.
+C0/D0 mass-Taylor identities now pass on wheel004 at working 128/256 bits with
+requested accuracy 53. Historical broader mixed-Dual finite-difference evidence
+remains separate; these identities do not rerun that complete suite.]
 
 #pagebreak()
 = Historical kernel baseline: #raw("4c32ece")
@@ -995,7 +999,8 @@ slots. Nine extracted FeynKit partial-fraction and two planar formula tests
 pass; the separately qualified explicit planar API is recorded below.
 
 N6 inline 128/256-bit arrays converge over 1320 slots within
-$6.46 times 10^(-29)$; public N6/N7 tensor arrays remain unqualified. Adopted
+$6.46 times 10^(-29)$; N6 rank7 and N7 arrays remain unqualified. The later
+restricted public N6 rank2/3 qualification is recorded separately below. Adopted
 alias-use collection preserves 29 paired cases, 86 successful lanes and 4520
 components. Frozen collector-plus-sum and private amplitude-variable probes
 reach the 600 s bound (601.232/601.329 s with teardown), after primal amplitudes
@@ -1315,8 +1320,9 @@ IREGI/COLLIER rows remain unchanged.
 A retained *initial unmasked* thin-N6 rank2 probe passes seven exact/sidecar
 checks, then both certified-planar retries fail among six packed N5 children;
 that attempt produces no parent arrays. The later private mask followup has
-separate source, numerical and lifecycle qualification below. Neither changes
-the production N6/N7 domain or establishes performance parity.
+separate source, numerical and lifecycle qualification below. Those private
+capsules establish no production or performance gate; the later explicit
+public six-point API has its own qualification below.
 
 Historical compile/type/lint checks appear separately from later wheel004/gallery
 execution. Binding and notebook sources follow the pinned Community guide in
@@ -1324,8 +1330,9 @@ execution. Binding and notebook sources follow the pinned Community guide in
 
 Source bindings, raw outputs, failures and reproduction commands are retained
 in #raw("docs/data/results.json"). No elapsed correctness-run duration on this
-page is a benchmark. Production remains #raw("06706e2"); the optimized TIRust
-performance gate remains the measured #raw("6b24c03") snapshot.
+page is a benchmark. These historical records bind their named source
+revisions; the optimized TIRust performance gate remains the measured
+#raw("6b24c03") snapshot, without the later six-point API changes.
 
 #if thin-mask != none [
   #pagebreak()
@@ -1527,6 +1534,120 @@ performance gate remains the measured #raw("6b24c03") snapshot.
   performance qualification remain open. Source: #raw(fixed-gallery.source).
 ]
 
+#if public-six != none [
+  #pagebreak()
+  #set text(size: 9.5pt)
+  #set par(leading: 0.5em)
+  = Explicit public six-point reduction
+  The source now exposes #raw("SixPointReductionPlan") and
+  #raw("SixPointWorkspace<T>") as a separate, restricted API. It accepts six
+  unit-power propagators, ranks 0–3, dimension shift zero, preserved Cartesian
+  shifts, PV mode and native IREGI raw components. Unsupported settings fail
+  during preparation. Ordinary reduction, hybrid dispatch and CLI defaults
+  retain their existing behavior.
+
+  #report-table(table(
+    columns: (1.15fr, 1.15fr, 2.4fr), inset: (x: 7pt, y: 10pt),
+    stroke: table-stroke, fill: (x, y) => if y == 0 { navy } else { pale },
+    table.header([Isolated qualification], [Retained count], [What was checked]),
+    [Selected exact tests], [34 passed], [Assembly, context, certificates and API controls in the frozen isolated build.],
+    [Existing ordinary API], [12 paired cases / 2200 slots], [42 successful lanes and 18 matching failed controls; values, precision, signed zero, metadata and counters preserved.],
+    [N6 rank 3], [140 slots × 2 precisions], [Float128/256, requested accuracy 53; all 105 pole slots are exactly zero at each precision.],
+    [N6 rank 2 lifecycle], [11 calls / 17 accepted lanes], [1020 complex moments and 68 contractions; seven rejection controls and two empty resets.],
+  ))
+
+  The rank-three base point agrees with original IREGI within
+  $2.426 times 10^(-12)$ under the unchanged dimensionally normalized
+  $10^(-10)$ gate. The 128/256-bit difference is at most
+  $1.474 times 10^(-34)$ against $2^(-80)$. The rank-two lifecycle retains
+  mixed valid/invalid batches, scaling, reordering, chunks and post-error reuse.
+  Its contraction check preserves the requested native convention and tensor
+  metadata; it does not require bitwise equality after reassociation.
+
+  The implementation packs all six five-point children across active parent
+  lanes, preserves child sensitivity diagnostics and checks complete Taylor
+  cofactor constraints before dropping zero contributions. Failed lanes expose
+  no partial successful coefficient array. These are implementation properties
+  covered by the named tests, not a rigorous numerical error enclosure.
+
+  #block(fill: pale, inset: 9pt, radius: 4pt)[
+    *Separate current-Cargo replay.* The actual locked non-Python Cargo library
+    test and example builds pass, followed by all 34 selected tests. At the
+    retained rank-three point, both complete 140-slot arrays pass the unchanged
+    original-IREGI and precision-convergence gates. Independent saved-data
+    arithmetic verifies all 280 original comparisons and 140 convergence checks.
+    The isolated qualification remains unchanged; its 12-case ordinary comparison
+    and rank-two lifecycle are not reported as additional current-Cargo runs.
+  ]
+
+  Provenance binds the actual linked executables and 674 runtime inputs,
+  including recorded Cargo artifacts and Rust source guards. This is not a
+  complete native build-input closure: three native archives have supplemental
+  post-run hashes only, without a retroactive pre/post guard claim.
+
+  The accepted high-point numerical scope is the retained ordinary Float
+  rank2/3 corpus at requested accuracy 53. Public N6 Dual, binary64/DoubleFloat,
+  arbitrary complex masses, generalized powers/dimension shifts, rank 7,
+  N7 and performance remain unqualified. Existing ordinary Dual controls above
+  preserve the old API; they do not qualify high-point Dual evaluation. Earlier
+  failed high-point attempts and original-IREGI rank7 discrepancies remain visible.
+  Sources: #raw(public-six.source) and #raw(public-six-cargo.source);
+  public usage: #raw("docs/six-point.md").
+]
+
+#if current-dual != none [
+  #pagebreak()
+  #set text(size: 9.5pt)
+  #set par(leading: 0.5em)
+  = Current-wheel C0/D0 mass-Taylor identities
+  The unchanged installed local wheel004 now passes first, second and mixed
+  squared-mass Taylor identities for rank-zero C0 and D0. Each family uses one
+  fixed massive spacelike point, working precision 128 and 256 bits, and
+  requested accuracy 53. The ordered six-component Taylor layout is
+  #raw("[[0,0],[1,0],[0,1],[2,0],[1,1],[0,2]]").
+
+  #report-table(table(
+    columns: (0.6fr, 0.9fr, 1fr, 1fr, 1.35fr), inset: (x: 7pt, y: 12pt),
+    stroke: table-stroke, fill: (x, y) => if y == 0 { navy } else { rgb("#d9f0d3") },
+    table.header([Family], [Successful evaluations], [Laurent identity checks], [Precision checks], [Maximum normalized identity error]),
+    [C0], [14 / 14], [48 / 48], [48 / 48], [$2.509 times 10^(-36)$],
+    [D0], [14 / 14], [48 / 48], [48 / 48], [$3.712 times 10^(-36)$],
+  ))
+
+  All 28 evaluations succeed. The 96 identity checks compare the Taylor
+  coefficients with independently prepared raised-power IBP reductions at the
+  appropriate factorial normalization. Another 96 checks compare the two
+  working precisions. Every check includes native UV single, IR single,
+  IR double and finite coefficients; all three poles are exactly zero at
+  these points. The finite coefficients remain general complex values.
+  The saved-data audit checks 192 evaluated complex Laurent slots through
+  9238 assertions using exact integer ratios and the original dimensionally
+  normalized $10^(-10)$ criterion.
+
+  Both families use the existing native convention and preserved inputs.
+  No fallback or analytic rescue occurs. There is one numerical attempt per
+  family and no retry. The original C0 saved-data audit incorrectly required
+  a zero real finite part; its failed receipt is retained. The corrected audit
+  checks the full complex value, with unchanged numerical output, input,
+  pole tests and tolerance. No new integral evaluation was used to repair it.
+
+  #block(fill: pale, inset: 9pt, radius: 4pt)[
+    *Evidence identity.* This is wheel004 evidence, bound to native module
+    #raw("cd4df512a134…") and its saved source archive. It is independent of
+    the later public six-point source/Cargo check. The raised-power comparison
+    and independent saved-data arithmetic are not a new external-library or
+    finite-difference validation.
+  ]
+
+  Working at 128/256 bits does not claim that many achieved accuracy bits:
+  the requested target is 53. These two cases do not add general static-Dual
+  or DoubleFloat coverage, massless or threshold derivatives, collinear/Gram/
+  Cayley boundaries, arbitrary complex-mass domains, further sample batching,
+  physical/MadLoop comparison or performance qualification. Historical broader
+  C0/D0 finite-difference evidence remains a separately bound source scope.
+  Source: #raw(current-dual.source).
+]
+
 #if native-capability != none and n7-failed != none [
   #pagebreak()
   #set text(size: 9.5pt)
@@ -1583,6 +1704,14 @@ performance gate remains the measured #raw("6b24c03") snapshot.
   performance comparisons or retrospectively attributed to the earlier capture.
   The constructor remains incomplete, with no workspace, masters or arrays.
   Source: #raw(data.private_n7_preparation_phase_diagnostic.source).
+
+  A private followup uses Symbolica's #raw("RationalPolynomialField") for the
+  matrix coefficient domain. All 22 selected exact tests pass; the rank-zero
+  constructor completes in 58.442 s (66.660 s including guards, within the
+  150 s bound). This preparation diagnostic creates no workspace, masters or
+  numerical arrays. It establishes no numerical or performance gate and is
+  not applied to live production. Both earlier timeouts remain unchanged.
+  Source: #raw(data.private_n7_rational_domain_qualification.source).
 ]
 
 #if typed-e6 != none [

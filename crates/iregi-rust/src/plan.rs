@@ -28,6 +28,8 @@ pub struct ReductionPlan {
     pub(crate) settings: ReductionSettings,
     pub(crate) basis: Vec<Monomial>,
     pub(crate) parameters: Vec<Atom>,
+    /// Private imported guarded operands: value, primal amplitude, mass dimension.
+    pub(crate) external_primal_seeds: Vec<(Atom, Atom, i32)>,
     pub(crate) layout: InputLayout,
     pub(crate) distances: Vec<Vec<Atom>>,
     /// Polynomial distances in original inputs, before the optional on-shell
@@ -58,6 +60,9 @@ pub struct ReductionPlan {
     certified_scalar_basis: Option<[usize; 4]>,
     /// Fixed constant-one pentagon chart, executable only after full input certification.
     certified_planar_chart: Option<usize>,
+    certified_planar_mask: u8,
+    /// Structural imported-child context; never sampled certificate state.
+    thin_six_child_rank: Option<u16>,
 }
 
 /// Exact constraints are structural: numerical values are never stored here.
@@ -72,6 +77,9 @@ struct PlanVariant {
     analytic_jet_order: u16,
     bubble_equal_masses: Option<bool>,
     zero_invariants: Option<ZeroInvariantProfile>,
+    certified_planar_mask: u8,
+    /// Structural imported-child context; never sampled certificate state.
+    thin_six_child_rank: Option<u16>,
 }
 
 type StructuralPlanCache =
@@ -79,7 +87,53 @@ type StructuralPlanCache =
 
 impl ReductionPlan {
     pub fn new(settings: ReductionSettings) -> Result<Self, ReductionError> {
-        Self::build(settings, None, None, 0, None, None)
+        Self::build(settings, None, None, 0, None, None, 0)
+    }
+
+    /// Private, bounded thin N6 plan. Imported child moments are already in
+    /// native IREGI normalization and are never converted a second time.
+    pub(crate) fn new_thin_six(settings: ReductionSettings, analytic_jet_order: u16) -> Result<Self, ReductionError> {
+        use crate::types::{Convention, TensorWeights};
+        if settings.propagators != 6 || settings.rank > 7 || settings.powers != [1;6]
+            || settings.dimension_shift != 0 || settings.invariants != InvariantInput::FromShifts
+            || settings.input_policy != InputPolicy::Preserve
+            || settings.convention != Convention::IregiNative
+            || settings.tensor_weights != TensorWeights::Components
+            || settings.algorithm != Algorithm::PassarinoVeltman {
+            return Err(ReductionError::Unsupported("private thin N6 requires rank<=7, unit powers, h=0, preserved shifts, PV, native raw components".into()));
+        }
+        let shifts: Vec<[Atom;4]> = (0..6).map(|i| std::array::from_fn(|mu| variable(&format!("p{i}_{mu}")))).collect();
+        let masses: Vec<_> = (0..6).map(|i| variable(&format!("m2_{i}"))).collect();
+        let mut parameters: Vec<_> = shifts.iter().flatten().cloned().collect();
+        parameters.extend(masses.iter().cloned()); parameters.push(variable("mu"));
+        let layout = InputLayout { shifts:0..24, scalar_products:None, masses:24..30, scale:30 };
+        let distances: Vec<Vec<_>> = shifts.iter().map(|p| shifts.iter().map(|q| squared_difference(p,q)).collect()).collect();
+        let mut compiler = PvCompiler::with_distances(shifts, masses, distances.clone(), true).map_err(ReductionError::Preparation)?;
+        let weights = compiler.thin_six_weights().map_err(ReductionError::Preparation)?;
+        let child_rank = settings.rank.saturating_sub(1);
+        let child_basis = tensor_basis(child_rank);
+        let child_values = 6 * 4 * child_basis.len();
+        let values: Vec<_> = (0..child_values).map(|index| variable(&format!("thin_child_{index}"))).collect();
+        let amplitudes: Vec<_> = (0..child_values).map(|index| variable(&format!("thin_amplitude_{index}"))).collect();
+        let external_primal_seeds = thin_six_external_primal_seeds(&child_basis, &values, &amplitudes);
+        parameters.extend(values.iter().cloned()); parameters.extend(amplitudes);
+        let basis = tensor_basis(settings.rank);
+        let mut moments = assemble_thin_six_moments(&basis, &child_basis, &weights, &values);
+        // Children are already native raw moments: apply only the existing
+        // final-output UV rule, never a second convention conversion.
+        apply_final_uv_power_counting(&settings, &basis, &mut moments)?;
+        Ok(Self {
+            execution_cache: Default::default(), variant_cache: Default::default(),
+            settings, basis, parameters, external_primal_seeds, layout,
+            raw_distances: distances.clone(), distances, moments,
+            leaves: Vec::new(), master_arguments: Vec::new(), aliases: compiler.aliases().to_vec(),
+            snapping_aliases:Vec::new(), snapping_diagnostics:Vec::new(), snapping_threshold:None,
+            snapping_zero_image:None, snapping_zero_image_required:false, fallback:None,
+            algorithm_used:Algorithm::PassarinoVeltman,
+            preparation_notes:vec![format!("Private thin N6: one packed N5 rank-{child_rank} batch, retained primal operand envelopes; no quadrature route support")],
+            special_kinematics:true, analytic_jet_order, bubble_limit:None, zero_invariants:None,
+            certified_scalar_basis:None, certified_planar_chart:None, certified_planar_mask:0, thin_six_child_rank:Some(child_rank),
+        })
     }
 
     /// Only the certified scalar wrapper may prepare this chart. A plan holds
@@ -88,7 +142,7 @@ impl ReductionPlan {
         settings: ReductionSettings,
         basis: [usize; 4],
     ) -> Result<Self, ReductionError> {
-        Self::build(settings, None, None, 0, Some(basis), None)
+        Self::build(settings, None, None, 0, Some(basis), None, 0)
     }
 
     /// Private fixed chart for the checked planar wrapper. Inputs must be
@@ -97,7 +151,15 @@ impl ReductionPlan {
         settings: ReductionSettings,
         omitted_row: usize,
     ) -> Result<Self, ReductionError> {
-        Self::build(settings, None, None, 0, None, Some(omitted_row))
+        Self::new_certified_planar_masked(settings, omitted_row, 0)
+    }
+
+    /// Only the checked wrapper may pass a mask; every marked coefficient's
+    /// full requested cofactor jet must have a fresh exact-zero certificate.
+    pub(crate) fn new_certified_planar_masked(
+        settings: ReductionSettings, omitted_row: usize, mask: u8,
+    ) -> Result<Self, ReductionError> {
+        Self::build(settings, None, None, 0, None, Some(omitted_row), mask)
     }
 
     /// An analytic Taylor neighborhood selected only for exact lightlike bubbles.
@@ -119,6 +181,7 @@ impl ReductionPlan {
             jet_order,
             None,
             None,
+            0,
         )
     }
 
@@ -127,6 +190,8 @@ impl ReductionPlan {
             analytic_jet_order: order,
             bubble_equal_masses: self.bubble_limit.map(|(_, equal)| equal),
             zero_invariants: self.zero_invariants.clone(),
+            certified_planar_mask: self.certified_planar_mask,
+            thin_six_child_rank: self.thin_six_child_rank,
         })
     }
 
@@ -158,6 +223,8 @@ impl ReductionPlan {
             analytic_jet_order: self.analytic_jet_order,
             bubble_equal_masses: None,
             zero_invariants: Some(profile),
+            certified_planar_mask: self.certified_planar_mask,
+            thin_six_child_rank: self.thin_six_child_rank,
         })
     }
 
@@ -165,10 +232,18 @@ impl ReductionPlan {
         if variant.analytic_jet_order == self.analytic_jet_order
             && variant.bubble_equal_masses == self.bubble_limit.map(|(_, equal)| equal)
             && variant.zero_invariants == self.zero_invariants
+            && variant.certified_planar_mask == self.certified_planar_mask
+            && variant.thin_six_child_rank == self.thin_six_child_rank
         {
             // Do not insert self into its own cache: even an immutable clone
             // would retain this cache and create an ownership cycle.
             return Ok(Arc::new(self.clone()));
+        }
+        if variant.thin_six_child_rank != self.thin_six_child_rank
+            || (self.thin_six_child_rank.is_some()
+                && (variant.bubble_equal_masses.is_some() || variant.zero_invariants.is_some()
+                    || variant.certified_planar_mask != 0)) {
+            return Err(ReductionError::Unsupported("thin N6 variants preserve imported-child topology and cannot accept invariant profiles".into()));
         }
         let entry = self
             .variant_cache
@@ -181,6 +256,9 @@ impl ReductionPlan {
         // Every newly built child receives fresh caches, with no parent link.
         entry
             .get_or_init(|| {
+                if self.thin_six_child_rank.is_some() {
+                    return Self::new_thin_six(self.settings.clone(), variant.analytic_jet_order).map(Arc::new);
+                }
                 Self::build(
                     self.settings.clone(),
                     variant
@@ -190,6 +268,7 @@ impl ReductionPlan {
                     variant.analytic_jet_order,
                     self.certified_scalar_basis,
                     self.certified_planar_chart,
+                    variant.certified_planar_mask,
                 )
                 .map(Arc::new)
             })
@@ -212,7 +291,11 @@ impl ReductionPlan {
         analytic_jet_order: u16,
         certified_scalar_basis: Option<[usize; 4]>,
         certified_planar_chart: Option<usize>,
+    certified_planar_mask: u8,
     ) -> Result<Self, ReductionError> {
+        if certified_planar_mask >= 31 || (certified_planar_mask != 0 && certified_planar_chart.is_none()) {
+            return Err(ReductionError::InvalidInput("certified planar mask must contain only five child bits, retain a child, and belong to a checked chart".into()));
+        }
         let n = settings.propagators;
         if n == 0 || settings.powers.len() != n || settings.powers.iter().any(|&p| p == 0) {
             return Err(ReductionError::InvalidInput(
@@ -444,6 +527,7 @@ impl ReductionPlan {
                                 analytic_jet_order,
                                 snapping.clone(),
                                 certified_planar_chart,
+                                certified_planar_mask,
                             )?;
                             (moments, leaves, aliases, Algorithm::PassarinoVeltman)
                         }
@@ -459,6 +543,7 @@ impl ReductionPlan {
                         analytic_jet_order,
                         snapping.clone(),
                         certified_planar_chart,
+                        certified_planar_mask,
                     );
                     match pv {
                         Ok((moments, leaves, aliases)) => {
@@ -510,21 +595,8 @@ impl ReductionPlan {
             ordered.append(&mut aliases);
             aliases = ordered;
         }
-        let base_uv_degree = 4 + 2 * i32::from(settings.dimension_shift)
-            - 2 * settings
-                .powers
-                .iter()
-                .map(|&power| i32::from(power))
-                .sum::<i32>();
+        apply_final_uv_power_counting(&settings, &basis, &mut moments)?;
         for (moment, monomial) in moments.iter_mut().zip(&basis) {
-            // Only the requested output is UV convergent. Intermediate UV
-            // poles remain available to the recurrence's finite rational terms.
-            let rank = i32::try_from(monomial.rank()).map_err(|_| {
-                ReductionError::Unsupported("tensor rank exceeds UV power-counting range".into())
-            })?;
-            if base_uv_degree + rank < 0 {
-                moment[0] = Atom::Zero;
-            }
             *moment = convert_convention(moment, *monomial, &settings);
         }
         let master_arguments = leaves
@@ -577,6 +649,7 @@ impl ReductionPlan {
                 analytic_jet_order,
                 certified_scalar_basis,
                 certified_planar_chart,
+                certified_planar_mask,
             ) {
                 Ok(plan) if plan.algorithm_used == Algorithm::Ibp => Some(Box::new(plan)),
                 Ok(_) => {
@@ -597,6 +670,7 @@ impl ReductionPlan {
             settings,
             basis,
             parameters,
+            external_primal_seeds: Vec::new(),
             layout,
             distances,
             raw_distances,
@@ -618,6 +692,8 @@ impl ReductionPlan {
             zero_invariants,
             certified_scalar_basis,
             certified_planar_chart,
+            certified_planar_mask,
+            thin_six_child_rank: None,
         })
     }
 
@@ -650,6 +726,31 @@ impl ReductionPlan {
             && !(self.snapping_threshold.is_some()
                 && self.algorithm_used == Algorithm::PassarinoVeltman)
     }
+    /// Only ordinary requested PV/Hybrid plans may own the outer planar retry.
+    /// The condition is retained when a plan is specialized for a Dual shape.
+    pub(crate) fn automatic_planar_settings(&self) -> Option<ReductionSettings> {
+        let settings = &self.settings;
+        if self.special_kinematics
+            || self.certified_scalar_basis.is_some()
+            || self.certified_planar_chart.is_some()
+            || settings.propagators != 5
+            || settings.rank > 7
+            || settings.powers != [1; 5]
+            || settings.dimension_shift != 0
+            || !matches!(
+                settings.algorithm,
+                Algorithm::PassarinoVeltman | Algorithm::Hybrid
+            )
+            || settings.invariants != InvariantInput::FromShifts
+            || settings.input_policy != InputPolicy::Preserve
+        {
+            return None;
+        }
+        let mut settings = settings.clone();
+        settings.algorithm = Algorithm::PassarinoVeltman;
+        Some(settings)
+    }
+
     pub fn preparation_notes(&self) -> &[String] {
         &self.preparation_notes
     }
@@ -681,6 +782,7 @@ fn compile_pv(
     analytic_jet_order: u16,
     snapping: Option<Rc<RefCell<LegacySnapping>>>,
     certified_planar_chart: Option<usize>,
+    certified_planar_mask: u8,
 ) -> Result<(Vec<[Atom; 4]>, Vec<MasterLeaf>, Vec<(Atom, Atom)>), ReductionError> {
     let mut compiler =
         PvCompiler::with_distances(shifts.to_vec(), masses.to_vec(), distances.to_vec(), true)
@@ -692,6 +794,7 @@ fn compile_pv(
         compiler
             .set_certified_planar_chart(omitted)
             .map_err(ReductionError::Preparation)?;
+        compiler.set_certified_planar_mask(certified_planar_mask).map_err(ReductionError::Preparation)?;
     }
     if let Some(snapping) = snapping {
         compiler
@@ -1021,6 +1124,57 @@ fn multinomial(exponents: [u16; 4]) -> Atom {
         .fold(Atom::num(Integer::factorial(rank)), |value, e| {
             value / Atom::num(Integer::factorial(u32::from(e)))
         })
+}
+
+/// The existing final-output UV power-counting rule. Intermediate child poles
+/// remain available to their own recurrence and finite rational terms.
+pub(crate) fn apply_final_uv_power_counting(settings:&ReductionSettings, basis:&[Monomial], moments:&mut [[Atom;4]]) -> Result<(),ReductionError> {
+    assert_eq!(basis.len(), moments.len(), "complete final tensor basis");
+        let base_uv_degree = 4 + 2 * i32::from(settings.dimension_shift)
+            - 2 * settings
+                .powers
+                .iter()
+                .map(|&power| i32::from(power))
+                .sum::<i32>();
+        for (moment, monomial) in moments.iter_mut().zip(basis) {
+            // Only the requested output is UV convergent. Intermediate UV
+            // poles remain available to the recurrence's finite rational terms.
+            let rank = i32::try_from(monomial.rank()).map_err(|_| {
+                ReductionError::Unsupported("tensor rank exceeds UV power-counting range".into())
+            })?;
+            if base_uv_degree + rank < 0 {
+                moment[0] = Atom::Zero;
+            }
+        }
+        Ok(())
+}
+
+/// Bind every imported Laurent slot to its own child's mass dimension.
+pub(crate) fn thin_six_external_primal_seeds(child_basis:&[Monomial], values:&[Atom], amplitudes:&[Atom])->Vec<(Atom,Atom,i32)> {
+    let child_slots = child_basis.len()*4;
+    assert!(!child_basis.is_empty());
+    assert_eq!(values.len(),6*child_slots);
+    assert_eq!(amplitudes.len(),values.len());
+    values.iter().zip(amplitudes).enumerate().map(|(index,(value,amplitude))|
+        (value.clone(),amplitude.clone(),child_basis[(index%child_slots)/4].rank() as i32-6)).collect()
+}
+
+/// Structural basis dispatch only; Symbolica performs every product and sum.
+pub(crate) fn assemble_thin_six_moments(basis:&[Monomial], child_basis:&[Monomial], weights:&[Vec<Atom>;5], values:&[Atom])->Vec<[Atom;4]> {
+    let child_slots=child_basis.len()*4;
+    assert_eq!(values.len(),6*child_slots);
+    assert!(weights.iter().all(|column|column.len()==6));
+    let child_indices:HashMap<_,_>=child_basis.iter().enumerate().map(|(index,monomial)|(monomial.0,index)).collect();
+    assert_eq!(child_indices.len(),child_basis.len(),"unique imported child basis");
+    basis.iter().map(|monomial| {
+        let mut remainder=monomial.0;
+        let column=match remainder.iter().position(|&power|power!=0) {
+            Some(mu)=>{remainder[mu]-=1;mu+1},None=>0,
+        };
+        let child_index=child_indices[&remainder];
+        std::array::from_fn(|pole| Atom::add_many(&(0..6).map(|subset|
+            &weights[column][subset]*&values[subset*child_slots+child_index*4+pole]).collect::<Vec<_>>()))
+    }).collect()
 }
 
 fn variable(name: &str) -> Atom {
@@ -1627,6 +1781,8 @@ mod tests {
                 analytic_jet_order: 2,
                 bubble_equal_masses: None,
                 zero_invariants: None,
+                certified_planar_mask: 0,
+                thin_six_child_rank: None,
             })
             .unwrap()
             .clone();
@@ -1704,5 +1860,59 @@ mod tests {
                 started.elapsed()
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod planar_mask_variant_tests {
+    use super::*;
+    fn configuration()->ReductionSettings {let mut s=ReductionSettings::new(5,0);s.algorithm=Algorithm::PassarinoVeltman;s}
+    #[test]
+    fn mask_identity_survives_analytic_variant_rebuild_and_cache() {
+        for mask in [31,32,128,255] {assert!(ReductionPlan::new_certified_planar_masked(configuration(),3,mask).is_err());}
+        let masked=ReductionPlan::new_certified_planar_masked(configuration(),3,8).unwrap();
+        let first=masked.with_analytic_jet_order(2).unwrap();let again=masked.with_analytic_jet_order(2).unwrap();
+        assert_eq!(first.certified_planar_mask,8);assert_eq!(first.certified_planar_chart,Some(3));assert_eq!(first.analytic_jet_order,2);assert!(Arc::ptr_eq(&first,&again));
+        assert!(masked.variant_cache.lock().unwrap().contains_key(&PlanVariant{analytic_jet_order:2,bubble_equal_masses:None,zero_invariants:None,certified_planar_mask:8,thin_six_child_rank:None}));
+        let unmasked=ReductionPlan::new_certified_planar(configuration(),3).unwrap().with_analytic_jet_order(2).unwrap();
+        assert_eq!(unmasked.certified_planar_mask,0);assert!(!Arc::ptr_eq(&first,&unmasked));
+        assert_ne!(first.expressions(),unmasked.expressions());
+    }
+}
+
+#[cfg(test)]
+mod generic_thin_variant_tests {
+    use super::*;
+    #[test]
+    fn thin_variant_rebuild_retains_imported_topology_and_native_output_context() {
+        let mut settings=ReductionSettings::new(6,0);
+        settings.algorithm=Algorithm::PassarinoVeltman;
+        let plan=ReductionPlan::new_thin_six(settings,0).unwrap();
+        assert_eq!(plan.thin_six_child_rank,Some(0));
+        assert_eq!(plan.parameters.len(),79);
+        assert_eq!(plan.external_primal_seeds.len(),24);
+        let rebuilt=plan.with_analytic_jet_order(2).unwrap();
+        let cached=plan.with_analytic_jet_order(2).unwrap();
+        assert!(Arc::ptr_eq(&rebuilt,&cached));
+        assert_eq!(rebuilt.thin_six_child_rank,Some(0));
+        assert_eq!(rebuilt.analytic_jet_order,2);
+        assert_eq!(serde_json::to_value(rebuilt.settings()).unwrap(), serde_json::to_value(plan.settings()).unwrap());
+        assert_eq!(rebuilt.basis(),plan.basis());
+        assert_eq!(rebuilt.parameters,plan.parameters);
+        assert_eq!(rebuilt.external_primal_seeds,plan.external_primal_seeds);
+        assert_eq!(rebuilt.expressions(),plan.expressions());
+        assert!(plan.variant_cache.lock().unwrap().contains_key(&PlanVariant {
+            analytic_jet_order:2,bubble_equal_masses:None,zero_invariants:None,
+            certified_planar_mask:0,thin_six_child_rank:Some(0),
+        }));
+        assert!(plan.with_zero_invariants(ZeroInvariantProfile {masses:vec![false;6],distances:Vec::new()}).is_err());
+        assert!(plan.variant(PlanVariant {
+            analytic_jet_order:2,bubble_equal_masses:None,zero_invariants:None,
+            certified_planar_mask:0,thin_six_child_rank:Some(1),
+        }).is_err());
+        assert!(plan.variant(PlanVariant {
+            analytic_jet_order:2,bubble_equal_masses:None,zero_invariants:None,
+            certified_planar_mask:8,thin_six_child_rank:Some(0),
+        }).is_err());
     }
 }

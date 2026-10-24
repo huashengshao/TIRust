@@ -138,6 +138,44 @@ pub struct KinematicsBatch<T: FloatLike> {
     pub values: Vec<Complex<T>>,
 }
 
+/// Private primal sensitivity operand, never a differentiated error bound.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PrimalOperandKind {
+    UncancelledMasters,
+    NoMaster,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct PrimalOperand<T: FloatLike> {
+    pub output_index: usize,
+    pub amplitude: Complex<T>,
+    pub kind: PrimalOperandKind,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PrimalEnvelopeRoute {
+    Ordinary,
+    Analytic,
+    Hybrid,
+    CertifiedPlanar,
+    AutomaticPlanar,
+    CertifiedScalar,
+}
+
+/// Coupled to one successful result lane. Numerical operands retain their
+/// original precision; metadata records the interpretation of every slot.
+#[derive(Clone, Debug)]
+pub(crate) struct PrimalEnvelope<T: FloatLike> {
+    pub basis: Vec<Monomial>,
+    pub metadata: ResultMetadata,
+    pub components: usize,
+    pub working_precision: u32,
+    pub accuracy_bits: u32,
+    pub operands: Vec<PrimalOperand<T>>,
+    pub output_primals: Vec<Complex<T>>,
+    pub routes: Vec<PrimalEnvelopeRoute>,
+}
+
 /// Tensor moments with independent lane status.
 ///
 /// Successful data is row-major, then basis index, then UV1/IR1/IR2/finite,
@@ -150,10 +188,13 @@ pub struct BatchResult<T: FloatLike> {
     pub(crate) metadata: ResultMetadata,
     pub(crate) values: Vec<Complex<T>>,
     pub statuses: Vec<LaneStatus>,
-    /// True when this sample was retried with the alternate reduction method.
+    /// True when an optional fallback stage was attempted for this sample,
+    /// including preparation or certificate rejection before numerical work.
     pub fallback_used: Vec<bool>,
     /// The lane used an exact analytic kinematic-limit profile.
     pub analytic_used: Vec<bool>,
+    pub(crate) primal_envelopes: Vec<Option<PrimalEnvelope<T>>>,
+    pub(crate) primal_envelope_errors: Vec<Option<String>>,
 }
 
 /// Immutable interpretation of a tensor result's stored coefficients.
@@ -205,5 +246,281 @@ impl<T: FloatLike> BatchResult<T> {
         }
         let width = self.basis.len() * 4 * self.components;
         Ok(&self.values[row * width..(row + 1) * width])
+    }
+}
+
+impl<T: iregi_masters::NativeFloat> BatchResult<T> {
+    pub(crate) fn validated_primal_envelope(
+        &self,
+        row: usize,
+        expected_working_precision: u32,
+        expected_accuracy_bits: u32,
+    ) -> Result<&PrimalEnvelope<T>, String> {
+        let envelope = self.primal_envelope(row)?;
+        if envelope.working_precision != expected_working_precision
+            || envelope.accuracy_bits != expected_accuracy_bits
+        {
+            return Err("primal envelope working precision or accuracy target differs from caller".into());
+        }
+        Ok(envelope)
+    }
+
+    /// Reject missing, stale or differently interpreted private context. This
+    /// accessor does not change the ordinary result's success/failure contract.
+    pub(crate) fn primal_envelope(&self, row: usize) -> Result<&PrimalEnvelope<T>, String> {
+        if self.statuses.get(row) != Some(&LaneStatus::Success) {
+            return Err("primal envelope requires a successful lane".into());
+        }
+        if self.primal_envelopes.len() != self.rows()
+            || self.primal_envelope_errors.len() != self.rows()
+        {
+            return Err("primal envelope lane inventory does not match result".into());
+        }
+        if let Some(reason) = &self.primal_envelope_errors[row] {
+            return Err(reason.clone());
+        }
+        let envelope = self.primal_envelopes[row]
+            .as_ref()
+            .ok_or_else(|| "successful lane has no supported primal envelope".to_string())?;
+        let outputs = self.basis.len().checked_mul(4)
+            .ok_or_else(|| "primal envelope output size overflow".to_string())?;
+        let width = outputs.checked_mul(self.components)
+            .ok_or_else(|| "primal envelope component size overflow".to_string())?;
+        let expected = width.checked_mul(self.rows())
+            .ok_or_else(|| "primal envelope result size overflow".to_string())?;
+        if self.components == 0 || self.values.len() != expected
+            || envelope.basis != self.basis || envelope.metadata != self.metadata
+            || envelope.components != self.components
+            || envelope.working_precision == 0 || envelope.accuracy_bits == 0
+            || envelope.routes.is_empty() || envelope.operands.len() != outputs
+            || envelope.output_primals.len() != outputs
+        {
+            return Err("primal envelope basis, metadata, precision or dimensions do not match result".into());
+        }
+        for (index, operand) in envelope.operands.iter().enumerate() {
+            if operand.output_index != index
+                || !operand.amplitude.re.is_finite() || !operand.amplitude.im.is_finite()
+            {
+                return Err("primal envelope has an invalid output map or nonfinite amplitude".into());
+            }
+            let saved = &envelope.output_primals[index];
+            let actual = &self.values[row * width + index * self.components];
+            if saved.re != actual.re || saved.im != actual.im
+                || saved.re.get_precision() != actual.re.get_precision()
+                || saved.im.get_precision() != actual.im.get_precision()
+            {
+                return Err("primal envelope does not describe the returned coefficient".into());
+            }
+        }
+        Ok(envelope)
+    }
+
+    /// Called in the same branch that scatters a successful child's values.
+    /// Always erase previous context before accepting or rejecting a copy.
+    pub(crate) fn inherit_primal_envelope(
+        &mut self,
+        row: usize,
+        source: &Self,
+        source_row: usize,
+        route: PrimalEnvelopeRoute,
+    ) {
+        // Ordinary results do not retain this private context and allocate no
+        // sidecar buffers. A disabled destination must not inspect or clone it.
+        if self.primal_envelopes.is_empty() && self.primal_envelope_errors.is_empty() {
+            return;
+        }
+        self.primal_envelopes[row] = None;
+        self.primal_envelope_errors[row] = None;
+        let copied = if source.basis != self.basis || source.metadata != self.metadata
+            || source.components != self.components
+        {
+            Err("successful child primal envelope has incompatible result metadata".into())
+        } else {
+            source.primal_envelope(source_row).cloned()
+        };
+        match copied {
+            Ok(mut envelope) => {
+                envelope.routes.push(route);
+                self.primal_envelopes[row] = Some(envelope);
+                if let Err(reason) = self.primal_envelope(row) {
+                    self.primal_envelopes[row] = None;
+                    self.primal_envelope_errors[row] = Some(reason);
+                }
+            }
+            Err(reason) => self.primal_envelope_errors[row] = Some(reason),
+        }
+    }
+}
+
+#[cfg(test)]
+mod primal_envelope_tests {
+    use super::*;
+    use symbolica::domains::float::Float;
+
+    fn fixture(rows: usize, shape: Option<Vec<Vec<usize>>>) -> BatchResult<f64> {
+        let components = shape.as_ref().map_or(1, Vec::len);
+        let basis = vec![Monomial([0; 4]), Monomial([0, 1, 0, 0])];
+        let outputs = basis.len() * 4;
+        let values: Vec<_> = (0..rows * outputs * components)
+            .map(|index| Complex::new((index + 1) as f64, -(index as f64)))
+            .collect();
+        let metadata = ResultMetadata::new(Convention::IregiNative, TensorWeights::Components, shape);
+        let envelopes = (0..rows).map(|row| Some(PrimalEnvelope {
+            basis: basis.clone(), metadata: metadata.clone(), components,
+            working_precision: 53, accuracy_bits: 53,
+            operands: (0..outputs).map(|output_index| PrimalOperand {
+                output_index,
+                amplitude: Complex::new((10_000 + 100 * row + output_index) as f64, 0.),
+                kind: if output_index == 0 { PrimalOperandKind::NoMaster }
+                      else { PrimalOperandKind::UncancelledMasters },
+            }).collect(),
+            output_primals: (0..outputs)
+                .map(|index| values[(row * outputs + index) * components].clone()).collect(),
+            routes: vec![PrimalEnvelopeRoute::Ordinary],
+        })).collect();
+        BatchResult {
+            basis, components, metadata, values,
+            statuses: vec![LaneStatus::Success; rows],
+            fallback_used: vec![false; rows], analytic_used: vec![false; rows],
+            primal_envelopes: envelopes, primal_envelope_errors: vec![None; rows],
+        }
+    }
+
+    #[test]
+    fn ordinary_destination_does_not_allocate_or_inspect_private_envelopes() {
+        let source = fixture(0, None);
+        let mut target = fixture(1, None);
+        target.primal_envelopes = Vec::new();
+        target.primal_envelope_errors = Vec::new();
+        let values = target.values.clone();
+        // There is deliberately no source lane. A disabled destination must
+        // not inspect or clone any of its private operand context.
+        target.inherit_primal_envelope(0, &source, usize::MAX, PrimalEnvelopeRoute::Analytic);
+        assert_eq!(target.values, values);
+        assert_eq!(target.primal_envelopes.capacity(), 0);
+        assert_eq!(target.primal_envelope_errors.capacity(), 0);
+
+        let mut enabled = fixture(1, None);
+        let mut missing = fixture(1, None);
+        missing.primal_envelopes = Vec::new();
+        missing.primal_envelope_errors = Vec::new();
+        enabled.inherit_primal_envelope(0, &missing, 0, PrimalEnvelopeRoute::Analytic);
+        assert!(enabled.primal_envelopes[0].is_none());
+        assert!(enabled.primal_envelope_errors[0].is_some());
+    }
+
+    #[test]
+    fn private_envelope_scatter_preserves_every_slot_and_route() {
+        let source = fixture(3, Some(vec![vec![0, 0], vec![1, 0], vec![0, 1]]));
+        let routes = [PrimalEnvelopeRoute::Analytic, PrimalEnvelopeRoute::Hybrid,
+            PrimalEnvelopeRoute::CertifiedPlanar, PrimalEnvelopeRoute::AutomaticPlanar,
+            PrimalEnvelopeRoute::CertifiedScalar];
+        for route in routes {
+            let mut target = fixture(3, source.metadata.dual_shape.clone());
+            let width = source.basis.len() * 4 * source.components;
+            for (row, source_row) in [2, 0, 1].into_iter().enumerate() {
+                target.values[row * width..(row + 1) * width]
+                    .clone_from_slice(source.lane(source_row).unwrap());
+                target.inherit_primal_envelope(row, &source, source_row, route);
+                let got = target.primal_envelope(row).unwrap();
+                assert_eq!(got.routes, vec![PrimalEnvelopeRoute::Ordinary, route]);
+                assert_eq!(got.output_primals, source.primal_envelope(source_row).unwrap().output_primals);
+                for (index, operand) in got.operands.iter().enumerate() {
+                    assert_eq!(operand.output_index, index);
+                    assert_eq!(operand.amplitude.re, (10_000 + 100 * source_row + index) as f64);
+                    assert_eq!(operand.kind, source.primal_envelope(source_row).unwrap().operands[index].kind);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn private_envelope_replacement_clears_missing_failed_and_quadrature_context() {
+        let source = fixture(1, None);
+        let mut target = source.clone();
+        let mut missing = source.clone();
+        missing.primal_envelopes[0] = None;
+        missing.primal_envelope_errors[0] = Some("quadrature error transport unsupported".into());
+        target.inherit_primal_envelope(0, &missing, 0, PrimalEnvelopeRoute::Hybrid);
+        assert!(target.primal_envelopes[0].is_none());
+        assert!(target.primal_envelope(0).unwrap_err().contains("quadrature"));
+        assert!(target.lane(0).is_ok(), "private context rejection must not alter ordinary status");
+        target.inherit_primal_envelope(0, &source, 0, PrimalEnvelopeRoute::AutomaticPlanar);
+        assert!(target.primal_envelope(0).is_ok());
+        assert!(target.primal_envelope_errors[0].is_none());
+        let mut failed = source.clone();
+        failed.statuses[0] = LaneStatus::Unstable("fixture".into());
+        target.inherit_primal_envelope(0, &failed, 0, PrimalEnvelopeRoute::Analytic);
+        assert!(target.primal_envelopes[0].is_none());
+        assert!(target.primal_envelope(0).unwrap_err().contains("successful"));
+        let empty = fixture(0, None);
+        assert!(empty.primal_envelopes.is_empty());
+        assert!(empty.primal_envelope(0).is_err());
+    }
+
+    #[test]
+    fn private_envelope_rejects_equal_size_different_shape_basis_and_convention() {
+        let shape = Some(vec![vec![0, 0], vec![1, 0], vec![0, 1]]);
+        let source = fixture(1, shape.clone());
+        for change in 0..4 {
+            let mut target = fixture(1, shape.clone());
+            match change {
+                0 => target.metadata.dual_shape = Some(vec![vec![0, 0], vec![0, 1], vec![1, 0]]),
+                1 => target.metadata.convention = Convention::OneLoop,
+                2 => target.metadata.tensor_weights = TensorWeights::Multinomial,
+                _ => target.basis.reverse(),
+            }
+            target.inherit_primal_envelope(0, &source, 0, PrimalEnvelopeRoute::CertifiedPlanar);
+            assert!(target.primal_envelopes[0].is_none());
+            assert!(target.primal_envelope(0).is_err());
+        }
+    }
+
+    #[test]
+    fn private_envelope_rejects_stale_values_sparse_maps_and_nonfinite_amplitudes() {
+        let valid = fixture(1, None);
+        assert!(valid.validated_primal_envelope(0, 53, 53).is_ok());
+        assert!(valid.validated_primal_envelope(0, 128, 53).is_err());
+        assert!(valid.validated_primal_envelope(0, 53, 32).is_err());
+        for change in 0..6 {
+            let mut result = fixture(1, None);
+            match change {
+                0 => result.values[2].re += 1.,
+                1 => result.primal_envelopes[0].as_mut().unwrap().operands[2].output_index = 1,
+                2 => { result.primal_envelopes[0].as_mut().unwrap().operands.pop(); }
+                3 => result.primal_envelopes[0].as_mut().unwrap().operands[0].amplitude.re = f64::INFINITY,
+                4 => result.primal_envelope_errors.clear(),
+                _ => { result.values.pop(); }
+            }
+            assert!(result.primal_envelope(0).is_err(), "mutation {change}");
+        }
+    }
+
+    #[test]
+    fn private_envelope_preserves_operand_precision_and_binds_returned_precision() {
+        let value = Complex::new(Float::with_val(192, 3), Float::with_val(160, 4));
+        let amplitude = Complex::new(Float::with_val(80, 1000), Float::new(96));
+        let basis = vec![Monomial([0; 4])];
+        let metadata = ResultMetadata::new(Convention::IregiNative, TensorWeights::Components, None);
+        let envelope = PrimalEnvelope {
+            basis: basis.clone(), metadata: metadata.clone(), components: 1,
+            working_precision: 256, accuracy_bits: 53,
+            operands: (0..4).map(|output_index| PrimalOperand {
+                output_index, amplitude: amplitude.clone(), kind: PrimalOperandKind::UncancelledMasters,
+            }).collect(),
+            output_primals: vec![value.clone(); 4], routes: vec![PrimalEnvelopeRoute::Ordinary],
+        };
+        let source = BatchResult {
+            basis, metadata, components: 1, values: vec![value; 4],
+            statuses: vec![LaneStatus::Success], fallback_used: vec![false], analytic_used: vec![false],
+            primal_envelopes: vec![Some(envelope)], primal_envelope_errors: vec![None],
+        };
+        let mut target = source.clone();
+        target.inherit_primal_envelope(0, &source, 0, PrimalEnvelopeRoute::Analytic);
+        let retained = &target.primal_envelope(0).unwrap().operands[0].amplitude;
+        assert_eq!(retained.re.get_precision(), amplitude.re.get_precision());
+        assert_eq!(retained.im.get_precision(), amplitude.im.get_precision());
+        target.values[0].re = Float::with_val(64, 3);
+        assert!(target.primal_envelope(0).unwrap_err().contains("returned coefficient"));
     }
 }

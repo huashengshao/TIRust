@@ -25,6 +25,7 @@ use symbolica::{
 };
 
 use crate::{
+    CertificateExecutionStats,
     basis::Monomial,
     exact_zero_certificate::{
         ExactZeroCertificate, ExactZeroConstraintPlan, ExactZeroConstraintWorkspace,
@@ -36,9 +37,36 @@ use crate::{
         master_argument_precision_failure, quadrature::QuadratureStabilityPlan,
     },
     types::{
-        BatchResult, InputLayout, KinematicsBatch, LaneStatus, ReductionError, ResultMetadata,
+        BatchResult, InputLayout, KinematicsBatch, LaneStatus, PrimalEnvelope, PrimalEnvelopeRoute,
+        ReductionError, ResultMetadata,
     },
 };
+
+mod planar_fallback;
+use planar_fallback::PlanarFallback;
+
+/// Immutable execution-only options. Ordinary public constructors never opt in.
+/// Numeric child caches belong to one workspace and therefore one policy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct WorkspacePolicy {
+    pub(crate) retain_primal_envelopes: bool,
+    pub(crate) planar_retry: bool,
+}
+
+impl WorkspacePolicy {
+    pub(crate) const ORDINARY: Self = Self {
+        retain_primal_envelopes: false,
+        planar_retry: false,
+    };
+    pub(crate) const SIX_POINT_CHILD: Self = Self {
+        retain_primal_envelopes: true,
+        planar_retry: true,
+    };
+    pub(crate) const RETAIN_ENVELOPES: Self = Self {
+        retain_primal_envelopes: true,
+        planar_retry: false,
+    };
+}
 
 /// Work performed by the last batch, independently of Taylor component count.
 ///
@@ -937,6 +965,9 @@ fn prepare_exact<D: DualNumberStructure>(
 /// sample `Unstable` for explicit precision rescue.
 #[derive(Clone)]
 pub struct Workspace<T: NativeFloat> {
+    policy: WorkspacePolicy,
+    planar_fallback: Option<PlanarFallback<T>>,
+    planar_certificate_stats: CertificateExecutionStats,
     prototype: T,
     accuracy_bits: u32,
     basis: Vec<Monomial>,
@@ -991,7 +1022,15 @@ where
     Complex<T>: EvaluationDomain,
 {
     pub fn new(plan: &ReductionPlan, prototype: T) -> Result<Self, ReductionError> {
-        Self::prepare::<HyperDual<Complex<Rational>>>(plan, prototype, None)
+        Self::new_with_policy(plan, prototype, WorkspacePolicy::ORDINARY)
+    }
+
+    pub(crate) fn new_with_policy(
+        plan: &ReductionPlan,
+        prototype: T,
+        policy: WorkspacePolicy,
+    ) -> Result<Self, ReductionError> {
+        Self::prepare::<HyperDual<Complex<Rational>>>(plan, prototype, None, policy)
     }
 
     /// Compile a static or dynamic Symbolica Dual layout. Inputs and outputs
@@ -1001,20 +1040,30 @@ where
         prototype: T,
         dual: D,
     ) -> Result<Self, ReductionError> {
+        Self::new_dual_with_policy(plan, prototype, dual, WorkspacePolicy::ORDINARY)
+    }
+
+    pub(crate) fn new_dual_with_policy<D: DualNumberStructure>(
+        plan: &ReductionPlan,
+        prototype: T,
+        dual: D,
+        policy: WorkspacePolicy,
+    ) -> Result<Self, ReductionError> {
         iregi_masters::validate_dual_structure(&dual)
             .map_err(|error| ReductionError::Preparation(error.to_string()))?;
         let order = maximum_jet_order(dual.get_shape())?;
         if order == plan.analytic_jet_order {
-            return Self::prepare(plan, prototype, Some(&dual));
+            return Self::prepare(plan, prototype, Some(&dual), policy);
         }
         let specialized = plan.with_analytic_jet_order(order)?;
-        Self::prepare(&specialized, prototype, Some(&dual))
+        Self::prepare(&specialized, prototype, Some(&dual), policy)
     }
 
     fn prepare<D: DualNumberStructure>(
         plan: &ReductionPlan,
         prototype: T,
         dual: Option<&D>,
+        policy: WorkspacePolicy,
     ) -> Result<Self, ReductionError> {
         if prototype.get_precision() == 0 {
             return Err(ReductionError::Preparation(
@@ -1026,13 +1075,14 @@ where
                 .map_err(|error| ReductionError::Preparation(error.to_string()))?;
         }
         let exact = prepare_exact(plan, dual, &mut PreparedMasterCache::default())?;
-        Self::instantiate(Some(plan), prototype, &exact)
+        Self::instantiate(Some(plan), prototype, &exact, policy)
     }
 
     fn instantiate(
         plan: Option<&ReductionPlan>,
         prototype: T,
         exact: &PreparedExecution,
+        policy: WorkspacePolicy,
     ) -> Result<Self, ReductionError> {
         let started = preparation_timer();
         let arguments = map_exact(&exact.arguments, &prototype);
@@ -1098,6 +1148,7 @@ where
                     plan.and_then(|plan| plan.fallback.as_deref()),
                     prototype.clone(),
                     child,
+                    policy,
                 )
                 .map(Box::new)
             })
@@ -1105,12 +1156,12 @@ where
         let lightlike_equal = exact
             .lightlike_equal
             .as_ref()
-            .map(|child| Self::instantiate(None, prototype.clone(), child).map(Box::new))
+            .map(|child| Self::instantiate(None, prototype.clone(), child, policy).map(Box::new))
             .transpose()?;
         let lightlike_unequal = exact
             .lightlike_unequal
             .as_ref()
-            .map(|child| Self::instantiate(None, prototype.clone(), child).map(Box::new))
+            .map(|child| Self::instantiate(None, prototype.clone(), child, policy).map(Box::new))
             .transpose()?;
         let zero_profile_plan = if exact.zero_profile_offset.is_some() {
             Some(Box::new(
@@ -1131,6 +1182,14 @@ where
         let guard_context =
             GuardContext::new(&exact.stability, &prototype, prototype.get_precision());
         Ok(Self {
+            policy,
+            planar_fallback: if policy.planar_retry {
+                plan.and_then(ReductionPlan::automatic_planar_settings)
+                    .map(|settings| PlanarFallback::new(settings, policy))
+            } else {
+                None
+            },
+            planar_certificate_stats: CertificateExecutionStats::default(),
             guard_context,
             accuracy_bits: prototype.get_precision(),
             prototype,
@@ -1204,6 +1263,9 @@ where
             ));
         }
         self.accuracy_bits = bits;
+        if let Some(state) = &mut self.planar_fallback {
+            state.set_accuracy_precision(bits)?;
+        }
         self.guard_context.set_accuracy(&self.prototype, bits);
         for group in &mut self.masters {
             if let ScalarMasterEvaluator::Pentagon6 { options, .. } = &mut group.evaluator {
@@ -1243,6 +1305,9 @@ where
     /// Enable or disable timing for this workspace and its analytic/fallback plans.
     pub fn set_profiling(&mut self, enabled: bool) {
         self.profiling = enabled;
+        if let Some(state) = &mut self.planar_fallback {
+            state.set_profiling(enabled);
+        }
         for child in [
             &mut self.fallback,
             &mut self.lightlike_equal,
@@ -1271,9 +1336,17 @@ where
         &mut self,
         batch: &KinematicsBatch<T>,
     ) -> Result<BatchResult<T>, ReductionError> {
+        self.planar_certificate_stats = CertificateExecutionStats::default();
         self.profile = ExecutionProfile::default();
         let started = self.profiling.then(Instant::now);
-        let result = self.reduce_batch_impl(batch);
+        let mut result = self.reduce_batch_impl(batch);
+        if self.policy.planar_retry {
+            if let Ok(reduced) = &mut result {
+                if let Err(error) = self.retry_planar(batch, reduced) {
+                    result = Err(error);
+                }
+            }
+        }
         if let Some(started) = started {
             self.profile.total = started.elapsed();
         }
@@ -1315,6 +1388,8 @@ where
             statuses: vec![LaneStatus::Success; batch.rows],
             fallback_used: vec![false; batch.rows],
             analytic_used: vec![false; batch.rows],
+            primal_envelopes: if self.policy.retain_primal_envelopes { vec![None; batch.rows] } else { Vec::new() },
+            primal_envelope_errors: if self.policy.retain_primal_envelopes { vec![None; batch.rows] } else { Vec::new() },
         };
         self.valid_lanes.clear();
         self.successful_lanes.clear();
@@ -1488,6 +1563,7 @@ where
                     &mut self.stats,
                     &mut self.profile,
                     &mut self.diagnostics,
+                    &mut self.planar_certificate_stats,
                 )?;
             }
             if !unequal.is_empty() {
@@ -1499,6 +1575,7 @@ where
                     &mut self.stats,
                     &mut self.profile,
                     &mut self.diagnostics,
+                    &mut self.planar_certificate_stats,
                 )?;
             }
             self.retain_lanes(&ordinary, input_width, argument_width);
@@ -1559,7 +1636,7 @@ where
                                 let layout = self.shape.as_ref().map(|shape| {
                                     HyperDual::<Complex<Rational>>::new(shape.clone())
                                 });
-                                Self::prepare(&plan, self.prototype.clone(), layout.as_ref())
+                                Self::prepare(&plan, self.prototype.clone(), layout.as_ref(), self.policy)
                             })
                             .and_then(|mut workspace| {
                                 workspace.set_profiling(self.profiling);
@@ -1583,6 +1660,7 @@ where
                             &mut self.stats,
                             &mut self.profile,
                             &mut self.diagnostics,
+                            &mut self.planar_certificate_stats,
                         )?;
                         for (&compact, &lane) in compact_lanes.iter().zip(&lanes) {
                             if result.statuses[lane] != LaneStatus::Success {
@@ -1981,6 +2059,38 @@ where
             } else {
                 result.values[lane * output_width..(lane + 1) * output_width]
                     .clone_from_slice(output);
+                // Export only the buffers from this guarded successful route.
+                // Disabled ordinary calls allocate or clone no sidecar data.
+                if self.policy.retain_primal_envelopes {
+                    if self.quadrature.is_some() {
+                        result.primal_envelope_errors[lane] = Some(
+                            "quadrature error transport is unsupported by the six-point parent".into(),
+                        );
+                    } else {
+                        match self.stability.export_primal_operands(
+                            primal_values.unwrap_or(&[]), output, self.components,
+                        ) {
+                            Ok(operands) => {
+                                result.primal_envelopes[lane] = Some(PrimalEnvelope {
+                                    basis: self.basis.clone(),
+                                    metadata: self.metadata.clone(),
+                                    components: self.components,
+                                    working_precision: self.prototype.get_precision(),
+                                    accuracy_bits: self.accuracy_bits,
+                                    operands,
+                                    output_primals: output.chunks_exact(self.components)
+                                        .map(|slot| slot[0].clone()).collect(),
+                                    routes: vec![PrimalEnvelopeRoute::Ordinary],
+                                });
+                                if let Err(reason) = result.primal_envelope(lane) {
+                                    result.primal_envelopes[lane] = None;
+                                    result.primal_envelope_errors[lane] = Some(reason);
+                                }
+                            }
+                            Err(reason) => result.primal_envelope_errors[lane] = Some(reason),
+                        }
+                    }
+                }
             }
         }
         record_time(started, &mut self.profile.reduction);
@@ -2005,16 +2115,46 @@ where
                     rows: lanes.len(),
                     components: self.components,
                     values,
-                })?;
-                self.stats.fallback_rows = lanes.len();
+                });
+                if self.policy != WorkspacePolicy::ORDINARY {
+                    add_certificate_work(&mut self.planar_certificate_stats, fallback.last_planar_certificate_execution())?;
+                }
+                if self.policy != WorkspacePolicy::ORDINARY && retried.is_err() {
+                    // Preserve actual child work even when no result can scatter.
+                    // Ordinary error accounting remains on its existing path.
+                    self.stats.fallback_rows = self.stats.fallback_rows
+                        .checked_add(lanes.len()).ok_or_else(size_error)?;
+                    self.stats.add_policy_child_work(fallback.last_execution())?;
+                    if let Some(profile) = fallback.last_profile() {
+                        self.profile.add_stages(profile);
+                    }
+                    for (compact, &lane) in lanes.iter().enumerate() {
+                        if let Some(notes) = fallback.last_diagnostics().get(compact) {
+                            self.diagnostics[lane].extend_from_slice(notes);
+                        }
+                    }
+                }
+                let retried = retried?;
+                if self.policy == WorkspacePolicy::ORDINARY {
+                    self.stats.fallback_rows = lanes.len();
+                } else {
+                    self.stats.fallback_rows = self.stats.fallback_rows
+                        .checked_add(lanes.len()).ok_or_else(size_error)?;
+                }
                 for (compact, &lane) in lanes.iter().enumerate() {
                     result.fallback_used[lane] = true;
+                    if self.policy != WorkspacePolicy::ORDINARY {
+                        result.analytic_used[lane] |= retried.analytic_used[compact];
+                    }
                     self.diagnostics[lane].extend_from_slice(&fallback.diagnostics[compact]);
                     match retried.lane(compact) {
                         Ok(output) => {
                             result.values[lane * output_width..(lane + 1) * output_width]
                                 .clone_from_slice(output);
                             result.statuses[lane] = LaneStatus::Success;
+                            if self.policy.retain_primal_envelopes {
+                                result.inherit_primal_envelope(lane, &retried, compact, PrimalEnvelopeRoute::Hybrid);
+                            }
                             self.stats.fallback_successes += 1;
                         }
                         Err(status) => {
@@ -2026,6 +2166,15 @@ where
                     }
                 }
                 let work = fallback.last_execution();
+                if self.policy != WorkspacePolicy::ORDINARY {
+                    // Count descendant stages separately from this outer retry.
+                    self.stats.fallback_rows = self.stats.fallback_rows
+                        .checked_add(work.fallback_rows).ok_or_else(size_error)?;
+                    self.stats.fallback_successes = self.stats.fallback_successes
+                        .checked_add(work.fallback_successes).ok_or_else(size_error)?;
+                    self.stats.analytic_rows = self.stats.analytic_rows
+                        .checked_add(work.analytic_rows).ok_or_else(size_error)?;
+                }
                 if let Some(profile) = fallback.last_profile() {
                     self.profile.add_stages(profile);
                 }
@@ -2088,6 +2237,8 @@ where
         rows: usize,
         components: impl for<'a> Fn(&'a D) -> &'a [Complex<T>],
     ) -> Result<BatchResult<T>, ReductionError> {
+        // Typed-input validation can return before reduce_batch resets counters.
+        self.planar_certificate_stats = CertificateExecutionStats::default();
         let expected = checked_mul(rows, self.parameters)?;
         if input.len() != expected {
             return Err(ReductionError::InvalidInput(format!(
@@ -2154,6 +2305,7 @@ fn dispatch_profile<T: NativeFloat>(
     stats: &mut ExecutionStats,
     profile: &mut ExecutionProfile,
     diagnostics: &mut [Vec<String>],
+    certificate_stats: &mut CertificateExecutionStats,
 ) -> Result<(), ReductionError>
 where
     Complex<T>: EvaluationDomain,
@@ -2168,7 +2320,23 @@ where
         rows: lanes.len(),
         components: batch.components,
         values,
-    })?;
+    });
+    if workspace.policy != WorkspacePolicy::ORDINARY {
+        add_certificate_work(certificate_stats, workspace.last_planar_certificate_execution())?;
+    }
+    if workspace.policy != WorkspacePolicy::ORDINARY && evaluated.is_err() {
+        stats.analytic_rows = stats.analytic_rows.checked_add(lanes.len()).ok_or_else(size_error)?;
+        stats.add_policy_child_work(workspace.last_execution())?;
+        if let Some(child_profile) = workspace.last_profile() {
+            profile.add_stages(child_profile);
+        }
+        for (compact, &lane) in lanes.iter().enumerate() {
+            if let Some(notes) = workspace.last_diagnostics().get(compact) {
+                diagnostics[lane].extend_from_slice(notes);
+            }
+        }
+    }
+    let evaluated = evaluated?;
     for (compact, &lane) in lanes.iter().enumerate() {
         diagnostics[lane].extend_from_slice(&workspace.diagnostics[compact]);
         result.analytic_used[lane] = true;
@@ -2176,6 +2344,10 @@ where
         result.statuses[lane] = evaluated.statuses[compact].clone();
         if let Ok(output) = evaluated.lane(compact) {
             result.values[lane * output_width..(lane + 1) * output_width].clone_from_slice(output);
+            result.inherit_primal_envelope(lane, &evaluated, compact, PrimalEnvelopeRoute::Analytic);
+        } else if !result.primal_envelopes.is_empty() {
+            result.primal_envelopes[lane] = None;
+            result.primal_envelope_errors[lane] = None;
         }
     }
     stats.analytic_rows = stats
@@ -2183,6 +2355,10 @@ where
         .checked_add(lanes.len())
         .ok_or_else(size_error)?;
     let work = workspace.last_execution();
+    if workspace.policy != WorkspacePolicy::ORDINARY {
+        stats.analytic_rows = stats.analytic_rows
+            .checked_add(work.analytic_rows).ok_or_else(size_error)?;
+    }
     if let Some(child_profile) = workspace.last_profile() {
         profile.add_stages(child_profile);
     }
@@ -2378,6 +2554,40 @@ fn pentagon_relative_tolerance<T: NativeFloat>(prototype: &T, accuracy_bits: u32
         two.pow(u64::from(accuracy_bits - 17)).inv()
     } else {
         two.pow(u64::from(17 - accuracy_bits))
+    }
+}
+
+fn add_certificate_work(
+    total: &mut CertificateExecutionStats,
+    work: CertificateExecutionStats,
+) -> Result<(), ReductionError> {
+    // Commit the aggregate atomically if every checked addition succeeds.
+    *total = CertificateExecutionStats {
+        input_rows: total.input_rows.checked_add(work.input_rows).ok_or_else(size_error)?,
+        evaluated_rows: total.evaluated_rows.checked_add(work.evaluated_rows).ok_or_else(size_error)?,
+        passes: total.passes.checked_add(work.passes).ok_or_else(size_error)?,
+        reduction_batches: total.reduction_batches.checked_add(work.reduction_batches).ok_or_else(size_error)?,
+    };
+    Ok(())
+}
+
+impl ExecutionStats {
+    /// Used only by opted-in policy routes; ordinary accounting stays unchanged.
+    fn add_policy_child_work(&mut self, work: Self) -> Result<(), ReductionError> {
+        macro_rules! add {
+            ($field:ident) => {
+                self.$field = self.$field.checked_add(work.$field).ok_or_else(size_error)?;
+            };
+        }
+        add!(argument_rows);
+        add!(master_family_batches);
+        add!(master_rows);
+        add!(pentagon_box_rows);
+        add!(reduction_rows);
+        add!(fallback_rows);
+        add!(fallback_successes);
+        add!(analytic_rows);
+        Ok(())
     }
 }
 
@@ -4007,4 +4217,5 @@ mod tests {
         assert!(scalar.snapping_monitor.is_none());
     }
     include!("execution/guard_context_tests.rs");
+    include!("execution/policy_tests.rs");
 }

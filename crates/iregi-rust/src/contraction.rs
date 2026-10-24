@@ -510,6 +510,8 @@ mod tests {
             statuses: vec![LaneStatus::Success],
             fallback_used: vec![false],
             analytic_used: vec![false],
+            primal_envelopes: vec![None; 1],
+            primal_envelope_errors: vec![None; 1],
         };
         let numerator = NumeratorBatch {
             rows: 1,
@@ -562,6 +564,8 @@ mod tests {
             statuses: vec![LaneStatus::Success],
             fallback_used: vec![false],
             analytic_used: vec![false],
+            primal_envelopes: vec![None; 1],
+            primal_envelope_errors: vec![None; 1],
         };
         let numerator = NumeratorBatch {
             rows: 1,
@@ -627,6 +631,8 @@ mod tests {
             ],
             fallback_used: vec![false, true, true],
             analytic_used: vec![false, false, true],
+            primal_envelopes: vec![None; 3],
+            primal_envelope_errors: vec![None; 3],
         };
         for (row, values) in [[-5., 14.], [-7., 18.], [-11., 26.]].iter().enumerate() {
             for (term, &position) in plan.positions.iter().enumerate() {
@@ -674,6 +680,8 @@ mod tests {
             statuses: vec![LaneStatus::Success; 3],
             fallback_used: vec![false; 3],
             analytic_used: vec![false; 3],
+            primal_envelopes: vec![None; 3],
+            primal_envelope_errors: vec![None; 3],
         };
         let numerator = NumeratorBatch {
             rows: 3,
@@ -728,6 +736,8 @@ mod tests {
             statuses: Vec::new(),
             fallback_used: Vec::new(),
             analytic_used: Vec::new(),
+            primal_envelopes: vec![None; 0],
+            primal_envelope_errors: vec![None; 0],
         };
         assert_eq!(
             workspace
@@ -755,6 +765,8 @@ mod tests {
             statuses: vec![LaneStatus::Success, LaneStatus::Unstable("fixture".into())],
             fallback_used: vec![false; 2],
             analytic_used: vec![false; 2],
+            primal_envelopes: vec![None; 2],
+            primal_envelope_errors: vec![None; 2],
         };
         let result = workspace
             .contract_batch(
@@ -798,6 +810,8 @@ mod tests {
             statuses: vec![LaneStatus::Success],
             fallback_used: vec![false],
             analytic_used: vec![false],
+            primal_envelopes: vec![None; 1],
+            primal_envelope_errors: vec![None; 1],
         };
         let numerator = NumeratorBatch {
             rows: 1,
@@ -839,6 +853,8 @@ mod tests {
             statuses: vec![LaneStatus::Success],
             fallback_used: vec![false],
             analytic_used: vec![false],
+            primal_envelopes: vec![None; 1],
+            primal_envelope_errors: vec![None; 1],
         };
         let result = workspace
             .contract_typed_dual_batch(&moments, &[coefficient])

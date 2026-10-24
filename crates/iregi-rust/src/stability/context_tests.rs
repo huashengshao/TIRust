@@ -173,6 +173,7 @@ fn guard_context_primal_error_precedence_and_invalid_buffers_match() {
     let mut plan = synthetic(4, false);
     plan.primal_expressions = vec![Atom::num(0), Atom::num(0)];
     plan.primal_checks = vec![PrimalCheck {
+        output_index: 0,
         value: 0,
         amplitude: 1,
         dimension: 4,

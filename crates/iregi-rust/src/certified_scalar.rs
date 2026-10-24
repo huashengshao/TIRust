@@ -25,6 +25,7 @@ use crate::{
     Algorithm, BatchResult, ExecutionProfile, ExecutionStats, InvariantInput, KinematicsBatch,
     LaneStatus, ReductionError, ReductionPlan, ReductionSettings, ResultMetadata,
     ScalarKinematicsBatch, Workspace,
+    types::PrimalEnvelopeRoute,
     basis::Monomial,
     invariant_certificate::{
         ExactInvariantScalar, InvariantCertificate, InvariantCertificatePlan,
@@ -323,6 +324,8 @@ where
             ],
             fallback_used: vec![false; input.rows],
             analytic_used: vec![false; input.rows],
+            primal_envelopes: Vec::new(),
+            primal_envelope_errors: Vec::new(),
         };
         let n = self.plan.settings.propagators;
         let gram_width = product(n * (n + 1) / 2, self.components)?;
@@ -438,6 +441,9 @@ where
                 if let Ok(values) = reduced.lane(index) {
                     result.values[lane * output_width..(lane + 1) * output_width]
                         .clone_from_slice(values);
+                    result.inherit_primal_envelope(
+                        lane, &reduced, index, PrimalEnvelopeRoute::CertifiedScalar,
+                    );
                 }
             }
         }

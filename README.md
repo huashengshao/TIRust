@@ -100,6 +100,11 @@ lanes and Taylor components remain separate. `DoubleFloat` and arbitrary
 precision `Float` use the same API, with constants converted directly at the
 working precision. Independent workspaces own their numerical scratch storage.
 
+The retained massive triangle and box cases also validate first, second and
+mixed squared-mass derivatives against raised-power IBP reductions across all
+four Laurent slots. See the [C0/D0 qualification](validation/c0d0-dual-identity/README.md)
+for the tested inputs, precision settings and independent audits.
+
 For `Float`, the workspace prototype sets constant precision; supplied values
 retain their represented values and arithmetic precision. Accuracy requests
 are never silently lowered. Checks use each contribution's tracked precision
@@ -154,6 +159,15 @@ diagnostics. This interface supports unit powers, dimension shift zero and
 Cartesian inputs. Ordinary reduction does not invoke it automatically. See the
 [API and qualification](docs/research/certified-planar-api.md) for supported
 settings, precision convergence and independent mixed-Dual comparisons.
+
+`SixPointReductionPlan` and `SixPointWorkspace<T>` provide an explicit batched
+six-point path through rank three, using preserved Cartesian shifts, unit
+powers and native raw moments. Its retained Float128/Float256 fixtures pass
+complete-array reference and convergence checks; failed neighbors, workspace
+reuse and numerator contractions have separate lifecycle checks. The ordinary
+reducer's defaults remain unchanged. See the [six-point API](docs/six-point.md)
+for its input layout, example, numerical scope and remaining precision/Dual
+qualification.
 
 Derived scalar invariants are checked before selecting analytic branches or
 evaluating masters. Exact represented-input polynomial checks prevent a rounded

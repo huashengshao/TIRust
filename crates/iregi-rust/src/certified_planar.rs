@@ -28,17 +28,19 @@ use crate::{
     Algorithm, BatchResult, CertificateExecutionStats, ExecutionProfile, ExecutionStats,
     InputLayout, InputPolicy, InvariantInput, KinematicsBatch, LaneStatus, ReductionError,
     ReductionPlan, ReductionSettings, ResultMetadata, Workspace,
+    types::PrimalEnvelopeRoute,
     basis::{Monomial, tensor_basis},
     exact_zero_certificate::{
         ExactZeroCertificate, ExactZeroConstraintPlan, ExactZeroConstraintWorkspace,
     },
-    execution::validate_input_row,
-    pv::planar_chart_polynomials,
+    execution::{WorkspacePolicy, validate_input_row},
+    pv::{planar_chart_cofactor_polynomials, planar_chart_polynomials},
 };
 
 type Shape = Option<Vec<Vec<usize>>>;
 type Prepared<P> = Arc<OnceLock<Result<Arc<P>, String>>>;
-type ChartCache = Arc<Mutex<HashMap<usize, Prepared<ReductionPlan>>>>;
+type ChartKey = (usize, u8);
+type ChartCache = Arc<Mutex<HashMap<ChartKey, Prepared<ReductionPlan>>>>;
 type CertificateCache = Arc<Mutex<HashMap<Shape, Prepared<ExactZeroConstraintPlan>>>>;
 
 /// Checked PV reduction for planar N=5 Cartesian tensors of rank at most seven.
@@ -55,6 +57,7 @@ pub struct CertifiedPlanarReductionPlan {
     layout: InputLayout,
     parameters: Vec<Atom>,
     constraints: Vec<Atom>,
+    cofactor_masks: bool,
     charts: ChartCache,
     certificates: CertificateCache,
 }
@@ -69,6 +72,14 @@ impl std::fmt::Debug for CertifiedPlanarReductionPlan {
 
 impl CertifiedPlanarReductionPlan {
     pub fn new(settings: ReductionSettings) -> Result<Self, ReductionError> {
+        Self::prepare(settings, false)
+    }
+
+    pub(crate) fn new_for_six_point_child(settings: ReductionSettings) -> Result<Self, ReductionError> {
+        Self::prepare(settings, true)
+    }
+
+    fn prepare(settings: ReductionSettings, cofactor_masks: bool) -> Result<Self, ReductionError> {
         if settings.propagators != 5
             || settings.rank > 7
             || settings.powers != [1; 5]
@@ -88,6 +99,15 @@ impl CertifiedPlanarReductionPlan {
         let mut parameters: Vec<_> = shifts.iter().flatten().cloned().collect();
         parameters.extend(masses.iter().cloned());
         parameters.push(variable("mu"));
+        let mut constraints = planar_chart_polynomials(&shifts, &masses).map_err(preparation)?;
+        if constraints.len() != 5 {
+            return Err(preparation("invalid planar chart polynomial layout"));
+        }
+        if cofactor_masks {
+            let cofactors = planar_chart_cofactor_polynomials(&shifts, &masses).map_err(preparation)?;
+            if cofactors.len() != 20 { return Err(preparation("invalid planar cofactor layout")); }
+            constraints.extend(cofactors);
+        }
         Ok(Self {
             basis: tensor_basis(settings.rank),
             layout: InputLayout {
@@ -96,7 +116,8 @@ impl CertifiedPlanarReductionPlan {
                 masses: 20..25,
                 scale: 25,
             },
-            constraints: planar_chart_polynomials(&shifts, &masses).map_err(preparation)?,
+            constraints,
+            cofactor_masks,
             settings,
             parameters,
             charts: Arc::default(),
@@ -117,17 +138,20 @@ impl CertifiedPlanarReductionPlan {
         &self.layout
     }
 
-    fn chart(&self, omitted: usize) -> Result<Arc<ReductionPlan>, ReductionError> {
+    fn chart(&self, omitted: usize, inactive: u8) -> Result<Arc<ReductionPlan>, ReductionError> {
+        if inactive != 0 && !self.cofactor_masks {
+            return Err(preparation("cofactor masks require the private six-point child policy"));
+        }
         let entry = self
             .charts
             .lock()
             .map_err(|_| preparation("planar chart cache poisoned"))?
-            .entry(omitted)
+            .entry((omitted, inactive))
             .or_default()
             .clone();
         entry
             .get_or_init(|| {
-                ReductionPlan::new_certified_planar(self.settings.clone(), omitted)
+                ReductionPlan::new_certified_planar_masked(self.settings.clone(), omitted, inactive)
                     .map(Arc::new)
                     .map_err(|e| e.to_string())
             })
@@ -171,14 +195,18 @@ pub struct CertifiedPlanarWorkspace<T: NativeFloat> {
     prototype: T,
     shape: Shape,
     components: usize,
+    policy: WorkspacePolicy,
     certificate: ExactZeroConstraintWorkspace,
-    charts: HashMap<usize, Workspace<T>>,
+    charts: HashMap<ChartKey, Workspace<T>>,
     accuracy_bits: u32,
     profiling: bool,
     stats: ExecutionStats,
     certificate_stats: CertificateExecutionStats,
     profile: ExecutionProfile,
     diagnostics: Vec<Vec<String>>,
+    chart_attempts: Vec<bool>,
+    // Diagnostic only: this is reset for every input, never reused as evidence.
+    chart_masks: Vec<Option<ChartKey>>,
 }
 
 impl<T: NativeFloat> CertifiedPlanarWorkspace<T>
@@ -186,13 +214,25 @@ where
     Complex<T>: EvaluationDomain,
 {
     pub fn new(plan: &CertifiedPlanarReductionPlan, prototype: T) -> Result<Self, ReductionError> {
-        Self::prepare(plan, prototype, None)
+        Self::prepare(plan, prototype, None, WorkspacePolicy::ORDINARY)
     }
 
     pub fn new_dual<D: DualNumberStructure>(
         plan: &CertifiedPlanarReductionPlan,
         prototype: T,
         dual: D,
+    ) -> Result<Self, ReductionError> {
+        Self::new_dual_with_policy(plan, prototype, dual, WorkspacePolicy::ORDINARY)
+    }
+
+    pub(crate) fn new_with_policy(
+        plan: &CertifiedPlanarReductionPlan, prototype: T, policy: WorkspacePolicy,
+    ) -> Result<Self, ReductionError> {
+        Self::prepare(plan, prototype, None, policy)
+    }
+
+    pub(crate) fn new_dual_with_policy<D: DualNumberStructure>(
+        plan: &CertifiedPlanarReductionPlan, prototype: T, dual: D, policy: WorkspacePolicy,
     ) -> Result<Self, ReductionError> {
         iregi_masters::validate_dual_structure(&dual).map_err(preparation)?;
         Self::prepare(
@@ -204,6 +244,7 @@ where
                     .map(<[usize]>::to_vec)
                     .collect(),
             ),
+            policy,
         )
     }
 
@@ -211,7 +252,10 @@ where
         plan: &CertifiedPlanarReductionPlan,
         prototype: T,
         shape: Shape,
+        policy: WorkspacePolicy,
     ) -> Result<Self, ReductionError> {
+        // Certified charts never recursively enable their own outer retry.
+        let policy = WorkspacePolicy { planar_retry: false, ..policy };
         let accuracy_bits = prototype.get_precision();
         if accuracy_bits == 0 {
             return Err(preparation("working precision must be positive"));
@@ -220,6 +264,7 @@ where
             plan: plan.clone(),
             prototype,
             components: shape.as_ref().map_or(1, Vec::len),
+            policy,
             certificate: plan.certificate(&shape)?.instantiate(),
             shape,
             charts: HashMap::new(),
@@ -229,6 +274,8 @@ where
             certificate_stats: CertificateExecutionStats::default(),
             profile: ExecutionProfile::default(),
             diagnostics: Vec::new(),
+            chart_attempts: Vec::new(),
+            chart_masks: Vec::new(),
         })
     }
 
@@ -273,6 +320,12 @@ where
     pub fn last_profile(&self) -> Option<ExecutionProfile> {
         self.profiling.then_some(self.profile)
     }
+    pub(crate) fn last_chart_attempts(&self) -> &[bool] {
+        &self.chart_attempts
+    }
+    pub(crate) fn last_chart_masks(&self) -> &[Option<ChartKey>] {
+        &self.chart_masks
+    }
     pub fn last_diagnostics(&self) -> &[Vec<String>] {
         &self.diagnostics
     }
@@ -304,6 +357,8 @@ where
             ..Default::default()
         };
         self.diagnostics.clear();
+        self.chart_attempts.clear();
+        self.chart_masks.clear();
         if input.components != self.components {
             return Err(ReductionError::InvalidInput(
                 "planar input Taylor layout does not match workspace".into(),
@@ -332,8 +387,12 @@ where
             ],
             fallback_used: vec![false; input.rows],
             analytic_used: vec![false; input.rows],
+            primal_envelopes: if self.policy.retain_primal_envelopes { vec![None; input.rows] } else { Vec::new() },
+            primal_envelope_errors: if self.policy.retain_primal_envelopes { vec![None; input.rows] } else { Vec::new() },
         };
         self.diagnostics.resize_with(input.rows, Vec::new);
+        self.chart_attempts.resize(input.rows, false);
+        self.chart_masks.resize(input.rows, None);
         let mut exact = Vec::with_capacity(input.values.len());
         let mut lanes = Vec::with_capacity(input.rows);
         for (lane, row) in input.values.chunks_exact(width).enumerate() {
@@ -368,8 +427,12 @@ where
         ];
         let certificates =
             self.certificate
-                .check_selected_batch(&exact, lanes.len(), &rank_selection)?;
+                .check_selected_batch(&exact, lanes.len(), &rank_selection);
         self.add_certificate_stats()?;
+        if let Some(started) = started {
+            self.profile.arguments = started.elapsed();
+        }
+        let certificates = certificates?;
         let mut planar_lanes = Vec::new();
         let mut planar_exact = Vec::new();
         for (compact, (&lane, certificate)) in lanes.iter().zip(certificates).enumerate() {
@@ -399,14 +462,22 @@ where
             &planar_exact,
             planar_lanes.len(),
             &chart_selection,
-        )?;
+        );
         self.add_certificate_stats()?;
-        let mut groups = BTreeMap::<usize, Vec<usize>>::new();
-        for (lane, certificate) in planar_lanes.into_iter().zip(certificates) {
+        if let Some(started) = started {
+            self.profile.arguments = started.elapsed();
+        }
+        let certificates = certificates?;
+        let mut chart_lanes = Vec::new();
+        let mut chart_exact = Vec::new();
+        let mut selected_charts = Vec::new();
+        for (compact, (lane, certificate)) in planar_lanes.into_iter().zip(certificates).enumerate() {
             match certificate {
                 ExactZeroCertificate::Nonzero { constraint, component: 0 } if (1..5).contains(&constraint) => {
                     let omitted = constraint - 1;
-                    groups.entry(omitted).or_default().push(lane);
+                    chart_lanes.push(lane);
+                    selected_charts.push(omitted);
+                    chart_exact.extend_from_slice(&planar_exact[compact * width..(compact + 1) * width]);
                     self.diagnostics[lane].push(format!("exact full-Taylor planar identity with regular constant-one chart omitting coordinate row {omitted}"));
                 }
                 ExactZeroCertificate::Zero => result.statuses[lane] = LaneStatus::Unstable("no regular primal constant-one pentagon chart; lower-rank and homogeneous-only families require another reduction path".into()),
@@ -414,19 +485,44 @@ where
                 _ => return Err(ReductionError::Evaluation("invalid planar chart certificate result".into())),
             }
         }
+        // Every mask is authorized afresh using the complete represented row
+        // and the workspace's complete ordered Taylor shape. Unknown proofs
+        // retain their children. Only the structural plan is cached afterward.
+        let masks = if self.plan.cofactor_masks {
+            self.certify_inactive_masks(&chart_exact, &selected_charts)?
+        } else { vec![0; selected_charts.len()] };
+        let mut groups = BTreeMap::<ChartKey, Vec<usize>>::new();
+        for ((lane, omitted), inactive) in chart_lanes.into_iter().zip(selected_charts).zip(masks) {
+            if inactive == 0b1_1111 {
+                result.statuses[lane] = LaneStatus::Unstable(
+                    "inconsistent planar cofactor certificate: every child is inactive despite a regular constant-one chart".into(),
+                );
+                continue;
+            }
+            let key = (omitted, inactive);
+            self.chart_masks[lane] = Some(key);
+            if self.plan.cofactor_masks {
+                self.diagnostics[lane].push(format!(
+                    "full-Taylor cofactor mask {inactive:#07b}: {} inactive and {} active chart children",
+                    inactive.count_ones(),
+                    5 - inactive.count_ones(),
+                ));
+            }
+            groups.entry(key).or_default().push(lane);
+        }
         if let Some(started) = started {
             self.profile.arguments = started.elapsed();
         }
-        for (omitted, lanes) in groups {
-            if !self.charts.contains_key(&omitted) {
+        for (key @ (omitted, inactive), lanes) in groups {
+            if !self.charts.contains_key(&key) {
                 let preparation_started = self.profiling.then(Instant::now);
-                let prepared = self.prepare_chart(omitted);
+                let prepared = self.prepare_chart(omitted, inactive);
                 if let Some(started) = preparation_started {
                     self.profile.arguments += started.elapsed();
                 }
                 match prepared {
                     Ok(workspace) => {
-                        self.charts.insert(omitted, workspace);
+                        self.charts.insert(key, workspace);
                     }
                     Err(error) => {
                         for lane in lanes {
@@ -448,7 +544,7 @@ where
                     .values
                     .extend_from_slice(&input.values[lane * width..(lane + 1) * width]);
             }
-            let workspace = self.charts.get_mut(&omitted).expect("prepared chart");
+            let workspace = self.charts.get_mut(&key).expect("prepared chart");
             self.certificate_stats.reduction_batches = self
                 .certificate_stats
                 .reduction_batches
@@ -459,12 +555,20 @@ where
                 .analytic_rows
                 .checked_add(lanes.len())
                 .ok_or_else(|| preparation("planar execution counter overflow"))?;
+            for &lane in &lanes {
+                self.chart_attempts[lane] = true;
+            }
             let reduced = workspace.reduce_batch(&packed);
             add_stats(&mut self.stats, workspace.last_execution())?;
             if let Some(profile) = workspace.last_profile() {
                 self.profile.arguments += profile.arguments;
                 self.profile.scalar_masters += profile.scalar_masters;
                 self.profile.reduction += profile.reduction;
+            }
+            for (compact, &lane) in lanes.iter().enumerate() {
+                if let Some(notes) = workspace.last_diagnostics().get(compact) {
+                    self.diagnostics[lane].extend_from_slice(notes);
+                }
             }
             let reduced = reduced?;
             for (compact, &lane) in lanes.iter().enumerate() {
@@ -473,14 +577,51 @@ where
                 // Match ordinary analytic-profile routing: an attempted chart
                 // remains visible even when its numerical guard rejects the lane.
                 result.analytic_used[lane] = true;
-                self.diagnostics[lane].extend_from_slice(&workspace.last_diagnostics()[compact]);
                 if let Ok(values) = reduced.lane(compact) {
                     result.values[lane * output_width..(lane + 1) * output_width]
                         .clone_from_slice(values);
+                    result.inherit_primal_envelope(
+                        lane, &reduced, compact, PrimalEnvelopeRoute::CertifiedPlanar,
+                    );
                 }
             }
         }
         Ok(result)
+    }
+
+    fn certify_inactive_masks(
+        &mut self,
+        exact: &[Complex<Rational>],
+        selected_charts: &[usize],
+    ) -> Result<Vec<u8>, ReductionError> {
+        if selected_charts.iter().any(|&omitted| omitted >= 4) {
+            return Err(ReductionError::Evaluation("invalid planar cofactor chart".into()));
+        }
+        let rows = selected_charts.len();
+        let mut masks = vec![0_u8; rows];
+        for child in 0..5 {
+            let selected: Vec<_> = selected_charts
+                .iter()
+                .map(|&omitted| {
+                    (0..self.components)
+                        .map(|component| (5 + omitted * 5 + child, component))
+                        .collect()
+                })
+                .collect();
+            let certificates = self.certificate.check_selected_batch(exact, rows, &selected);
+            // Harvest even if the attempted certificate returned an error.
+            self.add_certificate_stats()?;
+            let certificates = certificates?;
+            if certificates.len() != rows {
+                return Err(ReductionError::Evaluation("invalid planar cofactor certificate row count".into()));
+            }
+            for (mask, certificate) in masks.iter_mut().zip(certificates) {
+                if certificate == ExactZeroCertificate::Zero {
+                    *mask |= 1_u8 << child;
+                }
+            }
+        }
+        Ok(masks)
     }
 
     fn add_certificate_stats(&mut self) -> Result<(), ReductionError> {
@@ -497,14 +638,15 @@ where
         Ok(())
     }
 
-    fn prepare_chart(&self, omitted: usize) -> Result<Workspace<T>, ReductionError> {
-        let plan = self.plan.chart(omitted)?;
+    fn prepare_chart(&self, omitted: usize, inactive: u8) -> Result<Workspace<T>, ReductionError> {
+        let plan = self.plan.chart(omitted, inactive)?;
         let mut workspace = match &self.shape {
-            None => Workspace::new(&plan, self.prototype.clone()),
-            Some(shape) => Workspace::new_dual(
+            None => Workspace::new_with_policy(&plan, self.prototype.clone(), self.policy),
+            Some(shape) => Workspace::new_dual_with_policy(
                 &plan,
                 self.prototype.clone(),
                 HyperDual::<Complex<Rational>>::new(shape.clone()),
+                self.policy,
             ),
         }?;
         workspace.set_accuracy_precision(self.accuracy_bits)?;
@@ -941,7 +1083,7 @@ mod tests {
         let reduced = workspace.reduce_batch(&input).unwrap();
         assert_eq!(reduced.statuses, [LaneStatus::Success]);
         assert_eq!(reduced.basis.len(), 330);
-        assert!(!plan.chart(0).unwrap().zero_profile_dispatch_allowed());
+        assert!(!plan.chart(0, 0).unwrap().zero_profile_dispatch_allowed());
         let expected = box_identity(
             &configuration,
             prototype.clone(),
@@ -1380,4 +1522,5 @@ mod tests {
     }
 
     include!("certified_planar/public_api_tests.rs");
+    include!("certified_planar/mask_tests.rs");
 }

@@ -45,6 +45,7 @@ struct Check {
 
 #[derive(Clone, Debug)]
 struct PrimalCheck {
+    output_index: usize,
     value: usize,
     amplitude: usize,
     dimension: i32,
@@ -104,6 +105,10 @@ impl StabilityPlan {
                     .as_ref()
                     .is_some_and(|range| range.contains(&i));
             dimensions.insert(parameter.clone(), if squared { 2 } else { 1 });
+        }
+        for (value, amplitude, dimension) in &plan.external_primal_seeds {
+            dimensions.insert(value.clone(), *dimension);
+            dimensions.insert(amplitude.clone(), *dimension);
         }
         for leaf in &plan.leaves {
             let integration_dimension = match leaf.kind {
@@ -413,6 +418,7 @@ impl StabilityPlan {
             .flat_map(|leaf| leaf.slots.iter())
             .map(|slot| (slot.clone(), Symbol::ABS.call((slot,))))
             .collect();
+        amplitudes.extend(plan.external_primal_seeds.iter().map(|(value, amplitude, _)| (value.clone(), amplitude.clone())));
         for (alias, body) in &plan.aliases {
             if !reachable.contains_key(alias) || !depends_on_amplitudes(body, &amplitudes) {
                 continue;
@@ -425,7 +431,7 @@ impl StabilityPlan {
             self.primal_aliases.push((handle.clone(), amplitude));
             amplitudes.insert(alias.clone(), handle);
         }
-        for (basis, slots) in plan.basis.iter().zip(&plan.moments) {
+        for (basis_index, (basis, slots)) in plan.basis.iter().zip(&plan.moments).enumerate() {
             for (pole, expression) in slots.iter().enumerate() {
                 if !depends_on_amplitudes(expression, &amplitudes) {
                     continue;
@@ -436,6 +442,7 @@ impl StabilityPlan {
                 let amplitude_index = self.primal_expressions.len();
                 self.primal_expressions.push(amplitude);
                 self.primal_checks.push(PrimalCheck {
+                    output_index: basis_index * 4 + pole,
                     value,
                     amplitude: amplitude_index,
                     dimension: base_dimension + basis.rank() as i32,
@@ -444,6 +451,38 @@ impl StabilityPlan {
             }
         }
         Ok(())
+    }
+
+    /// Dense private operand export after all ordinary guards have succeeded.
+    /// Master-independent slots retain their native operand magnitude when
+    /// imported into another affine graph; an absent check is never zero error.
+    pub(crate) fn export_primal_operands<T: NativeFloat>(
+        &self,
+        primal_values: &[Complex<T>],
+        actual_output: &[Complex<T>],
+        components: usize,
+    ) -> Result<Vec<crate::types::PrimalOperand<T>>, String> {
+        use crate::types::{PrimalOperand, PrimalOperandKind};
+        if components == 0 || actual_output.len() != self.output_dimensions.len() * components
+            || primal_values.len() != self.primal_expressions.len() {
+            return Err("invalid private primal-operand export dimensions".into());
+        }
+        let mut result = actual_output.chunks_exact(components).enumerate().map(|(output_index, values)| {
+            let magnitude = NativeFloat::hypot(&values[0].re, &values[0].im);
+            let zero = magnitude.zero();
+            PrimalOperand { output_index, amplitude: Complex::new(magnitude, zero), kind: PrimalOperandKind::NoMaster }
+        }).collect::<Vec<_>>();
+        let mut seen = vec![false; result.len()];
+        for check in &self.primal_checks {
+            if check.output_index >= result.len() || seen[check.output_index]
+                || check.amplitude >= primal_values.len() || check.value >= primal_values.len() {
+                return Err("invalid private primal-operand output map".into());
+            }
+            seen[check.output_index] = true;
+            result[check.output_index].amplitude = primal_values[check.amplitude].clone();
+            result[check.output_index].kind = PrimalOperandKind::UncancelledMasters;
+        }
+        Ok(result)
     }
 
     /// One kinematic predicate per scalar leaf, including monitor demand.

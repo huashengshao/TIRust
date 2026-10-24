@@ -72,6 +72,7 @@ pub struct PvCompiler {
     coordinate_identities: bool,
     /// Private execution chart; its full Taylor constraints are checked by the wrapper.
     certified_planar_chart: Option<usize>,
+    certified_planar_mask: u8,
     preparation_notes: Vec<String>,
     coordinate_constraints: Vec<CoordinateConstraint>,
     gram_scalar_product_transform: Option<Box<dyn FnMut(Atom) -> Atom>>,
@@ -201,6 +202,7 @@ impl PvCompiler {
             analytic_jet_order: 0,
             coordinate_identities: false,
             certified_planar_chart: None,
+            certified_planar_mask: 0,
             preparation_notes: Vec::new(),
             coordinate_constraints: Vec::new(),
             gram_scalar_product_transform: None,
@@ -248,6 +250,17 @@ impl PvCompiler {
         }
         self.certified_planar_chart = Some(omitted);
         self.coordinate_identities = true;
+        Ok(())
+    }
+
+    /// Private wrapper-only policy. A mask has no meaning without the full
+    /// planar and per-cofactor Taylor certificates checked before execution.
+    pub(crate) fn set_certified_planar_mask(&mut self, mask:u8)->Result<(),String> {
+        if mask >= 31 || self.certified_planar_chart.is_none()
+            || self.shifts.len()!=5 || !self.moments.is_empty() || !self.coefficients.is_empty() {
+            return Err("certified planar mask requires an unused five-point checked chart and at least one active child".into());
+        }
+        self.certified_planar_mask=mask;
         Ok(())
     }
 
@@ -333,6 +346,39 @@ impl PvCompiler {
                 .values()
                 .map(ScalarCompiler::node_count)
                 .sum::<usize>()
+    }
+
+    /// Private six-point thin dispatcher. Column zero is the constant-one
+    /// identity; columns one through four lower a Cartesian numerator index.
+    /// One Symbolica inverse solves all five right-hand sides. No tensor or
+    /// scalar child recurrence is generated here.
+    pub(crate) fn thin_six_weights(&mut self) -> Result<[Vec<Atom>; 5], String> {
+        if self.shifts.len() != 6 || !self.moments.is_empty() {
+            return Err("thin six-point weights require an unused six-point compiler".into());
+        }
+        let active: Vec<_> = (0..6).collect();
+        let mut rows = coordinate_rows(&self.shifts, &active);
+        rows.push(self.f_values(&active));
+        let matrix = Matrix::from_nested_vec(rows, field())
+            .map_err(|error| format!("thin six-point matrix: {error}"))?;
+        let determinant = matrix.det().map_err(|error| format!("thin six-point determinant: {error:?}"))?;
+        if determinant.is_zero() {
+            return Err("thin six-point coordinate chart is structurally singular; same-rank fallback is unsupported".into());
+        }
+        let rhs = Matrix::from_nested_vec((0..5).map(|row| (0..5).map(|column| {
+            if column == 0 { Atom::num(i64::from(row == 4)) }
+            else if row == 4 { -&self.shifts[0][column-1] }
+            else if row == column-1 { Atom::num(if row == 0 { 1 } else { -1 }) / Atom::num(2) }
+            else { Atom::new() }
+        }).collect()).collect(), field()).map_err(|error| format!("thin six-point RHS: {error}"))?;
+        let inverse = matrix.inv().map_err(|error| format!("thin six-point inverse: {error:?}"))?;
+        let solutions = &inverse * &rhs;
+        Ok(std::array::from_fn(|column| {
+            let mut weights = vec![Atom::new(); 6];
+            for row in 0..5 { weights[row+1] = solutions[(row as u32, column as u32)].clone(); }
+            weights[0] = -Atom::add_many(&weights[1..]);
+            weights.into_iter().map(|weight| self.bind_alias(weight)).collect()
+        }))
     }
 
     /// Compile one raw Cartesian monomial; there is no multinomial weight.
@@ -879,6 +925,7 @@ impl PvCompiler {
         );
         let mut rows = coordinate_rows(&self.shifts, active);
         if let Some(omitted) = self.certified_planar_chart {
+            if active != [0,1,2,3,4] { return Err("certified planar mask cannot be transferred to a different active subset".into()); }
             rows.push(self.f_values(active));
             let (_, coefficients) = constant_chart(&rows, omitted)?
                 .ok_or_else(|| "certified planar chart is structurally singular".to_string())?;
@@ -886,7 +933,10 @@ impl PvCompiler {
                 active: Atom::num(1),
                 coefficients: coefficients
                     .into_iter()
-                    .map(|c| self.bind_alias(c))
+                    .enumerate()
+                    .map(|(child,c)| if self.certified_planar_mask & (1 << child) != 0 {
+                        Atom::new()
+                    } else { self.bind_alias(c) })
                     .collect(),
             };
             self.five_point_relations
@@ -1248,6 +1298,28 @@ pub(crate) fn planar_chart_polynomials(
         );
     }
     Ok(expressions)
+}
+
+/// Raw polynomial Cramer numerators, chart-major then all five child
+/// coefficients. They share the determinant already returned by
+/// `planar_chart_polynomials`. The origin numerator is the negative sum.
+pub(crate) fn planar_chart_cofactor_polynomials(shifts:&[[Atom;4]],masses:&[Atom])->Result<Vec<Atom>,String> {
+    if shifts.len()!=5 || masses.len()!=5 {return Err("planar cofactors require five shifts and masses".into());}
+    let mut rows=coordinate_rows(shifts,&[0,1,2,3,4]);
+    rows.push((1..5).map(|i|{let relative=std::array::from_fn(|mu|&shifts[i][mu]-&shifts[0][mu]);dot(&relative,&relative)-&masses[i]+&masses[0]}).collect());
+    let mut result=Vec::with_capacity(20);
+    for omitted in 0..4 {
+        let chart_rows:Vec<_>=rows.iter().enumerate().filter_map(|(row,x)|(row!=omitted).then_some(x.clone())).collect();
+        let mut numerators=vec![Atom::new()];
+        for column in 0..4 {
+            let replaced=chart_rows.iter().enumerate().map(|(row,entries)|entries.iter().enumerate().map(|(j,x)|
+                if j==column {Atom::num(i64::from(row==3))}else{x.clone()}).collect()).collect();
+            numerators.push(Matrix::from_nested_vec(replaced,field()).map_err(|e|e.to_string())?.det().map_err(|e|format!("planar cofactor determinant: {e:?}"))?);
+        }
+        numerators[0]=-Atom::add_many(&numerators[1..]);
+        result.extend(numerators);
+    }
+    Ok(result)
 }
 
 fn coordinate_rows(shifts: &[[Atom; 4]], active: &[usize]) -> Vec<Vec<Atom>> {
@@ -2370,5 +2442,54 @@ mod tests {
             failures.len(),
             &failures[..failures.len().min(20)]
         );
+    }
+}
+
+#[cfg(test)]
+mod planar_mask_polynomial_tests {
+    use super::*;
+    #[test]
+    fn all_chart_cramer_numerators_match_existing_solve() {
+        let x=Atom::var(symbolica::symbol!("planar_mask::x"));
+        let y=Atom::var(symbolica::symbol!("planar_mask::y"));
+        for variant in 0..6 {
+            let mut shifts:Vec<[Atom;4]>=[[0,0,0,0],[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]].iter().map(|p|p.map(Atom::num)).collect();
+            let mut masses:Vec<_>=[1,3,5,7,11].into_iter().map(Atom::num).collect();
+            match variant {
+                1=>for p in &mut shifts {for (mu,value) in p.iter_mut().enumerate(){*value=&*value+Atom::num((mu+1) as i64)/Atom::num(3);}},
+                2=>{shifts.reverse();masses.reverse();},
+                3=>for (i,mass) in masses.iter_mut().enumerate(){*mass=&*mass-Atom::i()*Atom::num((i+1) as i64)/Atom::num(16);},
+                4=>shifts[4][3]=&shifts[4][3]+&x*&y,
+                5=>for p in &mut shifts {for value in p {*value=-&*value;}},
+                _=>(),
+            }
+            let numerators=planar_chart_cofactor_polynomials(&shifts,&masses).unwrap();
+            let determinants=planar_chart_polynomials(&shifts,&masses).unwrap();
+            assert_eq!(numerators.len(),20);
+            let mut rows=coordinate_rows(&shifts,&[0,1,2,3,4]);
+            rows.push((1..5).map(|i|{let p=std::array::from_fn(|mu|&shifts[i][mu]-&shifts[0][mu]);dot(&p,&p)-&masses[i]+&masses[0]}).collect());
+            for omitted in 0..4 {
+                let (det,coefficients)=constant_chart(&rows,omitted).unwrap().expect("all selected test charts regular");
+                assert!((&det-&determinants[omitted+1]).together().is_zero());
+                for child in 0..5 {assert!((&det*&coefficients[child]-&numerators[omitted*5+child]).together().is_zero(),"variant={variant} chart={omitted} child={child}");}
+            }
+        }
+    }
+    #[test]
+    fn private_mask_rejects_invalid_bits_and_omits_child_before_recursion() {
+        let shifts:Vec<[Atom;4]>=(0..5).map(|i|std::array::from_fn(|mu|Atom::var(symbolica::symbol!(format!("planar_mask::p{i}_{mu}"))))).collect();
+        let masses:Vec<_>=(0..5).map(|i|Atom::var(symbolica::symbol!(format!("planar_mask::m{i}")))).collect();
+        let mut compiler=PvCompiler::with_aliases(shifts,masses).unwrap();
+        assert!(compiler.set_certified_planar_mask(8).is_err());
+        compiler.set_certified_planar_chart(3).unwrap();
+        for mask in [31,32,128,255] {assert!(compiler.set_certified_planar_mask(mask).is_err());}
+        compiler.set_certified_planar_mask(8).unwrap();
+        compiler.compile_moment([1,0,0,0]).unwrap();
+        assert!(!compiler.moments.contains_key(&(vec![0,1,2,4],[1,0,0,0])));
+        for omitted in [0,1,2,4] {
+            let subset:Vec<_>=(0..5).filter(|&i|i!=omitted).collect();
+            assert!(compiler.moments.contains_key(&(subset,[1,0,0,0])));
+        }
+        assert!(compiler.set_certified_planar_mask(0).is_err(),"policy cannot change after compilation");
     }
 }
