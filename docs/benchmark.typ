@@ -215,7 +215,7 @@ all historical measurements below retain their original source snapshots.]
   [Local PyO3 wheel], [17/17 numerical and 12/12 interoperability tests, including the actual SVG renderer; installed consumer typing has zero errors/warnings.], [Passed],
   [Dotted propagators], [Generalized powers/dimension shifts have their strongest retained coverage at N≤4. The current wheel/gallery checks the dotted bubble against its mass Dual derivative.], [Scoped],
   [Example gallery], [4/4 native test methods; three successful HTML exports; all three rendered at desktop and narrow dark sizes in real Chromium.], [Passed],
-  [Six / seven points], [Explicit restricted N6 rank≤3 API: isolated Float rank2/3 checks and current Cargo rank3 replay pass. N7 numerical arrays and broader high-point coverage remain open.], [Scoped],
+  [Six / seven points], [Explicit restricted N6 rank≤3 API: isolated Float rank2/3 checks and current Cargo rank3 replay pass. A private N7 rank0 fixture now passes stable-reference and two-precision checks; broader high-point coverage remains open.], [Scoped],
   [Performance], [Historical private selected TIRust/COLLIER: seven slower families and one short inconclusive family. No new timing or default-backend adoption.], [Unmet],
 ))
 #text(size: 8.5pt)[Local Linux/Python 3.13 execution qualifies the named examples and
@@ -1588,7 +1588,7 @@ revisions; the optimized TIRust performance gate remains the measured
   The accepted high-point numerical scope is the retained ordinary Float
   rank2/3 corpus at requested accuracy 53. Public N6 Dual, binary64/DoubleFloat,
   arbitrary complex masses, generalized powers/dimension shifts, rank 7,
-  N7 and performance remain unqualified. Existing ordinary Dual controls above
+  public N7 and performance remain unqualified. Existing ordinary Dual controls above
   preserve the old API; they do not qualify high-point Dual evaluation. Earlier
   failed high-point attempts and original-IREGI rank7 discrepancies remain visible.
   Sources: #raw(public-six.source) and #raw(public-six-cargo.source);
@@ -1853,3 +1853,89 @@ remains assumed; no quadrature certificate or production E6 qualification follow
 #include "conventions.typ"
 #pagebreak()
 #include "algebra-reuse.typ"
+
+
+#pagebreak()
+#set text(size: 9.5pt)
+#set par(leading: 0.5em)
+= Final private numerical checks and handoff
+The following results extend the saved evidence. They do not apply the private
+seven-point implementation or scheduler patch to the public default reducer,
+and they introduce no new kernel timings. Earlier failed attempts, reference
+instabilities and inconclusive oracle or timing rows remain unchanged.
+
+== Seven-point scalar: one fixed ordinary lane
+The private rational-polynomial implementation completes generic symbolic
+preparation independently at Float128 and Float256, with requested accuracy 53.
+It packs all 21 five-point children into one batch and returns all four native
+Laurent slots. Every slot agrees with the retained stable original IREGI IBP
+and Hybrid results at the unchanged dimensionally normalized $10^(-10)$ gate.
+The original PV result remains unstable and is not counted as agreement.
+
+#report-table(table(
+  columns: (1.5fr, 1fr, 1fr), inset: (x: 8pt, y: 12pt),
+  stroke: table-stroke, fill: (x, y) => if y == 0 { navy } else { rgb("#d9f0d3") },
+  table.header([Saved numerical gate], [Complete checks], [Maximum normalized error]),
+  [Original stable IBP / Hybrid, both precisions], [16 Laurent slots], [$4.783 times 10^(-12)$],
+  [Float128 / Float256 convergence], [4 Laurent slots], [$9.102 times 10^(-34)$],
+))
+All three poles are exactly zero at both precisions. An independent audit
+reconstructs acceptance using exact rational squared inequalities, without
+importing the producer comparator. The full complex norm is compared: the tiny
+real finite component has tracked precision 2, so these results do not claim
+128/256-bit componentwise accuracy. The previous fixed scalar oracle remains
+inconclusive. This is one private rank-zero case, not a qualification of N7
+higher ranks, derivatives, generalized interfaces, numerical types, batches,
+physical graphs or performance.
+
+Capture totals including final provenance checks are 153.623 s and 164.176 s,
+both within their predeclared 300 s bounds. They include generic preparation,
+workspace construction and diagnostics and are not benchmark measurements.
+Source: #raw("validation/highpoint-thin-n7-rank0-rational-numeric/qualification.json").
+
+== Uniform-branch scheduler: complete retained dependent corpus
+Separate matching Symbolica/OneLoop/masters/core chains pass 60 requests,
+30 per process. Exact complete records agree across schedulers and repeated or
+retained workspaces: eight ordinary N2/N3 rank0/1 batch1/32 families cover
+1,584 tensor and 1,782 master complex values. Direct master controls cover
+67 cases and 133 rows, including 106 successes and 27 explicit error/null rows.
+All six master outputs, requested Taylor components, represented values,
+precision, signed zero, diagnostics, masks and execution counters are checked.
+Independent saved-data and byte-copy audits pass; earlier compiler failures
+and the stricter admission-schema revision are retained.
+
+This qualifies the frozen opt0 corpus only. The patch is not applied to
+production, and neither optimized performance nor full-domain acceptance is
+established. Fresh matched optimized chains are still needed: the older
+optimized closure predates a current Symbolica polynomial guard. Source:
+#raw("validation/uniform-branch-dependent/qualification.json").
+
+#pagebreak()
+= Consolidated work awaiting the next session
+#report-table(table(
+  columns: (1.2fr, 2.7fr, 1fr), inset: (x: 7pt, y: 12pt),
+  stroke: table-stroke, fill: (x, y) => if y == 0 { navy } else { amber },
+  table.header([Private work], [Completed / retained evidence], [Next gate]),
+  [Native master policy + six-point integration],
+  [Independent source review; 8 feature metadata checks, 4 code-generation steps and 20 exact ordinary tests pass. Seven constructor tests and whole-array regressions have not run. No live patch application.],
+  [Constructor and full numerical regressions],
+  [High-point numeric types / Dual pilot],
+  [Private capture/helper and dilation-identity source review; bounded runner and saved comparator drafts preserved. No compiler or numerical execution. Primal-only imported sensitivity cannot certify derivative uncertainty.],
+  [Finalize and review protocol, then qualify types],
+  [Optimized scheduler performance],
+  [Current-source and historical dependency-feature census retained. Matched fresh build/timing recipe remains unfinished; no optimized build or timing run.],
+  [Build, numerical admission and controlled timings],
+))
+
+All unfinished source, commands and evidence are preserved in
+#raw("validation/winddown/") with member hashes and explicit compiled-product
+omissions. #raw("HANDOFF.md") records the full objective, implementation and
+qualification boundaries, rebuild commands, caches, known failures and ordered
+next steps. No new implementation experiment was started during wind-down.
+
+The complete objective remains unfinished. Highest priorities are complete
+N6/N7 rank/power/dimension coverage, high-point precision and genuine derivative
+qualification, broad exceptional/physical validation, and performance parity
+per family. Existing IREGI/COLLIER timings retain their original contexts and
+TIRust-numerator ratios. The project is paused at the user's request; this
+report does not turn pending requirements into completed milestones.
