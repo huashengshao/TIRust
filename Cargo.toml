@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-exclude = ["dependencies/oneloopmaster", "dependencies/symbolica"]
+exclude = ["dependencies/oneloopmaster", "dependencies/symbolica", "dependencies/linnest"]
 members = ["crates/iregi-rust", "crates/iregi-masters", "crates/iregi-prepare", "crates/iregi-cli", "crates/iregi-python", "dependencies/feynkit-integrals"]
 # Routine Rust builds keep the optional Python host and rendering closure out.
 default-members = ["crates/iregi-rust", "crates/iregi-masters", "crates/iregi-prepare", "crates/iregi-cli", "dependencies/feynkit-integrals"]
@@ -48,3 +48,7 @@ opt-level = 2
 [profile.bench]
 inherits = "release"
 debug = true
+
+# Native SVG layout must keep numeric CBOR typed under exact JSON feature unification.
+[patch."https://github.com/alphal00p/gammaloop"]
+linnest = { path = "dependencies/linnest" }

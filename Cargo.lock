@@ -2375,7 +2375,6 @@ dependencies = [
 [[package]]
 name = "linnest"
 version = "0.1.0"
-source = "git+https://github.com/alphal00p/gammaloop?rev=865afdc43fb4e6b950439d34b4ec2c38352873e7#865afdc43fb4e6b950439d34b4ec2c38352873e7"
 dependencies = [
  "cgmath",
  "ciborium",

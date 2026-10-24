@@ -17,11 +17,28 @@ as successful cases.
 | `iregi-masters` | Instruction-major oneloopmaster evaluation with separated UV/IR poles and Dual components |
 | `iregi-prepare` | FeynKit DOT/model import, Feynman rules, Idenso/Spenso contractions and Symbolica polynomial extraction |
 | `iregi-cli` | The standalone `iregi-rust` binary |
+| `iregi-python` | Optional typed `tirust` bindings using the same Rust APIs and upstream shared Python classes |
 | `feynkit-integrals` | Graph-independent affine partial fractions extracted from the pinned FeynKit source; planner integration is pending |
 
 The reduction library does not depend on graph preparation, Python, MadGraph or
 Fortran. Reference builds and generated physical-process code stay under
 `target/`; the original reference checkouts are not modified.
+
+## Python and notebooks
+
+The optional [`tirust` Python interface](python/README.md) provides reusable
+reduction plans, batched workspaces, dotted propagators, arbitrary precision and
+Dual components. Numerator and graph preparation accept the upstream Symbolica,
+FeynKit and Spenso types registered in the same native host. See the
+[extension architecture](docs/research/python-interface.md) for source revisions
+and the separate Community-host integration boundary.
+
+The [marimo gallery](examples/notebooks/README.md) covers graph-to-integral
+preparation, dots and derivatives, and an interactive benchmark explorer. Its
+benchmark ratios always put TIRust in the numerator. Build and runtime
+qualification, including retained failed attempts, is recorded separately in
+[the benchmark report](docs/benchmark.pdf); the gallery does not imply that every
+domain or platform is qualified.
 
 ## Build and run
 

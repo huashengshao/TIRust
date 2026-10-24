@@ -49,8 +49,20 @@ direct displays of real graph and symbolic objects, concise mathematical
 explanations and focused reactive controls. TIRust adds a restrained navy/serif
 title, readable Laurent cards and accessible uncertainty charts.
 
-Native-wheel execution and headless exports are currently pending. Source and
-API review are separate from successful runtime qualification; the source is
-not presented as an already validated release. Exact reference revisions and
-the latest executed checks are recorded in
-[`validation/python-notebooks`](../../validation/python-notebooks).
+The inspected local Linux wheel004 passes all 29 focused API tests, including
+the real graph renderer. With that exact wheel, all four native gallery tests
+pass: bubble binary64 and DoubleFloat, triangle Float, contraction, the dotted
+bubble/Dual mass identity, precision distinctions and failed-lane isolation.
+All three notebooks export successfully. Their static HTML has also been
+checked in real Chromium at desktop and narrow dark-screen sizes, including
+the actual graph, formulas, Laurent cards and readable benchmark charts.
+
+These checks cover the committed examples in the local Python 3.13 environment.
+They do not qualify a published release wheel, other platforms or loading the
+extension into a separate Community native host. Static exports use marimo's
+CDN frontend; changing numerical controls requires a running Python backend.
+The earlier wheel003 rendering failure remains archived. Exact revisions,
+commands, source guards and screenshots are recorded in
+[`validation/python-notebooks/native-wheel004`](../../validation/python-notebooks/native-wheel004);
+the mathematical and performance limits remain in the
+[benchmark report](../../docs/benchmark.pdf).

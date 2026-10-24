@@ -86,6 +86,12 @@
 #let python-runtime = data.at("python_interface_baseline_runtime_qualification", default: none)
 #let notebook-native = data.at("native_notebook_baseline_partial_qualification", default: none)
 #let rank7-oracle = data.at("private_thin_n6_rank7_component126_oracle", default: none)
+#let fixed-wheel = data.at("python_interface_fixed_wheel_qualification", default: none)
+#let fixed-gallery = data.at("native_notebook_fixed_wheel_qualification", default: none)
+#let native-capability = data.at("native_f64_opt_in_capability_qualification", default: none)
+#let native-metadata = data.at("native_f64_opt_in_compatibility_completion", default: none)
+#let n7-failed = data.at("private_n7_rank0_failed_attempt", default: none)
+#let scheduler-fixture = data.at("private_uniform_branch_scheduler_fixture", default: none)
 #let collier-cell(r) = table.cell(
   fill: if not r.correctness_passed or r.gate in ("inconclusive-noise", "inconclusive-short-block") {
     amber
@@ -195,6 +201,27 @@
     [*Complete evaluation*], [Six physical rows measured; two failures retained], [*Inconclusive*],
   )
 ]
+= Current coverage
+#text(size: 9.5pt)[The local Python interface and example gallery execute successfully with
+repaired wheel004. Complete mathematical and performance acceptance remain open;
+all historical measurements below retain their original source snapshots.]
+#report-table(table(
+  columns: (1.05fr, 3.6fr, 0.8fr), inset: (x: 6pt, y: 8pt), stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else if y <= 3 { rgb("#d9f0d3") } else { amber },
+  table.header([Interface / domain], [Executed scope or remaining gate], [Status]),
+  [Local PyO3 wheel], [17/17 numerical and 12/12 interoperability tests, including the actual SVG renderer; installed consumer typing has zero errors/warnings.], [Passed],
+  [Dotted propagators], [Generalized powers/dimension shifts have their strongest retained coverage at N≤4. The current wheel/gallery checks the dotted bubble against its mass Dual derivative.], [Scoped],
+  [Example gallery], [4/4 native test methods; three successful HTML exports; all three rendered at desktop and narrow dark sizes in real Chromium.], [Passed],
+  [Six / seven points], [Explicit N6 rank≤3 integration awaits its own gate; private rank2/3 fixtures remain separate. The first N7 scalar capture times out before workspace/arrays; its independent oracle is insufficiently converged.], [Open],
+  [Performance], [Historical private selected TIRust/COLLIER: seven slower families and one short inconclusive family. No new timing or default-backend adoption.], [Unmet],
+))
+#text(size: 8.5pt)[Local Linux/Python 3.13 execution qualifies the named examples and
+focused API tests. Release distributions, other platforms, separate Community-host
+loading and a reactive numerical browser frontend remain unqualified. Historical
+C0/D0 higher mixed-Dual finite-difference evidence is retained separately; the
+current wheel checks do not rerun that complete suite.]
+
+#pagebreak()
 = Historical kernel baseline: #raw("4c32ece")
 #figure(kind: table, caption: [*Massive bubble/triangle, binary64, hybrid mode.*
   TIRust and IREGI total medians in µs/point. *TIRust / IREGI* ratios are paired-block medians;
@@ -242,7 +269,7 @@ fails. The latest physical timing comparisons remain inconclusive.]
 = Historical stage profiles: #raw("4c32ece")
 TIRust medians from separate instrumented passes, in µs/point. All bars use
 0–40 µs/point; S denotes the Symbolica interpreter, N the generated native
-backend. Sessions are separate: compare each with its own reference on page 1,
+backend. Sessions are separate: compare each with its own reference in the preceding baseline table,
 not with the other backend's absolute bar length. Raw ns/batch are divided
 by $1000 times "batch width"$.
 
@@ -1291,10 +1318,9 @@ that attempt produces no parent arrays. The later private mask followup has
 separate source, numerical and lifecycle qualification below. Neither changes
 the production N6/N7 domain or establishes performance parity.
 
-PyO3 bindings and three reactive marimo notebook sources now follow
-#raw("PLAN.md")'s pinned Community extension guide. Compile/type checks and
-notebook lint are distinct from installed-wheel execution; their bounded
-checkpoint appears separately. Native notebook runtime remains unqualified.
+Historical compile/type/lint checks appear separately from later wheel004/gallery
+execution. Binding and notebook sources follow the pinned Community guide in
+#raw("PLAN.md").
 
 Source bindings, raw outputs, failures and reproduction commands are retained
 in #raw("docs/data/results.json"). No elapsed correctness-run duration on this
@@ -1389,7 +1415,7 @@ performance gate remains the measured #raw("6b24c03") snapshot.
   #pagebreak()
   #set text(size: 9.5pt)
   #set par(leading: 0.5em)
-  = Python and notebook runtime
+  = Historical Python and notebook runtime
   #if python-runtime != none [
     == Inspected native wheel baseline
     The exact baseline wheel builds, installs and passes shared-owner identity,
@@ -1424,8 +1450,8 @@ performance gate remains the measured #raw("6b24c03") snapshot.
   ))
 
   Both native exports and the original error remain archived. Rendering-dependent
-  numerical assertions remain unrun; full gallery qualification remains open.
-  Graph/math browser checks of the native notebooks are pending. Source:
+  numerical assertions were unrun in this baseline. The later wheel004 followup
+  below qualifies the named examples and their static graph/math browser displays. Source:
   #raw("validation/python-notebooks/native-wheel003/").
 
   == Benchmark explorer and readable narrow charts
@@ -1443,6 +1469,120 @@ performance gate remains the measured #raw("6b24c03") snapshot.
   has no reactive backend; browser snapshots do not qualify numerical controls.
   Sources: #raw("validation/python-notebooks/chart-readable/") and its separate
   source/runtime/browser predecessors.
+]
+
+
+#if fixed-wheel != none and fixed-gallery != none [
+  #pagebreak()
+  #set text(size: 9.5pt)
+  #set par(leading: 0.5em)
+  = Repaired Python interface and executed gallery
+  == Exact JSON and actual upstream graph rendering
+  GDB inspection of the unchanged baseline wheel finds that exact JSON's
+  #raw("arbitrary_precision") feature turns coordinates serialized through
+  #raw("serde_json::Value") into CBOR private-number marker maps. The actual
+  numeric-coordinate decoder rejects those maps. The pinned upstream owner
+  now uses typed line/cubic command tuples and typed collision-line records
+  at both serialization sites. The exact-JSON feature and actual renderer
+  remain in use.
+
+  Two earlier owner-test setup/fixture failures remain archived. The final
+  two consumer regression tests pass, exercising both stroke decoding and
+  collision search under exact JSON. Rebuilt local wheel004 then passes all
+  29 actual focused tests: 17 numerical and 12 interoperability, including
+  real graph rendering, with no failures or skips. Shared-owner identity,
+  packaged assets/stubs and installed consumer typing pass. This is a local
+  development wheel; build durations are validation diagnostics, not timing
+  comparisons. Sources: #raw(fixed-wheel.source) and
+  #raw("validation/python-interface/rendering-diagnosis-003/").
+
+  == Unchanged notebooks, fresh installed wheel
+  The approved protocol freezes eleven notebook/test/graph/environment inputs
+  plus the exact wheel and owner receipts. A separate fresh environment
+  preserves both the failed baseline003 environment and the inspected owner004
+  environment. All four native test methods pass. They exercise bubble f64,
+  bubble DoubleFloat and triangle Float graph preparation, full tensor output
+  shape, batching and contraction, plus the dotted bubble/Dual mass identity,
+  precision distinctions, invalid-neighbor isolation and the edited-topology
+  guard. Finite-difference values are computed for the display; this test adds
+  no separate finite-difference accuracy threshold.
+
+  #report-table(table(
+    columns: (1.1fr, 1.1fr, 1.3fr, 2fr), inset: (x: 7pt, y: 12pt),
+    stroke: table-stroke, fill: (x, y) => if y == 0 { navy } else { rgb("#d9f0d3") },
+    table.header([Notebook], [Native / evidence checks], [Successful HTML cells], [Real static browser display]),
+    [01: Graph → integral], [Graph/numerical controls pass], [21 / 21], [Actual upstream bubble SVG, formulas and four contracted Laurent cards.],
+    [02: Dots and derivatives], [Identity/precision/isolation pass], [19 / 19], [Formulas and four dotted-integral Laurent cards.],
+    [03: Benchmarks], [3 tests / 6 cohorts], [11 / 11], [Eight ratios, retained short gate and readable horizontal chart.],
+  ))
+
+  All three strict lint checks and 15 display/evidence tests pass. One Chromium
+  pass inspects each export in desktop light and narrow dark views: six views,
+  1,918 normal frontend requests, no failed requests, HTTP, console or page
+  errors. The mobile document stays 390 px wide; the 930 px chart pans inside
+  its 348 px viewport. Actual graph, numerical cards and chart crops were
+  visually reviewed. The static export uses marimo's official CDN frontend
+  and has no reactive numerical backend. No numerical mock or replacement
+  renderer is used. Release/platform/Community-host and full mathematical or
+  performance qualification remain open. Source: #raw(fixed-gallery.source).
+]
+
+#if native-capability != none and n7-failed != none [
+  #pagebreak()
+  #set text(size: 9.5pt)
+  #set par(leading: 0.5em)
+  = Private capability and retained high-point failures
+  == Selective native-f64 masters: correctness and metadata
+  The private opt-in A0/B0/C0 backend passes 17 focused tests and a retained
+  38-request capture. Per backend, the whole N2/N3 rank0/1 batch1/32 fixtures
+  contain 1,584 complex tensor outputs and 1,782 complex outputs across all six
+  master coefficients. The largest candidate/original dimensionally normalized
+  error is $3.38 times 10^(-13)$ against $10^(-10)$. Separate selected, unchanged
+  precision/Dual, cache and failure controls remain visible in the package.
+
+  The metadata compatibility matrix now has all 16 entries passing across
+  default, selective native, broad native-batch and combined features. The
+  independent continuation completes only the two unfinished metadata checks;
+  earlier timeouts, cancellation and the false final guard remain historical.
+  Metadata checking does not execute the broad/combined numerical test binaries.
+  No production/default change, performance qualification or adoption follows.
+  Sources: #raw(native-capability.source) and #raw(native-metadata.source).
+
+  == Uniform-branch scheduler: local fixture qualification
+  The private Symbolica scheduler candidate passes 15 actual tests: five
+  existing batch, six focused and four nested/shared-function tests. Actual
+  old-batch, candidate and scalar paths are compared, including precision,
+  signed zero and active instruction/lane traces for f64, DoubleFloat, mixed
+  Float precision and static/dynamic mixed-order Dual shapes. Two earlier
+  fixture compile failures remain archived. The patch is not applied to live
+  Symbolica; dependent masters/core, full reduction and performance are not
+  qualified by these local tests. Source: #raw(scheduler-fixture.source).
+
+  == First private N7 scalar capture: no Rust numerical array
+  The retained dyadic N7 rank0 fixture passes its exact-domain audit, including
+  seven six-point determinants and 21 child coordinate ranks. Its generic
+  structural plan times out at #raw("preparing_plan"), before workspace or
+  scalar evaluation. There are zero Rust numerical slots. Cleanup completes,
+  but total capture time including guards is 300.928 s, exceeding the frozen
+  300 s bound; the comparison is not spawned.
+
+  Original IBP and hybrid report stable matching finite values; PV is unstable
+  and its zeros remain rejected. An independent scalar oracle finishes all six
+  fixed rules (orders 8/12/16, two mappings), but its empirical normalized
+  uncertainty estimate $7.696 times 10^(-10)$ exceeds $10^(-10)$. That oracle
+  exits with insufficient convergence. No numerical agreement, precision
+  convergence, general N7, higher rank, Dual or performance acceptance follows.
+  The earlier 17 selected exact tests remain a separate structural result.
+  Source: #raw(n7-failed.source).
+
+  A separate marker-only constructor probe also times out: 110 s compute,
+  116.604 s total within its 150 s bound. Its first six-line chart takes
+  107.091 s inclusive, containing a 91.136 s determinant, 11.652 s inverse and
+  4.297 s product; the second determinant is active at termination. These
+  nested observations diagnose that probe only. They are not summed, used as
+  performance comparisons or retrospectively attributed to the earlier capture.
+  The constructor remains incomplete, with no workspace, masters or arrays.
+  Source: #raw(data.private_n7_preparation_phase_diagnostic.source).
 ]
 
 #if typed-e6 != none [

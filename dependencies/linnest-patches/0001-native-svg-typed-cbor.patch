@@ -1,0 +1,219 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -12,24 +12,24 @@
+ 
+ [dependencies]
+ ciborium = "0.2.2"
+-dot-parser = { workspace = true }
+-linnet = { workspace = true, features = ["drawing", "nodestore-vec", "rkyv", "serde"] }
++dot-parser = { version = "0.5", git = "https://github.com/alphal00p/gammaloop", rev = "865afdc43fb4e6b950439d34b4ec2c38352873e7" }
++linnet = { git = "https://github.com/alphal00p/gammaloop", rev = "865afdc43fb4e6b950439d34b4ec2c38352873e7", default-features = false, features = ["drawing", "nodestore-vec", "rkyv", "serde"] }
+ rkyv = { version = "0.7", features = ["validation"] }
+ serde = { version = "1.0", features = ["derive"] }
+-self_cell = { workspace = true }
+-serde_json = { workspace = true, features = ["float_roundtrip"] }
++self_cell = "1.2.2"
++serde_json = { version = "1", features = ["float_roundtrip"] }
+ 
+ cgmath = { version = "0.18.0", features = ["serde"] }
+ figment = "0.10.19"
+ getrandom = { version = "0.2", default-features = false, features = ["custom"] }
+-indexmap = { workspace = true, features = ["serde"] }
++indexmap = { version = "2.14.0", features = ["serde"] }
+ rand = "0.8.5"
+-thiserror = { workspace = true }
++thiserror = "2.0"
+ wasm-minimal-protocol = "0.2.0"
+ roxmltree = { version = "0.21.1", optional = true }
+ kurbo = { version = "0.13", optional = true }
+ # Native SVG drawing shares Kurvst's curve geometry with the Typst renderer.
+-kurvst = { path = "../kurvst", optional = true }
++kurvst = { git = "https://github.com/alphal00p/gammaloop", rev = "865afdc43fb4e6b950439d34b4ec2c38352873e7", optional = true }
+ 
+ [features]
+ projection-service = []
+@@ -42,3 +42,7 @@
+ name = "impred-project"
+ path = "src/bin/impred_project.rs"
+ required-features = ["projection-service"]
++
++# Regression tests exercise integration with exact numeric JSON enabled.
++[dev-dependencies]
++serde_json = { version = "1", features = ["arbitrary_precision"] }
+--- a/src/svg/labels.rs
++++ b/src/svg/labels.rs
+@@ -514,7 +514,7 @@
+     pub path: BezPath,
+ }
+ 
+-#[derive(Deserialize, Clone, Copy)]
++#[derive(Serialize, Deserialize, Clone, Copy)]
+ pub(super) struct Line {
+     pub start: [f64; 2],
+     pub end: [f64; 2],
+@@ -524,19 +524,26 @@
+ #[derive(Serialize)]
+ struct PaintedStroke {
+     radius: f64,
+-    segments: Vec<(Point2, bool, Vec<serde_json::Value>)>,
++    segments: Vec<(Point2, bool, Vec<PaintedCommand>)>,
+ }
+ 
+ type Point2 = [f64; 2];
++
++// Keep geometry numbers typed across CBOR, independent of JSON feature unification.
++#[derive(Serialize)]
++#[serde(untagged)]
++enum PaintedCommand {
++    Line(&'static str, Point2),
++    Cubic(&'static str, Point2, Point2, Point2),
++}
+ 
+ impl From<&Stroke> for PaintedStroke {
+     /// CeTZ subpaths `(origin, closed, commands)` of the painted path; quadratics
+     /// are raised to cubics.
+     fn from(stroke: &Stroke) -> Self {
+         use kurbo::{PathEl, QuadBez};
+-        use serde_json::json;
+         let xy = |p: Point| [p.x, p.y];
+-        let mut segments: Vec<(Point2, bool, Vec<serde_json::Value>)> = Vec::new();
++        let mut segments: Vec<(Point2, bool, Vec<PaintedCommand>)> = Vec::new();
+         let mut current = Point::ZERO;
+         for &element in stroke.path.elements() {
+             let command = match element {
+@@ -551,12 +558,12 @@
+                     }
+                     continue;
+                 }
+-                PathEl::LineTo(p) => json!(["l", xy(p)]),
++                PathEl::LineTo(p) => PaintedCommand::Line("l", xy(p)),
+                 PathEl::QuadTo(c, p) => {
+                     let raised = QuadBez::new(current, c, p).raise();
+-                    json!(["c", xy(raised.p1), xy(raised.p2), xy(p)])
++                    PaintedCommand::Cubic("c", xy(raised.p1), xy(raised.p2), xy(p))
+                 }
+-                PathEl::CurveTo(c1, c2, p) => json!(["c", xy(c1), xy(c2), xy(p)]),
++                PathEl::CurveTo(c1, c2, p) => PaintedCommand::Cubic("c", xy(c1), xy(c2), xy(p)),
+             };
+             current = element.end_point().unwrap_or(current);
+             if let Some(last) = segments.last_mut() {
+@@ -599,7 +606,7 @@
+     label_padding: f64,
+     fixed_arrows: &'a [Bounds],
+     coordinated: bool,
+-    edge_lines: &'a serde_json::Value,
++    edge_lines: &'a [Line],
+     obstacle_padding: f64,
+ }
+ 
+@@ -642,10 +649,7 @@
+         strokes: strokes.iter().map(PaintedStroke::from).collect(),
+         accuracy: 0.005,
+     };
+-    let edge_lines: serde_json::Value =
+-        decode(&crate::label_placement::stroke_lines_bytes(&cbor(&spec)?)?)?;
+-    let lines: Vec<Line> =
+-        serde_json::from_value(edge_lines.clone()).map_err(|error| error.to_string())?;
++    let lines: Vec<Line> = decode(&crate::label_placement::stroke_lines_bytes(&cbor(&spec)?)?)?;
+     if placements
+         .iter()
+         .all(|placement| placement.candidates.len() == 1)
+@@ -676,7 +680,7 @@
+         label_padding: 0.6,
+         fixed_arrows,
+         coordinated: true,
+-        edge_lines: &edge_lines,
++        edge_lines: &lines,
+         obstacle_padding: 0.08,
+     })?;
+     let mut math = SearchMath {
+@@ -748,3 +752,89 @@
+     }
+     (overlapping, hits, pairs / 2)
+ }
++
++#[cfg(test)]
++mod numeric_cbor_regression {
++    use super::*;
++
++    fn numeric_wire(bytes: &[u8]) {
++        // This feature is intentionally unified by this crate's dev dependency.
++        let control = cbor(&serde_json::json!(0.25)).unwrap();
++        let marker = b"$serde_json::private::Number";
++        assert!(control.windows(marker.len()).any(|part| part == marker));
++        assert!(!bytes.windows(marker.len()).any(|part| part == marker));
++    }
++
++    #[test]
++    fn painted_commands_are_native_numbers_with_arbitrary_precision_json() {
++        let mut path = BezPath::new();
++        path.move_to((0.25, -0.5));
++        path.line_to((1.75, 2.5));
++        path.quad_to((2.0, 3.0), (3.0, 2.0));
++        path.curve_to((3.5, 1.5), (4.0, 1.0), (4.5, 0.5));
++        path.close_path();
++        let stroke = Stroke {
++            radius: 0.125,
++            path,
++        };
++        let wire = cbor(&StrokeLinesSpec {
++            strokes: vec![PaintedStroke::from(&stroke)],
++            accuracy: 0.005,
++        })
++        .unwrap();
++        numeric_wire(&wire);
++        // Exercise the actual shared decoder and curve-flattening operation.
++        let lines: Vec<Line> =
++            decode(&crate::label_placement::stroke_lines_bytes(&wire).unwrap()).unwrap();
++        assert!(lines.len() > 3);
++        assert_eq!(lines[0].start, [0.25, -0.5]);
++        assert_eq!(lines[0].end, [1.75, 2.5]);
++        assert!(lines.iter().all(|line| line.radius == 0.125));
++        assert!(lines
++            .iter()
++            .flat_map(|line| line.start.into_iter().chain(line.end))
++            .all(f64::is_finite));
++    }
++
++    #[test]
++    fn collision_lines_reach_label_search_as_native_numbers() {
++        let lines = [Line {
++            start: [-0.5, 0.25],
++            end: [1.5, 0.75],
++            radius: 0.125,
++        }];
++        let geometry = cbor(&SearchGeometry {
++            placements: vec![SearchPlacement {
++                edge: 0,
++                candidates: vec![SearchCandidate {
++                    bounds: Bounds {
++                        left: 2.0,
++                        right: 3.0,
++                        bottom: 2.0,
++                        top: 3.0,
++                    },
++                    cost: 0.0,
++                    corners: vec![[2.0, 2.0], [3.0, 2.0], [3.0, 3.0], [2.0, 3.0]],
++                    arrow_bounds: &[],
++                }],
++            }],
++            obstacles: &[],
++            label_padding: 0.6,
++            fixed_arrows: &[],
++            coordinated: true,
++            edge_lines: &lines,
++            obstacle_padding: 0.08,
++        })
++        .unwrap();
++        numeric_wire(&geometry);
++        let math = cbor(&SearchMath {
++            temperatures: (0..84).map(|sweep| 0.15 * 0.9f64.powi(sweep)).collect(),
++            exponentials: vec![],
++            pair_padding: 0.35,
++        })
++        .unwrap();
++        let result: SearchResult =
++            decode(&crate::label_placement::search_bytes(&geometry, &math).unwrap()).unwrap();
++        assert_eq!(result.choices, [0]);
++    }
++}

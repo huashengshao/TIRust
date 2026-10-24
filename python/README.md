@@ -1,8 +1,12 @@
 # TIRust for Python
 
-Status: the interface is undergoing build and runtime qualification. The commands
-and examples below describe the intended public API; a tested wheel is not yet
-available from this work.
+Status: a local development wheel is qualified on Linux with CPython 3.13.
+All 29 focused numerical and native interoperability tests pass, including the
+actual FeynKit SVG renderer; installed-wheel consumer typing also passes with
+zero errors or warnings. The [qualification evidence](../validation/python-interface/checkpoint-wheel-004/README.md)
+records the exact wheel, source archive, dependency pins and tested coverage.
+Release wheels, full Symbolica Community host integration, and other Python or
+platform versions still require their own qualification.
 
 TIRust provides reusable plans and genuine batched one-loop tensor reduction.
 Its Python interface links the same Rust implementation and one Symbolica kernel

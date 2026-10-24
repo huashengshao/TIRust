@@ -1,0 +1,567 @@
+{
+  "repository": "https://github.com/alphal00p/gammaloop",
+  "revision": "865afdc43fb4e6b950439d34b4ec2c38352873e7",
+  "upstream_subdirectory": "crates/linnest",
+  "scope": "Project-local Rust/native-SVG owner subset, with an isolated typed-CBOR repair; no numerical or symbolic algebra changes.",
+  "upstream_files": {
+    "Cargo.toml": {
+      "bytes": 1460,
+      "sha256": "db11831aa8f44a35c0075a62010429e0d32f8dda2675e6800aa47a13ff834985"
+    },
+    "build_assets.rs": {
+      "bytes": 2835,
+      "sha256": "6833a8b6311040bfdb542d7715994eac4503ad756cad57097f78522a93824809"
+    },
+    "layout/planarization.py": {
+      "bytes": 4590,
+      "sha256": "9a65be6b084a60cf76453e8e2f604670ae3b4c9081836acddc8bec48f9109cbe"
+    },
+    "layout/pyproject.toml": {
+      "bytes": 229,
+      "sha256": "60024a32a365e7dc1c5a52708cae1039a2fd2ec75ea0dc0c2a9a116e8dcf1c42"
+    },
+    "layout/insertion.py": {
+      "bytes": 24074,
+      "sha256": "8fa2055bd1b5b02d6b7eaf1969a037eec5984e87022e408e79bf71156531091b"
+    },
+    "layout/uv.lock": {
+      "bytes": 65047,
+      "sha256": "13e6776cb8fe40f9ceccf37e00504b8b69c30c9f395e3d72d06138ce866008e7"
+    },
+    "layout/coordinates.py": {
+      "bytes": 5557,
+      "sha256": "e24687f02a57b5a7d16c5e1aef4460c4a8ccc11b81b9c243f5b44a084b73d4ab"
+    },
+    "layout/solver.py": {
+      "bytes": 36565,
+      "sha256": "ab708271f20887e2749c7bebde1929d8119fd12e88e74de3f4b07cad23f52d3a"
+    },
+    "layout/geometry.py": {
+      "bytes": 8233,
+      "sha256": "31db85c3a61062cab9724f3e274ded1ce8583442d4c20005d3b091307505259f"
+    },
+    "layout/movement.py": {
+      "bytes": 23077,
+      "sha256": "0dff722b14c3eb1865b7b0f0a8b043f3568c3351c829eaede69eee1980a0ceda"
+    },
+    "layout/ec_planarity.py": {
+      "bytes": 18747,
+      "sha256": "90ccdc49b11e2f5a2ae0383ef57fdec3f1e282f500281a1405bcf81c34ad7bf2"
+    },
+    "layout/seed.py": {
+      "bytes": 13348,
+      "sha256": "043a84b8a8d47313f7a3a2679d36a54ec0e451bef0a1f7fa625effacdf42be85"
+    },
+    "examples/typst-api.typ": {
+      "bytes": 3667,
+      "sha256": "6f04a5e7be62d98355f9bf5fc40a80225cef70ceb8f3b123762ee27fdadb85aa"
+    },
+    "examples/gl303.dot": {
+      "bytes": 6130,
+      "sha256": "d9fed4b451e5980bc08245b7d9325d2176ce1b56cc6b2eb685071b5055026c47"
+    },
+    "tests/browser_svg_sizing.py": {
+      "bytes": 15603,
+      "sha256": "d6fbcae0243b9f387e34652b77a1580d13c9309102094545b39d4526268d71ea"
+    },
+    "src/streaming.rs": {
+      "bytes": 15980,
+      "sha256": "d55024ef542e1e5f9ac1144d84ab1d3dc418b519963167a2144b9f6883dcbda9"
+    },
+    "src/pin.rs": {
+      "bytes": 7132,
+      "sha256": "107c2b16ee1134182243aa5e23bee1c813b3fec226058f65d58d0384bacff5db"
+    },
+    "src/geom.rs": {
+      "bytes": 9810,
+      "sha256": "b1faaa12e69038af2f1dfb6d6340e59c67a5a8420e15d8ad2b2445ac4eaa23db"
+    },
+    "src/graph_api.rs": {
+      "bytes": 163758,
+      "sha256": "316fcb35b6a5110dcb673975d41f389a0667efc2b573da05e0fafdbc7d67a5a7"
+    },
+    "src/impred_projection.rs": {
+      "bytes": 62437,
+      "sha256": "61185d124cfaf80b1ba69a08db10a6b4cfcb9a940613297b82e5879fa1194d10"
+    },
+    "src/wasm_random.rs": {
+      "bytes": 1593,
+      "sha256": "ec8b77bca935276e7e4874f529529fad492c61208ffe1f230bd6b34c8f8e0cfd"
+    },
+    "src/label_placement.rs": {
+      "bytes": 115926,
+      "sha256": "207c153b339c1694efcbff7874c1d657b4aeff67b9e6df149db4a28ed4b49661"
+    },
+    "src/lib.rs": {
+      "bytes": 170537,
+      "sha256": "9abd5c2b2c44cceec2585fafdeb6375ce0c27846662f65d17893b4945eb90999"
+    },
+    "src/api.rs": {
+      "bytes": 11062,
+      "sha256": "bdd15dc8c656777fb0a3f722c7e04706a684ae8811d520749d94d17b724fbddb"
+    },
+    "src/tests.rs": {
+      "bytes": 194758,
+      "sha256": "011c5c1437cbcf925964c0aa26adfa02ca17d5ac89ad702261c6fd070ad44588"
+    },
+    "typst/typst.toml": {
+      "bytes": 462,
+      "sha256": "d72299ac2081d1f5788a6b2007ada0fc886fb9f4b6ff93070b2e4aa6ce0969f6"
+    },
+    "typst/linnest.wasm": {
+      "bytes": 5250405,
+      "sha256": "219ec5f66f9b5b3783d95bde289be04ad63288e237d9c747f3a7d6c90b16fde4"
+    },
+    "typst/LICENSE.ec-layout": {
+      "bytes": 59478,
+      "sha256": "6ded5bc05fb53bc4dcf111e95652d76440269874b6e7855688eef8bd6f30986d"
+    },
+    "typst/ec-layout.wasm": {
+      "bytes": 692860,
+      "sha256": "2edd04898611fe5ffb26f8d0486d6bdd84070edae517574d517f92ee79541d78"
+    },
+    "typst/LICENSE.clarabel": {
+      "bytes": 10779,
+      "sha256": "6e2f382771f8aab58e4868ddd0afe0c2fefe6b54f9681493a9c3d0f32906cfe1"
+    },
+    "typst/README.md": {
+      "bytes": 1109,
+      "sha256": "ee7e527418c5ef3c8b1974f27b71fe2d6d1bb7a922cabad3fe6e5324f78f7d44"
+    },
+    "typst/LICENSE": {
+      "bytes": 1079,
+      "sha256": "397f68dfabb4c82acba023b23a640974a8444f8fca6a6655475ea3c3f902f22a"
+    },
+    "typst/docs/cut-views.typ": {
+      "bytes": 13059,
+      "sha256": "c71ecde0a992984b0a5362c176adfcac65f8d3174a61dc3f38bc6ba22ccbe643"
+    },
+    "typst/docs/manual.typ": {
+      "bytes": 80612,
+      "sha256": "2180e82a6e1d6f63ad6948a18ac90e360202164f2ddb5b1cf84d84b97973ec8c"
+    },
+    "typst/docs/manual.pdf": {
+      "bytes": 594960,
+      "sha256": "a7beb65c95ea9b2554fa55800ab29ed5c3f6773d1c4187f62bc1df524ed4e4a2"
+    },
+    "typst/src/draw.typ": {
+      "bytes": 28827,
+      "sha256": "84db1daefbeae9026c5d79ddda4680f1d178bc47a572e349f1f8c1e1cf322a71"
+    },
+    "typst/src/graph.typ": {
+      "bytes": 46241,
+      "sha256": "194a20cc6dddaa60fe5d0a824799d3705d2c3ae1675cd208eb128550c6786f6c"
+    },
+    "typst/src/curve.typ": {
+      "bytes": 47,
+      "sha256": "4350dfbe4a8e825396e4f476731b9862935d87fb6630c24425350f4071b9e590"
+    },
+    "typst/src/layout.typ": {
+      "bytes": 32349,
+      "sha256": "3556d544142368c37cf9faf1d719356335e6b5afb35bf2b62348851ff26be885"
+    },
+    "typst/src/lib.typ": {
+      "bytes": 254,
+      "sha256": "5247fce31a688f7685bc63ce4706fab324def42ebcb46e4046d750b03e2ed4ed"
+    },
+    "typst/src/subgraph.typ": {
+      "bytes": 12317,
+      "sha256": "9ed319aecae410ebc32c66c64869aa12a1a1459b4c98df02f908f35dd879e389"
+    },
+    "typst/examples/tree-stable-layered.pdf": {
+      "bytes": 168771,
+      "sha256": "e435c49e27efd93117cde491ea446f22a0374acb2fe074c3ede6032211c37545"
+    },
+    "typst/examples/basketball-force.pdf": {
+      "bytes": 50024,
+      "sha256": "9ecad84ae4c15de0ea6439dc10deb3c836f8bc6c2b4865fcdc83b3611ba99515"
+    },
+    "typst/examples/xbox-sum.pdf": {
+      "bytes": 72152,
+      "sha256": "12f02b9796db5972082aecee706bac25daa370a241df3a60a202d495ee2d2f8a"
+    },
+    "typst/examples/tree-auto-root.typ": {
+      "bytes": 13299,
+      "sha256": "7fc030a1e3ec8da0289933be4372cee184e07dee4a1be5bb436e2aacbd64a618"
+    },
+    "typst/examples/map-style.typ": {
+      "bytes": 8324,
+      "sha256": "0ac4d7cc0aa079e0fb4f6c64b4a39a66ec132877eafe55dfe3e9665e3f3bc814"
+    },
+    "typst/examples/parallel-edges.typ": {
+      "bytes": 1232,
+      "sha256": "50dd44f324613b315cb33ad7c91aa6ca0525229b010a6f2258ea0940cdb5648e"
+    },
+    "typst/examples/draw-raw-dot.typ": {
+      "bytes": 3096,
+      "sha256": "4daef00f4c46819c2a184986fc4e0b25dfbcfee79254440bb3dbc99f4d2de256"
+    },
+    "typst/examples/basketball-force-sweep.pdf": {
+      "bytes": 309735,
+      "sha256": "5815d1667ad68537d204e09b790d7f61c1ec7eb3658acba8c7878cfc301ef3f2"
+    },
+    "typst/examples/soft-triangle.typ": {
+      "bytes": 5306,
+      "sha256": "e81d3133d7dda9b9079bbb44481580b70ce4f991bb596216b9e926d015f34d26"
+    },
+    "typst/examples/tree.pdf": {
+      "bytes": 178383,
+      "sha256": "2fa4808bb5ecd6e107795e152d91b917182a7074bd244a75630d94a3de1efbbf"
+    },
+    "typst/examples/play.typ": {
+      "bytes": 1143,
+      "sha256": "c1e4f7bb76247531e37d97416c39d4161b8873d24ea8878896a377d9dcecc2a1"
+    },
+    "typst/examples/thrown-out.typ": {
+      "bytes": 3984,
+      "sha256": "bfadbcf5ff55893b066f97ca7eedb37646efe0bd4dab7e83ef88e6a31864bc3d"
+    },
+    "typst/examples/parallel-edges.pdf": {
+      "bytes": 3864,
+      "sha256": "e66cea9828928ecd32606444570cbc5c19dfefad71d8a1e25cea7ee2d5be084b"
+    },
+    "typst/examples/xbox-common.typ": {
+      "bytes": 6611,
+      "sha256": "8f16c24a9d1f283a7fb357a3f6718d745a0e0204681a188407367e830d0d0b7e"
+    },
+    "typst/examples/tree-stable-layered.typ": {
+      "bytes": 23711,
+      "sha256": "465ac93af24942b536f884f85f65bdc65b1cd7d2f163af43b9a9de183d9933f6"
+    },
+    "typst/examples/play.svg": {
+      "bytes": 184024,
+      "sha256": "fec4ad41d48eed240476e60ba444eb4d4de4406ba3972a9ac3731825a3083ead"
+    },
+    "typst/examples/xbox-sum.typ": {
+      "bytes": 12290,
+      "sha256": "b62495fa4f7b0ea361b0f74bdb05e0444583f71918e4fad8d9b3b545886e82a7"
+    },
+    "typst/examples/basketball-force.typ": {
+      "bytes": 5900,
+      "sha256": "34a3fbbb25f92da28ec2fd77e40b369c42d2a08ce2fd3e58f1c260a6a6a2e0ce"
+    },
+    "typst/examples/tree-auto-root.pdf": {
+      "bytes": 329607,
+      "sha256": "2ec49e12da99f3dc53152a8e8a326c9b0369d2128dd9cbb99d3475f8fe5ecb32"
+    },
+    "typst/examples/play.pdf": {
+      "bytes": 14883,
+      "sha256": "0fd9523a1ee9a1f7aa2e04e17a6e6c35b0af1e3c0cd1a9d04572002dec28cf33"
+    },
+    "typst/examples/thrown-out.pdf": {
+      "bytes": 25978,
+      "sha256": "e31ed43315f41f3d6a90df7519818e84bb256bf889f6bff83669c097705d1d14"
+    },
+    "typst/examples/soft-triangle.pdf": {
+      "bytes": 30227,
+      "sha256": "70d218dcf1c461498021bc0a8f20dba64e651d622cd738de8aa0dc4fbb082986"
+    },
+    "typst/examples/basketball-force-sweep.typ": {
+      "bytes": 2449,
+      "sha256": "c2a7b2bb35a7794a7607eefad1c62604a5cdcd300920b8fe4bac741f403d9c95"
+    },
+    "typst/examples/build.typ": {
+      "bytes": 1047,
+      "sha256": "b6d1c47f2947cc1662c84f1bbb11a1a0cd05104e3c5842a1ae46931fc41a31ca"
+    },
+    "typst/examples/tree.typ": {
+      "bytes": 14989,
+      "sha256": "96dc065c225fbc36508de394f37f3e6a18fb4fa1d7727264fabcc3add9062543"
+    },
+    "typst/src/render/figure.typ": {
+      "bytes": 361,
+      "sha256": "67ec68df077830ca82eedbca3379f6b0d6b20dd0c42e4f1960d1e0a926620673"
+    },
+    "typst/src/render/network.typ": {
+      "bytes": 12595,
+      "sha256": "0e209a91977b29aa548aafc52f70051a9d36089da3ec8883e001d25cb0d6a8fa"
+    },
+    "typst/src/render/layout.typ": {
+      "bytes": 15341,
+      "sha256": "50611fc11df558fa8a398cddcb0d75435446f1aef8830ebba4de7a064fa18103"
+    },
+    "typst/src/impl/draw.typ": {
+      "bytes": 144437,
+      "sha256": "eb91f370243eadc5dd5c0f7449025a72132a41940f138f9b611cd14a0790fcbf"
+    },
+    "typst/src/impl/graph.typ": {
+      "bytes": 59409,
+      "sha256": "196e000f9a624555ed757cf2ad5a2a2ce31b3ea78b9a025472efde41a49f6026"
+    },
+    "typst/src/impl/subgraph.typ": {
+      "bytes": 3915,
+      "sha256": "f0895d110356e7a419d62d9abcc89fd30662c97d2bfa27c9a9c404d0156cf292"
+    },
+    "src/bin/impred_project.rs": {
+      "bytes": 705,
+      "sha256": "ba5164e53da69918dd1cd12103cbea62be8009c3f1be373398dfb56e95dc4ac4"
+    },
+    "src/ec_seed/mod.rs": {
+      "bytes": 46604,
+      "sha256": "c64b2109ec843a907f42e529a1daed70488f0a01f8ca91f26a172f9508c22376"
+    },
+    "src/ec_seed/coordinates.rs": {
+      "bytes": 22108,
+      "sha256": "6a7cd21c91f82f2eb0720b1a900e59e7347cfac09255b82d272f4b81fe1083c2"
+    },
+    "src/ec_seed/spqr.rs": {
+      "bytes": 29187,
+      "sha256": "8125d963426c50f7ea6befd1dc247b1b3aa6ac6ab3c12f4a761f583ff58eef99"
+    },
+    "src/ec_seed/embedding.rs": {
+      "bytes": 75211,
+      "sha256": "f200635c4b22ba80af99c981d81b8eee3d57fe49961c557263e26919e5be34cb"
+    },
+    "src/ec_seed/tests.rs": {
+      "bytes": 18029,
+      "sha256": "cbc7f518de64404f02072f145f6a1ab8eebb879a6ac520c6a4f26fbdeae3bee0"
+    },
+    "src/svg/output.rs": {
+      "bytes": 15689,
+      "sha256": "6a103372c822c3b551a37100746bbe68a2b415ad90fb2bc4eb1a350083f9d96c"
+    },
+    "src/svg/marks.rs": {
+      "bytes": 3194,
+      "sha256": "b5bbb426ebb799d94253b74bddc42f8cafffa40ee123f620826ae052edbf3c61"
+    },
+    "src/svg/labels.rs": {
+      "bytes": 23443,
+      "sha256": "180bec87cf79ef6df478517a5d59768cc55f4e7d844cf5580ba9338427737255"
+    },
+    "src/svg/mod.rs": {
+      "bytes": 55199,
+      "sha256": "99b7c02ee7b13488177116c9474381eab02bde41817b71fbaf0c1b73cf5a3767"
+    },
+    "src/svg/interactive.css": {
+      "bytes": 7133,
+      "sha256": "6ea0834f9524f70ff90d08dd325849453646fdcbd38e8f330d4f7b6a78e08f35"
+    },
+    "src/svg/curves.rs": {
+      "bytes": 9196,
+      "sha256": "236af35f09c2ba811fd7372e8f69174a286d4edef1739a3799e884533d91d101"
+    },
+    "src/svg/interactive.rs": {
+      "bytes": 8854,
+      "sha256": "a2510ecc0de9eebec5928e2315b4b0a1c9b31b44cd45f0f89be3cfde5b9f03c5"
+    },
+    "src/svg/config.rs": {
+      "bytes": 8199,
+      "sha256": "422cf19589d9df2f718cdffd49197638727ce86caa9538c2daf70fb75e6d5868"
+    },
+    "src/svg/interactive.js": {
+      "bytes": 26938,
+      "sha256": "7a0a3b1d253975e941def1edef8fcf93421b58a72b344d63cce39b3ce00f0445"
+    },
+    "src/ec_seed/fixtures/native_spqr.json": {
+      "bytes": 707536,
+      "sha256": "9b97cca7b585565f4e3efc010da5d18a4cac79a3d320b9fd39842251e7565ff2"
+    },
+    "src/ec_seed/fixtures/split_seeds.json": {
+      "bytes": 64357,
+      "sha256": "b48fa526b97c6f42991028e6f9ace46d72e35cc9a17a29690e9a6129d645297e"
+    },
+    "layout/native/main.cpp": {
+      "bytes": 665,
+      "sha256": "76b3de643b3b2c6fdd69cdbf58b27cc13ea0a308d1494af208597f4ec46d428a"
+    },
+    "layout/native/test_seed.py": {
+      "bytes": 2302,
+      "sha256": "c7d38dcf8e804dd68e23cb6cc7ee195fe3f011cb20abee96ee3d12ec6ce51ec1"
+    },
+    "layout/native/seed.hpp": {
+      "bytes": 20523,
+      "sha256": "ca8d12603ad81d736fbc971d3fe72dfef79abc48ac08741f89c95db0b59a4636"
+    },
+    "layout/native/CMakeLists.txt": {
+      "bytes": 2564,
+      "sha256": "2b3e3069098a6cf36c8dca1360586d398b995aaacd1e0ffeff9bb6652ac05413"
+    },
+    "layout/native/plugin.cpp": {
+      "bytes": 2713,
+      "sha256": "4e25db1f1a85128e87fca29d6c1a64054f4b622d488db142531f01f5c8c20ec5"
+    },
+    "layout/native/protocol.typ": {
+      "bytes": 4133,
+      "sha256": "9cd1f84b9600bb35c8eadef18e64de78991799d715d38eae4d83b184adc19a20"
+    },
+    "layout/native/build.py": {
+      "bytes": 4994,
+      "sha256": "948cfac1eb960dd5a46d2d94b634d137c24b90bb3a32fd35feb6e6b23665fd46"
+    },
+    "layout/native/embedding.hpp": {
+      "bytes": 45099,
+      "sha256": "c3dc68957ebee23bd04a3f04c6d1662f488f5c2d1d39523d46dc077c052412c9"
+    },
+    "layout/native/test_wasm.py": {
+      "bytes": 9214,
+      "sha256": "a8cd18882ee997431224360353784aecb36d4b0146bfe04ec5b656014718a654"
+    },
+    "layout/native/spqr.hpp": {
+      "bytes": 5321,
+      "sha256": "c8510a88938b96ebc7d84e260edf038d27441cc751dc1ec4a1842b69275762c8"
+    },
+    "layout/native/test_native.py": {
+      "bytes": 6925,
+      "sha256": "02d0c24310ce2b836f444915347755b8fe29deb56327d4b459037d820da90806"
+    },
+    "layout/native/LICENSE.networkx": {
+      "bytes": 1763,
+      "sha256": "6025f323ea29dc2f0ee0abd9523bf910186f55b0e148e6ebf646c55566278e2e"
+    },
+    "layout/native/coordinates.hpp": {
+      "bytes": 15285,
+      "sha256": "4195e340cdf90b7b1a375e8ffb16faf5922b280417d575239821ab65078afc21"
+    },
+    "layout/native/test_layout.cpp": {
+      "bytes": 3452,
+      "sha256": "5d4e5fc6f0db0693f4a72d6f77174103b89327db17bfdbc42a911a649f41aacf"
+    },
+    "layout/native/fixtures/seeds.json": {
+      "bytes": 122232,
+      "sha256": "f9c76706f7dc8cd3670259fbbd87483b4843c87fb062a84e45bd202a6b70c08a"
+    },
+    "layout/native/fixtures/constraints.json": {
+      "bytes": 97164,
+      "sha256": "80026d34da8f74f63ca073d6e4b79910986a45b43b49d1e3d4a3d183f02a42a1"
+    }
+  },
+  "source_patch": {
+    "path": "../linnest-patches/0001-native-svg-typed-cbor.patch",
+    "sha256": "52e1764e534d72a28cc9816fca31dd9e9b1983937765594c39187c3c5e4dd8ae",
+    "changes": [
+      "Native SVG painted command coordinates use typed Rust tuples instead of serde_json::Value when encoded as CBOR.",
+      "Native SVG collision lines stay typed through CBOR decode and subsequent search encoding.",
+      "Two regressions force serde_json arbitrary_precision and exercise actual shared CBOR decoders.",
+      "Inherited workspace/path dependencies are expanded to their existing exact pinned git owner revisions and existing version/default-feature choices."
+    ]
+  },
+  "included_upstream_paths": [
+    "Cargo.toml",
+    "layout/native/LICENSE.networkx",
+    "layout/native/fixtures/constraints.json",
+    "layout/native/fixtures/seeds.json",
+    "src/api.rs",
+    "src/bin/impred_project.rs",
+    "src/ec_seed/coordinates.rs",
+    "src/ec_seed/embedding.rs",
+    "src/ec_seed/fixtures/native_spqr.json",
+    "src/ec_seed/fixtures/split_seeds.json",
+    "src/ec_seed/mod.rs",
+    "src/ec_seed/spqr.rs",
+    "src/ec_seed/tests.rs",
+    "src/geom.rs",
+    "src/graph_api.rs",
+    "src/impred_projection.rs",
+    "src/label_placement.rs",
+    "src/lib.rs",
+    "src/pin.rs",
+    "src/streaming.rs",
+    "src/svg/config.rs",
+    "src/svg/curves.rs",
+    "src/svg/interactive.css",
+    "src/svg/interactive.js",
+    "src/svg/interactive.rs",
+    "src/svg/labels.rs",
+    "src/svg/marks.rs",
+    "src/svg/mod.rs",
+    "src/svg/output.rs",
+    "src/tests.rs",
+    "src/wasm_random.rs",
+    "typst/LICENSE"
+  ],
+  "omitted_upstream_paths": [
+    "build_assets.rs",
+    "examples/gl303.dot",
+    "examples/typst-api.typ",
+    "layout/coordinates.py",
+    "layout/ec_planarity.py",
+    "layout/geometry.py",
+    "layout/insertion.py",
+    "layout/movement.py",
+    "layout/native/CMakeLists.txt",
+    "layout/native/build.py",
+    "layout/native/coordinates.hpp",
+    "layout/native/embedding.hpp",
+    "layout/native/main.cpp",
+    "layout/native/plugin.cpp",
+    "layout/native/protocol.typ",
+    "layout/native/seed.hpp",
+    "layout/native/spqr.hpp",
+    "layout/native/test_layout.cpp",
+    "layout/native/test_native.py",
+    "layout/native/test_seed.py",
+    "layout/native/test_wasm.py",
+    "layout/planarization.py",
+    "layout/pyproject.toml",
+    "layout/seed.py",
+    "layout/solver.py",
+    "layout/uv.lock",
+    "tests/browser_svg_sizing.py",
+    "typst/LICENSE.clarabel",
+    "typst/LICENSE.ec-layout",
+    "typst/README.md",
+    "typst/docs/cut-views.typ",
+    "typst/docs/manual.pdf",
+    "typst/docs/manual.typ",
+    "typst/ec-layout.wasm",
+    "typst/examples/basketball-force-sweep.pdf",
+    "typst/examples/basketball-force-sweep.typ",
+    "typst/examples/basketball-force.pdf",
+    "typst/examples/basketball-force.typ",
+    "typst/examples/build.typ",
+    "typst/examples/draw-raw-dot.typ",
+    "typst/examples/map-style.typ",
+    "typst/examples/parallel-edges.pdf",
+    "typst/examples/parallel-edges.typ",
+    "typst/examples/play.pdf",
+    "typst/examples/play.svg",
+    "typst/examples/play.typ",
+    "typst/examples/soft-triangle.pdf",
+    "typst/examples/soft-triangle.typ",
+    "typst/examples/thrown-out.pdf",
+    "typst/examples/thrown-out.typ",
+    "typst/examples/tree-auto-root.pdf",
+    "typst/examples/tree-auto-root.typ",
+    "typst/examples/tree-stable-layered.pdf",
+    "typst/examples/tree-stable-layered.typ",
+    "typst/examples/tree.pdf",
+    "typst/examples/tree.typ",
+    "typst/examples/xbox-common.typ",
+    "typst/examples/xbox-sum.pdf",
+    "typst/examples/xbox-sum.typ",
+    "typst/linnest.wasm",
+    "typst/src/curve.typ",
+    "typst/src/draw.typ",
+    "typst/src/graph.typ",
+    "typst/src/impl/draw.typ",
+    "typst/src/impl/graph.typ",
+    "typst/src/impl/subgraph.typ",
+    "typst/src/layout.typ",
+    "typst/src/lib.typ",
+    "typst/src/render/figure.typ",
+    "typst/src/render/layout.typ",
+    "typst/src/render/network.typ",
+    "typst/src/subgraph.typ",
+    "typst/typst.toml"
+  ],
+  "omission_reason": "Only the Rust library/bin sources, native CSS/JS, required compile-time JSON test fixtures, and relevant upstream license notices are included. Prebuilt WASM/PDFs, examples, C++/Python tools, Typst source/assets and unused build_assets.rs are omitted; their original bytes remain bound by the full upstream inventory.",
+  "upstream_license": {
+    "repository_notice": "UPSTREAM_REPOSITORY_LICENSE",
+    "crate_manifest_declaration": "MIT",
+    "preserved_original_notices": [
+      "typst/LICENSE",
+      "layout/native/LICENSE.networkx"
+    ],
+    "note": "Preserve original upstream licensing statements without inventing an additional license grant."
+  },
+  "patched_files": {
+    "Cargo.toml": {
+      "bytes": 1872,
+      "sha256": "f24fadf716f51b27094da19aa76dc1755e4c4981bec5df10694c22b33d2afade"
+    },
+    "src/svg/labels.rs": {
+      "bytes": 26559,
+      "sha256": "1907ca16c1557a770926b297f23ac15102f8de369036199a9e6a974ba79ab3c5"
+    }
+  }
+}
