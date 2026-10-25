@@ -9,6 +9,14 @@ describe this handoff's historical checkpoint. Subsequent work is recorded in
 [the resumed checkpoint](docs/checkpoints/resume-20261025.md); the full objective
 is active and unchanged.
 
+**Latest resumed evidence checkpoint: 25 October 2026.** The report now has
+35 pages. Its new eight-family scheduler comparison retains all forty ratios
+but is ineligible for performance acceptance because of unrelated activity on
+the measured core's SMT sibling. No scheduler patch is adopted. The restricted
+seven-point wrapper is being tested on actual Cargo builds; its source is not
+part of this report-only checkpoint. Read the newest sections of the resumed
+checkpoint before relying on the historical status below.
+
 The first resumed implementation milestone adds the optional generated f64
 A0/B0/C0 master policy. Its current locked-Cargo builds, selected tests and
 complete triangle comparisons pass; the historical broad-backend metadata

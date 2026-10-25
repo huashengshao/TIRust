@@ -217,7 +217,7 @@ all historical measurements below retain their original source snapshots.]
   [Dotted propagators], [Generalized powers/dimension shifts have their strongest retained coverage at N≤4. The current wheel/gallery checks the dotted bubble against its mass Dual derivative.], [Scoped],
   [Example gallery], [4/4 native test methods; three successful HTML exports; all three rendered at desktop and narrow dark sizes in real Chromium.], [Passed],
   [Six / seven points], [Explicit restricted N6 rank≤3 API: isolated Float rank2/3 checks and current Cargo rank3 replay pass. A private N7 rank0 fixture now passes stable-reference and two-precision checks; broader high-point coverage remains open.], [Scoped],
-  [Performance], [Historical private selected TIRust/COLLIER: seven slower families and one short inconclusive family. No new timing or default-backend adoption.], [Unmet],
+  [Performance], [Historical private selected TIRust/COLLIER: seven slower families and one short inconclusive family. A fresh eight-family scheduler experiment is retained but ineligible because of host contention; no default adoption.], [Unmet],
 ))
 #text(size: 8.5pt)[Local Linux/Python 3.13 execution qualifies the named examples and
 focused API tests. Release distributions, other platforms, separate Community-host
@@ -2016,8 +2016,9 @@ Source: #raw("validation/routing-rational-preparation/qualification.json").
 
 The optional native policy passes the current locked-Cargo checks detailed below.
 The restricted public seven-point proposal and shared exact-master preparation
-cache remain separate candidates. Matched optimized scheduler products have
-been built; fresh numerical admission and controlled timings are still needed.
+cache remain separate candidates. Matched optimized scheduler products pass
+fresh numerical admission. Their timing cohort is retained below, with final
+performance eligibility false because of substantial sibling-core activity.
 Existing IREGI/COLLIER timings retain their contexts and TIRust-numerator ratios.
 The full goal remains active: complete N6/N7 rank/power/dimension coverage,
 high-point precision/Dual qualification, broader physical/exceptional checks
@@ -2080,3 +2081,104 @@ retain their backend behavior. The explicit six-point parent and children use
 Symbolica. Source and reproduction commands:
 #raw("validation/native-f64-sixpoint-current-cargo/qualification.json") and
 #raw("docs/native-masters.md").
+
+#pagebreak()
+= Fresh scheduler experiment: retained, ineligible
+#let fresh-scheduler = data.scheduler_four_engine_fresh_2c1_performance.snapshot
+#block(fill: amber, inset: 10pt, width: 100%)[
+  *Final performance eligibility: false.* The experiment ran on CPU 34 while
+  its SMT sibling, CPU 290, had substantial unrelated activity (69.6% non-idle
+  over the enclosing observation interval). All mathematical checks pass;
+  timing arithmetic and raw gates are retained. These measurements establish
+  no uncontended parity or production-default improvement.
+]
+
+This private comparison pins #raw("2c1f334") and generic Symbolica masters in
+the same inherited optimized dependency context for both TIRust variants.
+It does not measure the later opt-in generated f64 policy. Fourteen matched
+compiler products, captured and uncaptured complete-array admission, and
+six-process preflight pass. The earlier linker-map admission failure remains
+recorded; its five valid products were reused and nine were built subsequently.
+
+The one-shot run retains all eight massive Euclidean bubble/triangle families,
+48 balanced quartets per family, 1,768 requests and 1,600 timed replies.
+Transport lies outside the timed kernel. All six processes exit successfully
+and final controls pass. No short or noisy family is removed or rerun.
+
+== Absolute kernel times
+Medians in *µs per complete batch call*. For batch 32, divide by 32 for the
+amortized per-sample time; the machine-readable record contains both units.
+These absolute medians and the paired ratio medians on the next page are
+different statistics: ratios are not calculated by dividing this table.
+
+#report-table(table(
+  columns: (1.3fr, 1fr, 1fr, 1fr, 1fr),
+  inset: (x: 6pt, y: 12pt), stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else { pale },
+  table.header([N / rank / batch], [TIRust baseline], [TIRust candidate], [IREGI], [COLLIER]),
+  ..for r in fresh-scheduler.rows {
+    let t = r.median_ns_per_complete_batch_call
+    ([#r.n / #r.rank / #r.batch],
+     [#fixed(t.baselineTIRust / 1000, digits: 3)],
+     [#fixed(t.candidateTIRust / 1000, digits: 3)],
+     [#fixed(t.iregi / 1000, digits: 3)],
+     [#fixed(t.collier / 1000, digits: 3)])
+  },
+))
+
+The raw candidate/baseline observations include about 6% lower time for
+N2/rank0/batch32 and N3/rank1/batch32, with 2–3% singleton regressions for
+N2/rank0 and N3/rank0. This mixed result does not support globally adopting
+the scheduler candidate, even before considering contention. The production
+scheduler remains unchanged. Higher-precision and Dual performance are not
+measured in this cohort.
+
+Reproduce the saved-evidence checks without evaluating new integrals:
+#raw("python3 validation/scheduler-four-engine-fresh-2c1/verify.py").
+Then run #raw("python3 validation/scheduler-four-engine-fresh-2c1-supplement-check.py")
+to check the two historical nested manifests omitted by the original seal.
+Machine-readable source: #raw(data.scheduler_four_engine_fresh_2c1_performance.source).
+
+#pagebreak()
+= Fresh scheduler experiment: all paired ratios
+Every numerator is TIRust. *B* denotes baseline and *C* the private candidate.
+Each large cell gives the paired median and 99% bootstrap interval. Color
+shows the raw ratio only; *every cell is ineligible for final acceptance*
+because of the shared-core context. Short blocks remain amber.
+
+#let fresh-ratio-cell(r) = table.cell(
+  fill: if r.gate == "inconclusive-short-block" { amber } else { ratio-fill(r.median) }, {
+    set par(leading: 0.25em, justify: false)
+    text(size: 11pt, weight: "bold")[#fixed(r.median, digits: 3)]
+    linebreak()
+    text(size: 6.3pt)[#fixed(r.ci99.at(0), digits: 3)–#fixed(r.ci99.at(1), digits: 3)]
+    linebreak()
+    text(size: 6.5pt, if r.gate == "inconclusive-short-block" { "Short block" }
+      else if r.gate == "inconclusive-noise" { "Noise" }
+      else if r.gate == "regression" { "Slower" }
+      else if r.gate == "improvement" { "Lower time" } else { r.gate })
+  },
+)
+#report-table(table(
+  columns: (1.05fr, 1fr, 1fr, 1fr, 1fr, 1fr),
+  inset: (x: 4pt, y: 12pt), stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else { none },
+  table.header([N / rank / batch], [B / IREGI], [C / IREGI], [B / COLLIER], [C / COLLIER], [C / B]),
+  ..for r in fresh-scheduler.rows {
+    ([#r.n / #r.rank / #r.batch], ..r.raw_ratios.map(fresh-ratio-cell))
+  },
+))
+
+Raw gates: *12 regressions, 16 noise-inconclusive, 10 short-block-inconclusive
+and 2 improvements*. The short families are N2/rank1/batch32 (one short
+block) and N3/rank0/batch32 (50 short blocks). The unchanged minimum block
+duration is 100 ms. All 384 quartets and all 40 confidence intervals remain
+available, including these failures of timing admission.
+
+Independent saved-data review reproduces the numerical admissions, complete
+request accounting, quartet orders and all ratio arithmetic. A separate
+environment review sets final acceptance false without rewriting raw gates.
+A future cohort needs fresh placement checks and a new measurement protocol;
+no extrapolation to current native-policy or high-point performance is made.
+
+Source and full scope: #raw(data.scheduler_four_engine_fresh_2c1_qualification.source).
