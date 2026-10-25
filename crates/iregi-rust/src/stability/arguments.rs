@@ -33,11 +33,20 @@ impl ArgumentStabilityPlan {
         parameters: &[Atom],
         polynomials: &[Atom],
     ) -> Result<Self, ReductionError> {
+        // The original explicit variable map rejected even unused non-symbol
+        // declarations. Keep that boundary when discovering only used variables.
+        if parameters.iter().any(|parameter| !matches!(parameter.as_view(), symbolica::atom::AtomView::Var(_))) {
+            return Err(ReductionError::Preparation(
+                "argument conditioning requires symbolic input parameters".into(),
+            ));
+        }
         let mut expressions = Vec::with_capacity(polynomials.len());
         let mut operations = Vec::with_capacity(polynomials.len());
         for expression in polynomials {
             let polynomial = expression
-                .try_to_polynomial::<_, u32>(&Q, parameters)
+                // Symbolica discovers the actual polynomial indeterminates. Imported
+                // tensor values remain evaluator inputs, not zero-exponent axes.
+                .try_to_polynomial::<_, u32>(&Q, None)
                 .map_err(|error| ReductionError::Preparation(error.to_string()))?;
             if polynomial.variables().iter().any(|variable| {
                 !matches!(variable, PolyVariable::Symbol(symbol) if parameters.contains(&Atom::var(*symbol)))
@@ -371,5 +380,159 @@ mod tests {
                 .unwrap()
                 .contains("Taylor component 2")
         );
+    }
+
+    #[test]
+    fn sparse_distance_polynomials_preserve_full_reordered_parameter_and_mixed_jet_layout() {
+        let x = Atom::var(symbolica::symbol!("iregi_argument_sparse_width::x"));
+        let y = Atom::var(symbolica::symbol!("iregi_argument_sparse_width::y"));
+        let small_parameters = vec![x.clone(), y.clone()];
+        // Match the observed N7 parent width without giving the polynomial
+        // converter thousands of unused monomial coordinates. The evaluator still
+        // receives every declared parameter in its original, unreduced layout.
+        let mut wide_parameters = (0..21_202)
+            .map(|i| {
+                Atom::var(symbolica::symbol!(format!(
+                    "iregi_argument_sparse_width::imported_{i}"
+                )))
+            })
+            .collect::<Vec<_>>();
+        let y_position = 1_023;
+        let x_position = 21_190;
+        wide_parameters.insert(y_position, y.clone());
+        wide_parameters.insert(x_position, x.clone());
+        assert_eq!(wide_parameters.len(), 21_204);
+        assert_eq!(wide_parameters[y_position], y);
+        assert_eq!(wide_parameters[x_position], x);
+        let distance = (&x - &y).pow(2)
+            + Atom::num(Rational::from((3, 4))) * &x
+            + Atom::num(Rational::from((5, 8)));
+        let polynomials = [distance.clone(), Atom::num(Rational::from((7, 16))) * &distance];
+        let small = ArgumentStabilityPlan::prepare(&small_parameters, &polynomials).unwrap();
+        let wide = ArgumentStabilityPlan::prepare(&wide_parameters, &polynomials).unwrap();
+        assert_eq!(wide.expressions(), small.expressions());
+        assert_eq!(wide.operations, small.operations);
+
+        // Ordered mixed plus second-order jets: primal, u, t, tu, t^2.
+        // Symbolica supplies every Taylor convolution; no derivative formula is
+        // implemented in the test or in the conditioning preparation path.
+        let shape = vec![vec![0, 0], vec![0, 1], vec![1, 0], vec![1, 1], vec![2, 0]];
+        let components = shape.len();
+        let compile = |plan: &ArgumentStabilityPlan, parameters: &[Atom]| {
+            let exact: ExpressionEvaluator<Complex<Rational>> =
+                Atom::evaluator_multiple(plan.expressions(), parameters)
+                    .direct_translation(true)
+                    .horner_iterations(0)
+                    .cores(1)
+                    .build()
+                    .unwrap();
+            exact
+                .vectorize(&Dualizer::new(
+                    HyperDual::<Complex<Rational>>::new(shape.clone()),
+                    Vec::new(),
+                ))
+                .unwrap()
+        };
+        let prototype = Float::new(128);
+        let numeric = |value: &Complex<Rational>| {
+            Complex::new(
+                prototype.from_rational(&value.re),
+                prototype.from_rational(&value.im),
+            )
+        };
+        let mut small_exact = compile(&small, &small_parameters);
+        let mut small_numeric = compile(&small, &small_parameters)
+            .map_coeff_with_prec(&numeric, 128)
+            .into_batch_evaluator();
+        let mut wide_numeric = compile(&wide, &wide_parameters)
+            .map_coeff_with_prec(&numeric, 128)
+            .into_batch_evaluator();
+        let rows = 3;
+        let mut small_input = Vec::with_capacity(rows * 2 * components);
+        let mut wide_input = Vec::with_capacity(rows * wide_parameters.len() * components);
+        for lane in 0..rows {
+            let jet = |parameter: usize| {
+                (0..components)
+                    .map(|component| {
+                        // Exactly represented dyadic inputs, including nonzero
+                        // imaginary/mixed/higher coefficients and distinct lanes.
+                        let re = Rational::from((
+                            (2 + 3 * lane + 5 * parameter + component) as i64,
+                            1i64 << (component + 1),
+                        ));
+                        let im = Rational::from((
+                            (1 + lane + parameter + 2 * component) as i64,
+                            1i64 << (component + 3),
+                        ));
+                        Complex::new(re, im)
+                    })
+                    .collect::<Vec<_>>()
+            };
+            let x_jet = jet(0);
+            let y_jet = jet(1);
+            small_input.extend(x_jet.iter().cloned());
+            small_input.extend(y_jet.iter().cloned());
+            for position in 0..wide_parameters.len() {
+                if position == x_position {
+                    wide_input.extend(x_jet.iter().cloned());
+                } else if position == y_position {
+                    wide_input.extend(y_jet.iter().cloned());
+                } else {
+                    // Unused imports are deliberately nonzero and lane-dependent;
+                    // a mistaken compact-input offset cannot hide behind zeros.
+                    wide_input.extend(jet(2 + position % 17));
+                }
+            }
+        }
+        let small_float_input = small_input.iter().map(&numeric).collect::<Vec<_>>();
+        let wide_float_input = wide_input.iter().map(&numeric).collect::<Vec<_>>();
+        let output_len = rows * polynomials.len() * components;
+        let exact_zero = Complex::new(Rational::from(0), Rational::from(0));
+        let mut exact_output = vec![exact_zero.clone(); output_len];
+        let mut small_output = vec![numeric(&exact_zero); output_len];
+        let mut wide_output = small_output.clone();
+        // Symbolica's exact ring evaluator supplies the independent expected
+        // Taylor values; Float evaluation below remains batched across all lanes.
+        let exact_field = symbolica::domains::float::FloatField::from_rep(exact_zero);
+        for (input, output) in small_input.chunks_exact(2 * components).zip(
+            exact_output.chunks_exact_mut(polynomials.len() * components),
+        ) {
+            small_exact.evaluate_in_ring(input, output, &exact_field);
+        }
+        small_numeric
+            .evaluate_batch(&small_float_input, &mut small_output, rows)
+            .unwrap();
+        wide_numeric
+            .evaluate_batch(&wide_float_input, &mut wide_output, rows)
+            .unwrap();
+        for ((small, wide), exact) in small_output.iter().zip(&wide_output).zip(&exact_output) {
+            assert_eq!(small.re.exact_rational(), Some(exact.re.clone()));
+            assert_eq!(small.im.exact_rational(), Some(exact.im.clone()));
+            assert_eq!(wide.re.exact_rational(), Some(exact.re.clone()));
+            assert_eq!(wide.im.exact_rational(), Some(exact.im.clone()));
+        }
+        assert!(
+            exact_output
+                .iter()
+                .any(|value| value.re != Rational::from(0))
+        );
+        assert!(
+            exact_output
+                .iter()
+                .any(|value| value.im != Rational::from(0))
+        );
+
+        // Automatic polynomial variables must not widen the accepted source
+        // language or silently accept an invalid unused parameter declaration.
+        let z = Atom::var(symbolica::symbol!(
+            "iregi_argument_sparse_width::undeclared"
+        ));
+        let function = symbolica::symbol!("iregi_argument_sparse_width::f").call((&x,));
+        for invalid in [&x + &z, function, x.pow(-1)] {
+            assert!(ArgumentStabilityPlan::prepare(&small_parameters, &[invalid]).is_err());
+        }
+        let mut invalid_parameters = small_parameters.clone();
+        invalid_parameters.push(&x + &y);
+        assert!(ArgumentStabilityPlan::prepare(&invalid_parameters, &polynomials).is_err());
     }
 }

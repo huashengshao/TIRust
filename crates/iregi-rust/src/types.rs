@@ -173,6 +173,9 @@ pub(crate) struct PrimalEnvelope<T: FloatLike> {
     pub accuracy_bits: u32,
     pub operands: Vec<PrimalOperand<T>>,
     pub output_primals: Vec<Complex<T>>,
+    /// Dense opt-in full-Taylor sensitivity, never differentiated ABS data.
+    pub component_amplitudes: Option<Vec<Complex<T>>>,
+    pub output_components: Option<Vec<Complex<T>>>,
     pub routes: Vec<PrimalEnvelopeRoute>,
 }
 
@@ -265,6 +268,41 @@ impl<T: iregi_masters::NativeFloat> BatchResult<T> {
         Ok(envelope)
     }
 
+    pub(crate) fn validated_component_amplitudes(
+        &self,row:usize,working_precision:u32,accuracy_bits:u32,
+    )->Result<&[Complex<T>],String> {
+        let envelope=self.validated_primal_envelope(row,working_precision,accuracy_bits)?;
+        self.component_amplitudes_from(row,envelope)
+    }
+
+    fn component_amplitudes_from<'a>(
+        &self,row:usize,envelope:&'a PrimalEnvelope<T>,
+    )->Result<&'a [Complex<T>],String> {
+        let outputs=self.basis.len().checked_mul(4)
+            .and_then(|n|n.checked_mul(self.components)).ok_or("component sensitivity size overflow")?;
+        let amplitudes=envelope.component_amplitudes.as_ref()
+            .ok_or("successful route has no supported full-component sensitivity transport")?;
+        let saved=envelope.output_components.as_ref()
+            .ok_or("full-component sensitivity is missing its coupled output snapshot")?;
+        if amplitudes.len()!=outputs || saved.len()!=outputs {
+            return Err("full-component sensitivity dimensions differ from result".into());
+        }
+        for (index,(amplitude,saved)) in amplitudes.iter().zip(saved).enumerate() {
+            if !crate::stability::components::valid_amplitude(amplitude) {
+                return Err("full-component sensitivity has an invalid amplitude".into());
+            }
+            let actual=&self.values[row*outputs+index];
+            if saved.re!=actual.re || saved.im!=actual.im
+                || saved.re.get_precision()!=actual.re.get_precision()
+                || saved.im.get_precision()!=actual.im.get_precision()
+                || saved.re.negative_sign()!=actual.re.negative_sign()
+                || saved.im.negative_sign()!=actual.im.negative_sign() {
+                return Err("full-component sensitivity does not describe a returned Taylor coefficient".into());
+            }
+        }
+        Ok(amplitudes)
+    }
+
     /// Reject missing, stale or differently interpreted private context. This
     /// accessor does not change the ordinary result's success/failure contract.
     pub(crate) fn primal_envelope(&self, row: usize) -> Result<&PrimalEnvelope<T>, String> {
@@ -308,9 +346,14 @@ impl<T: iregi_masters::NativeFloat> BatchResult<T> {
             if saved.re != actual.re || saved.im != actual.im
                 || saved.re.get_precision() != actual.re.get_precision()
                 || saved.im.get_precision() != actual.im.get_precision()
+                || saved.re.negative_sign() != actual.re.negative_sign()
+                || saved.im.negative_sign() != actual.im.negative_sign()
             {
                 return Err("primal envelope does not describe the returned coefficient".into());
             }
+        }
+        if envelope.component_amplitudes.is_some() || envelope.output_components.is_some() {
+            self.component_amplitudes_from(row,envelope)?;
         }
         Ok(envelope)
     }
@@ -376,6 +419,7 @@ mod primal_envelope_tests {
             }).collect(),
             output_primals: (0..outputs)
                 .map(|index| values[(row * outputs + index) * components].clone()).collect(),
+            component_amplitudes:None,output_components:None,
             routes: vec![PrimalEnvelopeRoute::Ordinary],
         })).collect();
         BatchResult {
@@ -508,7 +552,7 @@ mod primal_envelope_tests {
             operands: (0..4).map(|output_index| PrimalOperand {
                 output_index, amplitude: amplitude.clone(), kind: PrimalOperandKind::UncancelledMasters,
             }).collect(),
-            output_primals: vec![value.clone(); 4], routes: vec![PrimalEnvelopeRoute::Ordinary],
+            output_primals: vec![value.clone(); 4],component_amplitudes:None,output_components:None, routes: vec![PrimalEnvelopeRoute::Ordinary],
         };
         let source = BatchResult {
             basis, metadata, components: 1, values: vec![value; 4],
@@ -523,4 +567,75 @@ mod primal_envelope_tests {
         target.values[0].re = Float::with_val(64, 3);
         assert!(target.primal_envelope(0).unwrap_err().contains("returned coefficient"));
     }
+    #[test]
+    fn full_component_context_rejects_missing_stale_and_invalid_derivative_operands() {
+        let shape=vec![vec![0,0],vec![1,0],vec![0,1],vec![2,0],vec![1,1],vec![0,2]];
+        let mut source=fixture(1,Some(shape));
+        assert!(source.validated_component_amplitudes(0,53,53).is_err());
+        let snapshot=source.values.clone();
+        let expected=source.basis.len()*4*source.components;
+        let envelope=source.primal_envelopes[0].as_mut().unwrap();
+        envelope.output_components=Some(snapshot);
+        envelope.component_amplitudes=Some(vec![Complex::new(7.,0.);expected]);
+        assert_eq!(source.validated_component_amplitudes(0,53,53).unwrap().len(),expected);
+        for mutation in 0..5 {
+            let mut bad=source.clone();
+            match mutation {
+                0=>bad.values[4].re+=1., // mixed derivative; primal unchanged
+                1=>bad.primal_envelopes[0].as_mut().unwrap().component_amplitudes.as_mut().unwrap()[4].re=-1.,
+                2=>{bad.primal_envelopes[0].as_mut().unwrap().output_components.as_mut().unwrap().pop();},
+                3=>bad.primal_envelopes[0].as_mut().unwrap().component_amplitudes.as_mut().unwrap()[4].im=1.,
+                _=>bad.primal_envelopes[0].as_mut().unwrap().output_components=None,
+            }
+            assert!(bad.validated_component_amplitudes(0,53,53).is_err(),"mutation {mutation}");
+        }
+        let mut destination=source.clone();
+        destination.inherit_primal_envelope(0,&source,0,PrimalEnvelopeRoute::Hybrid);
+        assert_eq!(destination.validated_component_amplitudes(0,53,53).unwrap(),
+            source.validated_component_amplitudes(0,53,53).unwrap());
+        assert_eq!(destination.primal_envelope(0).unwrap().routes,
+            [PrimalEnvelopeRoute::Ordinary,PrimalEnvelopeRoute::Hybrid]);
+    }
+
+    #[test]
+    fn full_component_context_binds_nonprimal_float_precision() {
+        let value=Complex::new(Float::with_val(192,3),Float::new(192));
+        let amplitude=Complex::new(Float::with_val(80,1000),Float::new(96));
+        let basis=vec![Monomial([0;4])];
+        let metadata=ResultMetadata::new(Convention::IregiNative,TensorWeights::Components,
+            Some(vec![vec![0],vec![1],vec![2]]));
+        let values=vec![value.clone();12];
+        let envelope=PrimalEnvelope {basis:basis.clone(),metadata:metadata.clone(),components:3,
+            working_precision:256,accuracy_bits:53,
+            operands:(0..4).map(|output_index|PrimalOperand {output_index,amplitude:amplitude.clone(),
+                kind:PrimalOperandKind::UncancelledMasters}).collect(),
+            output_primals:vec![value;4],component_amplitudes:Some(vec![amplitude;12]),
+            output_components:Some(values.clone()),routes:vec![PrimalEnvelopeRoute::Ordinary]};
+        let mut result=BatchResult {basis,components:3,metadata,values,statuses:vec![LaneStatus::Success],
+            fallback_used:vec![false],analytic_used:vec![false],primal_envelopes:vec![Some(envelope)],
+            primal_envelope_errors:vec![None]};
+        let amplitudes=result.validated_component_amplitudes(0,256,53).unwrap();
+        assert_eq!(amplitudes[1].re.get_precision(),80);
+        result.values[1].re=Float::with_val(64,3);
+        assert!(result.validated_component_amplitudes(0,256,53).unwrap_err().contains("returned Taylor"));
+    }
+
+    #[test]
+    fn full_component_context_binds_signed_zero_in_primals_and_higher_jets() {
+        for (component,imaginary) in [(0,false),(0,true),(1,false),(2,true)] {
+            let mut source=fixture(1,Some(vec![vec![0],vec![1],vec![2]]));
+            let index=3*3+component;
+            if imaginary {source.values[index].im=0.;} else {source.values[index].re=0.;}
+            let snapshot=source.values.clone();
+            let expected=source.basis.len()*4*source.components;
+            let envelope=source.primal_envelopes[0].as_mut().unwrap();
+            envelope.output_primals=snapshot.chunks_exact(3).map(|jet|jet[0]).collect();
+            envelope.output_components=Some(snapshot);
+            envelope.component_amplitudes=Some(vec![Complex::new(1.,0.);expected]);
+            assert!(source.validated_component_amplitudes(0,53,53).is_ok());
+            if imaginary {source.values[index].im=-0.;} else {source.values[index].re=-0.;}
+            assert!(source.validated_component_amplitudes(0,53,53).is_err(),"component {component}, imaginary {imaginary}");
+        }
+    }
+
 }

@@ -11,8 +11,9 @@ as successful cases.
 
 Development resumed on 25 October 2026 from the committed
 [handoff](HANDOFF.md). The [current checkpoint](docs/checkpoints/resume-20261025.md)
-tracks subsequent validation and integration. Rank-seven correctness is the
-current priority. The explicit six-point API reaches rank seven with complete
+tracks subsequent validation and integration. The accepted completion target is
+all agreed features through six points and rank six, including dots; further
+optimization is separate work. The explicit six-point API reaches rank seven with complete
 retained Float-array checks against higher-precision original IREGI; seven-point
 tensors and broader domains remain under validation. Historical scheduler
 experiments remain separate from the default reducer.

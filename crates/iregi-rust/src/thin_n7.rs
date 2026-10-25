@@ -82,6 +82,8 @@ pub(crate) struct ThinSevenWorkspace<T: NativeFloat> {
     parent: Workspace<T>,
     stats: SevenPointExecutionStats,
     diagnostics: Vec<Vec<String>>,
+    #[cfg(test)]
+    pub(crate) component_probe_children: Option<Box<BatchResult<T>>>,
 }
 
 impl<T: NativeFloat> ThinSevenWorkspace<T>
@@ -102,6 +104,7 @@ where
             parent,
             stats: Default::default(),
             diagnostics: Vec::new(),
+            #[cfg(test)] component_probe_children: None,
         })
     }
 
@@ -142,6 +145,7 @@ where
             parent,
             stats: Default::default(),
             diagnostics: Vec::new(),
+            #[cfg(test)] component_probe_children: None,
         })
     }
 
@@ -178,6 +182,7 @@ where
             ..Default::default()
         };
         self.diagnostics.clear();
+        #[cfg(test)] { self.component_probe_children = None; }
         let input_width = checked_product(36, self.components)?;
         if self.components == 0
             || batch.components != self.components
@@ -279,6 +284,9 @@ where
             &self.metadata,
             child_input.rows,
         )?;
+        #[cfg(test)] if self.components > 1 {
+            self.component_probe_children = Some(Box::new(children.clone()));
+        }
         let imported_slots = checked_product(21, checked_product(self.child_basis.len(), 4)?)?;
         let parent_width = checked_product(
             36usize
@@ -320,20 +328,22 @@ where
                 );
             }
             for subset in 0..21 {
-                let envelope = children
-                    .validated_primal_envelope(
-                        subset * active.len() + compact,
-                        self.prototype.get_precision(),
-                        self.accuracy_bits,
-                    )
-                    .expect("validated required child envelope");
-                for operand in &envelope.operands {
-                    parent_input.values.push(operand.amplitude.clone());
-                    // ABS sensitivities are primal-only estimates. The actual
-                    // value jets still pass through all parent local guards.
-                    parent_input
-                        .values
-                        .extend(std::iter::repeat_n(zero.clone(), self.components - 1));
+                let child_row = subset * active.len() + compact;
+                if self.components > 1 {
+                    // These are separately prepared, positive Taylor sensitivity
+                    // operands, never derivatives of the primal ABS estimate.
+                    parent_input.values.extend_from_slice(
+                        children.validated_component_amplitudes(
+                            child_row, self.prototype.get_precision(), self.accuracy_bits,
+                        ).expect("validated required child component context"),
+                    );
+                } else {
+                    let envelope = children.validated_primal_envelope(
+                        child_row, self.prototype.get_precision(), self.accuracy_bits,
+                    ).expect("validated required child envelope");
+                    for operand in &envelope.operands {
+                        parent_input.values.push(operand.amplitude.clone());
+                    }
                 }
             }
         }
@@ -433,11 +443,19 @@ fn inspect_required_children<T: NativeFloat>(
         let failure = match children.statuses[row] {
             LaneStatus::Success => children
                 .validated_primal_envelope(row, working_bits, accuracy_bits)
+                .and_then(|_| {
+                    if children.components > 1 {
+                        children.validated_component_amplitudes(row, working_bits, accuracy_bits)
+                            .map(|_| ())
+                    } else {
+                        Ok(())
+                    }
+                })
                 .err(),
             ref status => Some(format!("{status:?}")),
         };
         if state.failure.is_none() {
-            state.failure = failure.map(|error| format!("N5 subset {subset}: required child or actual-route primal context unavailable: {error}"));
+            state.failure = failure.map(|error| format!("N5 subset {subset}: required child or actual-route sensitivity context unavailable: {error}"));
         }
     }
     state
@@ -497,3 +515,7 @@ impl<D: DualNumberStructure> DualNumberStructure for BorrowedDual<'_, D> {
 
 #[cfg(test)]
 mod tests;
+
+// Private ignored correctness probe; does not expand the public N7 domain.
+#[cfg(test)]
+mod numeric_probe;

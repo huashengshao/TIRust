@@ -39,6 +39,9 @@ pub struct SixPointExecutionStats {
 pub(crate) struct ThinSixWorkspace<T:NativeFloat> {
     prototype:T, accuracy_bits:u32, components:usize, metadata:ResultMetadata, basis:Vec<Monomial>,
     child:Workspace<T>, parent:Workspace<T>, child_basis:Vec<Monomial>, stats:SixPointExecutionStats, diagnostics:Vec<Vec<String>>,
+    // Only private ignored tests may retain a numerical child observation.
+    #[cfg(test)]
+    pub(crate) component_probe_children: Option<Box<BatchResult<T>>>,
 }
 impl<T:NativeFloat> ThinSixWorkspace<T> where Complex<T>:EvaluationDomain {
     pub fn new(plan:&ThinSixReductionPlan,prototype:T)->Result<Self,ReductionError> {
@@ -46,7 +49,9 @@ impl<T:NativeFloat> ThinSixWorkspace<T> where Complex<T>:EvaluationDomain {
         let parent=Workspace::new_with_policies(&plan.parent,prototype.clone(),WorkspacePolicy::RETAIN_ENVELOPES,MasterExecutionPolicy::Symbolica)?;
         Ok(Self{accuracy_bits:prototype.get_precision(),prototype,components:1,
             metadata:ResultMetadata::new(Convention::IregiNative,TensorWeights::Components,None),
-            basis:plan.basis().to_vec(),child_basis:plan.child.basis().to_vec(),child,parent,stats:Default::default(),diagnostics:Vec::new()})
+            basis:plan.basis().to_vec(),child_basis:plan.child.basis().to_vec(),child,parent,stats:Default::default(),diagnostics:Vec::new(),
+            #[cfg(test)] component_probe_children:None,
+        })
     }
     pub fn new_dual<D:DualNumberStructure>(plan:&ThinSixReductionPlan,prototype:T,dual:D)->Result<Self,ReductionError> {
         iregi_masters::validate_dual_structure(&dual).map_err(|error|ReductionError::Preparation(error.to_string()))?;
@@ -59,7 +64,9 @@ impl<T:NativeFloat> ThinSixWorkspace<T> where Complex<T>:EvaluationDomain {
         let parent=Workspace::new_dual_with_policies(&parent_plan,prototype.clone(),BorrowedDual(&dual),WorkspacePolicy::RETAIN_ENVELOPES,MasterExecutionPolicy::Symbolica)?;
         Ok(Self{accuracy_bits:prototype.get_precision(),prototype,components:shape.len(),
             metadata:ResultMetadata::new(Convention::IregiNative,TensorWeights::Components,Some(shape)),
-            basis:plan.basis().to_vec(),child_basis:plan.child.basis().to_vec(),child,parent,stats:Default::default(),diagnostics:Vec::new()})
+            basis:plan.basis().to_vec(),child_basis:plan.child.basis().to_vec(),child,parent,stats:Default::default(),diagnostics:Vec::new(),
+            #[cfg(test)] component_probe_children:None,
+        })
     }
     pub fn set_accuracy_precision(&mut self,bits:u32)->Result<(),ReductionError> {
         if bits==0 || bits>self.prototype.get_precision() { return Err(ReductionError::InvalidInput("invalid thin N6 accuracy precision".into())); }
@@ -73,6 +80,7 @@ impl<T:NativeFloat> ThinSixWorkspace<T> where Complex<T>:EvaluationDomain {
     pub fn reduce_batch(&mut self,batch:&KinematicsBatch<T>)->Result<BatchResult<T>,ReductionError> {
         self.stats=SixPointExecutionStats{parent_input_rows:batch.rows,..Default::default()};
         self.diagnostics.clear();
+        #[cfg(test)] { self.component_probe_children=None; }
         let input_width=31usize.checked_mul(self.components).ok_or_else(||ReductionError::InvalidInput("thin N6 dimensions overflow".into()))?;
         if self.components==0 || batch.components!=self.components || batch.rows.checked_mul(input_width)!=Some(batch.values.len()) {
             return Err(ReductionError::InvalidInput("thin N6 input dimensions do not match plan".into()));
@@ -116,6 +124,7 @@ impl<T:NativeFloat> ThinSixWorkspace<T> where Complex<T>:EvaluationDomain {
         }}
         let children=children?;
         validate_result_layout(&children, &self.child_basis, self.components, &self.metadata, child_input.rows)?;
+        #[cfg(test)] if self.components>1 {self.component_probe_children=Some(Box::new(children.clone()));}
         let mut parent_input=KinematicsBatch{rows:0,components:self.components,values:Vec::new()};
         let mut parent_lanes=Vec::new();
         for (compact,&lane) in active.iter().enumerate() {
@@ -131,6 +140,11 @@ impl<T:NativeFloat> ThinSixWorkspace<T> where Complex<T>:EvaluationDomain {
                 if let Err(error)=children.validated_primal_envelope(child_row,self.prototype.get_precision(),self.accuracy_bits) {
                     if failure.is_none() {failure=Some(format!("N5 subset {subset}: unavailable actual-route primal context: {error}"));}
                 }
+                if self.components>1 {
+                    if let Err(error)=children.validated_component_amplitudes(child_row,self.prototype.get_precision(),self.accuracy_bits) {
+                        if failure.is_none() {failure=Some(format!("N5 subset {subset}: unavailable actual-route component sensitivity: {error}"));}
+                    }
+                }
             }
             if let Some(error)=failure {self.diagnostics[lane].push(error.clone());result.statuses[lane]=LaneStatus::Unstable(error);continue;}
             parent_lanes.push(lane);parent_input.rows+=1;
@@ -138,9 +152,11 @@ impl<T:NativeFloat> ThinSixWorkspace<T> where Complex<T>:EvaluationDomain {
             for subset in 0..6 {parent_input.values.extend_from_slice(children.lane(subset*active.len()+compact).expect("verified child success"));}
             for subset in 0..6 {
                 let envelope=children.validated_primal_envelope(subset*active.len()+compact,self.prototype.get_precision(),self.accuracy_bits).expect("verified child envelope");
-                for operand in &envelope.operands {
-                    parent_input.values.push(operand.amplitude.clone());
-                    parent_input.values.extend(std::iter::repeat_n(zero.clone(),self.components-1));
+                if self.components>1 {
+                    parent_input.values.extend_from_slice(children.validated_component_amplitudes(
+                        subset*active.len()+compact,self.prototype.get_precision(),self.accuracy_bits).expect("verified component context"));
+                } else {
+                    for operand in &envelope.operands {parent_input.values.push(operand.amplitude.clone());}
                 }
             }
         }
@@ -202,6 +218,7 @@ mod tests {
             metadata:ResultMetadata::new(Convention::IregiNative,TensorWeights::Components,None),
             basis:vec![Monomial([0;4])],child_basis:vec![Monomial([0;4])],
             child:scratch.clone(),parent:scratch,stats:Default::default(),diagnostics:Vec::new(),
+            component_probe_children:None,
         };
         for (rows,input_components,stored_components) in [
             (1,0,1),(1,usize::MAX,1),(usize::MAX,1,1),(usize::MAX/31,1,1),
@@ -285,3 +302,8 @@ mod tests {
 #[cfg(test)]
 #[path="thin_n6/generic_tests.rs"]
 mod generic_tests;
+
+// Private capture only. This never exposes a public highpoint Dual constructor.
+#[cfg(test)]
+#[path = "thin_n6/component_numeric_probe.rs"]
+mod component_numeric_probe;

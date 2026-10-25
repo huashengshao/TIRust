@@ -47,9 +47,13 @@ type ChartKey = (usize, u8);
 type ChartCache = Arc<Mutex<HashMap<ChartKey, Prepared<ReductionPlan>>>>;
 type CertificateCache = Arc<Mutex<HashMap<Shape, Prepared<ExactZeroConstraintPlan>>>>;
 
-/// Checked PV reduction for planar N=5 Cartesian tensors of rank at most seven.
+/// Checked reduction for planar N=5 Cartesian integrals.
 ///
-/// Unit powers, D=4-2epsilon, preserved inputs and the PV algorithm are required.
+/// The ordinary PV interface accepts unit powers in D=4-2epsilon through rank
+/// seven. A separate scalar-only domain accepts D=4 or D=6, at most one doubled
+/// propagator, and at least one dimension/power shift. Those generalized scalar
+/// requests use the exact constant-one identity and IBP for its pinches,
+/// independently of the requested algorithm. Inputs are always preserved.
 /// A sample without a regular constant-one chart is reported as unstable; this
 /// includes lower-rank and homogeneous-only families. A transverse Dual jet is
 /// rejected whenever it leaves the planar variety at a requested Taylor order.
@@ -84,16 +88,11 @@ impl CertifiedPlanarReductionPlan {
     }
 
     fn prepare(settings: ReductionSettings, cofactor_masks: bool) -> Result<Self, ReductionError> {
-        if settings.propagators != 5
-            || settings.rank > 7
-            || settings.powers != [1; 5]
-            || settings.dimension_shift != 0
-            || settings.algorithm != Algorithm::PassarinoVeltman
-            || settings.invariants != InvariantInput::FromShifts
-            || settings.input_policy != InputPolicy::Preserve
+        if !settings_supported(&settings)
+            || (cofactor_masks && generalized_scalar_settings(&settings))
         {
             return Err(ReductionError::Unsupported(
-                "certified planar reduction requires five preserved Cartesian propagators, rank at most seven, unit powers, D=4, and PV".into(),
+                "certified planar reduction requires preserved Cartesian N=5 inputs and either ordinary rank<=7 D4 unit-power PV, or scalar D4/D6 with at most one doubled propagator; generalized six-point child masks are unsupported".into(),
             ));
         }
         let shifts: Vec<[Atom; 4]> = (0..5)
@@ -678,6 +677,28 @@ where
         workspace.set_profiling(self.profiling);
         Ok(workspace)
     }
+}
+
+/// Deliberately narrow generalized domain, separate from ordinary tensor PV.
+/// No support is inferred from the scalar compiler's wider request types.
+pub(crate) fn generalized_scalar_settings(settings: &ReductionSettings) -> bool {
+    settings.rank == 0
+        && (0..=1).contains(&settings.dimension_shift)
+        && settings.powers.len() == 5
+        && settings.powers.iter().all(|&power| (1..=2).contains(&power))
+        && settings.powers.iter().filter(|&&power| power == 2).count() <= 1
+        && (settings.dimension_shift != 0 || settings.powers.iter().any(|&power| power != 1))
+}
+
+pub(crate) fn settings_supported(settings: &ReductionSettings) -> bool {
+    settings.propagators == 5
+        && settings.invariants == InvariantInput::FromShifts
+        && settings.input_policy == InputPolicy::Preserve
+        && ((settings.rank <= 7
+            && settings.powers == [1; 5]
+            && settings.dimension_shift == 0
+            && settings.algorithm == Algorithm::PassarinoVeltman)
+            || generalized_scalar_settings(settings))
 }
 
 fn variable(name: &str) -> Atom {
@@ -1548,4 +1569,27 @@ mod tests {
 
     include!("certified_planar/public_api_tests.rs");
     include!("certified_planar/mask_tests.rs");
+
+    #[test]
+    fn generalized_scalar_certification_retains_full_mixed_taylor_constraints() {
+        let shape=Some(vec![vec![0,0],vec![0,1],vec![1,0],vec![1,1],vec![2,0],vec![0,2]]);
+        let components=6;
+        let tangent=row(&0.,&points(),components);
+        let mut transverse=tangent.clone();
+        // Same primal and same first derivatives, different mixed component.
+        transverse[16*components+3].re=1.;
+        let input=exact_row(&[tangent,transverse].concat());
+        for (h,dotted) in [(1,None),(0,Some(0)),(1,Some(4))] {
+            let mut configuration=settings(0);
+            configuration.dimension_shift=h;
+            if let Some(index)=dotted { configuration.powers[index]=2; }
+            let plan=CertifiedPlanarReductionPlan::new(configuration).unwrap();
+            let mut certificate=plan.certificate(&shape).unwrap().instantiate();
+            let selection=vec![(0..components).map(|component|(0,component)).collect();2];
+            let result=certificate.check_selected_batch(&input,2,&selection).unwrap();
+            assert_eq!(result[0],ExactZeroCertificate::Zero);
+            assert_eq!(result[1],ExactZeroCertificate::Nonzero {constraint:0,component:3});
+        }
+    }
+
 }

@@ -42,6 +42,7 @@ use crate::{
     plan::{ReductionPlan, ZeroInvariantProfile},
     stability::{
         GuardContext, StabilityPlan, arguments::ArgumentStabilityPlan,
+        components::{ComponentSensitivityRecipe, ComponentSensitivityWorkspace},
         master_argument_precision_failure, quadrature::QuadratureStabilityPlan,
     },
     types::{
@@ -590,6 +591,7 @@ pub(crate) struct PreparedExecution {
     snapping_zero_image: bool,
     stability: Arc<StabilityPlan>,
     quadrature: Option<PreparedQuadrature>,
+    component_sensitivity: Option<Arc<ComponentSensitivityRecipe>>,
     masters: Vec<PreparedMasterGroup>,
     fallback: Option<Arc<PreparedExecution>>,
     lightlike_equal: Option<Arc<PreparedExecution>>,
@@ -696,11 +698,25 @@ impl PreparedExecution {
         let distance_zeros = if distance_polynomials.is_empty() {
             None
         } else {
+            let _conditioning = crate::pv::PreparationTimer::new(
+                std::env::var_os("IREGI_PREPARATION_PROFILE").is_some(),
+                format_args!("workspace distance-zero conditioning"),
+            );
             let conditioning = Arc::new(ArgumentStabilityPlan::prepare(
                 &plan.parameters,
                 &distance_polynomials,
             )?);
+            drop(_conditioning);
+            let _envelope = crate::pv::PreparationTimer::new(
+                std::env::var_os("IREGI_PREPARATION_PROFILE").is_some(),
+                format_args!("workspace distance-zero exact envelope"),
+            );
             let envelope = compile_exact(conditioning.expressions(), &plan.parameters, &[], dual)?;
+            drop(_envelope);
+            let _certificate = crate::pv::PreparationTimer::new(
+                std::env::var_os("IREGI_PREPARATION_PROFILE").is_some(),
+                format_args!("workspace distance-zero exact certificate"),
+            );
             let certificate = match dual {
                 Some(layout) => ExactZeroConstraintPlan::new_dual(
                     &plan.parameters,
@@ -709,6 +725,7 @@ impl PreparedExecution {
                 ),
                 None => ExactZeroConstraintPlan::new(&plan.parameters, &distance_polynomials),
             }?;
+            drop(_certificate);
             argument_expressions.extend(distance_polynomials);
             Some(PreparedDistanceZeros {
                 argument_offset: distance_offset,
@@ -901,6 +918,8 @@ impl PreparedExecution {
             plan.settings.tensor_weights,
             shape.clone(),
         );
+        let component_sensitivity=shape.as_ref().filter(|shape|shape.len()>1)
+            .map(|_|Arc::new(ComponentSensitivityRecipe::new(plan)));
         Ok(Self {
             master_policy,
             basis: plan.basis.clone(),
@@ -926,6 +945,7 @@ impl PreparedExecution {
             snapping_positive_threshold,
             snapping_zero_image,
             stability,
+            component_sensitivity,
             quadrature,
             masters,
             fallback,
@@ -1013,6 +1033,7 @@ pub struct Workspace<T: NativeFloat> {
     stability: Arc<StabilityPlan>,
     guard_context: GuardContext<T>,
     quadrature: Option<QuadratureWorkspace<T>>,
+    component_sensitivity: Option<ComponentSensitivityWorkspace<T>>,
     masters: Vec<MasterGroup<T>>,
     valid_lanes: Vec<usize>,
     successful_lanes: Vec<usize>,
@@ -1170,6 +1191,10 @@ where
                 )
             })
             .transpose()?;
+        let component_sensitivity = if policy.retain_primal_envelopes {
+            exact.component_sensitivity.as_ref().map(|recipe|recipe.instantiate(
+                exact.shape.as_ref().expect("component sensitivity requires a Dual shape"), &prototype)).transpose()?
+        } else { None };
         let masters = exact
             .masters
             .iter()
@@ -1285,6 +1310,7 @@ where
             snapping_zero_image: exact.snapping_zero_image,
             stability: exact.stability.clone(),
             quadrature,
+            component_sensitivity,
             masters,
             fallback,
             lightlike_equal,
@@ -2059,6 +2085,10 @@ where
                 return Err(ReductionError::Evaluation(error.to_string()));
             }
         }
+        if let Some(sensitivity) = &mut self.component_sensitivity {
+            let zero = Complex::new(self.prototype.zero(), self.prototype.zero());
+            sensitivity.evaluate(&self.successful_inputs, successful, self.components, &zero)?;
+        }
         let local_monitor_width = checked_mul(self.stability.expressions().len(), self.components)?;
         for (compact, &lane) in self.successful_lanes.iter().enumerate() {
             self.guard_context.begin_lane();
@@ -2112,6 +2142,14 @@ where
                 )
             }) {
                 result.statuses[lane] = LaneStatus::Unstable(reason);
+            } else if let Some(reason) = self.component_sensitivity.as_ref().and_then(|sensitivity| {
+                if let Some(reason)=sensitivity.invalid_lane(compact) {return Some(reason);}
+                self.stability.inspect_component_amplitude_lane(
+                    sensitivity.lane(compact, self.components), output, input_row, self.components,
+                    &self.prototype, self.accuracy_bits,
+                )
+            }) {
+                result.statuses[lane] = LaneStatus::Unstable(reason);
             } else if let Some(reason) = self.quadrature.as_ref().and_then(|quadrature| {
                 self.stability.inspect_quadrature_lane_context(
                     &quadrature.plan,
@@ -2150,6 +2188,9 @@ where
                                     operands,
                                     output_primals: output.chunks_exact(self.components)
                                         .map(|slot| slot[0].clone()).collect(),
+                                    component_amplitudes: self.component_sensitivity.as_ref()
+                                        .map(|sensitivity|sensitivity.lane(compact,self.components).to_vec()),
+                                    output_components: self.component_sensitivity.as_ref().map(|_|output.to_vec()),
                                     routes: vec![PrimalEnvelopeRoute::Ordinary],
                                 });
                                 if let Err(reason) = result.primal_envelope(lane) {
@@ -2467,7 +2508,7 @@ where
     Ok(())
 }
 
-fn compile_exact<D: DualNumberStructure>(
+pub(crate) fn compile_exact<D: DualNumberStructure>(
     expressions: &[Atom],
     parameters: &[Atom],
     aliases: &[(Atom, Atom)],
@@ -2492,7 +2533,7 @@ fn compile_exact<D: DualNumberStructure>(
     Ok(exact)
 }
 
-fn map_exact<T: NativeFloat>(
+pub(crate) fn map_exact<T: NativeFloat>(
     exact: &ExpressionEvaluator<Complex<Rational>>,
     prototype: &T,
 ) -> BatchExpressionEvaluator<Complex<T>>

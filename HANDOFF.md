@@ -9,15 +9,15 @@ describe this handoff's historical checkpoint. Subsequent work is recorded in
 [the resumed checkpoint](docs/checkpoints/resume-20261025.md); the full objective
 is active and unchanged.
 
-**Latest published checkpoint: `a69b754`, 25 October 2026.** The report has
-39 pages. Complete retained massive PV arrays through rank seven pass at N1–N6;
+**Latest preceding published checkpoint: `2ad3cbe`, 25 October 2026.** The report
+at that revision has 41 pages. Complete retained massive PV arrays through rank seven pass at N1–N6;
 the N6 batch/contraction lifecycle also passes. Retained massless N2–N4 arrays
 pass 7,920 independent-reference comparisons with UV/IR poles kept separate.
 The shared tensor facade and Symbolica's scoped branch-fact compiler change are
 committed. See [the array checkpoint](docs/checkpoints/rank7-arrays-20261025.md)
 and [the massless/dispatch checkpoint](docs/checkpoints/rank7-massless-dispatch-20261025.md).
-The next checkpoint, [shared CLI and IBP](docs/checkpoints/rank7-cli-ibp-20261025.md),
-updates the report to 41 pages. It adds passing shared CLI integration through
+The [shared CLI and IBP checkpoint](docs/checkpoints/rank7-cli-ibp-20261025.md)
+adds passing shared CLI integration through
 N6 rank three / N7 scalar, retained N2 rank-seven IBP, generalized original-IREGI
 quad anchors and a preserved fresh N7 rank-seven allocation failure. Public N7
 remains scalar-only; private ranks one/two pass. Fine instrumentation has located
@@ -29,10 +29,21 @@ continues in the worktree; inspect its files and receipts before restarting a
 job. This document's later pause, page-count and rank-limit statements describe
 the older wind-down and do not override this active checkpoint.
 
-The user's latest priority is full independent validation through rank seven,
-followed by optimization chiefly at higher rank. Low-rank COLLIER speed and
-interpreter/native selection are not completion gates. The full objective is
-unfinished and active; do not pause or mark it complete at a scoped milestone.
+The [planar generalized checkpoint](docs/checkpoints/planar-generalized-20261025.md)
+updates the report to 43 pages with independently validated planar dots/D6
+scalars, additional method coverage, focused resource fixes and the instrumented
+N7 failure. The full component-Taylor code remains private pending high-point
+numerical qualification.
+
+The user's latest accepted stopping envelope is **all agreed features through
+six points and rank six, including dots**. Once fully tested, update the report,
+commit and push, mark the objective achieved and stop; further optimization is
+separate work. Retain higher-rank evidence and explain N7/rank7 challenges. Do
+not expand beyond seven points or rank seven. The full functional objective is
+unfinished and active; a narrow scalar slice does not complete it. Current N6
+generalized tensors, full-tensor Dual/numeric, supplied-G/legacy paths and the
+corrected Python wheel are being qualified. Consult their owned receipts before
+restarting any job.
 
 The first resumed implementation milestone adds the optional generated f64
 A0/B0/C0 master policy. Its current locked-Cargo builds, selected tests and

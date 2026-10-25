@@ -626,6 +626,10 @@ fn successful_children(parent_rows: usize) -> BatchResult<f64> {
                 output_primals: (0..outputs)
                     .map(|index| values[(row * outputs + index) * components])
                     .collect(),
+                component_amplitudes: Some((0..outputs * components)
+                    .map(|index| Complex::new((1_000_000 + row * outputs * components + index) as f64, 0.))
+                    .collect()),
+                output_components: Some(values[row * outputs * components..(row + 1) * outputs * components].to_vec()),
                 routes: vec![PrimalEnvelopeRoute::Ordinary],
             })
         })
@@ -819,6 +823,7 @@ fn validation_only_workspace() -> ThinSevenWorkspace<f64> {
         parent: scratch,
         stats: SevenPointExecutionStats::default(),
         diagnostics: Vec::new(),
+        component_probe_children: None,
     }
 }
 
@@ -954,5 +959,51 @@ fn seven_point_constructor_pins_symbolica_with_cheap_plan_fixture() {
             &selected, WorkspacePolicy::ORDINARY,
             MasterExecutionPolicy::NativeF64Abc, true,
         ) > 1);
+    }
+}
+
+
+#[test]
+fn seven_point_every_required_child_needs_complete_coupled_taylor_context() {
+    let clean = successful_children(2);
+    for subset in 0..21 {
+        for mutation in 0..6 {
+            let mut broken = clean.clone();
+            let row = subset * 2 + 1;
+            let envelope = broken.primal_envelopes[row].as_mut().unwrap();
+            match mutation {
+                0 => { envelope.component_amplitudes = None; envelope.output_components = None; }
+                1 => envelope.component_amplitudes = None,
+                2 => envelope.output_components = None,
+                3 => { envelope.component_amplitudes.as_mut().unwrap().pop(); }
+                4 => envelope.component_amplitudes.as_mut().unwrap()[1].re = -1.,
+                5 => envelope.output_components.as_mut().unwrap()[1].re += 1.,
+                _ => unreachable!(),
+            }
+            let state = inspect_required_children(&broken, 2, 1, 53, 53);
+            let reason = state.failure.expect("every mandatory child's entire Taylor context is required");
+            assert!(reason.contains(&format!("subset {subset}")), "{reason}");
+            assert!(inspect_required_children(&broken, 2, 0, 53, 53).failure.is_none(),
+                "missing/stale derivative sensitivity must not corrupt the neighboring parent lane");
+        }
+    }
+}
+
+#[test]
+fn seven_point_ordinary_child_context_stays_backward_compatible() {
+    let mut ordinary = successful_children(2);
+    let old_components = ordinary.components;
+    ordinary.values = ordinary.values.chunks_exact(old_components).map(|jet|jet[0]).collect();
+    ordinary.components = 1;
+    ordinary.metadata = ResultMetadata::new(Convention::IregiNative, TensorWeights::Components, None);
+    for envelope in ordinary.primal_envelopes.iter_mut().flatten() {
+        envelope.components = 1;
+        envelope.metadata = ordinary.metadata.clone();
+        envelope.component_amplitudes = None;
+        envelope.output_components = None;
+    }
+    for compact in 0..2 {
+        assert!(inspect_required_children(&ordinary, 2, compact, 53, 53).failure.is_none(),
+            "ordinary child envelopes do not require new jet-only sidecars");
     }
 }

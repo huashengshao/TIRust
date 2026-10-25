@@ -320,19 +320,15 @@ impl ReductionPlan {
             ));
         }
         if let Some(omitted) = certified_planar_chart {
-            if n != 5
-                || settings.rank > 7
+            if !crate::certified_planar::settings_supported(&settings)
                 || omitted >= 4
-                || settings.algorithm != Algorithm::PassarinoVeltman
-                || settings.invariants != InvariantInput::FromShifts
-                || settings.input_policy != InputPolicy::Preserve
-                || settings.dimension_shift != 0
-                || settings.powers.iter().any(|&p| p != 1)
+                || (certified_planar_mask != 0
+                    && crate::certified_planar::generalized_scalar_settings(&settings))
                 || zero_invariants.is_some()
                 || bubble_limit.is_some()
                 || certified_scalar_basis.is_some()
             {
-                return Err(ReductionError::InvalidInput("certified planar charts require five preserved Cartesian propagators, rank at most seven, unit powers, D=4, PV, and an omitted coordinate row in 0..4".into()));
+                return Err(ReductionError::InvalidInput("certified planar charts require a supported preserved Cartesian N5 domain, an omitted coordinate row in 0..4, and no generalized cofactor mask".into()));
             }
         }
         // High-point pinching identities require a four-dimensional external
@@ -472,6 +468,7 @@ impl ReductionPlan {
                 &distances,
                 analytic_jet_order,
                 snapping.clone(),
+                certified_planar_chart,
             );
             match generalized {
                 Ok((moments, leaves, aliases, usage)) => {
@@ -480,7 +477,7 @@ impl ReductionPlan {
                         "Generalized scalar-term dispatch: {} canonical PV requests, {} IBP requests; PV eligibility requires first power one and h >= sum(powers)-N",
                         usage.pv, usage.ibp,
                     ));
-                    if n > 4 {
+                    if n > 4 && certified_planar_chart.is_none() {
                         preparation_notes.push("Generalized canonical PV coefficients beyond four propagators are not qualified; retaining genuine IBP and shifted-master reduction, including D6 pentagons".into());
                     }
                     let used = if usage.pv == 0 {
@@ -498,6 +495,7 @@ impl ReductionPlan {
                     ));
                     let (moments, leaves, aliases) = compile_ibp(
                         &settings, &basis, &shifts, &masses, &distances, None, None, None,
+                        certified_planar_chart,
                     )?;
                     (moments, leaves, aliases, Algorithm::Ibp)
                 }
@@ -515,6 +513,7 @@ impl ReductionPlan {
                         bubble_limit,
                         zero_invariants.as_ref(),
                         certified_scalar_basis,
+                        certified_planar_chart,
                     ) {
                         Ok((moments, leaves, aliases)) => {
                             (moments, leaves, aliases, Algorithm::Ibp)
@@ -573,6 +572,7 @@ impl ReductionPlan {
                                 bubble_limit,
                                 zero_invariants.as_ref(),
                                 certified_scalar_basis,
+                                certified_planar_chart,
                             )?;
                             (moments, leaves, aliases, Algorithm::Ibp)
                         }
@@ -598,6 +598,12 @@ impl ReductionPlan {
                     (snapping.aliases().to_vec(), diagnostics, zero_image)
                 },
             );
+        if certified_planar_chart.is_some() && !ordinary {
+            if leaves.iter().any(|leaf| leaf.kind != MasterLeafKind::FourDimensional || leaf.active.len() > 4) {
+                return Err(ReductionError::Preparation("certified planar scalar reduction emitted an unexpected high-point master".into()));
+            }
+            preparation_notes.push("Certified planar generalized scalar: exact constant-one denominator identity, original invariants preserved, and IBP pinches with at most four active propagators".into());
+        }
         let snapping_zero_image_required = snapping_zero_image.is_some()
             && n == 1
             && (algorithm_used == Algorithm::Ibp || generalized_ibp_used)
@@ -839,6 +845,7 @@ fn compile_ibp(
     bubble_limit: Option<(u16, bool)>,
     zero_invariants: Option<&ZeroInvariantProfile>,
     certified_basis: Option<[usize; 4]>,
+    certified_planar_chart: Option<usize>,
 ) -> Result<(Vec<[Atom; 4]>, Vec<MasterLeaf>, Vec<(Atom, Atom)>), ReductionError> {
     compile_scalar_tensors(
         settings,
@@ -849,6 +856,7 @@ fn compile_ibp(
         bubble_limit,
         zero_invariants,
         certified_basis,
+        certified_planar_chart,
         None,
     )
     .map(|(moments, leaves, aliases, _)| (moments, leaves, aliases))
@@ -868,6 +876,7 @@ fn compile_generalized_pv(
     distances: &[Vec<Atom>],
     analytic_jet_order: u16,
     snapping: Option<Rc<RefCell<LegacySnapping>>>,
+    certified_planar_chart: Option<usize>,
 ) -> Result<
     (
         Vec<[Atom; 4]>,
@@ -896,7 +905,8 @@ fn compile_generalized_pv(
         None
     };
     compile_scalar_tensors(
-        settings, basis, shifts, masses, distances, None, None, None, pv,
+        settings, basis, shifts, masses, distances, None, None, None,
+        certified_planar_chart, pv,
     )
 }
 
@@ -909,6 +919,7 @@ fn compile_scalar_tensors(
     bubble_limit: Option<(u16, bool)>,
     zero_invariants: Option<&ZeroInvariantProfile>,
     certified_basis: Option<[usize; 4]>,
+    certified_planar_chart: Option<usize>,
     mut pv: Option<PvCompiler>,
 ) -> Result<
     (
@@ -949,7 +960,19 @@ fn compile_scalar_tensors(
         },
     }
     .map_err(ReductionError::Preparation)?;
-    if let Some(basis) = certified_basis {
+    if let Some(omitted) = certified_planar_chart {
+        // Certification guarantees that the omitted coordinate row depends on
+        // the retained three, with an invertible constant-one chart. This only
+        // selects relation coordinates: R and every numerical/master argument
+        // still use the full original Cartesian shifts and squared distances.
+        // Do not project the supplied invariants or change tensor projections.
+        let coordinates = shifts.iter().map(|shift| {
+            std::array::from_fn(|mu| if mu == omitted { Atom::new() } else { shift[mu].clone() })
+        }).collect();
+        compiler
+            .set_certified_planar_coordinates(coordinates)
+            .map_err(ReductionError::Preparation)?;
+    } else if let Some(basis) = certified_basis {
         // The opt-in scalar wrapper certifies that these four Gram covectors
         // preserve every external linear dependency in every Taylor component.
         // They are coordinates on the span, not reconstructed Cartesian shifts;
@@ -975,10 +998,14 @@ fn compile_scalar_tensors(
     compiler
         .enable_gram_regular_bubbles()
         .map_err(ReductionError::Preparation)?;
-    if settings.dimension_shift != 0 || settings.powers.iter().any(|&power| power != 1) {
+    if certified_planar_chart.is_none()
+        && (settings.dimension_shift != 0 || settings.powers.iter().any(|&power| power != 1))
+    {
         // Ordinary four-dimensional high-point tensors retain the existing
-        // PV completion. Genuine generalized requests require the independent
-        // shifted master; its backend enforces a finite parameter domain.
+        // PV completion. Other generalized requests may require an independent
+        // shifted master, whose backend enforces a finite parameter domain.
+        // Checked planar scalar charts must instead complete by exact pinches;
+        // never admit a genuine pentagon leaf as a hidden chart fallback.
         compiler
             .enable_six_dimensional_pentagon()
             .map_err(ReductionError::Preparation)?;
@@ -1930,5 +1957,83 @@ mod generic_thin_variant_tests {
             analytic_jet_order:2,bubble_equal_masses:None,zero_invariants:None,
             certified_planar_mask:8,thin_six_child_rank:Some(0),thin_seven_child_rank:None,
         }).is_err());
+    }
+}
+
+#[cfg(test)]
+mod certified_planar_generalized_tests {
+    use super::*;
+    use crate::CertifiedPlanarReductionPlan;
+
+    fn generalized(h: i16, dotted: Option<usize>, algorithm: Algorithm) -> ReductionSettings {
+        let mut settings = ReductionSettings::new(5, 0);
+        settings.dimension_shift = h;
+        settings.algorithm = algorithm;
+        if let Some(index) = dotted { settings.powers[index] = 2; }
+        settings
+    }
+
+    #[test]
+    fn generalized_planar_public_domain_is_narrow_and_scalar_only() {
+        for algorithm in [Algorithm::Ibp, Algorithm::PassarinoVeltman, Algorithm::Hybrid] {
+            for (h, dotted) in [(1, None), (0, Some(0)), (1, Some(4))] {
+                let settings = generalized(h, dotted, algorithm);
+                assert!(CertifiedPlanarReductionPlan::new(settings.clone()).is_ok());
+                assert!(CertifiedPlanarReductionPlan::new_for_six_point_child(settings).is_err());
+            }
+        }
+        for mut settings in [
+            generalized(2, None, Algorithm::Ibp),
+            generalized(-1, Some(0), Algorithm::Ibp),
+            generalized(1, Some(0), Algorithm::Ibp),
+            generalized(1, Some(0), Algorithm::Ibp),
+            generalized(1, Some(0), Algorithm::Ibp),
+        ].into_iter().enumerate().map(|(index, mut settings)| {
+            match index {
+                2 => settings.rank = 1,
+                3 => settings.powers[1] = 2,
+                4 => settings.powers[0] = 3,
+                _ => (),
+            }
+            settings
+        }) {
+            assert!(CertifiedPlanarReductionPlan::new(settings.clone()).is_err());
+            // The private constructor must enforce the same mathematical scope.
+            assert!(ReductionPlan::new_certified_planar(settings.clone(), 0).is_err());
+            settings.invariants = InvariantInput::SuppliedScalarProducts;
+            assert!(CertifiedPlanarReductionPlan::new(settings).is_err());
+        }
+        assert!(ReductionPlan::new_certified_planar_masked(
+            generalized(1, None, Algorithm::Ibp), 0, 1,
+        ).is_err());
+        assert!(ReductionPlan::new_certified_planar(
+            generalized(1, None, Algorithm::Ibp), 4,
+        ).is_err());
+    }
+
+    #[test]
+    #[ignore = "new generic Symbolica chart preparation; run only with an explicit qualification budget"]
+    fn generalized_pv_ibp_and_hybrid_all_retain_the_certified_scalar_route() {
+        for algorithm in [Algorithm::Ibp, Algorithm::PassarinoVeltman, Algorithm::Hybrid] {
+            for (h, dotted) in [(1, None), (0, Some(0)), (1, Some(4))] {
+                let settings = generalized(h, dotted, algorithm);
+                let plan = ReductionPlan::new_certified_planar(settings, 0).unwrap();
+                assert_eq!(plan.algorithm_used(), Algorithm::Ibp);
+                assert!(plan.automatic_planar_settings().is_none());
+                assert!(!plan.zero_profile_dispatch_allowed());
+                assert!(plan.fallback.is_none());
+                assert!(plan.leaves.iter().all(|leaf|
+                    leaf.kind == MasterLeafKind::FourDimensional && leaf.active.len() <= 4));
+                assert!(!plan.leaves.is_empty());
+                assert!(plan.preparation_notes().iter().any(|note|
+                    note.contains("Certified planar generalized scalar")));
+                let variant = plan.with_analytic_jet_order(1).unwrap();
+                assert_eq!(variant.certified_planar_chart, Some(0));
+                assert_eq!(variant.certified_planar_mask, 0);
+                assert_eq!(variant.algorithm_used(), Algorithm::Ibp);
+                assert!(variant.leaves.iter().all(|leaf|
+                    leaf.kind == MasterLeafKind::FourDimensional && leaf.active.len() <= 4));
+            }
+        }
     }
 }

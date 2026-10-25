@@ -200,8 +200,8 @@
   #set text(9pt)
   *Current priorities*
   #table(columns: (1fr, 2fr, auto), stroke: none, inset: (x: 4pt, y: 4pt),
-    [*Rank-seven correctness*], [Complete independently validated IREGI interfaces through rank seven], [*Pending*],
-    [*Higher-rank performance*], [Profile the fastest path after correctness; retain all measured snapshots], [*Next*],
+    [*Feature completion*], [Independently validate all agreed features through six points and rank six, including dots], [*Pending*],
+    [*Performance optimization*], [Separate later work; publish the tested version and stop once the feature gate passes], [*Deferred*],
     [*Complete evaluation*], [Six physical rows measured; two failures retained], [*Inconclusive*],
   )
 ]
@@ -234,10 +234,10 @@ remains separate; these identities do not rerun that complete suite.]
 #let arrays-six-life = data.rank7_arrays_six_lifecycle_qualification.snapshot
 #let arrays-six-literal = data.rank7_arrays_six_literal_qualification.snapshot
 #block(fill: pale, inset: 10pt, width: 100%)[
-  *Priority: finish validated IREGI through rank seven.* Profile whichever
-  implementation is fastest, concentrating subsequent optimization on higher
-  ranks. Low-rank speed against COLLIER is not a completion gate. The complete
-  objective remains open; historical timings retain their measured contexts.
+  *Updated stopping envelope: six points and rank six, with all agreed features
+  including dots.* Retain the rank-seven checks already obtained and explain
+  the seven-point challenge. Further optimization is deferred. The complete
+  functional gate remains open; historical timings retain their measured contexts.
 ]
 
 #report-table(table(
@@ -251,7 +251,7 @@ remains separate; these identities do not rerun that complete suite.]
   [N6 / ranks4–7], [Separately requested plans, Float128/256: 5,888 reference coefficients and 2,944 precision pairs. All previous rank7 prefixes retained.], [Pass¹],
   [N7 / rank0], [Actual Cargo Float128/256 singleton agreement. Nine-call lifecycle stopped after six completed calls; later scratch/recovery checks remain open.], [Partial],
   [N6 / rank7 COLI], [Native accuracy flag −2; 315 missing diagnostic coefficients and one finite discrepancy. All three pole probes return failure sentinels.], [Rejected],
-  [Full rank-seven goal], [Public N7 tensors, broader methods/kinematics/numeric types, generalized tensors and high-point Dual still need qualification. The shared CLI has separate focused checks below.], [Open],
+  [Accepted functional goal], [Through N6/rank6: generalized tensors, broader numeric/Dual and supplied-invariant domains still need qualification. N7/rank7 remains a separate challenge.], [Open],
 ))
 
 ¹ Retained massive and massless families, native raw tensor components, requested
@@ -457,6 +457,111 @@ against original IREGI or COLLIER.
 Saved evidence:
 #raw("python3 validation/quad-original-iregi-generalized-rank7/check.py")\
 #raw("validation/highpoint-seven-point-main-rank7-resource-failure/qualification.json").
+
+#pagebreak()
+= Independently validated planar generalized scalars
+#report-table(table(
+  columns: (1.25fr, 3.4fr, 0.85fr), inset: (x: 7pt, y: 13pt), stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else if y == 4 { amber } else { rgb("#d9f0d3") },
+  table.header([Check], [Executed scope], [Outcome]),
+  [N5 / planar scalars], [D6 unit powers, plus one positive dot at each of the five positions in D4 and D6. Eleven requests, Float128/256 and retained D4 derivative controls.], [Pass¹],
+  [Full saved cohort], [196 successful lanes, 26 explicit invalid lanes with null output, 880 native Laurent/Taylor components and 2,064 independent decisions.], [Pass¹],
+  [Derivatives and routing], [Mass Dual versus dotted scalar, ordinary finite differences, common translations, scale changes, repeated samples and input preservation.], [Pass¹],
+  [Original quadrature grids], [All direct accuracy checks pass, but 24 refinement decisions fail. The original inconclusive result and three failed optional imports remain preserved.], [Retained],
+))
+
+¹ One massive positive-F planar family: shifts
+#raw("0, ex, ey, ez, ex+ey+ez"), squared masses
+#raw("4, 9, 16, 25, 36") and scale energy three. The parameter denominator
+satisfies $F >= 4$. Symbolica prepares the polynomial, Jacobian, input jets
+and derivatives independently of reduction. The numerical oracle integrates
+the defining parameter integral, calling no reduction or scalar-master backend.
+
+The public certified-planar path uses its full-Taylor geometry certificate and
+constant-one denominator relation. These requests reduce to masters with at
+most four propagators; they do not evaluate a genuine full-rank D6 pentagon.
+Every dot position is checked in both dimensions. Native UV1, IR1, IR2 and
+finite slots remain separate.
+
+Initial orders 12/16/20 give 2,040 passing and 24 failing decisions. The separately
+bounded oracle-only refinement uses orders 24/28/32, retaining all thirty Rust
+captures. It passes every decision with unchanged thresholds: oracle differences
+at most $1.065 times 10^(-13)$ then $5.398 times 10^(-16)$, below $10^(-12)$;
+reducer/oracle discrepancy at most $2.749 times 10^(-18)$, below $10^(-10)$.
+Precision-pair discrepancy is at most $7.854 times 10^(-32)$, below $2^(-80)$.
+Mass-Dual/dot discrepancy is $2.943 times 10^(-32)$ and finite-difference/dot
+discrepancy $5.906 times 10^(-21)$.
+
+An independent saved-data audit reconstructs every exact squared error,
+normalization, threshold and decision, with eight negative controls. Its
+portable replay preserves both the original failures and refined success.
+Earlier optional-import failures evaluate no quadrature; a pinned environment
+continuation is recorded separately. No Rust evaluation is repeated to obtain
+the refined oracle agreement.
+
+This closes the named scalar slice. Generalized tensors, other endpoints,
+lower-span charts, higher Dual orders and genuine D6 pentagons require their
+own coverage. Numerical convergence estimates are not rigorous enclosures.
+No validation duration is interpreted as a performance benchmark.
+
+Saved-only replay:
+#raw("python3 validation/certified-planar-generalized-scalar-qualification/check.py").
+The self-contained capsule retains 75 captured source files, raw arrays,
+all six successful quadrature outputs and both independent audits.
+
+#pagebreak()
+= Method coverage and the seven-point challenge
+#report-table(table(
+  columns: (1.25fr, 3.4fr, 0.85fr), inset: (x: 7pt, y: 12pt), stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else if y <= 2 { rgb("#d9f0d3") } else { amber },
+  table.header([Check], [Executed scope], [Outcome]),
+  [Additional ordinary methods], [N1/N2/N3 Hybrid, N4 IBP/Hybrid and N5 Hybrid: six Float128/256 pairs with complete rank7 arrays, including every rank6 prefix.], [Pass¹],
+  [Preparation resource fix], [Narrow Symbolica variable discovery and no-leaf activation short-circuit; nineteen focused tests, including 21,204 declared inputs and reordered mixed Taylor components.], [Focused],
+  [N5 requested IBP], [Actual PV completion is reported. Its 128-bit output agrees with the reference, but the strict pure-IBP method gate fails; 256-bit partner unrun.], [Partial],
+  [N7 / rank7 diagnostic], [Instrumented main-source Float128 attempt aborts allocation under 32 GiB during master-activation preparation. No tensor coefficients; no public promotion.], [Failed],
+))
+
+¹ The six successful pairs pass 15,840 quad-reference comparisons, 7,920
+precision pairs, 7,920 IR-zero checks and 15,840 retained-PV controls.
+Maximum normalized reference discrepancy is $1.839 times 10^(-16)$.
+These are one-row retained families, not a complete kinematic domain.
+At N5, an epsilon-dependent IBP dimension divisor prevents completion from
+the available A0–D0 Laurent orders. The explicitly reported PV completion
+passes 1,320 reference and 1,320 previous-PV checks. This is a correct-output
+diagnostic, not pure-IBP qualification. True generalized D6 scalars are separate.
+
+The instrumented seven-point attempt makes the preparation challenge explicit.
+Its child workspace prepares successfully. The parent spends about 214 seconds
+in distance conditioning, 197 in output monitors and 107 in denominator
+monitors, then aborts during master activation. These are measurements of one
+failed diagnostic, not kernel benchmark comparisons or a complete memory peak.
+
+Source inspection finds two avoidable resource costs. Rational-polynomial
+conversion supplies 21,204 declared inputs although each distance uses only
+a few shifts. Existing Symbolica variable discovery constructs the same
+polynomial using its actual variables; the full evaluator input order, precision
+and Taylor shape remain unchanged. The exact certificate uses the same approach
+and retains declared-symbol validation. Separately, a parent with no own
+scalar-master leaves needs no master-activation graph traversal. Other stability
+monitors and every path with leaves remain intact.
+
+The actual Cargo build and nineteen focused tests pass, including unknown-symbol
+rejection, wide late-input/mixed-jet equality, exact certificate contexts,
+no-leaf output/monitor preservation and existing active-master controls.
+The initial preflight and new-test API compile failures are retained separately.
+This establishes the focused preparation fix; it does not turn the failed N7
+attempt into a successful array. No further long N7 run is required before
+closing the accepted six-point/rank-six objective.
+
+Seven-point rank-seven completion would still need fresh full arrays at two
+precisions, an independent accuracy check, batched lifecycle/contractions and
+the remaining numeric/generalized domains. Public N7 remains scalar-only.
+
+Saved-only replay:
+#raw("python3 validation/public-rank7-method-completion-n1-n5/check.py").
+Additional source and scope:
+#raw("validation/sparse-polynomial-activation-resource-fix/qualification.json")\
+#raw("validation/highpoint-seven-point-fine-profile-resource-failure/qualification.json").
 
 #pagebreak()
 = Additional correctness milestones

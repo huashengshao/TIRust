@@ -117,7 +117,9 @@ impl InvariantCertificatePlan {
             // Inspect those variables, then compile its polynomial expression,
             // so IF/function/negative-power semantics cannot enter ball proofs.
             let polynomial = residual
-                .try_to_polynomial::<_, u32>(&Q, parameters)
+                // Discover only used polynomial variables; compilation below still
+                // binds every declared parameter and the original Taylor shape.
+                .try_to_polynomial::<_, u32>(&Q, None)
                 .map_err(preparation)?;
             if polynomial.variables().iter().any(|variable| {
                 !matches!(variable, PolyVariable::Symbol(symbol) if symbols.contains(symbol))
@@ -807,5 +809,120 @@ mod tests {
         }
         assert!(certified_relation_coordinates(7, &original, [1, 1, 3, 4]).is_err());
         assert!(certified_relation_coordinates(7, &original, [0, 2, 3, 4]).is_err());
+    }
+
+    #[test]
+    fn sparse_zero_polynomials_preserve_wide_ordered_mixed_certificate_layout() {
+        let x = Atom::var(symbolica::symbol!("iregi_sparse_zero_width::x"));
+        let y = Atom::var(symbolica::symbol!("iregi_sparse_zero_width::y"));
+        let small_parameters = [x.clone(), y.clone()];
+        let mut wide_parameters = (0..21_202)
+            .map(|i| {
+                Atom::var(symbolica::symbol!(format!(
+                    "iregi_sparse_zero_width::imported_{i}"
+                )))
+            })
+            .collect::<Vec<_>>();
+        let y_position = 7;
+        let x_position = 21_190;
+        wide_parameters.insert(y_position, y.clone());
+        wide_parameters.insert(x_position, x.clone());
+        assert_eq!(wide_parameters.len(), 21_204);
+        let residuals = [&x - &y, &x * &x - &y * &y, Atom::num(0)];
+        // Deliberately ordered primal,u,t,tu, not lexicographic derivative order.
+        let shape = Some(vec![vec![0, 0], vec![0, 1], vec![1, 0], vec![1, 1]]);
+        let small = InvariantCertificatePlan::from_zero_polynomials(
+            &small_parameters,
+            &residuals,
+            shape.clone(),
+        )
+        .unwrap();
+        let wide =
+            InvariantCertificatePlan::from_zero_polynomials(&wide_parameters, &residuals, shape)
+                .unwrap();
+        assert_eq!(wide.arguments, wide_parameters.len());
+        assert_eq!(wide.components, 4);
+        let mut small_input = Vec::new();
+        let mut wide_input = Vec::new();
+        for lane in 0..3 {
+            let mut x_jet = [1, 2, 3, 4].map(real);
+            let y_jet = [1, 2, 3, 4].map(real);
+            if lane == 1 {
+                x_jet[3].im += Rational::from(1);
+            }
+            if lane == 2 {
+                x_jet[0].re += Rational::from(1);
+            }
+            small_input.extend(x_jet.iter().cloned());
+            small_input.extend(y_jet.iter().cloned());
+            for position in 0..wide_parameters.len() {
+                if position == x_position {
+                    wide_input.extend(x_jet.iter().cloned());
+                } else if position == y_position {
+                    wide_input.extend(y_jet.iter().cloned());
+                } else {
+                    wide_input.extend((0..4).map(|component| real(17 + lane * 3 + component)));
+                }
+            }
+        }
+        let mut small_workspace = small.instantiate();
+        let mut wide_workspace = wide.instantiate();
+        small_workspace.set_precision_budget(128, 128).unwrap();
+        wide_workspace.set_precision_budget(128, 128).unwrap();
+        let small_result = small_workspace.check_batch(&small_input, 3).unwrap();
+        let wide_result = wide_workspace.check_batch(&wide_input, 3).unwrap();
+        assert_eq!(small_result, wide_result);
+        assert!(matches!(
+            wide_result[0],
+            InvariantCertificate::Compatible { .. }
+        ));
+        assert!(matches!(
+            wide_result[1],
+            InvariantCertificate::Incompatible {
+                pair: (0, 0),
+                component: 3,
+                ..
+            }
+        ));
+        assert!(matches!(
+            wide_result[2],
+            InvariantCertificate::Incompatible {
+                pair: (0, 0),
+                component: 0,
+                ..
+            }
+        ));
+        // A primal-zero residual with a nonzero transverse coefficient remains
+        // compatible only for the exact selected components, never all jets.
+        let selected = vec![vec![], vec![(0, 0), (0, 1), (0, 2)], vec![(2, 3)]];
+        assert_eq!(
+            small_workspace
+                .check_selected_batch(&small_input, 3, &selected)
+                .unwrap(),
+            wide_workspace
+                .check_selected_batch(&wide_input, 3, &selected)
+                .unwrap()
+        );
+        assert!(
+            wide_workspace
+                .check_selected_batch(&wide_input, 3, &selected)
+                .unwrap()
+                .iter()
+                .all(|r| matches!(r, InvariantCertificate::Compatible { .. }))
+        );
+        assert!(wide_workspace.check_batch(&[], 0).unwrap().is_empty());
+        // Declaration validation is retained independently of polynomial use.
+        assert!(
+            InvariantCertificatePlan::from_zero_polynomials(
+                &[x.clone(), x.clone()],
+                &[Atom::num(0)],
+                None
+            )
+            .is_err()
+        );
+        assert!(
+            InvariantCertificatePlan::from_zero_polynomials(&[&x + &y], &[Atom::num(0)], None)
+                .is_err()
+        );
     }
 }

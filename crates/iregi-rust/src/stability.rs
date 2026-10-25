@@ -9,6 +9,7 @@
 //! exceptional-kinematics plans on the denominators they actually use.
 
 pub(crate) mod arguments;
+pub(crate) mod components;
 mod context;
 pub(crate) use context::GuardContext;
 pub(crate) mod quadrature;
@@ -95,6 +96,9 @@ impl StabilityPlan {
             output_dimensions: Vec::new(),
             layout: plan.layout.clone(),
         };
+        let profile = std::env::var_os("IREGI_PREPARATION_PROFILE").is_some();
+        let timer = |stage: &str| crate::pv::PreparationTimer::new(profile, format_args!("{stage}"));
+        let _dimensions = timer("stability dimensions and alias definitions");
         let mut indices = HashMap::new();
         let mut dimensions = HashMap::new();
         for (i, parameter) in plan.parameters.iter().enumerate() {
@@ -123,6 +127,8 @@ impl StabilityPlan {
             }
         }
         let definitions: HashMap<_, _> = plan.aliases.iter().cloned().collect();
+        drop(_dimensions);
+        let _uses = timer("stability root alias uses");
         // Propagate use conditions backwards through the topologically ordered
         // aliases. A union of paths is represented by Symbolica's lazy IF;
         // inactive generic branches must never become eager monitor roots.
@@ -132,16 +138,26 @@ impl StabilityPlan {
         for expression in plan.moments.iter().flatten() {
             collect_alias_uses(expression.as_view(), &always, &definitions, &mut uses);
         }
+        drop(_uses);
+        let _reachability = timer("stability backward alias reachability");
         let mut reachable = HashMap::new();
-        for (alias, body) in plan.aliases.iter().rev() {
+        for (index, (alias, body)) in plan.aliases.iter().rev().enumerate() {
+            if profile && index % 128 == 0 {
+                eprintln!("iregi stability reachability {index}/{} aliases", plan.aliases.len());
+            }
             if let Some(paths) = uses.remove(alias) {
                 let active = monitor.intern_predicate(union_paths(paths), &mut predicate_indices);
                 collect_alias_uses(body.as_view(), &active, &definitions, &mut uses);
                 reachable.insert(alias.clone(), active);
             }
         }
+        drop(_reachability);
+        let _local = timer("stability local recurrence monitors");
         let mut denominators = BTreeSet::new();
-        for (alias, body) in &plan.aliases {
+        for (index, (alias, body)) in plan.aliases.iter().enumerate() {
+            if profile && index % 128 == 0 {
+                eprintln!("iregi stability local monitors {index}/{} aliases", plan.aliases.len());
+            }
             let dimension = mass_dimension(body.as_view(), &dimensions).unwrap_or(0);
             dimensions.insert(alias.clone(), dimension);
             let Some(active) = reachable.get(alias) else {
@@ -158,6 +174,8 @@ impl StabilityPlan {
             );
             collect_denominators(body.as_view(), active, &mut denominators);
         }
+        drop(_local);
+        let _moments = timer("stability output moment monitors");
         let base_dimension = 4 + 2 * i32::from(plan.settings.dimension_shift)
             - 2 * plan
                 .settings
@@ -181,6 +199,8 @@ impl StabilityPlan {
                 collect_denominators(expression.as_view(), &always, &mut denominators);
             }
         }
+        drop(_moments);
+        let _denominators = timer("stability denominator monitors");
         for (denominator, active) in denominators {
             // A denominator may be a named invariant. Inspect that one body
             // as well, without substituting the entire upstream graph.
@@ -196,9 +216,16 @@ impl StabilityPlan {
                 &mut indices,
             );
         }
+        drop(_denominators);
+        let _primal = timer("stability primal amplitudes");
         monitor.prepare_primal_amplitudes(plan, &reachable, base_dimension)?;
+        drop(_primal);
+        let _activations = timer("stability master activations");
         monitor.prepare_master_activations(plan);
+        drop(_activations);
+        let _snapping = timer("stability snapping diagnostics");
         monitor.prepare_snapping_diagnostics(plan)?;
+        drop(_snapping);
         Ok(monitor)
     }
 
@@ -497,6 +524,12 @@ impl StabilityPlan {
     }
 
     fn prepare_master_activations(&mut self, plan: &ReductionPlan) {
+        // Imported tensor parents have no local scalar leaves. Their activation
+        // roots and alias closure are empty, so traversing the recurrence graph
+        // cannot contribute a request and needlessly expands branch paths.
+        if plan.leaves.is_empty() {
+            return;
+        }
         let aliases: Vec<_> = plan
             .aliases
             .iter()
@@ -2533,5 +2566,92 @@ mod tests {
             );
         }
     }
+    #[test]
+    fn no_leaf_master_activation_preserves_output_and_monitor_alias_contexts() {
+        use crate::{Algorithm, ReductionSettings};
+        let mut settings = ReductionSettings::new(1, 0);
+        settings.algorithm = Algorithm::PassarinoVeltman;
+        let mut plan = ReductionPlan::new(settings).unwrap();
+        assert!(!plan.leaves.is_empty());
+        plan.leaves.clear();
+        plan.master_arguments.clear();
+        plan.aliases.clear();
+        let x = plan.parameters[0].clone();
+        let mut used = x.clone();
+        let mut unused = plan.parameters[plan.layout.masses.start].clone();
+        for index in 0..512 {
+            let used_alias = Atom::var(symbolica::symbol!(format!(
+                "iregi_noleaf_activation::used_{index}"
+            )));
+            let unused_alias = Atom::var(symbolica::symbol!(format!(
+                "iregi_noleaf_activation::unused_{index}"
+            )));
+            plan.aliases.push((used_alias.clone(), &used + &x));
+            plan.aliases
+                .push((unused_alias.clone(), &unused + Atom::num(1)));
+            used = used_alias;
+            unused = unused_alias;
+        }
+        assert_eq!(plan.aliases.len(), 1024);
+        // Complete four-slot output roots remain present despite no direct scalar
+        // leaves. The unused chain is not an output or a monitor dependency.
+        plan.moments = vec![[
+            used.clone(),
+            &used + &x,
+            &used * &x,
+            Symbol::IF.call((&x, &used, Atom::num(0))),
+        ]];
+        let predicate = Atom::var(symbolica::symbol!("iregi_noleaf_activation::predicate"));
+        let primal = Atom::var(symbolica::symbol!("iregi_noleaf_activation::primal"));
+        let mut monitor = synthetic(-2, false);
+        monitor.layout = plan.layout.clone();
+        monitor.predicate_aliases = vec![(
+            predicate.clone(),
+            Symbol::IF.call((&x, Atom::num(1), Atom::num(0))),
+        )];
+        monitor.expressions = vec![
+            Symbol::IF.call((&predicate, &used, Atom::num(0))),
+            &used + &x,
+            used.clone(),
+        ];
+        monitor.primal_aliases = vec![(primal.clone(), &used * &used)];
+        monitor.primal_expressions = vec![primal.clone(), used.clone()];
+        monitor.primal_checks = vec![PrimalCheck {
+            output_index: 0,
+            value: 1,
+            amplitude: 0,
+            dimension: -2,
+            label: "retained no-leaf primal operands".into(),
+        }];
+        monitor.output_dimensions = vec![-2; 4];
+        monitor.snapping_expressions = vec![&x * &x];
+        monitor.snapping_aliases = vec![(
+            Atom::var(symbolica::symbol!("iregi_noleaf_activation::snap")),
+            &x + Atom::num(1),
+        )];
+        monitor.snapping_labels = vec!["retained snapping context".into()];
+        monitor.snapping_threshold = Some(Atom::num(Rational::from((1, 1024))));
+        monitor.snapping_zero_image = Some(Atom::num(0));
+        assert!(monitor.master_activations().is_empty());
+        assert!(monitor.master_activation_aliases().is_empty());
+        let moments_before = plan.moments.clone();
+        let aliases_before = plan.aliases.clone();
+        let parameters_before = plan.parameters.clone();
+        let monitor_before = format!("{monitor:?}");
+        // Only activation preparation is exercised: no evaluator or full
+        // StabilityPlan graph preparation is needed for this no-leaf contract.
+        monitor.prepare_master_activations(&plan);
+        assert!(monitor.master_activations().is_empty());
+        assert!(monitor.master_activation_aliases().is_empty());
+        assert_eq!(plan.moments, moments_before);
+        assert_eq!(plan.aliases, aliases_before);
+        assert_eq!(plan.parameters, parameters_before);
+        assert!(plan.leaves.is_empty() && plan.master_arguments.is_empty());
+        // The full debug snapshot includes recurrence/predicate/primal/snapping
+        // expressions, all alias lists, checks, dimensions and layout. Activation
+        // preparation must not discard those contexts merely because leaves=0.
+        assert_eq!(format!("{monitor:?}"), monitor_before);
+    }
+
     include!("stability/context_tests.rs");
 }

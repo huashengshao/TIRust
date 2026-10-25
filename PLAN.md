@@ -2,7 +2,7 @@
 
 ## Goal and working rules
 
-First deliver a fully working, independently validated Rust implementation of IREGI through rank seven and up to seven propagators, including the planned generalized interfaces, batching, numeric types, library, CLI and Python tools. Then profile the fastest available implementation and concentrate optimization on higher ranks. Performance measurements remain part of the final report; bubble/triangle speed relative to COLLIER is not a completion gate.
+Deliver a feature-complete, independently validated Rust implementation of IREGI, including dotted propagators, dimension shifts, batching, numeric types, library, CLI and Python tools. The user accepts full validation through six propagators and rank six as the stopping envelope; retain the existing rank-seven evidence and explain the seven-point/rank-seven challenges. Do not expand beyond seven points or rank seven. Once the accepted version is tested, update the benchmark report, commit and push, mark the objective achieved and stop. Further performance optimization is deferred beyond completion; existing performance measurements remain part of the report.
 
 ### User priority and completion clarification — 25 October 2026
 
@@ -10,20 +10,35 @@ This clarification supersedes conflicting performance priorities in the original
 milestones and acceptance text below. Preserve the mathematical validation
 requirements and all failed or incomplete evidence.
 
-- Prioritize complete, independently validated rank-seven reduction. A
-  restricted scalar seven-point API or a converged array without an independent
-  accuracy check does not complete this objective.
+- Prioritize complete, independently validated reduction through the accepted
+  six-point/rank-six envelope. A
+  restricted scalar high-point API or a converged array without an independent
+  accuracy check does not complete the accepted tensor envelope.
 - Use and improve whichever execution path is fastest. Separate interpreted
   versus native work is useful only when it helps correctness or the measured
   higher-rank bottleneck; it is not an independent development objective.
 - Defer additional small-topology backend/performance cohorts. After correctness
-  is established, profile and optimize mainly higher-rank workloads. Retain
+  is established, stop after publishing the feature-complete tested version.
+  Later optimization is separate work, chiefly at higher rank. Retain
   IREGI/COLLIER comparisons with TIRust in every timing-ratio numerator.
 - Once the full implementation is working and validated, update the Typst
   benchmark report and machine-readable results, commit and push the validated
   result, mark the objective achieved, give the user the report link and a full
   summary, then stop as requested. Do not mark a narrower milestone complete as
   a substitute for the full implementation.
+
+The user's subsequent clarification on the same date explicitly includes dot
+support in the completion gate and removes performance optimization as a
+precondition for finishing. Resource/preparation fixes needed to obtain complete
+correct results remain part of implementation and validation. Do not continue
+optional optimization after the feature-complete tested version has been pushed.
+
+The next user clarification accepts a fully validated implementation through
+six points and rank six, including the above features, as sufficient completion.
+Seven-point/rank-seven support may remain a documented challenge, and work beyond
+seven points or rank seven is out of scope. Preserve higher-rank results already
+obtained; they do not replace missing feature validation within six-point/rank-six
+coverage. This clarification supersedes the larger completion envelope below.
 
 At implementation start:
 

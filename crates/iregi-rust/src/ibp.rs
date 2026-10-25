@@ -129,6 +129,7 @@ pub struct ScalarCompiler {
     gram_regular_bubbles: bool,
     degenerate_families: HashMap<Vec<usize>, DegenerateFamily>,
     routing: Option<Vec<[Atom; 4]>>,
+    certified_five_point_constant_one: bool,
     routing_relations: HashMap<Vec<usize>, Option<RoutingRelation>>,
     lightlike_bubble: Option<LightlikeBubbleExpansion>,
     reduce_bubble_master: bool,
@@ -157,6 +158,7 @@ impl ScalarCompiler {
             gram_regular_bubbles: false,
             degenerate_families: HashMap::new(),
             routing: None,
+            certified_five_point_constant_one: false,
             routing_relations: HashMap::new(),
             lightlike_bubble: None,
             reduce_bubble_master: false,
@@ -239,6 +241,23 @@ impl ScalarCompiler {
         }
         self.routing = Some(coordinates);
         self.routing_relations.clear();
+        Ok(())
+    }
+
+    /// Opt a checked N=5 chart into constant-one reduction before Cayley
+    /// preparation, including raised powers. The caller certifies that these
+    /// coordinates retain all original linear dependencies in every requested
+    /// Taylor component, and that the selected constant-one chart is a unit.
+    /// Original R remains authoritative; homogeneous-only families are errors.
+    pub(crate) fn set_certified_planar_coordinates(
+        &mut self,
+        coordinates: Vec<[Atom; 4]>,
+    ) -> Result<(), String> {
+        if self.r.len() != 5 {
+            return Err("certified planar scalar routing requires five propagators".into());
+        }
+        self.set_certified_linear_coordinates(coordinates)?;
+        self.certified_five_point_constant_one = true;
         Ok(())
     }
 
@@ -519,6 +538,16 @@ impl ScalarCompiler {
             let relation = self.routing_relation(active)?.ok_or(
                 "no exact four-dimensional denominator relation for six or more propagators",
             )?;
+            return self.compile_routing_relation(request, active, &relation);
+        }
+        if active.len() == 5 && self.certified_five_point_constant_one {
+            let relation = self
+                .routing_relation(active)?
+                .filter(|relation| relation.constant_one)
+                .ok_or("certified planar scalar routing requires a constant-one identity")?;
+            // Every term lowers total propagator power. With one dot, its
+            // decrement reaches the unit pentagon, which pinches once more;
+            // all other terms already have at most four active propagators.
             return self.compile_routing_relation(request, active, &relation);
         }
         if active.len() == 5 && h == 1 && raised.is_none() && self.routing.is_some() {
@@ -2510,4 +2539,112 @@ mod tests {
             Atom::num(1),
         );
     }
+
+    fn certified_planar_fixture(homogeneous: bool) -> (Vec<[Atom; 4]>, Vec<Vec<Atom>>) {
+        let points = [
+            [0, 0, 0, 0], [1, 1, 0, 0], [2, 0, 1, 0],
+            [-1, 0, 0, 1], [2, 1, 1, 1],
+        ];
+        let shifts: Vec<[Atom; 4]> = points.iter().map(|p| p.map(Atom::num)).collect();
+        let square = |p: &[Atom; 4]| p[0].pow(2)-p[1].pow(2)-p[2].pow(2)-p[3].pow(2);
+        let masses: Vec<_> = shifts.iter().enumerate().map(|(i,p)|
+            if homogeneous { square(p) + Atom::num(7) }
+            else { Atom::num(((i+2)*(i+2)) as u64) }).collect();
+        let r = (0..5).map(|i| (0..5).map(|j| {
+            let difference = std::array::from_fn(|mu| &shifts[i][mu]-&shifts[j][mu]);
+            square(&difference)-&masses[i]-&masses[j]
+        }).collect()).collect();
+        (shifts,r)
+    }
+
+    fn certified_planar_compiler(r: Vec<Vec<Atom>>, shifts: &[[Atom;4]]) -> ScalarCompiler {
+        let mut compiler = ScalarCompiler::new(r).unwrap();
+        let coordinates = shifts.iter().map(|shift| {
+            let mut coordinate = (*shift).clone();
+            coordinate[0] = Atom::new();
+            coordinate
+        }).collect();
+        compiler.set_certified_planar_coordinates(coordinates).unwrap();
+        compiler.enable_physical_poles().unwrap();
+        compiler
+    }
+
+    #[test]
+    fn certified_planar_relation_preserves_original_r_and_all_four_coordinates() {
+        let (shifts,r) = certified_planar_fixture(false);
+        let mut compiler = certified_planar_compiler(r.clone(), &shifts);
+        assert_eq!(compiler.r,r);
+        let relation = compiler.routing_relation(&[0,1,2,3,4]).unwrap().unwrap();
+        assert!(relation.constant_one);
+        equal(&relation.coefficients.iter().cloned().sum::<Atom>(), Atom::new());
+        for mu in 0..4 {
+            equal(&relation.coefficients.iter().enumerate()
+                .map(|(i,c)| c*&shifts[i][mu]).sum::<Atom>(), Atom::new());
+        }
+        equal(&relation.coefficients.iter().enumerate().skip(1)
+            .map(|(i,c)| c*(&r[i][0]-&r[0][0])).sum::<Atom>(), Atom::num(1));
+    }
+
+    #[test]
+    fn certified_planar_scalar_routes_every_single_dot_before_parent_cayley() {
+        let (shifts,r) = certified_planar_fixture(false);
+        let mut compiler = certified_planar_compiler(r,&shifts);
+        // Unit h1 plus each of five dots at h0 and h1; the ordinary h0
+        // request is an internal descending child, not a widened public API.
+        for h in [0,1] {
+            for dotted in [None,Some(0),Some(1),Some(2),Some(3),Some(4)] {
+                let mut powers=vec![1;5];
+                if let Some(index)=dotted { powers[index]=2; }
+                let result=compiler.compile(ScalarRequest {powers,dimension_shift:h}).unwrap();
+                assert!(result.iter().any(|value| !value.is_zero()));
+            }
+        }
+        assert!(!compiler.geometry.contains_key(&vec![0,1,2,3,4]));
+        assert!(compiler.leaves.iter().all(|leaf|
+            leaf.kind==MasterLeafKind::FourDimensional && leaf.active.len()<=4));
+        assert_eq!(compiler.routing_relations.len(),1);
+    }
+
+    #[test]
+    fn certified_planar_dot_coefficients_match_regular_cayley_pinches() {
+        let (shifts,r)=certified_planar_fixture(false);
+        let mut routed=certified_planar_compiler(r.clone(),&shifts);
+        let mut cayley=ScalarCompiler::new(r).unwrap();
+        cayley.enable_physical_poles().unwrap();
+        // A separate coefficient-preparation path, not an independent integral
+        // oracle: regular planar R has B=0 and uses the existing Eq.(23) pinch.
+        // Direct positive-F parameter and mass-derivative gates remain pending.
+        for h in [0,1] {
+            for dotted in 0..5 {
+                let mut powers=vec![1;5];powers[dotted]=2;
+                let request=ScalarRequest {powers,dimension_shift:h};
+                let actual=routed.compile(request.clone()).unwrap();
+                let expected=cayley.compile(request).unwrap();
+                for slot in 0..4 { equal(&actual[slot],expected[slot].clone()); }
+            }
+        }
+    }
+
+    #[test]
+    fn certified_planar_homogeneous_relation_fails_without_e6_fallback() {
+        let (shifts,r)=certified_planar_fixture(true);
+        let mut compiler=certified_planar_compiler(r,&shifts);
+        compiler.enable_six_dimensional_pentagon().unwrap();
+        let error=compiler.compile(ScalarRequest {powers:vec![1;5],dimension_shift:1}).unwrap_err();
+        assert!(error.contains("constant-one"));
+        assert!(compiler.leaves.is_empty());
+    }
+
+    #[test]
+    fn certified_planar_policy_rejects_wrong_topology_and_warm_retargeting() {
+        let (shifts,r)=certified_planar_fixture(false);
+        let mut wrong=ScalarCompiler::new(vec![vec![Atom::num(-2)]]).unwrap();
+        assert!(wrong.set_certified_planar_coordinates(shifts.clone()).is_err());
+        assert!(!wrong.certified_five_point_constant_one);
+        let mut warm=ScalarCompiler::new(r).unwrap();
+        warm.compile(ScalarRequest {powers:vec![1,0,0,0,0],dimension_shift:0}).unwrap();
+        assert!(warm.set_certified_planar_coordinates(shifts).is_err());
+        assert!(!warm.certified_five_point_constant_one);
+    }
+
 }
