@@ -9,13 +9,30 @@ describe this handoff's historical checkpoint. Subsequent work is recorded in
 [the resumed checkpoint](docs/checkpoints/resume-20261025.md); the full objective
 is active and unchanged.
 
-**Latest resumed evidence checkpoint: 25 October 2026.** The report now has
-35 pages. Its new eight-family scheduler comparison retains all forty ratios
-but is ineligible for performance acceptance because of unrelated activity on
-the measured core's SMT sibling. No scheduler patch is adopted. The restricted
-seven-point wrapper is being tested on actual Cargo builds; its source is not
-part of this report-only checkpoint. Read the newest sections of the resumed
-checkpoint before relying on the historical status below.
+**Latest published checkpoint: `a69b754`, 25 October 2026.** The report has
+39 pages. Complete retained massive PV arrays through rank seven pass at N1–N6;
+the N6 batch/contraction lifecycle also passes. Retained massless N2–N4 arrays
+pass 7,920 independent-reference comparisons with UV/IR poles kept separate.
+The shared tensor facade and Symbolica's scoped branch-fact compiler change are
+committed. See [the array checkpoint](docs/checkpoints/rank7-arrays-20261025.md)
+and [the massless/dispatch checkpoint](docs/checkpoints/rank7-massless-dispatch-20261025.md).
+The next checkpoint, [shared CLI and IBP](docs/checkpoints/rank7-cli-ibp-20261025.md),
+updates the report to 41 pages. It adds passing shared CLI integration through
+N6 rank three / N7 scalar, retained N2 rank-seven IBP, generalized original-IREGI
+quad anchors and a preserved fresh N7 rank-seven allocation failure. Public N7
+remains scalar-only; private ranks one/two pass. Fine instrumentation has located
+distance-polynomial conversion over thousands of irrelevant imported parameters
+as a concrete preparation bottleneck; its narrow Symbolica fix is being checked.
+Broader methods, generalized tensors and numeric/Dual domains still need their
+own qualification. Current work
+continues in the worktree; inspect its files and receipts before restarting a
+job. This document's later pause, page-count and rank-limit statements describe
+the older wind-down and do not override this active checkpoint.
+
+The user's latest priority is full independent validation through rank seven,
+followed by optimization chiefly at higher rank. Low-rank COLLIER speed and
+interpreter/native selection are not completion gates. The full objective is
+unfinished and active; do not pause or mark it complete at a scoped milestone.
 
 The first resumed implementation milestone adds the optional generated f64
 A0/B0/C0 master policy. Its current locked-Cargo builds, selected tests and
@@ -32,9 +49,9 @@ before starting a later session.
 
 ## 1. Read this first
 
-1. **The full goal remains unfinished and is paused at the user's request.** Do
-   not mark it complete because a milestone, a narrow test corpus or this
-   consolidation is complete. Resume only when the user asks to continue.
+1. **The full goal remains unfinished and is active.** The user resumed after
+   the historical wind-down. Do not mark it complete because a milestone,
+   narrow test corpus or consolidation is complete.
 2. Everything is in `/shared/external/iregi/iregi-rust`. Execute commands from
    that directory. The only intended write outside it is the requested
    `/shared/external/iregi/references/PLAN.md`, which matches committed `PLAN.md`.

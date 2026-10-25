@@ -16,6 +16,9 @@ current priority. The explicit six-point API reaches rank seven with complete
 retained Float-array checks against higher-precision original IREGI; seven-point
 tensors and broader domains remain under validation. Historical scheduler
 experiments remain separate from the default reducer.
+The [shared CLI checkpoint](docs/checkpoints/rank7-cli-ibp-20261025.md) adds
+passing CLI checks through six-point rank three and seven-point scalar calls,
+and a complete retained rank-seven IBP bubble comparison.
 
 ## Workspace
 
@@ -70,6 +73,10 @@ masses, physical numerator preparation, and reference comparisons. Dependencies
 and exact revisions are pinned in `Cargo.toml` and `Cargo.lock`. Symbolica's
 license requirements apply; its GMP/MPFR dependencies are permitted by the
 project's implementation specification.
+
+The CLI uses `TensorReductionPlan` and `TensorWorkspace<T>` to select the generic,
+six-point or seven-point engine. It exposes tagged engine counters and per-lane
+diagnostics. Precision rescue retains its generic execution path.
 
 ## Library interface
 
@@ -177,9 +184,10 @@ settings, precision convergence and independent mixed-Dual comparisons.
 `SixPointReductionPlan` and `SixPointWorkspace<T>` provide an explicit batched
 six-point path through rank seven, using preserved Cartesian shifts, unit
 powers and native raw moments. Its retained Float128/Float256 fixtures pass
-complete-array reference and convergence checks. Earlier lower-rank lifecycle
-checks cover failed neighbors, workspace reuse and numerator contractions;
-the rank-seven lifecycle is being qualified separately. The ordinary
+complete-array reference and convergence checks. The retained rank-seven
+lifecycle also covers failed neighbors, reordered/chunked calls, scratch reuse
+and sparse/dense numerator contractions. Concurrent cloned workspaces remain a
+separate validation gate. The ordinary
 reducer's defaults remain unchanged. See the [six-point API](docs/six-point.md)
 for its input layout, example, numerical scope and remaining precision/Dual
 qualification.

@@ -107,10 +107,33 @@ variable convention before contracting MadLoop moments.
 `reduce` and `run` select their method with `--algorithm`; the `mode` field is
 used only when importing reference fixtures through `compare`.
 
+The CLI constructs the core's shared `TensorReductionPlan` and `TensorWorkspace`.
+The core selects eligible public six-/seven-point ordinary PV wrappers using
+its existing domain guards; the CLI maintains no separate eligibility list.
+`--algorithm` still defaults to **Hybrid**. This integration does not change
+Hybrid to PV or widen a wrapper's qualified rank, convention, power, invariant,
+kinematic or Dual domain. `--rescue` uses the facade's existing generic precision
+rescue path. The CLI retains its unprofiled/default master-policy behavior;
+capability/backend selection remains the core's responsibility. The outer CLI
+stage timings do not enable the generic workspace profiler.
+
 Results are JSON with decimal-string complex values, basis exponents, Laurent
 slots `[uv1,ir1,ir2,finite]`, per-sample status, fallback and analytic-limit usage, and batch
 execution counters. The output also records requested and prepared algorithms
-and preparation notes. `input_policy` records the requested preserve/snapping
+and the actual workspace preparation notes. `engine_execution.engine` identifies
+`Generic`, `SixPoint` or `SevenPoint` execution. For specialized engines its tagged
+record retains packed child/parent rows, batch-call counts, nested reduction work
+and both certificate counters. The legacy `execution` fields are the facade's
+logical-input/work summary: child and parent work is counted once, while packed
+rows and certificate passes remain in the tagged detail. Fallback/analytic work
+can exceed the number of logical samples; do not add packed rows to the summary.
+The algorithm field describes the selected engine's algorithm; the engine tag and
+nested counters distinguish the actual composition.
+
+Ordinary `diagnostics` contains the actual per-lane core messages. The existing
+precision-rescue API does not expose its internal certificate counters or those
+messages; rescue outputs mark these fields null instead of inventing zero counts
+or empty messages. `input_policy` records the requested preserve/snapping
 policy and exact threshold; comparison cases carry the same field.
 `precision_control` records the accuracy and verification
 policy. Per-sample `precision_rescue` preserves the primary status, convergence
@@ -132,6 +155,7 @@ report, and reports the worst error after scaling each moment by
 oracle's characteristic scale. The mixed error denominator is
 `max(1,abs(scaled_reference))`. The default tolerance is `1e-10`.
 Nonfinite normalization or error arithmetic is reported as failure.
+Comparison cases also retain the tagged actual engine and per-lane diagnostics.
 Execution counters on comparison cases describe the shared settings batch named
 by `execution_batch_ids`; those repeated counters must not be summed per case.
 `--case bubble` selects IDs containing a substring and `--algorithm ibp`

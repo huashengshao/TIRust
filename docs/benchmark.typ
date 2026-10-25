@@ -251,7 +251,7 @@ remains separate; these identities do not rerun that complete suite.]
   [N6 / ranks4–7], [Separately requested plans, Float128/256: 5,888 reference coefficients and 2,944 precision pairs. All previous rank7 prefixes retained.], [Pass¹],
   [N7 / rank0], [Actual Cargo Float128/256 singleton agreement. Nine-call lifecycle stopped after six completed calls; later scratch/recovery checks remain open.], [Partial],
   [N6 / rank7 COLI], [Native accuracy flag −2; 315 missing diagnostic coefficients and one finite discrepancy. All three pole probes return failure sentinels.], [Rejected],
-  [Full rank-seven goal], [Public N7 tensors, broader methods/kinematics/numeric types, generalized tensors, high-point Dual and frontend integration still need qualification.], [Open],
+  [Full rank-seven goal], [Public N7 tensors, broader methods/kinematics/numeric types, generalized tensors and high-point Dual still need qualification. The shared CLI has separate focused checks below.], [Open],
 ))
 
 ¹ Retained massive and massless families, native raw tensor components, requested
@@ -345,7 +345,7 @@ Dual layouts, profiling and nondefault policies retain generic execution;
 requested algorithms and compiled scalar-master defaults are preserved.
 These core tests alone do not qualify new CLI or Python wheel builds.
 
-Separate rank-seven IBP captures complete at N1/N3 and pass 15,840 reference
+The earlier separate rank-seven IBP captures complete at N1/N3 and pass 15,840 reference
 comparisons, 7,920 precision pairs and 5,280 scaling identities. Both N2
 captures time out during workspace preparation and produce no coefficient
 array. The corpus remains incomplete. Original cleanup failures and later
@@ -368,12 +368,95 @@ scopes. Seven new and eleven relevant existing tests pass, including mixed
 higher Duals and instruction-major batching. The initial optimized test build
 times out; a test-only opt0/debug0 build completes with the same sources and
 features. These engineering records establish focused compiler semantics;
-the numerical N2/N7 reruns remain separate gates.
+the subsequent numerical N2 pass and N7 resource failure are reported below.
 
 Additional saved-evidence replay:
 #raw("python3 validation/public-rank7-massless-ir/check.py")\
 #raw("python3 validation/shared-tensor-facade/check.py")\
 #raw("python3 validation/public-rank7-ibp-owned-artifact-n1-n3/check.py").
+
+#pagebreak()
+= Shared CLI and additional rank-seven IBP
+#let ibp-n2-postfix = data.rank7_ibp_n2_postfix_qualification.snapshot
+#report-table(table(
+  columns: (1.2fr, 3.5fr, 0.8fr), inset: (x: 7pt, y: 12pt),
+  stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else { rgb("#d9f0d3") },
+  table.header([Check], [Executed scope], [Outcome]),
+  [N2 / rank7 / IBP], [Three massive rows at Float128/256: 7,920 reference coefficients, 3,960 precision pairs, 2,640 scaling checks and 3,960 IR-zero checks. Actual method IBP; no fallback.], [Pass],
+  [CLI / low points], [Thirteen exact CLI tests and four smoke calls: full bubble reference arrays, DOT numerator preparation/contraction, DoubleFloat, precision rescue and invalid-neighbor isolation.], [Pass],
+  [CLI / N6 / rank3], [All 140 complex Laurent coefficients agree with the retained quad reference prefix. The shared facade selects the six-point engine and reports nested counters.], [Pass],
+  [CLI / N7 / rank0], [All four coefficients agree with the retained quad reference. Twenty-one packed children, 105 master requests, contraction and invalid-neighbor handling are checked.], [Pass],
+))
+
+The new N2 comparison follows the scoped Symbolica condition-fact change.
+Its largest normalized reference discrepancy is $1.839 times 10^(-16)$;
+the largest precision discrepancy is $7.579 times 10^(-37)$. Scaling and IR
+residuals are exactly zero in the captured representation. The two old N2
+timeouts remain failed historical attempts. The new complete arrays close
+this particular retained-family gap, without qualifying the whole IBP domain.
+
+The CLI now uses the library's shared tensor plan, workspace and contraction
+helper. Graph import and Symbolica numerator preparation remain separate.
+Default Hybrid, precision rescue and scalar-master policy are preserved.
+Output exposes the selected engine, nested counters and per-lane failures;
+unavailable rescue observations are null. Explicit Dual layouts continue
+through the generic engine. No high-point Dual domain is implied.
+
+The first CLI test run fails a test-only diagnostic-wording assertion; the
+one-assertion correction passes all thirteen tests. The first N7 scalar smoke
+times out before a result. A separately bounded attempt with the same
+executable, inputs and accuracy gates passes on a free core. Both original
+failures remain visible. Actual build and validation durations are engineering
+records, not comparable kernel timings. No new performance ratios are added.
+
+The compact CLI evidence inherits the exact 77-file source snapshot of the
+N2 capture and retains its corrected test source separately. These successful
+artifacts precede the later component-Taylor and preparation-instrumentation
+changes. They do not silently qualify those later sources.
+
+Saved-only reproduction:
+#raw("python3 validation/public-rank7-ibp-n2-postfix/check.py")\
+#raw("python3 validation/cli-shared-facade/check.py").
+
+#pagebreak()
+= Generalized reference anchors and the N7 blocker
+#report-table(table(
+  columns: (1.2fr, 3.5fr, 0.8fr), inset: (x: 7pt, y: 13pt),
+  stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else if y == 1 { pale } else { amber },
+  table.header([Domain], [Saved evidence], [Outcome]),
+  [Original IREGI / generalized rank7], [Twelve complete N2/N3 arrays: ten new first/last-dot, first-power-three and D2/D6 anchors, plus two unit-power controls. 15,840 complex slots retained.], [Anchors],
+  [TIRust / N7 / rank7], [Actual current-Cargo private Float128 attempt fails allocation under a 32 GiB address-space cap during workspace preparation. Zero output coefficients. Float256 and pair gates unrun.], [Failed],
+  [Public N7 tensor support], [The public guard remains rank zero. Private rank-one/two evidence and the new resource failure do not authorize positive-rank promotion.], [Open],
+))
+
+The generalized reference build applies only the already reviewed factorial-pair
+binomial-recurrence repair to its generated copy. The original source and binary
+remain untouched. The two unit-power controls match the earlier ordinary quad
+array and each other exactly. Independent checks cover 22,321 saved records,
+including UV power counting, positive-mass IR zeros and reflection identities.
+These are reference anchors for subsequent Rust comparisons. They are not a
+proof of every generalized finite coefficient or a new Rust/Dual qualification.
+Uniform quad storage retains the original limited-digit constants and stopping
+criteria; achieved 33-digit accuracy is not asserted.
+
+The new N7 failure uses a freshly built main-source test executable and a
+333-file source snapshot. Its Float128 child aborts after about 612 seconds;
+the timeout flag is false and owned cleanup succeeds. Its one memory snapshot
+is not a lifetime peak. A single read-only debugger sample is denied by system
+tracing policy and produces no stack profile. The failed attempt's coarse log
+does not uniquely identify the expensive substage. Later fine instrumentation
+and any optimization are separate work, with no passing array claimed here.
+
+This preserves the distinction between an unsupported public domain, a failed
+private resource attempt and a numerical disagreement. All remain visible in
+the acceptance envelope. No preparation duration is interpreted as a speedup
+against original IREGI or COLLIER.
+
+Saved evidence:
+#raw("python3 validation/quad-original-iregi-generalized-rank7/check.py")\
+#raw("validation/highpoint-seven-point-main-rank7-resource-failure/qualification.json").
 
 #pagebreak()
 = Additional correctness milestones

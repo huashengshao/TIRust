@@ -4,9 +4,10 @@ use iregi_cli::input::*;
 use iregi_masters::{Complex, DoubleFloat, Float, NativeFloat};
 use iregi_prepare::{NumeratorSource, PrepareOptions, PreparedGraph, prepare_dot};
 use iregi_rust::{
-    Algorithm, BatchResult, ContractionPlan, ContractionWorkspace, Convention, ExecutionStats,
-    KinematicsBatch, NumeratorBatch, PrecisionRescueWorkspace, ReductionPlan, ReductionSettings,
-    RescueScalar, RescueSettings, RescueStatus, RescueTrigger, Workspace,
+    Algorithm, BatchResult, CertificateExecutionStats, ContractionWorkspace, Convention,
+    ExecutionStats, KinematicsBatch, NumeratorBatch, PrecisionRescueWorkspace, ReductionSettings,
+    RescueScalar, RescueSettings, RescueStatus, RescueTrigger, TensorEngineExecution,
+    TensorEngineKind, TensorReductionPlan, TensorWorkspace,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -178,22 +179,32 @@ impl NumericPolicy {
 }
 
 enum NumericalWorkspace<T: RescueScalar> {
-    Ordinary(Workspace<T>),
-    Verified(PrecisionRescueWorkspace<T>),
+    Ordinary(TensorWorkspace<T>),
+    Verified {
+        workspace: PrecisionRescueWorkspace<T>,
+        algorithm_used: Algorithm,
+        preparation_notes: Vec<String>,
+    },
 }
 
 impl<T: RescueScalar> NumericalWorkspace<T>
 where
     Complex<T>: EvaluationDomain,
 {
-    fn new(plan: &ReductionPlan, prototype: T, policy: NumericPolicy) -> CliResult<Self> {
+    fn new(plan: &TensorReductionPlan, prototype: T, policy: NumericPolicy) -> CliResult<Self> {
         if let Some(settings) = policy.rescue {
-            Ok(Self::Verified(
-                PrecisionRescueWorkspace::new(plan, prototype, settings)
-                    .map_err(|e| e.to_string())?,
-            ))
+            let generic = plan.generic_plan().map_err(|e| e.to_string())?;
+            let mut preparation_notes = vec![
+                "Facade workspace selection: generic; precision rescue.".into(),
+            ];
+            preparation_notes.extend_from_slice(generic.preparation_notes());
+            Ok(Self::Verified {
+                workspace: plan.rescue_workspace(prototype, settings).map_err(|e| e.to_string())?,
+                algorithm_used: generic.algorithm_used(),
+                preparation_notes,
+            })
         } else {
-            let mut workspace = Workspace::new(plan, prototype).map_err(|e| e.to_string())?;
+            let mut workspace = TensorWorkspace::new(plan, prototype).map_err(|e| e.to_string())?;
             workspace
                 .set_accuracy_precision(policy.accuracy_bits)
                 .map_err(|e| e.to_string())?;
@@ -204,22 +215,59 @@ where
     fn reduce_batch(&mut self, batch: &KinematicsBatch<T>) -> CliResult<BatchResult<T>> {
         match self {
             Self::Ordinary(workspace) => workspace.reduce_batch(batch),
-            Self::Verified(workspace) => workspace.reduce_batch(batch),
+            Self::Verified { workspace, .. } => workspace.reduce_batch(batch),
         }
         .map_err(|e| e.to_string())
     }
 
-    fn execution(&self) -> Value {
-        execution_json(match self {
-            Self::Ordinary(workspace) => workspace.last_execution(),
-            Self::Verified(workspace) => workspace.last_execution().primary,
-        })
+    fn execution(&self) -> CliResult<Value> {
+        Ok(execution_json(match self {
+            Self::Ordinary(workspace) => workspace.execution_summary().map_err(|e| e.to_string())?,
+            Self::Verified { workspace, .. } => workspace.last_execution().primary,
+        }))
+    }
+
+    fn engine_execution(&self) -> Value {
+        match self {
+            Self::Ordinary(workspace) => engine_execution_json(workspace.engine_execution()),
+            Self::Verified { workspace, .. } => json!({
+                "engine":"Generic", "execution":execution_json(workspace.last_execution().primary),
+                "certificate_execution":null,
+                "certificate_scope":"the existing precision-rescue API does not expose certificate counters"
+            }),
+        }
+    }
+
+    fn algorithm_used(&self, plan: &TensorReductionPlan) -> CliResult<Algorithm> {
+        match self {
+            Self::Ordinary(workspace) if workspace.engine_kind() == TensorEngineKind::Generic => {
+                Ok(plan.generic_plan().map_err(|e| e.to_string())?.algorithm_used())
+            }
+            // Specialized wrappers preserve their validated requested algorithm.
+            // The tagged engine/counters describe their actual nested work.
+            Self::Ordinary(_) => Ok(plan.settings().algorithm),
+            Self::Verified { algorithm_used, .. } => Ok(*algorithm_used),
+        }
+    }
+
+    fn preparation_notes(&self) -> &[String] {
+        match self {
+            Self::Ordinary(workspace) => workspace.preparation_notes(),
+            Self::Verified { preparation_notes, .. } => preparation_notes,
+        }
+    }
+
+    fn diagnostics(&self) -> Value {
+        match self {
+            Self::Ordinary(workspace) => json!(workspace.last_diagnostics()),
+            Self::Verified { .. } => Value::Null,
+        }
     }
 
     fn rescue_execution(&self) -> Value {
         match self {
             Self::Ordinary(_) => json!({"enabled":false}),
-            Self::Verified(workspace) => {
+            Self::Verified { workspace, .. } => {
                 let stats = workspace.last_execution();
                 json!({"enabled":true,"requested_rows":stats.requested_rows,"accepted_rows":stats.accepted_rows,
                     "corrected_successful_rows":stats.corrected_successful_rows,
@@ -229,7 +277,7 @@ where
     }
 
     fn lane_rescue(&self, row: usize) -> Value {
-        let Self::Verified(workspace) = self else {
+        let Self::Verified { workspace, .. } = self else {
             return json!({"status":"not_requested"});
         };
         let mut value = match &workspace.last_rescue_statuses()[row] {
@@ -252,6 +300,38 @@ fn execution_json(stats: ExecutionStats) -> Value {
     json!({"input_rows":stats.input_rows,"argument_rows":stats.argument_rows,"master_family_batches":stats.master_family_batches,
         "master_rows":stats.master_rows,"pentagon_box_rows":stats.pentagon_box_rows,"reduction_rows":stats.reduction_rows,
         "fallback_rows":stats.fallback_rows,"fallback_successes":stats.fallback_successes,"analytic_rows":stats.analytic_rows})
+}
+
+fn certificate_execution_json(stats: CertificateExecutionStats) -> Value {
+    json!({"input_rows":stats.input_rows,"evaluated_rows":stats.evaluated_rows,
+        "passes":stats.passes,"reduction_batches":stats.reduction_batches})
+}
+
+fn engine_execution_json(detail: TensorEngineExecution) -> Value {
+    match detail {
+        TensorEngineExecution::Generic { execution, certificate_execution } => json!({
+            "engine":"Generic","execution":execution_json(execution),
+            "certificate_execution":certificate_execution_json(certificate_execution)
+        }),
+        TensorEngineExecution::SixPoint(stats) => json!({
+            "engine":"SixPoint","parent_input_rows":stats.parent_input_rows,
+            "child_batch_calls":stats.child_batch_calls,"packed_child_rows":stats.packed_child_rows,
+            "parent_batch_calls":stats.parent_batch_calls,"packed_parent_rows":stats.packed_parent_rows,
+            "child_execution":execution_json(stats.child_execution),
+            "parent_execution":execution_json(stats.parent_execution),
+            "child_certificate_execution":certificate_execution_json(stats.child_certificate_execution),
+            "parent_certificate_execution":certificate_execution_json(stats.parent_certificate_execution)
+        }),
+        TensorEngineExecution::SevenPoint(stats) => json!({
+            "engine":"SevenPoint","parent_input_rows":stats.parent_input_rows,
+            "child_batch_calls":stats.child_batch_calls,"packed_child_rows":stats.packed_child_rows,
+            "parent_batch_calls":stats.parent_batch_calls,"packed_parent_rows":stats.packed_parent_rows,
+            "child_execution":execution_json(stats.child_execution),
+            "parent_execution":execution_json(stats.parent_execution),
+            "child_certificate_execution":certificate_execution_json(stats.child_certificate_execution),
+            "parent_certificate_execution":certificate_execution_json(stats.parent_certificate_execution)
+        }),
+    }
 }
 #[derive(Args)]
 struct ReduceArgs {
@@ -478,7 +558,7 @@ where
     let policy = numeric.resolve(prototype.get_precision())?;
     let batch = pack(samples, &prototype, false)?;
     let started = Instant::now();
-    let plan = ReductionPlan::new(settings.clone()).map_err(|e| e.to_string())?;
+    let plan = TensorReductionPlan::new(settings.clone()).map_err(|e| e.to_string())?;
     let mut workspace = NumericalWorkspace::new(&plan, prototype.clone(), policy)?;
     let preparation_seconds = started.elapsed().as_secs_f64();
     let started = Instant::now();
@@ -531,11 +611,12 @@ where
     let mut output = json!({"schema_version":1,"precision_bits":prototype.get_precision(),"settings":settings,
         "input_policy":settings.input_policy,
         "precision_control":policy.json(),
-        "algorithm_requested":settings.algorithm,"algorithm_used":plan.algorithm_used(),"preparation_notes":plan.preparation_notes(),
+        "algorithm_requested":settings.algorithm,"algorithm_used":workspace.algorithm_used(&plan)?,"preparation_notes":workspace.preparation_notes(),
         "basis":result.basis,"poles":["uv1","ir1","ir2","finite"],"samples":rows,
         "timing":{"plan_and_workspace_seconds":preparation_seconds,"reduction_seconds":reduction_seconds,
             "note":"one reduction workspace call, including enabled precision rescue and Rust masters; excludes file I/O, graph preparation, numerator evaluation and contraction; not a statistically qualified benchmark"},
-        "execution":workspace.execution(),"rescue_execution":workspace.rescue_execution()});
+        "execution":workspace.execution()?,"engine_execution":workspace.engine_execution(),
+        "diagnostics":workspace.diagnostics(),"rescue_execution":workspace.rescue_execution()});
     if let Some(graph) = graph {
         output["graph"] = graph_json(graph);
         output["kinematics_contract"] = json!(
@@ -548,7 +629,7 @@ where
 fn contract<T: NativeFloat>(
     graph: &PreparedGraph,
     samples: &[Sample],
-    plan: &ReductionPlan,
+    plan: &TensorReductionPlan,
     result: &iregi_rust::BatchResult<T>,
     prototype: &T,
 ) -> CliResult<Vec<Option<CliResult<Vec<Complex<T>>>>>>
@@ -582,7 +663,7 @@ where
             .clone_from_slice(&output.values[compact * width..(compact + 1) * width]);
     }
     let contraction_plan =
-        ContractionPlan::new(plan, coefficient_plan.support()).map_err(|e| e.to_string())?;
+        plan.contraction_plan(coefficient_plan.support()).map_err(|e| e.to_string())?;
     let mut workspace = ContractionWorkspace::new(&contraction_plan, prototype.clone())
         .map_err(|e| e.to_string())?;
     let contracted = workspace
@@ -620,6 +701,58 @@ mod tests {
             unreachable!()
         };
         args.numeric
+    }
+
+    #[test]
+    fn facade_cli_keeps_default_hybrid_and_real_failed_lane() {
+        let valid: Sample = serde_json::from_str(
+            r#"{"id":"valid","propagators":[{"shift":["0","0","0","0"],"mass_squared":"4"}],"mu":"3"}"#,
+        ).unwrap();
+        let mut invalid = valid.clone();
+        invalid.id = "invalid-scale".into();
+        invalid.mu = Literal::Text("0".into());
+        let Command::Reduce(parsed) = Cli::try_parse_from([
+            "iregi-rust", "reduce", "--input", "unused.json",
+        ]).unwrap().command else { unreachable!() };
+        assert!(matches!(parsed.algorithm, Method::Hybrid));
+        let settings = settings(&valid, 0, parsed.algorithm.into(), parsed.convention.into()).unwrap();
+        let (output, success) = reduce(&[valid, invalid], settings, 0f64, None, &parsed.numeric).unwrap();
+        assert!(!success);
+        assert_eq!(output["algorithm_requested"], "Hybrid");
+        assert_eq!(output["engine_execution"]["engine"], "Generic");
+        assert_eq!(output["execution"], output["engine_execution"]["execution"]);
+        assert_eq!(output["execution"]["input_rows"], 2);
+        assert!(output["execution"]["master_rows"].as_u64().unwrap() > 0);
+        assert_eq!(output["samples"][0]["status"], "success");
+        assert_eq!(output["samples"][0]["moments"].as_array().unwrap().len(), 1);
+        assert_eq!(output["samples"][1]["status"], "failed");
+        assert!(output["samples"][1]["moments"].is_null());
+        assert_eq!(output["samples"][1]["reason"], "InvalidInput(\"mu must be positive and real\")");
+        assert_eq!(output["diagnostics"].as_array().unwrap().len(), 2);
+        assert_eq!(output["precision_control"]["accuracy_bits"], 53);
+    }
+
+    #[test]
+    fn facade_cli_rescue_retains_actual_generic_primary_metadata() {
+        let sample: Sample = serde_json::from_str(
+            r#"{"id":"massive","propagators":[{"shift":["0","0","0","0"],"mass_squared":"4"}],"mu":"3"}"#,
+        ).unwrap();
+        let settings = settings(&sample, 0, Algorithm::PassarinoVeltman, Convention::IregiNative).unwrap();
+        let (output, success) = reduce(&[sample], settings, 0f64, None,
+            &numeric_options(&["--rescue", "--accuracy-bits", "53"])).unwrap();
+        assert!(success);
+        assert_eq!(output["engine_execution"]["engine"], "Generic");
+        assert_eq!(output["execution"], output["engine_execution"]["execution"]);
+        assert_eq!(output["algorithm_used"], "PassarinoVeltman");
+        assert!(output["preparation_notes"].as_array().unwrap().iter()
+            .any(|note| note.as_str().unwrap().contains("precision rescue")));
+        assert!(output["engine_execution"]["certificate_execution"].is_null());
+        assert!(output["diagnostics"].is_null());
+        assert_eq!(output["samples"][0]["precision_rescue"]["status"], "converged");
+        assert_eq!(output["rescue_execution"]["requested_rows"], 1);
+        assert_eq!(output["rescue_execution"]["accepted_rows"], 1);
+        assert!(output["rescue_execution"]["working"]["master_rows"].as_u64().unwrap() > 0);
+        assert!(output["rescue_execution"]["verification"]["master_rows"].as_u64().unwrap() > 0);
     }
 
     #[test]
@@ -799,7 +932,7 @@ mod tests {
             r#"{"propagators":[{"shift":["0","0","0","0"],"mass_squared":"4"}],"mu":"3","snap":true,"threshold":"-1e-6"}"#,
         ).unwrap();
         assert!(matches!(
-            ReductionPlan::new(
+            TensorReductionPlan::new(
                 settings(&sample, 0, Algorithm::Ibp, Convention::IregiNative).unwrap()
             ),
             Err(iregi_rust::ReductionError::InvalidInput(_))
@@ -807,7 +940,7 @@ mod tests {
         sample.threshold = None;
         sample.propagators = vec![sample.propagators[0].clone(); 5];
         assert!(
-            matches!(ReductionPlan::new(settings(&sample, 0, Algorithm::Ibp, Convention::IregiNative).unwrap()),
+            matches!(TensorReductionPlan::new(settings(&sample, 0, Algorithm::Ibp, Convention::IregiNative).unwrap()),
             Err(iregi_rust::ReductionError::Unsupported(reason)) if reason.contains("five or more"))
         );
     }
@@ -913,17 +1046,19 @@ where
     for (_, (settings, fixtures)) in groups {
         let samples: Vec<_> = fixtures.iter().map(|f| f.input.clone()).collect();
         let attempt: CliResult<_> = (|| {
-            let plan = ReductionPlan::new(settings.clone()).map_err(|e| e.to_string())?;
+            let plan = TensorReductionPlan::new(settings.clone()).map_err(|e| e.to_string())?;
             let mut workspace = NumericalWorkspace::new(&plan, prototype.clone(), policy)?;
             let result = workspace.reduce_batch(&pack(&samples, &prototype, true)?)?;
             Ok((
                 result,
-                plan.algorithm_used(),
-                plan.preparation_notes().to_vec(),
+                workspace.algorithm_used(&plan)?,
+                workspace.preparation_notes().to_vec(),
                 (0..samples.len())
                     .map(|row| workspace.lane_rescue(row))
                     .collect::<Vec<_>>(),
-                workspace.execution(),
+                workspace.execution()?,
+                workspace.engine_execution(),
+                workspace.diagnostics(),
                 workspace.rescue_execution(),
             ))
         })();
@@ -940,6 +1075,8 @@ where
                 preparation_notes,
                 rescue_diagnostics,
                 execution,
+                engine_execution,
+                diagnostics,
                 rescue_execution,
             )) => {
                 let execution_ids: Vec<_> = fixtures
@@ -1031,7 +1168,8 @@ where
                             "algorithm_requested":settings.algorithm,"algorithm_used":algorithm_used,"preparation_notes":preparation_notes,
                             "input_policy":settings.input_policy,
                             "fallback_used":result.fallback_used[row],"analytic_used":result.analytic_used[row],
-                            "precision_rescue":rescue_diagnostics[row],"execution":execution,"rescue_execution":rescue_execution,
+                            "precision_rescue":rescue_diagnostics[row],"execution":execution,"engine_execution":engine_execution,
+                            "diagnostics":diagnostics.as_array().map(|rows|&rows[row]),"rescue_execution":rescue_execution,
                             "execution_scope":"settings_batch","execution_batch_ids":execution_ids,
                             "worst_moment":worst/4,"worst_pole":worst%4,"reference_repaired":fixture.reference_repaired}));
                         }
@@ -1041,7 +1179,8 @@ where
                                 json!({"id":fixture.input.id,"status":"failed","reason":reason,"algorithm_requested":settings.algorithm,
                                 "algorithm_used":algorithm_used,"preparation_notes":preparation_notes,"fallback_used":result.fallback_used[row],"analytic_used":result.analytic_used[row],
                                 "input_policy":settings.input_policy,
-                                "precision_rescue":rescue_diagnostics[row],"execution":execution,"rescue_execution":rescue_execution,
+                                "precision_rescue":rescue_diagnostics[row],"execution":execution,"engine_execution":engine_execution,
+                            "diagnostics":diagnostics.as_array().map(|rows|&rows[row]),"rescue_execution":rescue_execution,
                                 "execution_scope":"settings_batch","execution_batch_ids":execution_ids}),
                             );
                         }
