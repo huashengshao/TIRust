@@ -13,7 +13,11 @@ use std::{
     time::Instant,
 };
 
-use iregi_masters::NativeFloat;
+use iregi_masters::{MasterExecutionPolicy, NativeFloat};
+
+#[cfg(test)]
+#[path = "certified_planar/policy_composition_tests.rs"]
+pub(crate) mod policy_composition_tests;
 use symbolica::{
     atom::Atom,
     domains::{
@@ -196,6 +200,7 @@ pub struct CertifiedPlanarWorkspace<T: NativeFloat> {
     shape: Shape,
     components: usize,
     policy: WorkspacePolicy,
+    master_policy: MasterExecutionPolicy,
     certificate: ExactZeroConstraintWorkspace,
     charts: HashMap<ChartKey, Workspace<T>>,
     accuracy_bits: u32,
@@ -214,7 +219,7 @@ where
     Complex<T>: EvaluationDomain,
 {
     pub fn new(plan: &CertifiedPlanarReductionPlan, prototype: T) -> Result<Self, ReductionError> {
-        Self::prepare(plan, prototype, None, WorkspacePolicy::ORDINARY)
+        Self::new_with_policy(plan, prototype, WorkspacePolicy::ORDINARY)
     }
 
     pub fn new_dual<D: DualNumberStructure>(
@@ -228,12 +233,27 @@ where
     pub(crate) fn new_with_policy(
         plan: &CertifiedPlanarReductionPlan, prototype: T, policy: WorkspacePolicy,
     ) -> Result<Self, ReductionError> {
-        Self::prepare(plan, prototype, None, policy)
+        Self::new_with_policies(plan, prototype, policy, MasterExecutionPolicy::Default)
+    }
+
+    pub(crate) fn new_with_policies(
+        plan: &CertifiedPlanarReductionPlan, prototype: T, policy: WorkspacePolicy,
+        master_policy: MasterExecutionPolicy,
+    ) -> Result<Self, ReductionError> {
+        Self::prepare(plan, prototype, None, policy, master_policy)
     }
 
     pub(crate) fn new_dual_with_policy<D: DualNumberStructure>(
         plan: &CertifiedPlanarReductionPlan, prototype: T, dual: D, policy: WorkspacePolicy,
     ) -> Result<Self, ReductionError> {
+        Self::new_dual_with_policies(plan, prototype, dual, policy, MasterExecutionPolicy::Default)
+    }
+
+    pub(crate) fn new_dual_with_policies<D: DualNumberStructure>(
+        plan: &CertifiedPlanarReductionPlan, prototype: T, dual: D, policy: WorkspacePolicy,
+        master_policy: MasterExecutionPolicy,
+    ) -> Result<Self, ReductionError> {
+        master_policy.validate_available().map_err(preparation)?;
         iregi_masters::validate_dual_structure(&dual).map_err(preparation)?;
         Self::prepare(
             plan,
@@ -245,6 +265,7 @@ where
                     .collect(),
             ),
             policy,
+            master_policy,
         )
     }
 
@@ -253,7 +274,9 @@ where
         prototype: T,
         shape: Shape,
         policy: WorkspacePolicy,
+        master_policy: MasterExecutionPolicy,
     ) -> Result<Self, ReductionError> {
+        master_policy.validate_available().map_err(preparation)?;
         // Certified charts never recursively enable their own outer retry.
         let policy = WorkspacePolicy { planar_retry: false, ..policy };
         let accuracy_bits = prototype.get_precision();
@@ -265,6 +288,7 @@ where
             prototype,
             components: shape.as_ref().map_or(1, Vec::len),
             policy,
+            master_policy,
             certificate: plan.certificate(&shape)?.instantiate(),
             shape,
             charts: HashMap::new(),
@@ -641,12 +665,13 @@ where
     fn prepare_chart(&self, omitted: usize, inactive: u8) -> Result<Workspace<T>, ReductionError> {
         let plan = self.plan.chart(omitted, inactive)?;
         let mut workspace = match &self.shape {
-            None => Workspace::new_with_policy(&plan, self.prototype.clone(), self.policy),
-            Some(shape) => Workspace::new_dual_with_policy(
+            None => Workspace::new_with_policies(&plan, self.prototype.clone(), self.policy, self.master_policy),
+            Some(shape) => Workspace::new_dual_with_policies(
                 &plan,
                 self.prototype.clone(),
                 HyperDual::<Complex<Rational>>::new(shape.clone()),
                 self.policy,
+                self.master_policy,
             ),
         }?;
         workspace.set_accuracy_precision(self.accuracy_bits)?;

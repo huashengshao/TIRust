@@ -7,7 +7,7 @@
 
 use crate::{
     Complex, DualNumberStructure, ExactMasterPlan, HyperDual, LaneError, MasterBackend,
-    MasterError, MasterEvaluator, NativeFloat, ScalarIntegral, default_master_backend,
+    MasterError, MasterEvaluator, MasterExecutionPolicy, NativeFloat, ScalarIntegral, default_master_backend,
     validate_dual_structure,
 };
 use std::{
@@ -56,6 +56,7 @@ pub struct Pentagon6Plan {
     contraction: ExpressionEvaluator<Complex<Rational>>,
     boxes: PentagonBoxPlan,
     components: usize,
+    master_policy: MasterExecutionPolicy,
     rules: Arc<Mutex<HashMap<(usize, u32), Arc<Vec<(Rational, Rational)>>>>>,
 }
 
@@ -67,15 +68,34 @@ enum PentagonBoxPlan {
 
 impl Pentagon6Plan {
     pub fn new() -> Result<Self, MasterError> {
-        Self::build::<HyperDual<f64>>(None)
+        Self::new_with_policy(MasterExecutionPolicy::Default)
+    }
+
+    /// Select the policy for scalar dependencies. Explicit policies retain
+    /// Symbolica D0 boxes; the pentagon geometry and quadrature are unchanged.
+    pub fn new_with_policy(policy: MasterExecutionPolicy) -> Result<Self, MasterError> {
+        policy.validate_available()?;
+        Self::build::<HyperDual<f64>>(None, policy)
     }
 
     pub fn new_dual<D: DualNumberStructure>(dual: D) -> Result<Self, MasterError> {
-        validate_dual_structure(&dual)?;
-        Self::build(Some(&dual))
+        Self::new_dual_with_policy(dual, MasterExecutionPolicy::Default)
     }
 
-    fn build<D: DualNumberStructure>(dual: Option<&D>) -> Result<Self, MasterError> {
+    /// Prepare a Dual pentagon with the same scalar-dependency policy.
+    pub fn new_dual_with_policy<D: DualNumberStructure>(
+        dual: D,
+        policy: MasterExecutionPolicy,
+    ) -> Result<Self, MasterError> {
+        policy.validate_available()?;
+        validate_dual_structure(&dual)?;
+        Self::build(Some(&dual), policy)
+    }
+
+    fn build<D: DualNumberStructure>(
+        dual: Option<&D>,
+        policy: MasterExecutionPolicy,
+    ) -> Result<Self, MasterError> {
         let parameters: Vec<_> = (0..INPUTS).map(|i| variable(&format!("a{i}"))).collect();
         let mut distances = vec![vec![Atom::new(); 5]; 5];
         for (index, &(i, j)) in EDGES.iter().enumerate() {
@@ -147,7 +167,8 @@ impl Pentagon6Plan {
                 ScalarIntegral::D0,
                 BorrowedDual(dual),
             )?),
-            None if default_master_backend() == MasterBackend::RustBatch => PentagonBoxPlan::Native,
+            None if policy == MasterExecutionPolicy::Default
+                && default_master_backend() == MasterBackend::RustBatch => PentagonBoxPlan::Native,
             None => PentagonBoxPlan::Exact(ExactMasterPlan::new(ScalarIntegral::D0)?),
         };
         Ok(Self {
@@ -155,6 +176,7 @@ impl Pentagon6Plan {
             contraction,
             components,
             boxes,
+            master_policy: policy,
             rules: Arc::new(Mutex::new(HashMap::new())),
         })
     }
@@ -177,7 +199,9 @@ impl Pentagon6Plan {
             geometry: map(&self.geometry, &prototype),
             contraction: map(&self.contraction, &prototype),
             boxes: match &self.boxes {
-                PentagonBoxPlan::Exact(plan) => plan.instantiate(prototype.clone())?,
+                PentagonBoxPlan::Exact(plan) => {
+                    plan.instantiate_with_policy(prototype.clone(), self.master_policy)?
+                }
                 PentagonBoxPlan::Native => MasterEvaluator::new_with_backend(
                     ScalarIntegral::D0,
                     prototype.clone(),
@@ -800,6 +824,19 @@ impl<D: DualNumberStructure> DualNumberStructure for BorrowedDual<'_, D> {
 mod tests {
     use super::*;
     use crate::{DoubleFloat, Float};
+    #[test]
+    fn explicit_policy_keeps_pentagon_boxes_symbolica() {
+        let mut policies = vec![MasterExecutionPolicy::Symbolica];
+        if cfg!(feature = "native-f64-abc") {
+            policies.push(MasterExecutionPolicy::NativeF64Abc);
+        }
+        for policy in policies {
+            let plan = Pentagon6Plan::new_with_policy(policy).unwrap();
+            assert_eq!(plan.master_policy, policy);
+            assert!(matches!(&plan.boxes, PentagonBoxPlan::Exact(_)));
+            assert_eq!(plan.instantiate(0.).unwrap().boxes.backend(), MasterBackend::SymbolicaBatch);
+        }
+    }
     const SAMPLE: [i64; 16] = [1, -1, -1, -1, 0, 0, 0, -2, -2, -2, 10, 12, 15, 18, 22, 1];
     fn sample() -> Vec<Complex<f64>> {
         SAMPLE.map(|re| Complex::new(re as f64, 0.)).to_vec()

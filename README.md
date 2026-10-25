@@ -106,6 +106,12 @@ lanes and Taylor components remain separate. `DoubleFloat` and arbitrary
 precision `Float` use the same API, with constants converted directly at the
 working precision. Independent workspaces own their numerical scratch storage.
 
+The optional [`native-f64-abc` policy](docs/native-masters.md) selects generated
+oneloopmaster A0/B0/C0 evaluators for ordinary binary64 workspaces through
+`Workspace::new_with_master_policy`. Other numeric domains and scalar families
+retain Symbolica under this policy. It does not change default constructors;
+qualification and per-family performance remain explicit in the report.
+
 The retained massive triangle and box cases also validate first, second and
 mixed squared-mass derivatives against raised-power IBP reductions across all
 four Laurent slots. See the [C0/D0 qualification](validation/c0d0-dual-identity/README.md)

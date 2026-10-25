@@ -9,6 +9,12 @@ describe this handoff's historical checkpoint. Subsequent work is recorded in
 [the resumed checkpoint](docs/checkpoints/resume-20261025.md); the full objective
 is active and unchanged.
 
+The first resumed implementation milestone adds the optional generated f64
+A0/B0/C0 master policy. Its current locked-Cargo builds, selected tests and
+complete triangle comparisons pass; the historical broad-backend metadata
+timeout remains explicit. Read the resumed checkpoint before applying any
+historical statements below about pending constructors or private composition.
+
 The commit containing this file consolidates the final evidence and unfinished
 source archives. The last preceding implementation commit is
 `007ca9f7b1f3cd2005e0d4df1fcfb24f55aaecc7` (`Add restricted six-point reduction

@@ -6,22 +6,51 @@ use crate::{
     ReductionSettings,
 };
 
+#[cfg(test)]
+mod policy_composition_tests {
+    use super::*;
+    use crate::Algorithm;
+
+    #[test]
+    fn composition_planar_retry_forwards_policies_to_lazy_masked_charts() {
+        let mut policies = vec![MasterExecutionPolicy::Symbolica];
+        if MasterExecutionPolicy::NativeF64Abc.validate_available().is_ok() {
+            policies.push(MasterExecutionPolicy::NativeF64Abc);
+        }
+        for masters in policies {
+            let mut settings = ReductionSettings::new(5, 0);
+            settings.algorithm = Algorithm::PassarinoVeltman;
+            let retry = PlanarFallback::new(settings, WorkspacePolicy::SIX_POINT_CHILD, masters);
+            assert_eq!(retry.policy, WorkspacePolicy::SIX_POINT_CHILD);
+            assert_eq!(retry.master_policy, masters);
+            assert!(retry.workspace.is_none());
+            for shape in [None, Some(vec![vec![0]])] {
+                let workspace = retry.prepare(0., &shape, 53, false).unwrap();
+                assert_eq!(workspace.dual_shape(), shape.as_deref());
+                crate::certified_planar::policy_composition_tests::assert_chart_context(&workspace, masters);
+            }
+        }
+    }
+}
+
 #[derive(Clone)]
 pub(super) struct PlanarFallback<T: NativeFloat> {
     settings: ReductionSettings,
     workspace: Option<Result<Box<CertifiedPlanarWorkspace<T>>, String>>,
     policy: WorkspacePolicy,
+    master_policy: MasterExecutionPolicy,
 }
 
 impl<T: NativeFloat> PlanarFallback<T>
 where
     Complex<T>: EvaluationDomain,
 {
-    pub(super) fn new(settings: ReductionSettings, policy: WorkspacePolicy) -> Self {
+    pub(super) fn new(settings: ReductionSettings, policy: WorkspacePolicy, master_policy: MasterExecutionPolicy) -> Self {
         Self {
             settings,
             workspace: None,
             policy,
+            master_policy,
         }
     }
 
@@ -48,12 +77,13 @@ where
         let plan =
             CertifiedPlanarReductionPlan::new_for_six_point_child(self.settings.clone()).map_err(|e| e.to_string())?;
         let mut workspace = match shape {
-            None => CertifiedPlanarWorkspace::new_with_policy(&plan, prototype, self.policy),
-            Some(shape) => CertifiedPlanarWorkspace::new_dual_with_policy(
+            None => CertifiedPlanarWorkspace::new_with_policies(&plan, prototype, self.policy, self.master_policy),
+            Some(shape) => CertifiedPlanarWorkspace::new_dual_with_policies(
                 &plan,
                 prototype,
                 HyperDual::<Complex<Rational>>::new(shape.clone()),
                 self.policy,
+                self.master_policy,
             ),
         }
         .map_err(|e| e.to_string())?;

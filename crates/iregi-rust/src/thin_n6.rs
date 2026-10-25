@@ -1,11 +1,15 @@
 //! Private implementation behind the restricted six-point API: one packed N5
 //! rank-lowered child batch and a guarded Symbolica parent. Internal generic
 //! rank and Dual support exceed the public, numerically qualified domain.
-use iregi_masters::NativeFloat;
+use iregi_masters::{MasterExecutionPolicy, NativeFloat};
 use symbolica::{domains::{dual::DualNumberStructure, float::Complex}, evaluate::EvaluationDomain};
 use crate::{Algorithm, BatchResult, CertificateExecutionStats, Convention, ExecutionStats, InputLayout, KinematicsBatch,
     LaneStatus, ReductionError, ReductionPlan, ReductionSettings, ResultMetadata, TensorWeights,
     Workspace, basis::{Monomial,tensor_basis}, execution::{WorkspacePolicy, validate_input_row}};
+
+#[cfg(test)]
+#[path = "thin_n6/policy_composition_tests.rs"]
+mod policy_composition_tests;
 
 #[derive(Clone, Debug)]
 pub(crate) struct ThinSixReductionPlan { parent:ReductionPlan, child:ReductionPlan }
@@ -38,8 +42,8 @@ pub(crate) struct ThinSixWorkspace<T:NativeFloat> {
 }
 impl<T:NativeFloat> ThinSixWorkspace<T> where Complex<T>:EvaluationDomain {
     pub fn new(plan:&ThinSixReductionPlan,prototype:T)->Result<Self,ReductionError> {
-        let child=Workspace::new_with_policy(&plan.child,prototype.clone(),WorkspacePolicy::SIX_POINT_CHILD)?;
-        let parent=Workspace::new_with_policy(&plan.parent,prototype.clone(),WorkspacePolicy::RETAIN_ENVELOPES)?;
+        let child=Workspace::new_with_policies(&plan.child,prototype.clone(),WorkspacePolicy::SIX_POINT_CHILD,MasterExecutionPolicy::Symbolica)?;
+        let parent=Workspace::new_with_policies(&plan.parent,prototype.clone(),WorkspacePolicy::RETAIN_ENVELOPES,MasterExecutionPolicy::Symbolica)?;
         Ok(Self{accuracy_bits:prototype.get_precision(),prototype,components:1,
             metadata:ResultMetadata::new(Convention::IregiNative,TensorWeights::Components,None),
             basis:plan.basis().to_vec(),child_basis:plan.child.basis().to_vec(),child,parent,stats:Default::default(),diagnostics:Vec::new()})
@@ -51,8 +55,8 @@ impl<T:NativeFloat> ThinSixWorkspace<T> where Complex<T>:EvaluationDomain {
             .and_then(|n|u16::try_from(n).ok()).map(|n|max.max(n))
             .ok_or_else(||ReductionError::Preparation("Dual order exceeds u16".into())))?;
         let parent_plan=ReductionPlan::new_thin_six(plan.settings().clone(),order)?;
-        let child=Workspace::new_dual_with_policy(&plan.child,prototype.clone(),BorrowedDual(&dual),WorkspacePolicy::SIX_POINT_CHILD)?;
-        let parent=Workspace::new_dual_with_policy(&parent_plan,prototype.clone(),BorrowedDual(&dual),WorkspacePolicy::RETAIN_ENVELOPES)?;
+        let child=Workspace::new_dual_with_policies(&plan.child,prototype.clone(),BorrowedDual(&dual),WorkspacePolicy::SIX_POINT_CHILD,MasterExecutionPolicy::Symbolica)?;
+        let parent=Workspace::new_dual_with_policies(&parent_plan,prototype.clone(),BorrowedDual(&dual),WorkspacePolicy::RETAIN_ENVELOPES,MasterExecutionPolicy::Symbolica)?;
         Ok(Self{accuracy_bits:prototype.get_precision(),prototype,components:shape.len(),
             metadata:ResultMetadata::new(Convention::IregiNative,TensorWeights::Components,Some(shape)),
             basis:plan.basis().to_vec(),child_basis:plan.child.basis().to_vec(),child,parent,stats:Default::default(),diagnostics:Vec::new()})

@@ -4,6 +4,14 @@
 //! compiles all argument transformations and reduction arithmetic; this module
 //! only validates and packs their numerical buffers.
 
+#[cfg(test)]
+#[path = "master_policy_tests.rs"]
+mod master_policy_tests;
+
+#[cfg(test)]
+#[path = "execution/policy_composition_tests.rs"]
+pub(crate) mod policy_composition_tests;
+
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex, OnceLock},
@@ -11,7 +19,7 @@ use std::{
 };
 
 use iregi_masters::{
-    ExactMasterPlan, LaneError, MasterBackend, MasterEvaluator, NativeFloat, Pentagon6Evaluator,
+    ExactMasterPlan, LaneError, MasterBackend, MasterEvaluator, MasterExecutionPolicy, NativeFloat, Pentagon6Evaluator,
     Pentagon6LaneError, Pentagon6Options, Pentagon6Plan, ScalarIntegral,
 };
 use symbolica::{
@@ -157,7 +165,7 @@ where
 }
 
 pub(crate) type ExactExecutionCache = Arc<
-    Mutex<HashMap<Option<Vec<Vec<usize>>>, Arc<OnceLock<Result<Arc<PreparedExecution>, String>>>>>,
+    Mutex<HashMap<(Option<Vec<Vec<usize>>>, MasterExecutionPolicy), Arc<OnceLock<Result<Arc<PreparedExecution>, String>>>>>,
 >;
 
 struct PreparedMasterGroup {
@@ -557,6 +565,7 @@ where
 /// Immutable exact instructions. This graph contains no numeric samples,
 /// rounded coefficients, scratch buffers, or reference back to ReductionPlan.
 pub(crate) struct PreparedExecution {
+    master_policy: MasterExecutionPolicy,
     basis: Vec<Monomial>,
     parameters: usize,
     layout: InputLayout,
@@ -603,6 +612,7 @@ impl PreparedExecution {
         plan: &ReductionPlan,
         dual: Option<&D>,
         master_plans: &mut PreparedMasterCache,
+        master_policy: MasterExecutionPolicy,
     ) -> Result<Self, ReductionError> {
         let shape = dual.map(|value| {
             value
@@ -817,8 +827,8 @@ impl PreparedExecution {
                     } else {
                         let exact = Arc::new(
                             match dual {
-                                Some(layout) => Pentagon6Plan::new_dual(BorrowedDual(layout)),
-                                None => Pentagon6Plan::new(),
+                                Some(layout) => Pentagon6Plan::new_dual_with_policy(BorrowedDual(layout), master_policy),
+                                None => Pentagon6Plan::new_with_policy(master_policy),
                             }
                             .map_err(|error| ReductionError::Preparation(error.to_string()))?,
                         );
@@ -833,7 +843,9 @@ impl PreparedExecution {
                 }
                 ScalarFamily::OneLoop(family) => family,
             };
-            if dual.is_none() && iregi_masters::default_master_backend() == MasterBackend::RustBatch
+            if master_policy == MasterExecutionPolicy::Default
+                && dual.is_none()
+                && iregi_masters::default_master_backend() == MasterBackend::RustBatch
             {
                 masters.push(PreparedMasterGroup {
                     leaves,
@@ -867,7 +879,7 @@ impl PreparedExecution {
         let fallback = plan
             .fallback
             .as_deref()
-            .map(|fallback| prepare_exact(fallback, dual, master_plans))
+            .map(|fallback| prepare_exact(fallback, dual, master_plans, master_policy))
             .transpose()?;
         let jet_order = shape
             .as_ref()
@@ -878,8 +890,8 @@ impl PreparedExecution {
             let equal = ReductionPlan::lightlike_bubble(plan.settings.clone(), jet_order, true)?;
             let unequal = ReductionPlan::lightlike_bubble(plan.settings.clone(), jet_order, false)?;
             (
-                Some(prepare_exact(&equal, dual, master_plans)?),
-                Some(prepare_exact(&unequal, dual, master_plans)?),
+                Some(prepare_exact(&equal, dual, master_plans, master_policy)?),
+                Some(prepare_exact(&unequal, dual, master_plans, master_policy)?),
             )
         } else {
             (None, None)
@@ -890,6 +902,7 @@ impl PreparedExecution {
             shape.clone(),
         );
         Ok(Self {
+            master_policy,
             basis: plan.basis.clone(),
             parameters: plan.parameters.len(),
             layout: plan.layout.clone(),
@@ -926,6 +939,7 @@ fn prepare_exact<D: DualNumberStructure>(
     plan: &ReductionPlan,
     dual: Option<&D>,
     master_plans: &mut PreparedMasterCache,
+    master_policy: MasterExecutionPolicy,
 ) -> Result<Arc<PreparedExecution>, ReductionError> {
     let shape = dual.map(|layout| {
         layout
@@ -940,12 +954,12 @@ fn prepare_exact<D: DualNumberStructure>(
         .execution_cache
         .lock()
         .map_err(|_| ReductionError::Preparation("exact execution cache lock poisoned".into()))?
-        .entry(shape)
+        .entry((shape, master_policy))
         .or_default()
         .clone();
     entry
         .get_or_init(|| {
-            PreparedExecution::build(plan, dual, master_plans)
+            PreparedExecution::build(plan, dual, master_plans, master_policy)
                 .map(Arc::new)
                 .map_err(|error| error.to_string())
         })
@@ -966,6 +980,7 @@ fn prepare_exact<D: DualNumberStructure>(
 #[derive(Clone)]
 pub struct Workspace<T: NativeFloat> {
     policy: WorkspacePolicy,
+    master_policy: MasterExecutionPolicy,
     planar_fallback: Option<PlanarFallback<T>>,
     planar_certificate_stats: CertificateExecutionStats,
     prototype: T,
@@ -1022,7 +1037,20 @@ where
     Complex<T>: EvaluationDomain,
 {
     pub fn new(plan: &ReductionPlan, prototype: T) -> Result<Self, ReductionError> {
-        Self::new_with_policy(plan, prototype, WorkspacePolicy::ORDINARY)
+        Self::new_with_master_policy(plan, prototype, MasterExecutionPolicy::Default)
+    }
+
+    /// Prepare an explicit scalar-master execution policy for this workspace.
+    ///
+    /// `NativeF64Abc` requires the `native-f64-abc` feature and selects native
+    /// A0/B0/C0 only for plain f64 inputs. All other types/families use Symbolica.
+    /// The policy is inherited by recursive and lazily specialized workspaces.
+    pub fn new_with_master_policy(
+        plan: &ReductionPlan,
+        prototype: T,
+        master_policy: MasterExecutionPolicy,
+    ) -> Result<Self, ReductionError> {
+        Self::new_with_policies(plan, prototype, WorkspacePolicy::ORDINARY, master_policy)
     }
 
     pub(crate) fn new_with_policy(
@@ -1030,7 +1058,16 @@ where
         prototype: T,
         policy: WorkspacePolicy,
     ) -> Result<Self, ReductionError> {
-        Self::prepare::<HyperDual<Complex<Rational>>>(plan, prototype, None, policy)
+        Self::new_with_policies(plan, prototype, policy, MasterExecutionPolicy::Default)
+    }
+
+    pub(crate) fn new_with_policies(
+        plan: &ReductionPlan,
+        prototype: T,
+        policy: WorkspacePolicy,
+        master_policy: MasterExecutionPolicy,
+    ) -> Result<Self, ReductionError> {
+        Self::prepare::<HyperDual<Complex<Rational>>>(plan, prototype, None, policy, master_policy)
     }
 
     /// Compile a static or dynamic Symbolica Dual layout. Inputs and outputs
@@ -1040,7 +1077,19 @@ where
         prototype: T,
         dual: D,
     ) -> Result<Self, ReductionError> {
-        Self::new_dual_with_policy(plan, prototype, dual, WorkspacePolicy::ORDINARY)
+        Self::new_dual_with_master_policy(plan, prototype, dual, MasterExecutionPolicy::Default)
+    }
+
+    /// Prepare a Dual layout with an explicit master policy.
+    /// Explicit Symbolica and selective-native policies keep the complete Dual
+    /// path, including lazily evaluated constant jets, on Symbolica.
+    pub fn new_dual_with_master_policy<D: DualNumberStructure>(
+        plan: &ReductionPlan,
+        prototype: T,
+        dual: D,
+        master_policy: MasterExecutionPolicy,
+    ) -> Result<Self, ReductionError> {
+        Self::new_dual_with_policies(plan, prototype, dual, WorkspacePolicy::ORDINARY, master_policy)
     }
 
     pub(crate) fn new_dual_with_policy<D: DualNumberStructure>(
@@ -1049,14 +1098,26 @@ where
         dual: D,
         policy: WorkspacePolicy,
     ) -> Result<Self, ReductionError> {
+        Self::new_dual_with_policies(plan, prototype, dual, policy, MasterExecutionPolicy::Default)
+    }
+
+    pub(crate) fn new_dual_with_policies<D: DualNumberStructure>(
+        plan: &ReductionPlan,
+        prototype: T,
+        dual: D,
+        policy: WorkspacePolicy,
+        master_policy: MasterExecutionPolicy,
+    ) -> Result<Self, ReductionError> {
+        master_policy.validate_available()
+            .map_err(|error| ReductionError::Preparation(error.to_string()))?;
         iregi_masters::validate_dual_structure(&dual)
             .map_err(|error| ReductionError::Preparation(error.to_string()))?;
         let order = maximum_jet_order(dual.get_shape())?;
         if order == plan.analytic_jet_order {
-            return Self::prepare(plan, prototype, Some(&dual), policy);
+            return Self::prepare(plan, prototype, Some(&dual), policy, master_policy);
         }
         let specialized = plan.with_analytic_jet_order(order)?;
-        Self::prepare(&specialized, prototype, Some(&dual), policy)
+        Self::prepare(&specialized, prototype, Some(&dual), policy, master_policy)
     }
 
     fn prepare<D: DualNumberStructure>(
@@ -1064,7 +1125,10 @@ where
         prototype: T,
         dual: Option<&D>,
         policy: WorkspacePolicy,
+        master_policy: MasterExecutionPolicy,
     ) -> Result<Self, ReductionError> {
+        master_policy.validate_available()
+            .map_err(|error| ReductionError::Preparation(error.to_string()))?;
         if prototype.get_precision() == 0 {
             return Err(ReductionError::Preparation(
                 "working precision must be positive".into(),
@@ -1074,7 +1138,7 @@ where
             iregi_masters::validate_dual_structure(layout)
                 .map_err(|error| ReductionError::Preparation(error.to_string()))?;
         }
-        let exact = prepare_exact(plan, dual, &mut PreparedMasterCache::default())?;
+        let exact = prepare_exact(plan, dual, &mut PreparedMasterCache::default(), master_policy)?;
         Self::instantiate(Some(plan), prototype, &exact, policy)
     }
 
@@ -1114,7 +1178,7 @@ where
                     leaves: group.leaves.clone(),
                     evaluator: match &group.plan {
                         PreparedMasterPlan::Exact(plan) => plan
-                            .instantiate(prototype.clone())
+                            .instantiate_with_policy(prototype.clone(), exact.master_policy)
                             .map(ScalarMasterEvaluator::OneLoop),
                         PreparedMasterPlan::Native(family) => MasterEvaluator::new_with_backend(
                             *family,
@@ -1183,9 +1247,10 @@ where
             GuardContext::new(&exact.stability, &prototype, prototype.get_precision());
         Ok(Self {
             policy,
+            master_policy: exact.master_policy,
             planar_fallback: if policy.planar_retry {
                 plan.and_then(ReductionPlan::automatic_planar_settings)
-                    .map(|settings| PlanarFallback::new(settings, policy))
+                    .map(|settings| PlanarFallback::new(settings, policy, exact.master_policy))
             } else {
                 None
             },
@@ -1238,6 +1303,11 @@ where
             profile: ExecutionProfile::default(),
             diagnostics: Vec::new(),
         })
+    }
+
+    /// Requested policy; individual master evaluators report their actual backend.
+    pub fn master_execution_policy(&self) -> MasterExecutionPolicy {
+        self.master_policy
     }
 
     pub fn component_count(&self) -> usize {
@@ -1636,7 +1706,7 @@ where
                                 let layout = self.shape.as_ref().map(|shape| {
                                     HyperDual::<Complex<Rational>>::new(shape.clone())
                                 });
-                                Self::prepare(&plan, self.prototype.clone(), layout.as_ref(), self.policy)
+                                Self::prepare(&plan, self.prototype.clone(), layout.as_ref(), self.policy, self.master_policy)
                             })
                             .and_then(|mut workspace| {
                                 workspace.set_profiling(self.profiling);

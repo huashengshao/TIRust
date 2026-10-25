@@ -1714,8 +1714,10 @@ mod tests {
         assert_eq!(second.dual_shape().unwrap(), second_shape);
         let cache = specialized.execution_cache.lock().unwrap();
         assert_eq!(cache.len(), 3);
-        let first = cache[&Some(first_shape)].get().unwrap().as_ref().unwrap();
-        let second = cache[&Some(second_shape)].get().unwrap().as_ref().unwrap();
+        let first = cache[&(Some(first_shape), crate::MasterExecutionPolicy::Default)]
+            .get().unwrap().as_ref().unwrap();
+        let second = cache[&(Some(second_shape), crate::MasterExecutionPolicy::Default)]
+            .get().unwrap().as_ref().unwrap();
         assert!(!Arc::ptr_eq(first, second));
     }
 

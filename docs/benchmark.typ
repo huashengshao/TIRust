@@ -1912,7 +1912,7 @@ optimized closure predates a current Symbolica polynomial guard. Source:
 #raw("validation/uniform-branch-dependent/qualification.json").
 
 #pagebreak()
-= Resumed validation and remaining work
+= Resumed native-master validation
 #let composed-native = data.at("native_policy_six_point_constructor_qualification", default: none)
 Development resumed on 25 October 2026. The seven previously unrun constructor
 cases pass in the frozen default/selective builds, with two complete test
@@ -1933,31 +1933,150 @@ including provenance and cleanup, within its unchanged 300 s limit. This is a
 diagnostic test duration, not a kernel benchmark. Source:
 #raw(composed-native.source).
 
+== Complete native-policy tensor comparisons
+Distinct baseline and selective-policy cores pass the original 38-request
+corpus: 30 TIRust requests and eight original IREGI requests. The eight ordinary
+bubble/triangle rank-zero/one families include singleton and batch-32 inputs.
+All complete tensor and captured master arrays are checked before accepting
+the policy; repeated workspaces and retained controls preserve full records.
+
 #report-table(table(
-  columns: (1.2fr, 2.7fr, 1fr), inset: (x: 7pt, y: 12pt),
-  stroke: table-stroke, fill: (x, y) => if y == 0 { navy } else { amber },
-  table.header([Private work], [Completed / retained evidence], [Next gate]),
-  [Native master policy + six-point integration],
-  [Independent source review; 8 feature metadata checks, 4 code-generation steps, 20 earlier ordinary tests and 7 new constructor tests pass. Whole-array numerical regression remains pending. No live patch application.],
-  [Full numerical regressions and Cargo forwarding],
-  [High-point numeric types / Dual pilot],
-  [Private capture/helper, dilation identities and bounded runner/comparator reviewed. Numerical qualification remains pending. Primal-only imported sensitivity cannot certify derivative uncertainty.],
-  [Qualify types and derivative error transport],
-  [Optimized scheduler performance],
-  [Current-source and historical dependency-feature census retained. Matched optimized build and numerical admission remain unqualified; no new timing result.],
-  [Build, numerical admission and controlled timings],
+  columns: (1.7fr, 1fr, 1.3fr), inset: (x: 8pt, y: 12pt),
+  stroke: table-stroke, fill: (x, y) => if y == 0 { navy } else { rgb("#d9f0d3") },
+  table.header([Whole-call comparison], [Complex slots / variant], [Maximum normalized error]),
+  [Complete tensor arrays], [1,584], [$3.378 times 10^(-13)$ versus IREGI],
+  [Captured scalar masters], [1,782], [$1.695 times 10^(-14)$],
+  [Baseline versus candidate tensors], [1,584], [$2.061 times 10^(-13)$],
 ))
+The unchanged gate is $10^(-10)$. D0, bubble derivatives, Dual and precision
+controls remain exact by represented values, precision and sign. This is an
+unoptimized frozen dependency context, not a current-Cargo or performance
+measurement. Source:
+#raw("validation/native-f64-sixpoint-whole/qualification.json").
 
-All unfinished source, commands and evidence are preserved in
-#raw("validation/winddown/") with member hashes and explicit compiled-product
-omissions. #raw("HANDOFF.md") records the full objective, implementation and
-qualification boundaries, rebuild commands, caches, known failures and ordered
-next steps. No new implementation experiment was started during wind-down.
+== Retained six-point behavior under both feature configurations
+All ten numerical producers and eight saved gates pass in the default and
+selective combined source chains. The explicitly supported six-point parent
+and children use Symbolica. Checks include 24 ordinary paired cases, 4,400
+complex Taylor slots, 560 rank-three original-reference comparisons and 280
+128/256-bit convergence comparisons. The largest normalized errors are
+$2.426 times 10^(-12)$ against IREGI and $1.474 times 10^(-34)$ across precision.
+All 420 checked pole slots are exactly zero. Twenty-two lifecycle calls cover
+reordered/repeated/chunked samples, failures, empty calls and contractions;
+values, precision and sign match retained singleton results exactly.
 
-The complete objective remains unfinished. Highest priorities are complete
-N6/N7 rank/power/dimension coverage, high-point precision and genuine derivative
-qualification, broad exceptional/physical validation, and performance parity
-per family. Existing IREGI/COLLIER timings retain their original contexts and
-TIRust-numerator ratios. The full implementation goal is active again; this
-report does not turn pending requirements into completed milestones. No timing
-measurement or production backend adoption follows from this constructor checkpoint.
+Independent numerical and provenance audits pass; all 17 owned process groups
+exited. No f64/DoubleFloat high-point accuracy or public six-point Dual claim
+follows. Source:
+#raw("validation/native-f64-sixpoint-regression/qualification.json").
+
+#pagebreak()
+= High-point numeric pilot and open qualifications
+The private rank-zero six-point pilot evaluates one massive real physical
+point. Repeated and batched profiles do not increase the number of independent
+physical points. Missing arrays remain failures.
+
+#report-table(table(
+  columns: (1.15fr, 1.2fr, 2.15fr), inset: (x: 8pt, y: 12pt),
+  stroke: table-stroke, fill: (x, y) => if y == 0 { navy } else { none },
+  table.header([Numeric domain], [Completed Laurent slots], [Outcome at unchanged bounds]),
+  [f64], table.cell(fill: amber, [0 / 40]),
+  table.cell(fill: amber, [All ten intended positive lanes rejected by cancellation guard; two invalid controls rejected.]),
+  [DoubleFloat], table.cell(fill: rgb("#d9f0d3"), [40 / 40]),
+  table.cell(fill: rgb("#d9f0d3"), [Ten successful lanes, two invalid controls and one empty call pass.]),
+  [Float128 dynamic Dual], table.cell(fill: amber, [24 / 240]),
+  table.cell(fill: amber, [One affine singleton passes; later schedule times out. Full domain fails.]),
+  [Float256 dynamic Dual], table.cell(fill: amber, [0 / 240]),
+  table.cell(fill: amber, [Work deadline reached before a complete output. Precision-pair gate has zero comparisons.]),
+))
+DoubleFloat agrees with original IREGI within $8.175 times 10^(-14)$ and the
+retained Float256 scalar target within $6.420 times 10^(-30)$. The available
+Float128 prefix has 24 complete complex coefficients, 18 exactly zero poles,
+and maximum dilation-identity error $1.013 times 10^(-34)$. Two formal variables
+describe one physical dilation direction; the nonlinear mixed profile remains
+incomplete. Independent checks reconstruct all 64 available outputs and 1,736
+exact input components, including seeds below binary64 resolution.
+
+Each domain retained its 180-second aggregate bound and 20-second postwork
+reserve; no failed attempt was retried or extended in this pilot. Its timings
+are lifecycle diagnostics. Public high-point Dual accuracy, derivative error
+transport, general independent derivative directions and full convergence
+remain unqualified. Source:
+#raw("validation/highpoint-six-point-numeric-types/qualification.json").
+
+== Exact routing preparation
+A private optimization delegates bounded affine routing matrices to
+Symbolica's rational-polynomial matrix solver. All 16 selected exact algebra
+tests pass, including actual generic N6/N7 scalar-compiler routing, generalized
+power/dimension identities, Gaussian coefficients and explicit fallback for
+opaque or nonpolynomial entries. The initial missing-environment build failure
+and interrupted scheduling attempt remain recorded. This is not a full-core
+numerical or performance qualification and is not applied to production.
+Source: #raw("validation/routing-rational-preparation/qualification.json").
+
+The optional native policy passes the current locked-Cargo checks detailed below.
+The restricted public seven-point proposal and shared exact-master preparation
+cache remain separate candidates. Matched optimized scheduler products have
+been built; fresh numerical admission and controlled timings are still needed.
+Existing IREGI/COLLIER timings retain their contexts and TIRust-numerator ratios.
+The full goal remains active: complete N6/N7 rank/power/dimension coverage,
+high-point precision/Dual qualification, broader physical/exceptional checks
+and performance parity per family remain required.
+
+#pagebreak()
+= Optional native policy: current Cargo integration
+The Rust working tree integrates the explicit
+#raw("MasterExecutionPolicy::NativeF64Abc") policy through the
+#raw("native-f64-abc") feature. Oneloopmaster's generated Rust evaluators handle
+ordinary f64 A0/B0/C0 requests instruction-major across active lanes. D0,
+bubble derivatives, DoubleFloat, arbitrary precision and every static or
+dynamic Dual layout retain Symbolica under the selective policy. Selecting
+the policy without its feature returns an explicit preparation error.
+
+Actual locked, offline Cargo builds and runtime checks pass for the default
+and selective configurations, without private capture instrumentation or
+substituted project archives. Current-source metadata records verify the
+expected feature forwarding. The executable copies are taken from their exact
+Cargo artifact records before another configuration can overwrite a shared
+example path.
+
+#report-table(table(
+  columns: (1.2fr, 1fr, 2fr), inset: (x: 8pt, y: 14pt),
+  stroke: table-stroke, fill: (x, y) => if y == 0 { navy } else { rgb("#d9f0d3") },
+  table.header([Current configuration], [Selected exact tests], [Public five-lane triangle probe]),
+  [Default], [9 / 9 pass], [Default and explicit Symbolica records agree exactly.],
+  [Selective feature], [17 / 17 pass], [Default, Symbolica and native policies pass complete tensor checks.],
+))
+These 26 selected cases cover policy routing, ordered Dual layouts, independent
+scratch, precision integrity and family exclusions. They are a focused subset,
+not a claim that every project test was rerun. The N3/rank-one probe uses three
+retained physical points, one invalid-scale neighbor and one repeated point.
+All 400 complex Laurent comparisons against original IREGI pass the unchanged
+dimensionally normalized $10^(-10)$ gate, with maximum error
+$2.346 times 10^(-13)$. The 80 direct selected-versus-Symbolica comparisons have
+maximum error $1.486 times 10^(-13)$. Invalid lanes contain no successful tensor
+array; values, precision, signs and execution counters remain checked.
+
+== Retained compatibility failure
+#report-table(table(
+  columns: (1.6fr, 1fr, 2fr), inset: (x: 8pt, y: 13pt),
+  stroke: table-stroke, fill: (x, y) => if y == 0 { navy } else { amber },
+  table.header([Legacy feature configuration], [Metadata outcome], [Qualification boundary]),
+  [Broad #raw("native-batch")], [Timeout], [Reached the fixed 240 s frontend limit; group cleanup and unchanged sources verified.],
+  [Broad + selective], [Unrun], [Later matrix step was not attempted after the timeout.],
+))
+The failed matrix attempt remains preserved, with no retry or extended bound.
+A separate reviewed continuation admits the already-passed default/selective
+metadata rows for their actual builds and numerical checks. Neither the complete
+legacy matrix nor broad native runtime is qualified by this checkpoint. The
+large legacy D0 evaluator received no LLVM code-generation request.
+
+All 39 owned process groups exited. Independent source, artifact, numerical and
+saved-data audits pass for the stated native-only scope. Six-point numerical
+regressions remain the separate preceding capsule; no new N6/N7 domain or
+performance claim follows from the Cargo checks. Backend selection is exposed
+through the Rust API; CLI/Python selection is future work. Default constructors
+retain their backend behavior. The explicit six-point parent and children use
+Symbolica. Source and reproduction commands:
+#raw("validation/native-f64-sixpoint-current-cargo/qualification.json") and
+#raw("docs/native-masters.md").

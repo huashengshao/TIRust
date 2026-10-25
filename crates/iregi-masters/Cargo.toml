@@ -8,6 +8,7 @@ license = "MIT"
 [features]
 default = []
 native-batch = []
+native-f64-abc = []
 
 [dependencies]
 oneloop.workspace = true

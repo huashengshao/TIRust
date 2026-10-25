@@ -1,7 +1,7 @@
 //! Precision-independent preparation for scalar-master batch evaluators.
 
 use crate::{
-    Complex, DualNumberStructure, MasterError, MasterEvaluator, NativeFloat, ScalarIntegral,
+    Complex, DualNumberStructure, MasterError, MasterEvaluator, MasterExecutionPolicy, NativeFloat, ScalarIntegral,
     exact_scalar_master_evaluator, expressions, regular_bubble_finite, validate_dual_structure,
 };
 use symbolica::{
@@ -73,12 +73,28 @@ impl ExactMasterPlan {
     where
         Complex<T>: EvaluationDomain,
     {
+        self.instantiate_with_policy(prototype, MasterExecutionPolicy::Default)
+    }
+
+    /// Instantiate with a requested policy. `Default` preserves this exact
+    /// plan's Symbolica backend. The selective policy replaces only ordinary
+    /// f64 A0/B0/C0; all Dual plans and other numeric domains remain Symbolica.
+    pub fn instantiate_with_policy<T: NativeFloat>(
+        &self,
+        prototype: T,
+        policy: MasterExecutionPolicy,
+    ) -> Result<MasterEvaluator<T>, MasterError>
+    where
+        Complex<T>: EvaluationDomain,
+    {
+        policy.validate_available()?;
         MasterEvaluator::from_exact(
             self.family,
             prototype,
             self.shape.clone(),
             self.exact.clone(),
-        )
+        )?
+        .select_execution_policy(policy)
     }
 
     pub fn family(&self) -> ScalarIntegral {

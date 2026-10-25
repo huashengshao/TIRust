@@ -36,3 +36,6 @@ pub use rescue::{
     RescueTrigger,
 };
 pub use types::*;
+
+/// Scalar-master selection for explicitly configured workspaces.
+pub use iregi_masters::MasterExecutionPolicy;

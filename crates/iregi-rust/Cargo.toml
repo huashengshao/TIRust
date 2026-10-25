@@ -8,6 +8,10 @@ repository.workspace = true
 description = "Batched generic one-loop tensor integral reduction"
 publish = false
 
+[features]
+default = []
+native-f64-abc = ["iregi-masters/native-f64-abc"]
+
 [dependencies]
 symbolica.workspace = true
 iregi-masters.workspace = true
