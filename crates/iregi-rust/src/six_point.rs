@@ -54,7 +54,7 @@ impl SixPointReductionPlan {
     }
 }
 
-fn validate_settings(settings: &ReductionSettings) -> Result<(), ReductionError> {
+pub(crate) fn validate_settings(settings: &ReductionSettings) -> Result<(), ReductionError> {
     if settings.propagators != 6
         || settings.rank > 7
         || settings.powers != [1; 6]

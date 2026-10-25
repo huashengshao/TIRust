@@ -11,6 +11,7 @@ pub mod seven_point;
 pub mod six_point;
 pub mod certified_scalar;
 pub mod contraction;
+pub mod dispatch;
 mod convention;
 pub mod execution;
 mod exact_zero_certificate;
@@ -24,6 +25,10 @@ pub mod snapping;
 mod stability;
 pub mod types;
 pub use contraction::{ContractionPlan, ContractionResult, ContractionWorkspace, NumeratorBatch};
+pub use dispatch::{
+    TensorEngineExecution, TensorEngineKind, TensorReductionPlan, TensorWorkspace,
+    TensorWorkspaceOptions,
+};
 pub use certified_planar::{CertifiedPlanarReductionPlan, CertifiedPlanarWorkspace};
 pub use certified_scalar::{
     CertificateExecutionStats, CertifiedScalarReductionPlan, CertifiedScalarWorkspace,

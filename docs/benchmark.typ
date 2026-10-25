@@ -217,7 +217,7 @@ all historical measurements below retain their original source snapshots.]
   [Local PyO3 wheel], [17/17 numerical and 12/12 interoperability tests, including the actual SVG renderer; installed consumer typing has zero errors/warnings.], [Passed],
   [Dotted propagators], [Generalized powers/dimension shifts have their strongest retained coverage at N≤4. The current wheel/gallery checks the dotted bubble against its mass Dual derivative.], [Scoped],
   [Example gallery], [4/4 native test methods; three successful HTML exports; all three rendered at desktop and narrow dark sizes in real Chromium.], [Passed],
-  [Tensor coverage], [Actual Cargo N1–N5 rank7 full arrays and N6 ranks4–7 pass retained-family reference checks at Float128/256. N6 rank7 lifecycle and numerator contractions pass. Public N7 is still scalar-only.], [Scoped],
+  [Tensor coverage], [Actual Cargo N1–N5 rank7 massive arrays, massless N2–N4 arrays and N6 ranks4–7 pass retained-family checks at Float128/256. N6 lifecycle/contractions pass. Public N7 is still scalar-only.], [Scoped],
   [Performance], [Historical private selected TIRust/COLLIER: seven slower families and one short inconclusive family. The fresh scheduler cohort is ineligible because of host contention; no default adoption.], [Measured],
 ))
 #text(size: 8.5pt)[Local Linux/Python 3.13 execution qualifies the named examples and
@@ -243,9 +243,10 @@ remains separate; these identities do not rerun that complete suite.]
 #report-table(table(
   columns: (1.2fr, 3.4fr, 0.9fr), inset: (x: 7pt, y: 11pt),
   stroke: table-stroke,
-  fill: (x, y) => if y == 0 { navy } else if y <= 3 { rgb("#d9f0d3") } else { amber },
+  fill: (x, y) => if y == 0 { navy } else if y <= 4 { rgb("#d9f0d3") } else { amber },
   table.header([Domain], [Executed scope], [Outcome]),
   [N1–N5 / rank7], [Actual Cargo PV: three massive samples per topology, Float128/256, 39,600 complex reference coefficients and 19,800 precision pairs.], [Pass¹],
+  [Massless N2–N4], [Complete rank7 arrays: 7,920 reference comparisons and 3,960 precision pairs. Separate UV, IR and IR² slots retained, including the scaleless bubble.], [Pass¹],
   [N6 / rank7 batches], [21,120 tensor and 128 sparse/dense contraction coefficients; empty, mixed failed lanes, reorder/chunks, cloned scratch and malformed-call recovery.], [Pass¹],
   [N6 / ranks4–7], [Separately requested plans, Float128/256: 5,888 reference coefficients and 2,944 precision pairs. All previous rank7 prefixes retained.], [Pass¹],
   [N7 / rank0], [Actual Cargo Float128/256 singleton agreement. Nine-call lifecycle stopped after six completed calls; later scratch/recovery checks remain open.], [Partial],
@@ -253,11 +254,12 @@ remains separate; these identities do not rerun that complete suite.]
   [Full rank-seven goal], [Public N7 tensors, broader methods/kinematics/numeric types, generalized tensors, high-point Dual and frontend integration still need qualification.], [Open],
 ))
 
-¹ Retained positive-mass families, native raw tensor components, requested
+¹ Retained massive and massless families, native raw tensor components, requested
 accuracy 53 and working precision 128/256. Every moment includes all four native
 Laurent slots. Independent-reference gates remain $10^(-10)$; precision and
 scaling gates remain $2^(-80)$. Maximum reference discrepancies are
-$1.839 times 10^(-16)$ at N1–N5 and $1.265 times 10^(-16)$ at N6.
+$1.839 times 10^(-16)$ for massive N1–N5, $2.522 times 10^(-16)$ for massless
+N2–N4 and $1.265 times 10^(-16)$ at N6.
 Working precision does not assert full working-precision accuracy. These
 cohorts retain their exact captured source contexts, including the older N6
 lifecycle context before the Cayley change. No kernel timing claim follows.
@@ -314,6 +316,64 @@ Saved-evidence replay, without new integral evaluation:
 #raw("python3 validation/quad-original-iregi-small-n-rank7/check.py").
 The separate rejection record is
 #raw("validation/collier-n6-rank7-diagnostic/qualification.json").
+
+#pagebreak()
+== Massless poles and shared execution
+The three massless points separately exercise a lightlike scaleless bubble,
+an on-shell triangle and a scattering box. Original quad IBP supplies all three
+reference arrays. All six Float128/256 arrays pass; the largest normalized
+reference discrepancy is $2.522 times 10^(-16)$. The largest precision-pair
+discrepancy is $5.891 times 10^(-37)$. All six actual routes are analytic PV,
+with no fallback. In particular, the bubble's nonzero UV and IR single poles
+are retained separately even though their sum vanishes. No positive-mass
+IR-zero rule or zero projection is applied to these data.
+
+This cohort uses the same frozen actual-Cargo artifact as the earlier N1–N5
+arrays. It does not qualify later source edits or the whole massless domain.
+The independent reviewer reconstructs all 11,884 comparison records. Per-case
+terminal records pass; controller phase order and maximum concurrency are
+executor-attested because absolute UTC start/finish records were not saved.
+Elapsed durations are diagnostics, not performance measurements.
+
+The additive #raw("TensorReductionPlan") / #raw("TensorWorkspace") facade
+shares eligibility and contraction with the existing generic, six-point and
+seven-point engines. Six ordinary tests and a separately selected actual
+Float128 scalar delegation test pass. The latter checks N6/N7 direct-wrapper
+equality, invalid-lane isolation, contractions, nested execution counters and
+empty-call reset. It introduces no recurrence or scalar formula. Explicit
+Dual layouts, profiling and nondefault policies retain generic execution;
+requested algorithms and compiled scalar-master defaults are preserved.
+These core tests alone do not qualify new CLI or Python wheel builds.
+
+Separate rank-seven IBP captures complete at N1/N3 and pass 15,840 reference
+comparisons, 7,920 precision pairs and 5,280 scaling identities. Both N2
+captures time out during workspace preparation and produce no coefficient
+array. The corpus remains incomplete. Original cleanup failures and later
+process-absence observations are retained separately. No timing gain or
+complete-method qualification follows from the available results.
+
+The private seven-point probe completes ranks one and two at one regular
+positive-mass point, passing 160 complex reference comparisons and 80
+precision pairs. Its earlier rank-seven attempts produce no arrays: Float128
+reaches its preparation deadline, and Float256 is deliberately stopped before
+its deadline after the same preparation/resource problem. Both original
+cleanup failures remain recorded; later process-absence observations are
+additive. These are private positive-rank witnesses and failed rank-seven
+attempts, not public rank-seven qualification.
+
+A targeted Symbolica compiler candidate reuses an exact SSA condition's
+zero/nonzero fact inside its dominating branch. The numeric condition value
+is preserved, and branch facts are restored before siblings and function
+scopes. Seven new and eleven relevant existing tests pass, including mixed
+higher Duals and instruction-major batching. The initial optimized test build
+times out; a test-only opt0/debug0 build completes with the same sources and
+features. These engineering records establish focused compiler semantics;
+the numerical N2/N7 reruns remain separate gates.
+
+Additional saved-evidence replay:
+#raw("python3 validation/public-rank7-massless-ir/check.py")\
+#raw("python3 validation/shared-tensor-facade/check.py")\
+#raw("python3 validation/public-rank7-ibp-owned-artifact-n1-n3/check.py").
 
 #pagebreak()
 = Additional correctness milestones
