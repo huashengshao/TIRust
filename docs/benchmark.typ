@@ -217,7 +217,7 @@ all historical measurements below retain their original source snapshots.]
   [Local PyO3 wheel], [17/17 numerical and 12/12 interoperability tests, including the actual SVG renderer; installed consumer typing has zero errors/warnings.], [Passed],
   [Dotted propagators], [Generalized powers/dimension shifts have their strongest retained coverage at N≤4. The current wheel/gallery checks the dotted bubble against its mass Dual derivative.], [Scoped],
   [Example gallery], [4/4 native test methods; three successful HTML exports; all three rendered at desktop and narrow dark sizes in real Chromium.], [Passed],
-  [Six / seven points], [Explicit N6 rank≤7 and N7 rank0 APIs. Current Cargo N6 rank7 Float128/256 full arrays pass independent reference checks. N7 scalar checks pass; its lifecycle and tensor coverage remain incomplete.], [Scoped],
+  [Tensor coverage], [Actual Cargo N1–N5 rank7 full arrays and N6 ranks4–7 pass retained-family reference checks at Float128/256. N6 rank7 lifecycle and numerator contractions pass. Public N7 is still scalar-only.], [Scoped],
   [Performance], [Historical private selected TIRust/COLLIER: seven slower families and one short inconclusive family. The fresh scheduler cohort is ineligible because of host contention; no default adoption.], [Measured],
 ))
 #text(size: 8.5pt)[Local Linux/Python 3.13 execution qualifies the named examples and
@@ -230,6 +230,9 @@ remains separate; these identities do not rerun that complete suite.]
 #pagebreak()
 = Rank-seven correctness checkpoint
 #let six-rank7 = data.six_point_rank7_current_cargo_qualification.snapshot
+#let arrays-n1-n5 = data.rank7_arrays_n1_n5_current_qualification.snapshot
+#let arrays-six-life = data.rank7_arrays_six_lifecycle_qualification.snapshot
+#let arrays-six-literal = data.rank7_arrays_six_literal_qualification.snapshot
 #block(fill: pale, inset: 10pt, width: 100%)[
   *Priority: finish validated IREGI through rank seven.* Profile whichever
   implementation is fastest, concentrating subsequent optimization on higher
@@ -238,23 +241,56 @@ remains separate; these identities do not rerun that complete suite.]
 ]
 
 #report-table(table(
-  columns: (1.2fr, 3.4fr, 0.9fr), inset: (x: 7pt, y: 13pt),
+  columns: (1.2fr, 3.4fr, 0.9fr), inset: (x: 7pt, y: 11pt),
   stroke: table-stroke,
-  fill: (x, y) => if y == 0 { navy } else if y == 1 { rgb("#d9f0d3") } else { amber },
+  fill: (x, y) => if y == 0 { navy } else if y <= 3 { rgb("#d9f0d3") } else { amber },
   table.header([Domain], [Executed scope], [Outcome]),
-  [N6 / rank7], [Actual Cargo public API: Float128 and Float256, 330 moments / 1,320 complex slots each, stable higher-precision original IBP.], [Pass¹],
+  [N1–N5 / rank7], [Actual Cargo PV: three massive samples per topology, Float128/256, 39,600 complex reference coefficients and 19,800 precision pairs.], [Pass¹],
+  [N6 / rank7 batches], [21,120 tensor and 128 sparse/dense contraction coefficients; empty, mixed failed lanes, reorder/chunks, cloned scratch and malformed-call recovery.], [Pass¹],
+  [N6 / ranks4–7], [Separately requested plans, Float128/256: 5,888 reference coefficients and 2,944 precision pairs. All previous rank7 prefixes retained.], [Pass¹],
   [N7 / rank0], [Actual Cargo Float128/256 singleton agreement. Nine-call lifecycle stopped after six completed calls; later scratch/recovery checks remain open.], [Partial],
   [N6 / rank7 COLI], [Native accuracy flag −2; 315 missing diagnostic coefficients and one finite discrepancy. All three pole probes return failure sentinels.], [Rejected],
-  [Full rank-seven goal], [N7 tensors, broader kinematics/numeric types, generalized tensor descendants, contractions and complete batch lifecycle still need qualification.], [Open],
+  [Full rank-seven goal], [Public N7 tensors, broader methods/kinematics/numeric types, generalized tensors, high-point Dual and frontend integration still need qualification.], [Open],
 ))
 
-¹ One retained real-mass family. The public N6 rank guard now accepts zero
-through seven, using the existing recurrence and one packed batch of all six
-five-point subsets. Both current captures pass all 2,640 complex reference
-comparisons at the unchanged normalized $10^(-10)$ gate; maximum difference
-$1.265 times 10^(-16)$. All 1,320 precision pairs pass $2^(-80)$, with maximum
-difference $5.421 times 10^(-32)$. Literal rank-four/five/six plans and the
-rank-seven lifecycle remain separate checks.
+¹ Retained positive-mass families, native raw tensor components, requested
+accuracy 53 and working precision 128/256. Every moment includes all four native
+Laurent slots. Independent-reference gates remain $10^(-10)$; precision and
+scaling gates remain $2^(-80)$. Maximum reference discrepancies are
+$1.839 times 10^(-16)$ at N1–N5 and $1.265 times 10^(-16)$ at N6.
+Working precision does not assert full working-precision accuracy. These
+cohorts retain their exact captured source contexts, including the older N6
+lifecycle context before the Cayley change. No kernel timing claim follows.
+
+#pagebreak()
+== Complete arrays, batches and preparation
+The N1–N5 corpus contains 30 successful sample lanes and passes 13,200 uniform
+scaling checks, 19,800 exact IR-zero checks and 996 convergent UV-zero checks.
+Original IBP supplies the reference arrays. Three original bubble PV requests
+produce no result; six stable triangle/box PV arrays disagree in 486 finite
+positions. Those failures remain visible and are never substituted as accuracy
+anchors.
+
+The N6 rank-seven batch/contraction cohort passes at both precisions with
+16 successful and eight explicitly rejected lanes. Sparse odd/mixed support
+and dense coefficients covering all 330 moments use the existing Symbolica
+contraction evaluator. The maximum contracted-reference discrepancy is
+$5.090 times 10^(-18)$. All actual planar-child fallbacks are retained.
+Cloned scratch was exercised serially; concurrent execution is a separate gate.
+
+The adopted routing and eligible five-point Cayley preparation uses Symbolica
+rational-polynomial matrices and exact identity certificates. Other syntax
+retains AtomField. Physical singularities preserve exceptional recurrence;
+conversion/certificate errors remain preparation failures. All 51 focused IBP
+tests pass. The subsequent literal N6 rank4–7 checks cover complete arrays in
+this source context. No local algebra solver or numerical specialization was
+introduced.
+
+Typed-Dual malformed-input failures now clear earlier counters, profiling times
+and diagnostic messages. Two public regression tests pass, including a genuine
+mass derivative and valid recovery. Initial test-driver failures remain saved.
+This diagnostic fix does not change numerical formulas or qualify high-point
+Dual inputs.
 
 == Reference accuracy adjudicated
 Original IREGI and its bundled OneLOop were built with uniform quad arithmetic,
@@ -272,8 +308,10 @@ probes into passing checks. No high-rank kernel timings are inferred from
 validation-stage durations.
 
 Saved-evidence replay, without new integral evaluation:
-#raw("python3 validation/highpoint-six-point-rank7-current/check.py") and
-#raw("python3 validation/quad-original-iregi-rank7-adjudication/check.py").
+#raw("python3 validation/public-rank7-current-cargo-n1-n5/check.py")\
+#raw("python3 validation/highpoint-six-point-rank7-lifecycle/check.py")\
+#raw("python3 validation/highpoint-six-point-literal-ranks4-7-current-cargo/check.py")\
+#raw("python3 validation/quad-original-iregi-small-n-rank7/check.py").
 The separate rejection record is
 #raw("validation/collier-n6-rank7-diagnostic/qualification.json").
 
@@ -296,9 +334,11 @@ The generalized preparation change uses Symbolica's existing rational-polynomial
 matrix operations, with exact reconstruction certificates and an AtomField
 fallback. It also distinguishes a singular matrix from a preparation failure.
 The retained cohort passes 7,415 independent saved-data checks, covering all
-2,060 input slots and all complete outputs. It is not yet adopted into the main
-Cargo source. Higher-rank generalized requests, genuine D6 domains, complex
-masses and Dual directions remain separate work.
+2,060 input slots and all complete outputs. The preparation adapter is now
+adopted into the main Cargo source and passes the ordinary-array checks above.
+This older generalized numerical cohort retains its private dependency context;
+it has not been rerun in the new Cargo context. Higher-rank generalized requests,
+genuine D6 domains, complex masses and Dual directions remain separate work.
 
 The component-sensitivity prototype transports complete heuristic Taylor
 sensitivity operands rather than padding derivative entries with zeros. Its

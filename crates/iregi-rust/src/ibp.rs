@@ -34,6 +34,13 @@ use symbolica::{
     tensors::matrix::Matrix,
 };
 
+#[path = "ibp/routing_rational.rs"]
+mod routing_rational;
+
+#[cfg(test)]
+#[path = "ibp/cayley_domain_tests.rs"]
+mod cayley_domain_tests;
+
 /// A scalar integral in `4 + 2*dimension_shift - 2*epsilon` dimensions.
 /// Zero propagator powers denote pinches; vector positions preserve routing.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -68,6 +75,14 @@ struct Geometry {
     b: Vec<Atom>,
     /// `B = 1^T R^-1 1`.
     sum_b: Atom,
+}
+
+#[derive(Debug)]
+enum GeometryError {
+    /// The legacy physical-singularity branch may use exceptional recurrences.
+    Singular(String),
+    /// Conversion/certificate failures must remain preparation errors.
+    Preparation(String),
 }
 
 #[derive(Clone)]
@@ -545,11 +560,14 @@ impl ScalarCompiler {
         let prepared = if raised.is_some() {
             self.geometry(active)
         } else {
+            // Preserve the existing scalar-only error/fallback behavior.
             self.scalar_geometry(active)
+                .map_err(GeometryError::Singular)
         };
         let geometry = match prepared {
             Ok(geometry) => geometry,
-            Err(_) => return self.compile_exceptional(request, active),
+            Err(GeometryError::Singular(_)) => return self.compile_exceptional(request, active),
+            Err(GeometryError::Preparation(error)) => return Err(error),
         };
 
         if geometry.sum_b.is_zero() {
@@ -756,20 +774,16 @@ impl ScalarCompiler {
                 .map(|&i| &self.r[i][origin] - &self.r[origin][origin])
                 .collect(),
         );
-        let matrix = Matrix::from_nested_vec(rows.clone(), exact_field())
-            .map_err(|e| format!("routing denominator matrix: {e:?}"))?;
-        let rhs = Matrix::new_vec(
-            vec![
-                Atom::new(),
-                Atom::new(),
-                Atom::new(),
-                Atom::new(),
-                Atom::num(1),
-            ],
-            exact_field(),
-        );
+        let system = routing_rational::PreparedRoutingSystem::new(rows)?;
+        let rhs = vec![
+            Atom::new(),
+            Atom::new(),
+            Atom::new(),
+            Atom::new(),
+            Atom::num(1),
+        ];
         let solving = preparation_start(self.profile_preparation, "routing constant solve", active);
-        let mut solution = matrix.solve_any(&rhs).ok().map(|value| (value, true));
+        let mut solution = system.solve_any(&rhs, None)?.map(|value| (value, true));
         preparation_end("routing constant solve", active, solving);
         if solution.is_none() {
             // If the constant identity is unavailable, a homogeneous relation
@@ -781,26 +795,17 @@ impl ScalarCompiler {
                     "routing homogeneous solve",
                     active,
                 );
-                let mut constrained = rows.clone();
-                let mut constraint = vec![Atom::new(); active.len() - 1];
-                constraint[fixed] = Atom::num(1);
-                constrained.push(constraint);
-                let matrix = Matrix::from_nested_vec(constrained, exact_field())
-                    .map_err(|e| format!("routing nullspace matrix: {e:?}"))?;
-                let rhs = Matrix::new_vec(
-                    vec![
-                        Atom::new(),
-                        Atom::new(),
-                        Atom::new(),
-                        Atom::new(),
-                        Atom::new(),
-                        Atom::num(1),
-                    ],
-                    exact_field(),
-                );
-                let value = matrix.solve_any(&rhs);
+                let rhs = vec![
+                    Atom::new(),
+                    Atom::new(),
+                    Atom::new(),
+                    Atom::new(),
+                    Atom::new(),
+                    Atom::num(1),
+                ];
+                let value = system.solve_any(&rhs, Some(fixed))?;
                 preparation_end("routing homogeneous solve", active, solving);
-                if let Ok(value) = value {
+                if let Some(value) = value {
                     solution = Some((value, false));
                     break;
                 }
@@ -808,7 +813,7 @@ impl ScalarCompiler {
         }
         let relation = solution.map(|(solution, constant_one)| {
             let mut coefficients = vec![Atom::new()];
-            coefficients.extend((0..active.len() - 1).map(|i| solution[(i as u32, 0)].clone()));
+            coefficients.extend(solution);
             coefficients[0] = -coefficients[1..]
                 .iter()
                 .fold(Atom::new(), |sum, value| sum + value);
@@ -1247,9 +1252,9 @@ impl ScalarCompiler {
         Ok(geometry)
     }
 
-    fn geometry(&mut self, active: &[usize]) -> Result<Geometry, String> {
+    fn geometry(&mut self, active: &[usize]) -> Result<Geometry, GeometryError> {
         if self.exceptional_geometry.contains_key(active) {
-            return Err("singular Cayley R matrix".into());
+            return Err(GeometryError::Singular("singular Cayley R matrix".into()));
         }
         if let Some(geometry) = self.geometry.get(active) {
             if geometry.inverse.is_some() {
@@ -1257,25 +1262,48 @@ impl ScalarCompiler {
             }
         }
         let started = preparation_start(self.profile_preparation, "Cayley geometry", active);
-        let rows = active
+        let rows: Vec<Vec<Atom>> = active
             .iter()
             .map(|&i| active.iter().map(|&j| self.r[i][j].clone()).collect())
             .collect();
         let field = exact_field();
-        let matrix = Matrix::from_nested_vec(rows, field)
-            .map_err(|e| format!("cannot construct Symbolica Cayley matrix: {e:?}"))?;
+        let matrix = Matrix::from_nested_vec(rows.clone(), field).map_err(|error| {
+            GeometryError::Preparation(format!(
+                "cannot construct Symbolica Cayley matrix: {error:?}"
+            ))
+        })?;
         let solving = preparation_start(self.profile_preparation, "Cayley inverse", active);
-        let inverse = matrix.inv();
+        let inverse: Result<Vec<Vec<Atom>>, GeometryError> = (|| {
+            if active.len() == 5 {
+                let prepared = routing_rational::PreparedRoutingSystem::new(rows)
+                    .map_err(GeometryError::Preparation)?;
+                if let Some(inverse) = prepared.inverse_five()? {
+                    return Ok(inverse);
+                }
+            }
+            let inverse = matrix.inv().map_err(|error| match error {
+                symbolica::tensors::matrix::MatrixError::Singular => {
+                    GeometryError::Singular("Singular".into())
+                }
+                other => GeometryError::Preparation(format!("{other:?}")),
+            })?;
+            Ok((0..active.len())
+                .map(|i| {
+                    (0..active.len())
+                        .map(|j| inverse[(i as u32, j as u32)].clone())
+                        .collect()
+                })
+                .collect())
+        })();
         preparation_end("Cayley inverse", active, solving);
-        let inverse = inverse
-            .map_err(|e| format!("singular Cayley matrix for propagators {active:?}: {e:?}"))?;
-        let inverse: Vec<Vec<Atom>> = (0..active.len())
-            .map(|i| {
-                (0..active.len())
-                    .map(|j| inverse[(i as u32, j as u32)].clone())
-                    .collect()
-            })
-            .collect();
+        let inverse = inverse.map_err(|error| match error {
+            GeometryError::Singular(error) => GeometryError::Singular(format!(
+                "singular Cayley matrix for propagators {active:?}: {error}"
+            )),
+            GeometryError::Preparation(error) => GeometryError::Preparation(format!(
+                "Cayley preparation for propagators {active:?}: {error}"
+            )),
+        })?;
         let b: Vec<_> = inverse
             .iter()
             .map(|row| {

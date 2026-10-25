@@ -88,8 +88,19 @@ does not change recurrence formulas, scalar masters, ordinary/Hybrid dispatch
 or the separate Dual restriction. The actual locked/offline current-Cargo build,
 two public domain tests and complete Float128/Float256 rank-seven captures pass
 in [the current-build capsule](../validation/highpoint-six-point-rank7-current/README.md).
-Literal rank-four/five/six plan regressions, rank-seven contractions and the full
-batch lifecycle remain separate qualification work.
+The separate [rank-seven lifecycle capsule](../validation/highpoint-six-point-rank7-lifecycle/README.md)
+also passes at both working precisions: 21,120 complex tensor slots, 128 sparse
+and dense numerator-contraction slots, and 2,656 precision pairs. It covers
+empty calls, odd mixed batches with rejected neighbors, reordered and chunked
+samples, independently owned cloned scratch, malformed-buffer counter reset,
+and successful recovery. The clone calls were serial; this does not establish
+concurrent execution. All successful lanes retain the actual two planar-child
+fallbacks. The captured source context precedes the later Cayley preparation
+change. The subsequent [literal-rank capsule](../validation/highpoint-six-point-literal-ranks4-7-current-cargo/README.md)
+qualifies separately requested rank-four, five, six and seven plans after that
+change. All 5,888 complex coefficients pass the original reference gate, all
+5,888 prior rank-seven prefix comparisons pass, and all 2,944 precision pairs
+pass. Other source revisions require their own relevant checks.
 
 The isolated public-API qualification in `validation/highpoint-six-point-api`
 records 34 targeted tests and 12 exact ordinary-default comparisons, followed

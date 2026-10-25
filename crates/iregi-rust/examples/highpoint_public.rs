@@ -1,4 +1,4 @@
-//! Bounded qualification driver for the ordinary public six/seven-point API.
+//! Complete-array qualification driver for ordinary public tensor reduction.
 //!
 //! This deliberately performs no numerical specialization of symbolic plans.
 //! Its output ledger is written before every potentially expensive stage.
@@ -48,7 +48,7 @@ fn run() -> Result<u8, Box<dyn Error>> {
     let rows: usize = args.next().ok_or(usage)?.parse()?;
     let output = args.next().ok_or(usage)?;
     if args.next().is_some()
-        || !(6..=7).contains(&n)
+        || !(1..=7).contains(&n)
         || rank > 7
         || ![128, 256, 384].contains(&working_bits)
         || requested_bits < 53

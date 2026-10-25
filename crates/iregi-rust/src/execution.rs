@@ -2307,7 +2307,11 @@ where
         rows: usize,
         components: impl for<'a> Fn(&'a D) -> &'a [Complex<T>],
     ) -> Result<BatchResult<T>, ReductionError> {
-        // Typed-input validation can return before reduce_batch resets counters.
+        // Typed-input validation can return before reduce_batch resets the
+        // observable state. Attribute every early error to this requested call.
+        self.stats = ExecutionStats { input_rows: rows, ..ExecutionStats::default() };
+        self.profile = ExecutionProfile::default();
+        self.diagnostics.clear();
         self.planar_certificate_stats = CertificateExecutionStats::default();
         let expected = checked_mul(rows, self.parameters)?;
         if input.len() != expected {
