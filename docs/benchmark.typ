@@ -1,11 +1,12 @@
 // Measured values live in data/results.json. null means no measurement.
 #let data = json("data/results.json")
+#let report-date = data.at("report_updated_on", default: data.date)
 #set document(title: "TIRust benchmark", author: "Hua-Sheng Shao")
 #set page(paper: "a4", margin: (x: 1.6cm, y: 1.8cm), numbering: "1 / 1",
   header: context {
     if counter(page).get().first() > 1 {
       set text(8pt, fill: luma(110))
-      [TIRust benchmark #h(1fr) #data.date]
+      [TIRust benchmark #h(1fr) #report-date]
     }
   },
 )
@@ -181,7 +182,7 @@
   #v(-0.3em)
   #text(12pt, fill: luma(80))[Batched one-loop reduction: TIRust, IREGI, COLLIER and MadLoop]
   #v(0.2em)
-  #text(9.5pt, fill: luma(110))[#data.date · #data.host]
+  #text(9.5pt, fill: luma(110))[#report-date · #data.host]
 ]
 #v(0.6em)
 #block(fill: pale, inset: 10pt, radius: 4pt, width: 100%)[
@@ -1911,19 +1912,39 @@ optimized closure predates a current Symbolica polynomial guard. Source:
 #raw("validation/uniform-branch-dependent/qualification.json").
 
 #pagebreak()
-= Consolidated work awaiting the next session
+= Resumed validation and remaining work
+#let composed-native = data.at("native_policy_six_point_constructor_qualification", default: none)
+Development resumed on 25 October 2026. The seven previously unrun constructor
+cases pass in the frozen default/selective builds, with two complete test
+listings and independent audits. All 646 bound inputs remained unchanged and
+all nine owned process groups exited. Together with twenty earlier ordinary
+cases, this completes the 27-case focused inventory across two separate runs.
+The earlier twenty cases were not rerun.
+
+#report-table(table(
+  columns: (1.6fr, 1fr, 1.5fr), inset: (x: 8pt, y: 12pt),
+  stroke: table-stroke, fill: (x, y) => if y == 0 { navy } else { rgb("#d9f0d3") },
+  table.header([New constructor gate], [Complete cases], [Interpretation]),
+  [Default / selective policy composition], [3 + 4 passed],
+  [Construction and policy routing; no six-point integral values],
+))
+The bounded run used #fixed(composed-native.snapshot.new_execution.elapsed_seconds, digits: 3) s
+including provenance and cleanup, within its unchanged 300 s limit. This is a
+diagnostic test duration, not a kernel benchmark. Source:
+#raw(composed-native.source).
+
 #report-table(table(
   columns: (1.2fr, 2.7fr, 1fr), inset: (x: 7pt, y: 12pt),
   stroke: table-stroke, fill: (x, y) => if y == 0 { navy } else { amber },
   table.header([Private work], [Completed / retained evidence], [Next gate]),
   [Native master policy + six-point integration],
-  [Independent source review; 8 feature metadata checks, 4 code-generation steps and 20 exact ordinary tests pass. Seven constructor tests and whole-array regressions have not run. No live patch application.],
-  [Constructor and full numerical regressions],
+  [Independent source review; 8 feature metadata checks, 4 code-generation steps, 20 earlier ordinary tests and 7 new constructor tests pass. Whole-array numerical regression remains pending. No live patch application.],
+  [Full numerical regressions and Cargo forwarding],
   [High-point numeric types / Dual pilot],
-  [Private capture/helper and dilation-identity source review; bounded runner and saved comparator drafts preserved. No compiler or numerical execution. Primal-only imported sensitivity cannot certify derivative uncertainty.],
-  [Finalize and review protocol, then qualify types],
+  [Private capture/helper, dilation identities and bounded runner/comparator reviewed. Numerical qualification remains pending. Primal-only imported sensitivity cannot certify derivative uncertainty.],
+  [Qualify types and derivative error transport],
   [Optimized scheduler performance],
-  [Current-source and historical dependency-feature census retained. Matched fresh build/timing recipe remains unfinished; no optimized build or timing run.],
+  [Current-source and historical dependency-feature census retained. Matched optimized build and numerical admission remain unqualified; no new timing result.],
   [Build, numerical admission and controlled timings],
 ))
 
@@ -1937,5 +1958,6 @@ The complete objective remains unfinished. Highest priorities are complete
 N6/N7 rank/power/dimension coverage, high-point precision and genuine derivative
 qualification, broad exceptional/physical validation, and performance parity
 per family. Existing IREGI/COLLIER timings retain their original contexts and
-TIRust-numerator ratios. The project is paused at the user's request; this
-report does not turn pending requirements into completed milestones.
+TIRust-numerator ratios. The full implementation goal is active again; this
+report does not turn pending requirements into completed milestones. No timing
+measurement or production backend adoption follows from this constructor checkpoint.

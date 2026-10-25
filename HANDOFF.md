@@ -4,6 +4,11 @@ Prepared on **24 October 2026**, at the user's explicit request to wind down,
 consolidate on `main`, update the report, preserve context and stop. This is a
 restart document, not a claim that the original implementation goal is complete.
 
+**Resumed on 25 October 2026 at the user's request.** The pause statements below
+describe this handoff's historical checkpoint. Subsequent work is recorded in
+[the resumed checkpoint](docs/checkpoints/resume-20261025.md); the full objective
+is active and unchanged.
+
 The commit containing this file consolidates the final evidence and unfinished
 source archives. The last preceding implementation commit is
 `007ca9f7b1f3cd2005e0d4df1fcfb24f55aaecc7` (`Add restricted six-point reduction

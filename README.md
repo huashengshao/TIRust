@@ -9,10 +9,11 @@ yet qualified. [docs/benchmark.pdf](docs/benchmark.pdf) records measured evidenc
 known reference defects, and outstanding work without treating missing results
 as successful cases.
 
-Development is paused at the user's request. [HANDOFF.md](HANDOFF.md) records the
-complete state, validated results, preserved unfinished work and restart steps.
-The latest report includes private seven-point scalar and scheduler checks;
-neither candidate is promoted to the default reducer.
+Development resumed on 25 October 2026 from the committed
+[handoff](HANDOFF.md). The [current checkpoint](docs/checkpoints/resume-20261025.md)
+tracks subsequent validation and integration. The report includes private
+seven-point scalar and scheduler checks; neither candidate is promoted to the
+default reducer.
 
 ## Workspace
 
