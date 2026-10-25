@@ -4,16 +4,19 @@ A Rust implementation of one-loop tensor reduction, using Symbolica for algebra
 and batched numerical evaluation, and oneloopmaster for scalar integrals.
 
 Development follows [PLAN.md](PLAN.md). The implementation is undergoing
-independent validation; the full coverage and performance requirements are not
-yet qualified. [docs/benchmark.pdf](docs/benchmark.pdf) records measured evidence,
+independent validation; the agreed functional coverage is not yet fully
+qualified. Performance optimization follows functional completion.
+[docs/benchmark.pdf](docs/benchmark.pdf) records measured evidence,
 known reference defects, and outstanding work without treating missing results
 as successful cases.
 
 Development resumed on 25 October 2026 from the committed
 [handoff](HANDOFF.md). The [current checkpoint](docs/checkpoints/resume-20261025.md)
-tracks subsequent validation and integration. The accepted completion target is
-all agreed features through six points and rank six, including dots; further
-optimization is separate work. The explicit six-point API reaches rank seven with complete
+tracks subsequent validation and integration. The current target is generic
+rank-six support, including dots, with propagator-count reduction kept separate
+from the tensor-rank limit. Full six-point/rank-six qualification remains a
+concrete checkpoint; arbitrary point counts require their own reduction proof
+and evidence. Further optimization is separate work. The explicit six-point API reaches rank seven with complete
 retained Float-array checks against higher-precision original IREGI; seven-point
 tensors and broader domains remain under validation. Historical scheduler
 experiments remain separate from the default reducer.
@@ -44,6 +47,9 @@ Dual components. Numerator and graph preparation accept the upstream Symbolica,
 FeynKit and Spenso types registered in the same native host. See the
 [extension architecture](docs/research/python-interface.md) for source revisions
 and the separate Community-host integration boundary.
+The current development wheel passes 60 installed numerical and interoperability
+tests and consumer typing. Its [source and artifact record](validation/python-interface/facade-wheel-002/README.md)
+defines the tested subset; it does not establish full six-point coverage.
 
 The [marimo gallery](examples/notebooks/README.md) covers graph-to-integral
 preparation, dots and derivatives, and an interactive benchmark explorer. Its
@@ -199,8 +205,10 @@ Float128/Float256 singleton arrays pass reference and convergence checks on
 one real-mass family; the complete workspace lifecycle remains incomplete.
 Higher seven-point tensor ranks are still under validation and are not exposed
 by this wrapper. See the [seven-point API](docs/seven-point.md) for the exact
-settings and preserved failures. Complete validation through rank seven is
-the current development priority, before higher-rank performance work.
+settings and preserved failures. Generic rank-six functionality, including dots,
+is the development priority. Tested point counts remain explicit; existing
+six-point tensors do not establish arbitrary-point correctness. Historical
+rank-seven cases remain challenge coverage.
 
 Derived scalar invariants are checked before selecting analytic branches or
 evaluating masters. Exact represented-input polynomial checks prevent a rounded

@@ -53,3 +53,55 @@ claim a resource bound for expanding an arbitrarily large multinomial sum.
 
 Build, fresh-wheel, typing, actual graph/tensor interoperability and numerical
 qualification are tracked separately; source inspection alone is not validation.
+
+The numerical bindings now delegate reduction selection and contraction
+preparation to the shared Rust `TensorReductionPlan`/`TensorWorkspace` facade.
+No Python-side topology list selects a backend. Workspace construction passes
+profiling before engine selection, and every explicit Dual layout, including a
+primal-only shape, uses the facade's generic Dual constructor. The compiled
+default scalar-master policy is retained. Python's existing API does not expose
+precision rescue or a nondefault master-policy selector; these remain Rust
+facade capabilities rather than silently added Python options.
+
+`workspace.engine` reports the actual owned workspace path, and its
+`preparation_notes` include capability selection notes. Each result owns a
+tagged `engine_execution` snapshot copied from the public Rust counters.
+Generic execution and its certificate work remain distinct. Six-/seven-point
+execution retains packed child rows, parent rows, child/parent work and their
+certificate counters. Existing `stats`/`execution_stats` use the facade's checked
+summary, which counts logical parent input rows once; no packed or certificate
+counter is invented or added twice. Numeric conversion, upstream shared types,
+Dual transport and lane failure handling remain unchanged.
+
+`tests/python/test_tirust_dispatch.py` checks the generic profiler, explicit
+primal-only and mixed Dual layouts, high-point capability selection, real
+packed batching, sparse contraction, invalid-lane isolation, empty/reset state,
+immutable result diagnostics and recovery. Its high-point samples reuse the
+retained six-point and seventh-time-quarter fixtures. These are installed-wheel
+interface checks, not new high-point reference or performance qualification.
+The corrected standalone development wheel passes 60 installed tests on Linux
+with CPython 3.13: the existing 29 numerical/interoperability tests, six facade
+tests, six upstream ComplexFloat native-operand precision regressions and 19
+upstream Float/ComplexFloat tests. Installed consumer typing reports zero errors
+and warnings. The [saved qualification](../../validation/python-interface/facade-wheel-002/README.md)
+retains the exact owned source and wheel/native hashes, every stage receipt and
+both failed historical trait-surface observer runs. Those observers needed only
+Rust-only `real_classify` and mutating `set_precision` exclusions; numerical
+assertions and tolerances were unchanged.
+
+An actual installed-wheel reproduction exposed precision loss when native
+integer operands were converted at the smaller of a complex value's component
+precisions. The upstream Numerica correction converts native operands at the
+larger component precision in the two existing operand helpers. Existing
+tracked Float/ComplexFloat operands and the minimum-precision property are
+unchanged. The corrected wheel preserves all 128 imaginary bits in the original
+asymmetric reproduction and passes all six dedicated regression cases. The
+earlier wheel and its failing reproduction remain independently archived.
+
+This is frontend qualification on the specified fixtures, rather than a new
+full-array integral oracle or performance result. The agreed stopping envelope
+is at most six propagators and rank six, including positive propagator powers
+and dimension shifts;
+seven-point and rank-seven results remain separately reported challenge cases.
+The existing seven-point scalar frontend regression was retained, without
+adding positive-rank seven-point work.

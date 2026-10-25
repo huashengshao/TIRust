@@ -3,9 +3,10 @@
 use std::{collections::HashMap, sync::Arc};
 
 use iregi_rust::{
-    Algorithm, BatchResult, ContractionPlan, ContractionResult, ContractionWorkspace, Convention,
-    ExecutionProfile, ExecutionStats, InputPolicy, InvariantInput, KinematicsBatch, LaneStatus,
-    NumeratorBatch, ReductionPlan, ReductionSettings, TensorWeights, Workspace, basis::Monomial,
+    Algorithm, BatchResult, CertificateExecutionStats, ContractionResult, ContractionWorkspace,
+    Convention, ExecutionProfile, ExecutionStats, InputPolicy, InvariantInput, KinematicsBatch,
+    LaneStatus, NumeratorBatch, ReductionSettings, TensorEngineExecution, TensorEngineKind,
+    TensorReductionPlan, TensorWeights, TensorWorkspace, TensorWorkspaceOptions, basis::Monomial,
 };
 use pyo3::{
     exceptions::{PyIndexError, PyTypeError, PyValueError},
@@ -30,7 +31,7 @@ const LAURENT: [&str; 4] = ["uv_single", "ir_single", "ir_double", "finite"];
     module = "symbolica.community.hepkit.tensor_integrals"
 )]
 pub struct PyReductionPlan {
-    pub(crate) inner: Arc<ReductionPlan>,
+    pub(crate) inner: Arc<TensorReductionPlan>,
 }
 
 #[pymethods]
@@ -111,7 +112,7 @@ impl PyReductionPlan {
             }
         };
         Ok(Self {
-            inner: Arc::new(ReductionPlan::new(settings).map_err(reduction_error)?),
+            inner: Arc::new(TensorReductionPlan::new(settings).map_err(reduction_error)?),
         })
     }
 
@@ -263,7 +264,7 @@ impl PyReductionPlan {
     module = "symbolica.community.hepkit.tensor_integrals"
 )]
 pub struct PyKinematicsBatch {
-    plan: Arc<ReductionPlan>,
+    plan: Arc<TensorReductionPlan>,
     rows: Vec<Vec<Py<PyAny>>>,
 }
 
@@ -287,7 +288,7 @@ impl PyKinematicsBatch {
 
 struct Engine<T: PythonNumber> {
     prototype: T,
-    workspace: Workspace<T>,
+    workspace: TensorWorkspace<T>,
     contractions: HashMap<Vec<[u16; 4]>, ContractionWorkspace<T>>,
 }
 
@@ -296,24 +297,33 @@ where
     Complex<T>: EvaluationDomain,
 {
     fn new(
-        plan: &ReductionPlan,
+        plan: &TensorReductionPlan,
         prototype: T,
         shape: Option<&[Vec<usize>]>,
         accuracy: Option<u32>,
         profiling: bool,
     ) -> PyResult<Self> {
+        let options = TensorWorkspaceOptions {
+            profiling,
+            ..Default::default()
+        };
         let mut workspace = if let Some(shape) = shape {
-            Workspace::new_dual(plan, prototype.clone(), checked_shape(shape)?)
-                .map_err(reduction_error)?
+            TensorWorkspace::new_dual_with_options(
+                plan,
+                prototype.clone(),
+                checked_shape(shape)?,
+                options,
+            )
+            .map_err(reduction_error)?
         } else {
-            Workspace::new(plan, prototype.clone()).map_err(reduction_error)?
+            TensorWorkspace::new_with_options(plan, prototype.clone(), options)
+                .map_err(reduction_error)?
         };
         if let Some(bits) = accuracy {
             workspace
                 .set_accuracy_precision(bits)
                 .map_err(reduction_error)?;
         }
-        workspace.set_profiling(profiling);
         Ok(Self {
             prototype,
             workspace,
@@ -379,7 +389,7 @@ enum Contracts {
     module = "symbolica.community.hepkit.tensor_integrals"
 )]
 pub struct PyWorkspace {
-    plan: Arc<ReductionPlan>,
+    plan: Arc<TensorReductionPlan>,
     dtype: String,
     precision: u32,
     shape: Option<Vec<Vec<usize>>>,
@@ -388,7 +398,7 @@ pub struct PyWorkspace {
 
 impl PyWorkspace {
     fn create(
-        plan: Arc<ReductionPlan>,
+        plan: Arc<TensorReductionPlan>,
         dtype: &str,
         precision: Option<u32>,
         accuracy: Option<u32>,
@@ -479,6 +489,25 @@ impl PyWorkspace {
         self.shape.clone()
     }
 
+    /// Actual owned Rust workspace path, including generic capability fallbacks.
+    #[getter]
+    fn engine(&self) -> &'static str {
+        match &self.inner {
+            Workspaces::F64(engine) => engine_name(engine.workspace.engine_kind()),
+            Workspaces::Dd(engine) => engine_name(engine.workspace.engine_kind()),
+            Workspaces::Float(engine) => engine_name(engine.workspace.engine_kind()),
+        }
+    }
+
+    #[getter]
+    fn preparation_notes(&self) -> Vec<String> {
+        match &self.inner {
+            Workspaces::F64(engine) => engine.workspace.preparation_notes().to_vec(),
+            Workspaces::Dd(engine) => engine.workspace.preparation_notes().to_vec(),
+            Workspaces::Float(engine) => engine.workspace.preparation_notes().to_vec(),
+        }
+    }
+
     /// Evaluate one genuine Rust batch; failed lanes keep independent diagnostics.
     fn reduce_batch(
         &mut self,
@@ -502,20 +531,21 @@ impl PyWorkspace {
             owned = rows(batch)?;
             &owned
         };
-        let (result, stats, diagnostics, profile) = match &mut self.inner {
+        let (result, execution, diagnostics, profile) = match &mut self.inner {
             Workspaces::F64(engine) => run(engine, input, &self.plan, self.shape.as_deref(), py)
-                .map(|(result, stats, diagnostics, profile)| {
-                    (Results::F64(result), stats, diagnostics, profile)
+                .map(|(result, execution, diagnostics, profile)| {
+                    (Results::F64(result), execution, diagnostics, profile)
                 })?,
             Workspaces::Dd(engine) => run(engine, input, &self.plan, self.shape.as_deref(), py)
-                .map(|(result, stats, diagnostics, profile)| {
-                    (Results::Dd(result), stats, diagnostics, profile)
+                .map(|(result, execution, diagnostics, profile)| {
+                    (Results::Dd(result), execution, diagnostics, profile)
                 })?,
             Workspaces::Float(engine) => run(engine, input, &self.plan, self.shape.as_deref(), py)
-                .map(|(result, stats, diagnostics, profile)| {
-                    (Results::Float(result), stats, diagnostics, profile)
+                .map(|(result, execution, diagnostics, profile)| {
+                    (Results::Float(result), execution, diagnostics, profile)
                 })?,
         };
+        let stats = execution.summary().map_err(reduction_error)?;
         py.check_signals()?;
         Ok(PyBatchResult {
             plan: Arc::clone(&self.plan),
@@ -524,6 +554,7 @@ impl PyWorkspace {
             shape: self.shape.clone(),
             result,
             stats,
+            execution,
             diagnostics,
             profile,
         })
@@ -605,12 +636,12 @@ impl PyWorkspace {
 fn run<T: PythonNumber>(
     engine: &mut Engine<T>,
     input: &[Vec<Py<PyAny>>],
-    plan: &ReductionPlan,
+    plan: &TensorReductionPlan,
     shape: Option<&[Vec<usize>]>,
     py: Python<'_>,
 ) -> PyResult<(
     BatchResult<T>,
-    ExecutionStats,
+    TensorEngineExecution,
     Vec<Vec<String>>,
     Option<ExecutionProfile>,
 )>
@@ -625,7 +656,7 @@ where
         .map_err(reduction_error)?;
     Ok((
         result,
-        engine.workspace.last_execution(),
+        engine.workspace.engine_execution(),
         engine.workspace.last_diagnostics().to_vec(),
         engine.workspace.last_profile(),
     ))
@@ -634,7 +665,7 @@ where
 fn contract<T: PythonNumber>(
     engine: &mut Engine<T>,
     moments: &BatchResult<T>,
-    plan: &ReductionPlan,
+    plan: &TensorReductionPlan,
     monomials: &[[u16; 4]],
     input: &[Vec<Py<PyAny>>],
     shape: Option<&[Vec<usize>]>,
@@ -651,11 +682,9 @@ where
     }
     let support = monomials.to_vec();
     if !engine.contractions.contains_key(&support) {
-        let contraction = ContractionPlan::new(
-            plan,
-            &monomials.iter().copied().map(Monomial).collect::<Vec<_>>(),
-        )
-        .map_err(reduction_error)?;
+        let contraction = plan
+            .contraction_plan(&monomials.iter().copied().map(Monomial).collect::<Vec<_>>())
+            .map_err(reduction_error)?;
         let workspace = if let Some(shape) = shape {
             ContractionWorkspace::new_dual(
                 &contraction,
@@ -685,12 +714,13 @@ where
     module = "symbolica.community.hepkit.tensor_integrals"
 )]
 pub struct PyBatchResult {
-    plan: Arc<ReductionPlan>,
+    plan: Arc<TensorReductionPlan>,
     dtype: String,
     precision: u32,
     shape: Option<Vec<Vec<usize>>>,
     result: Results,
     stats: ExecutionStats,
+    execution: TensorEngineExecution,
     diagnostics: Vec<Vec<String>>,
     profile: Option<ExecutionProfile>,
 }
@@ -782,6 +812,11 @@ impl PyBatchResult {
     #[getter]
     fn stats(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
         stats(self.stats, py)
+    }
+    /// Actual engine and nested work counters, captured for this batch.
+    #[getter]
+    fn engine_execution(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        engine_execution(&self.execution, py)
     }
     #[getter]
     fn profile(&self, py: Python<'_>) -> PyResult<Option<Py<PyDict>>> {
@@ -1049,6 +1084,65 @@ fn stats(stats: ExecutionStats, py: Python<'_>) -> PyResult<Py<PyDict>> {
         ("analytic_rows", stats.analytic_rows),
     ] {
         output.set_item(name, value)?;
+    }
+    Ok(output.unbind())
+}
+
+fn engine_name(kind: TensorEngineKind) -> &'static str {
+    match kind {
+        TensorEngineKind::Generic => "generic",
+        TensorEngineKind::SixPoint => "six_point",
+        TensorEngineKind::SevenPoint => "seven_point",
+    }
+}
+
+fn certificate_stats(stats: CertificateExecutionStats, py: Python<'_>) -> PyResult<Py<PyDict>> {
+    let output = PyDict::new(py);
+    output.set_item("input_rows", stats.input_rows)?;
+    output.set_item("evaluated_rows", stats.evaluated_rows)?;
+    output.set_item("passes", stats.passes)?;
+    output.set_item("reduction_batches", stats.reduction_batches)?;
+    Ok(output.unbind())
+}
+
+fn engine_execution(execution: &TensorEngineExecution, py: Python<'_>) -> PyResult<Py<PyDict>> {
+    let output = PyDict::new(py);
+    // These are the actual public Rust counters, without flattening packed rows
+    // or certificate work into the facade's logical-input summary.
+    macro_rules! packed {
+        ($kind:expr, $value:ident) => {{
+            output.set_item("engine", engine_name($kind))?;
+            output.set_item("parent_input_rows", $value.parent_input_rows)?;
+            output.set_item("child_batch_calls", $value.child_batch_calls)?;
+            output.set_item("packed_child_rows", $value.packed_child_rows)?;
+            output.set_item("parent_batch_calls", $value.parent_batch_calls)?;
+            output.set_item("packed_parent_rows", $value.packed_parent_rows)?;
+            output.set_item("child_execution", stats($value.child_execution, py)?)?;
+            output.set_item("parent_execution", stats($value.parent_execution, py)?)?;
+            output.set_item(
+                "child_certificate_execution",
+                certificate_stats($value.child_certificate_execution, py)?,
+            )?;
+            output.set_item(
+                "parent_certificate_execution",
+                certificate_stats($value.parent_certificate_execution, py)?,
+            )?;
+        }};
+    }
+    match execution {
+        TensorEngineExecution::Generic {
+            execution,
+            certificate_execution,
+        } => {
+            output.set_item("engine", engine_name(TensorEngineKind::Generic))?;
+            output.set_item("execution", stats(*execution, py)?)?;
+            output.set_item(
+                "certificate_execution",
+                certificate_stats(*certificate_execution, py)?,
+            )?;
+        }
+        TensorEngineExecution::SixPoint(value) => packed!(TensorEngineKind::SixPoint, value),
+        TensorEngineExecution::SevenPoint(value) => packed!(TensorEngineKind::SevenPoint, value),
     }
     Ok(output.unbind())
 }

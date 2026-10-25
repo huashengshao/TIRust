@@ -1,10 +1,11 @@
 # TIRust for Python
 
 Status: a local development wheel is qualified on Linux with CPython 3.13.
-All 29 focused numerical and native interoperability tests pass, including the
-actual FeynKit SVG renderer; installed-wheel consumer typing also passes with
-zero errors or warnings. The [qualification evidence](../validation/python-interface/checkpoint-wheel-004/README.md)
-records the exact wheel, source archive, dependency pins and tested coverage.
+All 60 focused numerical, precision and native interoperability tests pass,
+including the actual FeynKit SVG renderer and the shared reduction facade;
+installed-wheel consumer typing also passes with zero errors or warnings.
+The [qualification evidence](../validation/python-interface/facade-wheel-002/README.md)
+records the exact wheel, owned source snapshot and tested coverage.
 Release wheels, full Symbolica Community host integration, and other Python or
 platform versions still require their own qualification.
 
@@ -51,6 +52,11 @@ input digits. Nonbinary64 results are upstream `ComplexFloat` objects. A
 DoubleFloat result may require more than 106 storage bits to preserve an actual
 wide-gap high/low pair; its arithmetic working precision remains 106.
 
+When an upstream `ComplexFloat` has different real and imaginary precisions,
+native Python numeric operands preserve the more precise component during
+conversion. Existing `Float` operands retain their own precision, and the
+complex `.precision` property still reports the smaller component precision.
+
 `Dual(shape, values)` carries Symbolica Taylor components without introducing a
 second arithmetic implementation. Construct a workspace with the exact
 `dual_shape`; scalar arguments receive zero higher components. Sample lanes and
@@ -59,6 +65,23 @@ Taylor components remain separate throughout the Rust and scalar-master batches.
 Each lane has independent status, diagnostics and fallback flags. `result.lane(i)`
 raises `LaneError` for a failed sample, while `result.lanes()` returns `None` in
 that position. Failed or unsupported results never become successful zeros.
+
+The source bindings use the shared Rust `TensorReductionPlan` and
+`TensorWorkspace` facade. It selects eligible ordinary PV high-point paths;
+explicit Dual layouts and `profiling=True` retain the generic path. The requested
+algorithm and compiled default scalar-master policy are preserved. Inspect
+`workspace.engine` and `workspace.preparation_notes` for the actual workspace
+selection. `result.engine_execution` captures its tagged Rust counters, including
+separate child, parent and certificate work. The existing `result.stats` summary
+counts logical input samples once. The qualified wheel exercises generic
+profiling and explicit Dual layouts, plus ordinary six-point rank-one and
+seven-point scalar dispatch on retained positive-mass fixtures. These frontend
+checks do not establish all tensor, numeric-type or exceptional-kinematics
+combinations. The project targets generic rank-six reduction, including positive
+propagator powers and dimension shifts, with propagator-count reduction kept
+separate. Six-point coverage is a concrete validation checkpoint; supported and
+tested point counts remain explicit. Historical rank-seven cases remain
+separate challenge coverage.
 
 `PreparedNumerator.from_expression` accepts actual shared Symbolica Expressions;
 `from_tensor` accepts actual shared Spenso TensorExpression objects. Preparation,

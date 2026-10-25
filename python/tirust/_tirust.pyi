@@ -1,7 +1,7 @@
 """TIRust native API; upstream names are aliases of their owner stub types."""
 from collections.abc import Sequence
 from os import PathLike
-from typing import Any, Literal, TypeAlias
+from typing import Any, Literal, TypeAlias, TypedDict
 
 from ._types.symbolica.core import ComplexFloat as ComplexFloat, E as E, Expression as Expression, Float as Float, S as S
 from ._types.symbolica.community.hepkit import FeynmanDiagram as FeynmanDiagram, Model as Model
@@ -12,12 +12,34 @@ Number: TypeAlias = int | float | complex | str | Expression | Float | ComplexFl
 NumericInput: TypeAlias = Number | "Dual"
 DType: TypeAlias = Literal["f64", "double-double", "float"]
 Algorithm: TypeAlias = Literal["hybrid", "pv", "ibp"]
+Engine: TypeAlias = Literal["generic", "six_point", "seven_point"]
 Convention: TypeAlias = Literal["iregi", "oneloop", "madloop"]
 Shape: TypeAlias = Sequence[Sequence[int]]
 Monomial: TypeAlias = tuple[int, int, int, int]
 Status: TypeAlias = Literal["success", "invalid_input", "master_failure", "unstable"]
 OutputNumber: TypeAlias = complex | ComplexFloat | "Dual"
 Laurent: TypeAlias = tuple[OutputNumber, OutputNumber, OutputNumber, OutputNumber]
+
+GenericEngineExecution = TypedDict("GenericEngineExecution", {
+    "engine": Literal["generic"],
+    "execution": dict[str, int],
+    "certificate_execution": dict[str, int],
+})
+
+PackedEngineExecution = TypedDict("PackedEngineExecution", {
+    "engine": Literal["six_point", "seven_point"],
+    "parent_input_rows": int,
+    "child_batch_calls": int,
+    "packed_child_rows": int,
+    "parent_batch_calls": int,
+    "packed_parent_rows": int,
+    "child_execution": dict[str, int],
+    "parent_execution": dict[str, int],
+    "child_certificate_execution": dict[str, int],
+    "parent_certificate_execution": dict[str, int],
+})
+
+EngineExecution: TypeAlias = GenericEngineExecution | PackedEngineExecution
 
 class ReductionError(RuntimeError): ...
 class LaneError(ReductionError): ...
@@ -87,6 +109,12 @@ class Workspace:
     def precision(self) -> int: ...
     @property
     def dual_shape(self) -> list[list[int]] | None: ...
+    @property
+    def engine(self) -> Engine:
+        """Actual owned workspace path, including capability fallbacks."""
+        ...
+    @property
+    def preparation_notes(self) -> list[str]: ...
     def reduce_batch(self, batch: KinematicsBatch | Sequence[Sequence[NumericInput]]) -> BatchResult: ...
     def contract(self, result: BatchResult, *, monomials: Sequence[Monomial],
         coefficients: Sequence[Sequence[NumericInput]]) -> ContractionResult: ...
@@ -118,6 +146,10 @@ class BatchResult:
     def execution_stats(self) -> dict[str, int]: ...
     @property
     def stats(self) -> dict[str, int]: ...
+    @property
+    def engine_execution(self) -> EngineExecution:
+        """Captured Rust counters; packed and certificate work stays nested."""
+        ...
     @property
     def profile(self) -> dict[str, float] | None: ...
     def lane(self, row: int) -> tuple[Laurent, ...]:

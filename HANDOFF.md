@@ -9,7 +9,9 @@ describe this handoff's historical checkpoint. Subsequent work is recorded in
 [the resumed checkpoint](docs/checkpoints/resume-20261025.md); the full objective
 is active and unchanged.
 
-**Latest preceding published checkpoint: `2ad3cbe`, 25 October 2026.** The report
+**Current correctness milestone after `d9a2642`, 25 October 2026.** See [the complex/Python checkpoint](docs/checkpoints/complex-python-20261025.md). The corrected Python wheel passes sixty installed tests and typing; the independent complex parameter oracle and seven N6 generalized quad-reference arrays have portable, independently checked capsules. The oracle rejects a stable but incorrect original N4 complex zero. A fresh fourteen-case rank-six CLI cohort passes twelve complete cases and exposes a genuine collinear N3 nonfinite PV/IBP gap in two cases; the full functional objective remains open. N2 numeric packaging, scoped private N6 mass-Dual evidence, ordinary f64 rescue, remaining generalized tensors and supplied-G/Legacy/Hybrid work must not be mistaken for completed public coverage. Historical report timings remain unchanged. No blind rerun of the failed collinear or resource-limited cases is authorized; inspect the concrete source tasks and owned receipts in the checkpoint.
+
+**Earlier published checkpoint: `2ad3cbe`, 25 October 2026.** The report
 at that revision has 41 pages. Complete retained massive PV arrays through rank seven pass at N1–N6;
 the N6 batch/contraction lifecycle also passes. Retained massless N2–N4 arrays
 pass 7,920 independent-reference comparisons with UV/IR poles kept separate.
@@ -35,15 +37,18 @@ scalars, additional method coverage, focused resource fixes and the instrumented
 N7 failure. The full component-Taylor code remains private pending high-point
 numerical qualification.
 
-The user's latest accepted stopping envelope is **all agreed features through
-six points and rank six, including dots**. Once fully tested, update the report,
-commit and push, mark the objective achieved and stop; further optimization is
-separate work. Retain higher-rank evidence and explain N7/rank7 challenges. Do
-not expand beyond seven points or rank seven. The full functional objective is
-unfinished and active; a narrow scalar slice does not complete it. Current N6
-generalized tensors, full-tensor Dual/numeric, supplied-G/legacy paths and the
-corrected Python wheel are being qualified. Consult their owned receipts before
-restarting any job.
+The latest objective is **all agreed features at generic tensor rank at most
+six, including dots**. The 210 Cartesian moments do not depend on propagator
+count. **N≤6 is the current concrete validation checkpoint, not a proof of
+arbitrary-N denominator descent or singular-case handling.** Higher-N descent
+requires checked implementation and finite representative validation; do not
+simply remove inner-planner resource guards. Once the full objective is tested,
+update the report, commit and push, mark it achieved and stop; optimization is
+separate work. Retain existing higher-rank evidence and explain N7/rank7 stress
+challenges without starting new stress cohorts. The objective remains active.
+Generalized tensors, full-tensor Dual/numeric and supplied-G/legacy paths are
+still being qualified; the corrected Python wheel has its scoped sixty-test
+qualification. Consult owned receipts before restarting any job.
 
 The first resumed implementation milestone adds the optional generated f64
 A0/B0/C0 master policy. Its current locked-Cargo builds, selected tests and

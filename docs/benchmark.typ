@@ -96,6 +96,11 @@
 #let public-six = data.at("public_six_point_api_qualification", default: none)
 #let public-six-cargo = data.at("public_six_point_api_current_cargo", default: none)
 #let current-dual = data.at("c0d0_dual_identity_qualification", default: none)
+#let facade-wheel002 = data.python_shared_facade_wheel002_qualification.snapshot
+#let facade-replay002 = data.python_shared_facade_wheel002_portable_replay.snapshot.stdout
+#let native-operand-vendor = data.numerica_native_operand_precision_vendor_reproduction.snapshot
+#let complex-parameter-oracle = data.complex_parameter_tensor_oracle_manifest.snapshot
+#let generalized-quad-six = data.n6_rank6_generalized_quad_qualification.snapshot
 #let collier-cell(r) = table.cell(
   fill: if not r.correctness_passed or r.gate in ("inconclusive-noise", "inconclusive-short-block") {
     amber
@@ -200,32 +205,125 @@
   #set text(9pt)
   *Current priorities*
   #table(columns: (1fr, 2fr, auto), stroke: none, inset: (x: 4pt, y: 4pt),
-    [*Feature completion*], [Independently validate all agreed features through six points and rank six, including dots], [*Pending*],
+    [*Feature completion*], [Generic rank-six tensors, including dots; N≤6 is the current validation checkpoint. Higher-N denominator descent needs separate qualification.], [*Pending*],
     [*Performance optimization*], [Separate later work; publish the tested version and stop once the feature gate passes], [*Deferred*],
     [*Complete evaluation*], [Six physical rows measured; two failures retained], [*Inconclusive*],
   )
 ]
 = Current coverage
-#text(size: 9.5pt)[The local Python interface and example gallery execute successfully with
-repaired wheel004. Complete mathematical acceptance remains open. Low-rank
+#text(size: 9.5pt)[The latest standalone shared Python facade passes 60 installed tests
+and clean consumer typing. The earlier wheel004 gallery retains its separately
+executed qualification. Complete mathematical acceptance remains open. Low-rank
 COLLIER speed is not a completion gate under the latest user priority;
 all historical measurements below retain their original source snapshots.]
 #report-table(table(
   columns: (1.05fr, 3.6fr, 0.8fr), inset: (x: 6pt, y: 8pt), stroke: table-stroke,
   fill: (x, y) => if y == 0 { navy } else if y <= 3 { rgb("#d9f0d3") } else { amber },
   table.header([Interface / domain], [Executed scope or remaining gate], [Status]),
-  [Local PyO3 wheel], [17/17 numerical and 12/12 interoperability tests, including the actual SVG renderer; installed consumer typing has zero errors/warnings.], [Passed],
-  [Dotted propagators], [Generalized powers/dimension shifts have their strongest retained coverage at N≤4. The current wheel/gallery checks the dotted bubble against its mass Dual derivative.], [Scoped],
-  [Example gallery], [4/4 native test methods; three successful HTML exports; all three rendered at desktop and narrow dark sizes in real Chromium.], [Passed],
+  [Local PyO3 facade], [60 installed tests: upstream numeric classes, existing interoperability/numerical checks, generic facade and specified N6/N7 frontends. Consumer typing has zero errors/warnings.], [Passed],
+  [Dotted propagators], [Retained TIRust tensor checks remain scoped; planar N5 scalars have separate validation. New original-quad N6 dotted/dimension-shifted tensors supply reference anchors.], [Scoped],
+  [Example gallery], [Earlier wheel004: 4/4 native test methods, three HTML exports and six real Chromium views. The new standalone facade does not rerun this gallery.], [Passed],
   [Tensor coverage], [Actual Cargo N1–N5 rank7 massive arrays, massless N2–N4 arrays and N6 ranks4–7 pass retained-family checks at Float128/256. N6 lifecycle/contractions pass. Public N7 is still scalar-only.], [Scoped],
   [Performance], [Historical private selected TIRust/COLLIER: seven slower families and one short inconclusive family. The fresh scheduler cohort is ineligible because of host contention; no default adoption.], [Measured],
 ))
 #text(size: 8.5pt)[Local Linux/Python 3.13 execution qualifies the named examples and
 focused API tests. Release distributions, other platforms, separate Community-host
 loading and a reactive numerical browser frontend remain unqualified.
-C0/D0 mass-Taylor identities now pass on wheel004 at working 128/256 bits with
-requested accuracy 53. Historical broader mixed-Dual finite-difference evidence
-remains separate; these identities do not rerun that complete suite.]
+C0/D0 mass-Taylor identities retain their wheel004 context at working 128/256
+bits and requested accuracy 53. The later shared-facade build and these earlier
+identities qualify their own captured sources. Broader tensor precision/Dual,
+complex, threshold and collinear acceptance remains open.]
+
+#pagebreak()
+= Shared Python facade and native operand precision
+#report-table(table(
+  columns: (1.25fr, 3.4fr, 0.85fr), inset: (x: 7pt, y: 13pt), stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else if y <= 3 { rgb("#d9f0d3") } else { amber },
+  table.header([Check], [Captured scope], [Outcome]),
+  [Installed wheel002], [#facade-replay002.passed_installed_tests tests; consumer typing has #facade-replay002.typing_errors errors and #facade-replay002.typing_warnings warnings. Shared Symbolica, Numerica, FeynKit and Spenso classes use the public tensor facade.], [Pass¹],
+  [Native operand precision], [Six new upstream regressions plus 19 existing Float/ComplexFloat tests. The installed reproducer retains the high-precision imaginary component when the real component has fewer bits.], [Pass¹],
+  [Vendor reproduction], [Pinned upstream 9cdc2949 plus six committed patches reproduce all #native-operand-vendor.file_count retained files, totaling 9,601,877 bytes. Final observer exclusions leave the captured wheel arithmetic unchanged.], [Pass],
+  [Earlier failures], [The trap wheel and two failed trait-observer stages remain archived. The final stage changes observer exclusions only; numerical assertions, tolerances and the installed wheel remain unchanged.], [Retained],
+))
+
+¹ One local Linux CPython3.13 development wheel. Its 60 tests comprise 25
+upstream numeric tests, 29 existing interoperability/numerical tests, four
+generic-facade tests, one six-point rank-one frontend test and one seven-point
+scalar frontend test. They exercise explicit Dual layouts, profiling, engine
+tags, packed batching, sparse contraction, invalid-lane isolation, empty/reset
+state, snapshots and recovery. They do not constitute 60 independent physical
+integral comparisons or qualify the complete high-point numerical domain.
+
+The precision correction concerns native f64/complex operands in upstream
+ComplexFloat arithmetic. A value with two real bits and 128 imaginary bits
+retains the latter precision and agrees with the explicit 128-bit operand
+control. The public #raw(".precision") property still reports the minimum
+component precision. Arbitrary Python-integer coercion is not qualified here.
+The source manifests and reproducer flags remain in their original spelling;
+their captured native-operand scope is not widened.
+
+The source archive reconstructs the 116 inputs owned at wheel-build time.
+The Rust trait observer's #raw("float.rs") read was outside those original
+guards; its later copy is retained as post-observation context. The successful
+observer excludes Rust-only #raw("real_classify") and mutating
+#raw("set_precision"); Python uses immutable #raw("with_precision") copies.
+This is not a complete compiler/native/system closure or a new wheel build.
+Other platforms, release performance, separate Community-host loading and
+broader numerical frontend acceptance remain unqualified.
+
+Saved-only replay:
+#raw("python3 -I -S -B validation/python-interface/facade-wheel-002/check.py").
+Exact six-patch reproduction is bound by
+#raw("validation/python-interface/complex-native-precision-vendor-reproduction.json").
+
+#pagebreak()
+= Complex tensor oracle and generalized N6 references
+#report-table(table(
+  columns: (1.25fr, 3.4fr, 0.85fr), inset: (x: 7pt, y: 13pt), stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else if y == 3 { amber } else { pale },
+  table.header([Reference family], [Complete saved evidence], [Admission]),
+  [Complex N2/N3/N4], [#complex-parameter-oracle.complete_grids fixed grids, #complex-parameter-oracle.point_rows point rows and #complex-parameter-oracle.complete_native_complex_slots complex Laurent slots. Orders 12/20/32 and both vertex maps are retained.], [Scoped],
+  [Independent saved audit], [43,566 exact comparison records, 11,880 separate IR-zero checks and 15 negative controls pass. Includes 15,840 eligible N2/N3 quad comparisons and 27,720 order/map indicators.], [Pass¹],
+  [Original complex N4], [Native stable flag is true, but the scalar finite coefficient is exactly zero despite a positive parameter-integral bound. The entire raw array remains diagnostic and enters no agreement gate.], [Rejected],
+  [Generalized N6 / rank6], [#generalized-quad-six.complete_arrays original-quad arrays / #generalized-quad-six.complete_complex_slots complex slots: unit powers, first/last dot2, first power3, mixed dots2/2 and unit powers in D2/D6.], [Anchors²],
+))
+
+¹ The ordinary complex fixture uses mu=3, real spacelike shifts and squared
+masses in the lower half-plane with Re(F)≥1. All 330 moments through rank7
+and native UV1, IR1, IR2, finite coefficients are retained; the first 210
+moments are the rank6 prefix. Symbolica prepares Gamma Laurent coefficients
+and source derivatives independently of reduction. Native iπ² is included
+once, and dimensional normalization uses exact powers of Q=3. The actual
+kernel/transport and unchanged Python controls pass 15 and 17 tests.
+
+Binary64 SciPy nodes and worker values are accumulated with longdouble real
+and imaginary sums. Maximum N2/N3 reference discrepancy is
+$7.008 times 10^(-13)$; the largest retained order/map difference is
+$2.776 times 10^(-11)$. All gates retain the mixed $10^(-10)$ tolerance.
+These are empirical convergence indicators, not rigorous error bounds or
+arbitrary-precision integrated accuracy. The order32 identity-map N4 scalar
+finite candidate is approximately −0.04470448539252041802 +
+0.20873403285427626204i. Independent saved review admits this fixed empirical
+reference; it does not itself qualify agreement with TIRust. The failed initial
+E0599 build and bare-environment NumPy import attempt remain failed.
+
+² The seven generalized reference arrays contain all 210 rank6 moments.
+Independent replay checks 5,166 records: 2,940 massive IR zeros, 1,386
+convergent UV checks and 840 exact ordinary-unit prefix matches. All 84
+degree-six D6 UV coefficients remain present. These necessary identities and
+controls do not independently prove every finite generalized coefficient or
+qualify TIRust/Dual results. Original limited-digit constants and stopping
+criteria remain despite quad storage. No validation duration becomes a
+comparative timing measurement.
+
+Saved-only replay:
+#raw("python3 validation/complex-parameter-tensor-oracle/check.py")\
+#raw("python3 validation/quad-original-iregi-generalized-n6-rank6/check.py").
+The generic rank-six functional gate remains open. N≤6 is the present
+validation checkpoint; it does not establish arbitrary-N denominator descent.
+Broader complex, threshold, collinear and tensor-Dual cases need their own
+durable comparisons. Supplied-G, Legacy and new Hybrid source work is not
+qualified by this checkpoint. No new performance ratios are added.
 
 #pagebreak()
 = Rank-seven correctness checkpoint
@@ -234,10 +332,11 @@ remains separate; these identities do not rerun that complete suite.]
 #let arrays-six-life = data.rank7_arrays_six_lifecycle_qualification.snapshot
 #let arrays-six-literal = data.rank7_arrays_six_literal_qualification.snapshot
 #block(fill: pale, inset: 10pt, width: 100%)[
-  *Updated stopping envelope: six points and rank six, with all agreed features
-  including dots.* Retain the rank-seven checks already obtained and explain
-  the seven-point challenge. Further optimization is deferred. The complete
-  functional gate remains open; historical timings retain their measured contexts.
+  *Current objective: generic rank-six tensors, with all agreed features
+  including dots.* N≤6 is the current validation checkpoint, not a proof of
+  arbitrary-N denominator descent. Retain earlier rank-seven checks and the
+  seven-point challenge. Further optimization is deferred. The functional gate
+  remains open; historical timings retain their measured contexts.
 ]
 
 #report-table(table(
@@ -251,7 +350,7 @@ remains separate; these identities do not rerun that complete suite.]
   [N6 / ranks4–7], [Separately requested plans, Float128/256: 5,888 reference coefficients and 2,944 precision pairs. All previous rank7 prefixes retained.], [Pass¹],
   [N7 / rank0], [Actual Cargo Float128/256 singleton agreement. Nine-call lifecycle stopped after six completed calls; later scratch/recovery checks remain open.], [Partial],
   [N6 / rank7 COLI], [Native accuracy flag −2; 315 missing diagnostic coefficients and one finite discrepancy. All three pole probes return failure sentinels.], [Rejected],
-  [Accepted functional goal], [Through N6/rank6: generalized tensors, broader numeric/Dual and supplied-invariant domains still need qualification. N7/rank7 remains a separate challenge.], [Open],
+  [Functional objective], [Generic rank≤6: generalized tensors, numeric/Dual, supplied invariants and higher-N denominator descent still need qualification. Current tested checkpoint is N≤6; N7/rank7 is separate stress evidence.], [Open],
 ))
 
 ¹ Retained massive and massless families, native raw tensor components, requested
@@ -551,7 +650,8 @@ no-leaf output/monitor preservation and existing active-master controls.
 The initial preflight and new-test API compile failures are retained separately.
 This establishes the focused preparation fix; it does not turn the failed N7
 attempt into a successful array. No further long N7 run is required before
-closing the accepted six-point/rank-six objective.
+closing the present N≤6/rank-six checkpoint. Higher-N denominator descent
+needs separate checked implementation and finite representative validation.
 
 Seven-point rank-seven completion would still need fresh full arrays at two
 precisions, an independent accuracy check, batched lifecycle/contractions and
@@ -1872,7 +1972,7 @@ revisions; the optimized TIRust performance gate remains the measured
   #pagebreak()
   #set text(size: 9.5pt)
   #set par(leading: 0.5em)
-  = Repaired Python interface and executed gallery
+  = Historical wheel004 repair and executed gallery
   == Exact JSON and actual upstream graph rendering
   GDB inspection of the unchanged baseline wheel finds that exact JSON's
   #raw("arbitrary_precision") feature turns coordinates serialized through
@@ -1988,7 +2088,7 @@ revisions; the optimized TIRust performance gate remains the measured
   #pagebreak()
   #set text(size: 9.5pt)
   #set par(leading: 0.5em)
-  = Current-wheel C0/D0 mass-Taylor identities
+  = Historical wheel004 C0/D0 mass-Taylor identities
   The unchanged installed local wheel004 now passes first, second and mixed
   squared-mass Taylor identities for rank-zero C0 and D0. Each family uses one
   fixed massive spacelike point, working precision 128 and 256 bits, and

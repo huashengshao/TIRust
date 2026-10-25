@@ -2,7 +2,7 @@
 
 ## Goal and working rules
 
-Deliver a feature-complete, independently validated Rust implementation of IREGI, including dotted propagators, dimension shifts, batching, numeric types, library, CLI and Python tools. The user accepts full validation through six propagators and rank six as the stopping envelope; retain the existing rank-seven evidence and explain the seven-point/rank-seven challenges. Do not expand beyond seven points or rank seven. Once the accepted version is tested, update the benchmark report, commit and push, mark the objective achieved and stop. Further performance optimization is deferred beyond completion; existing performance measurements remain part of the report.
+Deliver a feature-complete, independently validated Rust implementation of IREGI, including dotted propagators, dimension shifts, batching, numeric types, library, CLI and Python tools. The current priority is generic tensor rank at most six, with propagator-count reduction kept independent of the tensor-rank limit. The previously accepted six-point/rank-six validation envelope remains a concrete checkpoint; higher-point support must be justified by its denominator-reduction identities and explicit qualification, rather than inferred from lower-point tensors. Retain existing rank-seven evidence without starting further rank-seven work. Once the agreed functional coverage is tested, update the benchmark report, commit and push, mark the objective achieved and stop. Further performance optimization is deferred beyond completion; existing performance measurements remain part of the report.
 
 ### User priority and completion clarification — 25 October 2026
 
@@ -39,6 +39,24 @@ Seven-point/rank-seven support may remain a documented challenge, and work beyon
 seven points or rank seven is out of scope. Preserve higher-rank results already
 obtained; they do not replace missing feature validation within six-point/rank-six
 coverage. This clarification supersedes the larger completion envelope below.
+
+### Latest rank-focused clarification — 25 October 2026
+
+The user identifies tensor rank, rather than the number of loop propagators, as
+the primary scope limit: aim for generic rank-six support. With four-dimensional
+numerators this is 210 cumulative Cartesian tensor moments for every propagator
+count. Keep propagator-count reduction separate from this tensor interface and
+use dynamic structures rather than a mathematical six-/seven-point ceiling.
+
+This does not establish arbitrary-N correctness automatically. Denominator
+identities, positive powers, dimension shifts, selected Gram/Cayley charts and
+full-Taylor constraints still need validation. Publish implemented and tested
+point counts explicitly; do not turn the existing N≤6 evidence into an
+unqualified arbitrary-N claim. Reuse Symbolica/FeynKit facilities for generic
+propagator descent, including the zero-Gram triangle identity currently missing.
+The earlier instruction against higher-point work does not prohibit such a
+generic denominator stage needed for rank-six support. No new rank-seven
+qualification or performance optimization is required.
 
 At implementation start:
 
