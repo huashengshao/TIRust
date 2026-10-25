@@ -11,6 +11,34 @@ is active and unchanged.
 
 **Current correctness milestone after `d9a2642`, 25 October 2026.** See [the complex/Python checkpoint](docs/checkpoints/complex-python-20261025.md). The corrected Python wheel passes sixty installed tests and typing; the independent complex parameter oracle and seven N6 generalized quad-reference arrays have portable, independently checked capsules. The oracle rejects a stable but incorrect original N4 complex zero. A fresh fourteen-case rank-six CLI cohort passes twelve complete cases and exposes a genuine collinear N3 nonfinite PV/IBP gap in two cases; the full functional objective remains open. N2 numeric packaging, scoped private N6 mass-Dual evidence, ordinary f64 rescue, remaining generalized tensors and supplied-G/Legacy/Hybrid work must not be mistaken for completed public coverage. Historical report timings remain unchanged. No blind rerun of the failed collinear or resource-limited cases is authorized; inspect the concrete source tasks and owned receipts in the checkpoint.
 
+**Subsequent rank-six validation milestone after `2134a0d`.** The
+[rank-six checkpoint](docs/checkpoints/rank6-feature-20261025.md) adds compact
+portable evidence for numeric types, generalized reference anchors, actual
+six-point Hybrid and precision rescue, threshold/complex cases and a newer
+collinear triangle core fix. The N1–N5 rank-six numeric cohort has 21 successful
+captures, three preserved precision guards and 446,880 saved complex checks.
+The newer collinear core passes complete Float128/256 arrays and a selected
+first-dilation Dual against the independent order48 anchor; those numerical
+arrays were asserted in Rust, not exported for saved recomputation. It also
+records 16 affine, ten component and four checked-facade test passes, alongside
+two symbolic general-N preparation timeouts. Earlier CLI failures remain
+unchanged. Each capsule reconstructs its own declared source context; this
+validation milestone does not equate those contexts to unfinished later code.
+
+Current source work is a dynamic constant-denominator/power DAG that descends
+point count before the low-point planner, preserving tensor rank, positive
+powers and dimension shift. A separate packed checked-G path addresses the
+inline six-point rank-six preparation failure. Both require actual numerical
+qualification before full acceptance. The older private mixed six-point Dual
+path still fails a 32-GiB allocation bound after coefficient interning; public
+Dual qualification will use the new descent route if it avoids that graph.
+Do not restart the old memory or symbolic-stress failures without a concrete
+code change. The Symbolica undo-stack storage correction remains a source
+proposal, not an applied or tested dependency patch. CLI/PyO3 compile checks and
+fourteen CLI tests passed before the new AffinePower enum integration; a fresh
+coherent build and final installed wheel remain required. The goal is active,
+with performance optimization deferred by the user.
+
 **Earlier published checkpoint: `2ad3cbe`, 25 October 2026.** The report
 at that revision has 41 pages. Complete retained massive PV arrays through rank seven pass at N1–N6;
 the N6 batch/contraction lifecycle also passes. Retained massless N2–N4 arrays

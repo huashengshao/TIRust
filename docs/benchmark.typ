@@ -213,7 +213,8 @@
 = Current coverage
 #text(size: 9.5pt)[The latest standalone shared Python facade passes 60 installed tests
 and clean consumer typing. The earlier wheel004 gallery retains its separately
-executed qualification. Complete mathematical acceptance remains open. Low-rank
+executed qualification. New scoped derivative, dotted-reference, Hybrid/rescue,
+threshold, complex and collinear results appear below. Complete mathematical acceptance remains open. Low-rank
 COLLIER speed is not a completion gate under the latest user priority;
 all historical measurements below retain their original source snapshots.]
 #report-table(table(
@@ -224,6 +225,7 @@ all historical measurements below retain their original source snapshots.]
   [Dotted propagators], [Retained TIRust tensor checks remain scoped; planar N5 scalars have separate validation. New original-quad N6 dotted/dimension-shifted tensors supply reference anchors.], [Scoped],
   [Example gallery], [Earlier wheel004: 4/4 native test methods, three HTML exports and six real Chromium views. The new standalone facade does not rerun this gallery.], [Passed],
   [Tensor coverage], [Actual Cargo N1–N5 rank7 massive arrays, massless N2–N4 arrays and N6 ranks4–7 pass retained-family checks at Float128/256. N6 lifecycle/contractions pass. Public N7 is still scalar-only.], [Scoped],
+  [Rank-six numeric], [N1–N5 fixed-family cohort: 21 complete captures, three preserved precision guards and 446,880 saved component comparisons. A newer collinear N3 core passes full arrays and a selected dilation Dual.], [Scoped],
   [Performance], [Historical private selected TIRust/COLLIER: seven slower families and one short inconclusive family. The fresh scheduler cohort is ineligible because of host contention; no default adoption.], [Measured],
 ))
 #text(size: 8.5pt)[Local Linux/Python 3.13 execution qualifies the named examples and
@@ -233,6 +235,222 @@ C0/D0 mass-Taylor identities retain their wheel004 context at working 128/256
 bits and requested accuracy 53. The later shared-facade build and these earlier
 identities qualify their own captured sources. Broader tensor precision/Dual,
 complex, threshold and collinear acceptance remains open.]
+
+#pagebreak()
+#let rank6-feature = data.rank6_feature_checkpoint.snapshot
+= Rank-six feature validation: scoped progress
+The completion target is generic cumulative tensor rank≤6, including positive
+propagator powers, dimension shifts and the agreed numeric/API features. N≤6
+is the current validation checkpoint; higher-point denominator descent needs
+separate qualification. This checkpoint adds evidence from ten frozen source
+cohorts. It does not establish their equivalence to later source changes or
+close the complete mathematical acceptance gate. All prior result values and
+timings remain unchanged; no performance measurements were added.
+
+#report-table(table(
+  columns: (1.2fr, 3.3fr, 0.9fr), inset: (x: 7pt, y: 13pt), stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else if y <= 3 { rgb("#d9f0d3") } else { amber },
+  table.header([Evidence], [Complete saved checks], [Scope]),
+  [N2 first/mixed jets], [One massive spacelike rank-seven family: 330 moments and all four native Laurent slots. Static/dynamic Float128/256 jets, ordinary f64/DoubleFloat controls, and an independent Float384 finite-difference route.], [Scoped pass],
+  [Derivative identities], [#rank6-feature.N2_numeric.initial_original_comparisons original comparisons; #rank6-feature.N2_numeric.precision_pairs precision pairs; #rank6-feature.N2_numeric.mass_identities mass identities; #rank6-feature.N2_numeric.scale_identities scale identities; #rank6-feature.N2_numeric.finite_difference_components finite-difference components.], [Pass],
+  [Beyond 53 bits], [Exact 1 + 2⁻⁵⁴ inputs: #rank6-feature.N2_numeric.beyond53_secant_slopes secant slopes and #rank6-feature.N2_numeric.beyond53_precision_pairs raw precision pairs. DoubleFloat/Float retain the distinction; binary64 rejects the unrepresentable input before planning.], [Pass],
+  [Low-N dotted anchors], [Six original-quad N1/N4/N5 rank-six first-dot/triple arrays: #rank6-feature.low_N_reference.complete_complex_slots complex slots and #rank6-feature.low_N_reference.independently_replayed_records reference/control records.], [Anchors],
+  [Remaining derivative scope], [Typed f64/DoubleFloat Dual carriers are not covered by the N2 cohort. Full public highpoint Dual and broader tensor derivative domains remain unqualified.], [Open],
+))
+
+The N2 source capsule records exact rational inputs and outputs, component
+precision, signs, invalid lanes and the original failed build before its narrow
+borrow correction. The finite-difference route uses Symbolica-generated jets,
+points and weights. Initial comparison thresholds remain 10⁻¹⁰, precision/DD
+controls 2⁻⁸⁰ and the final finite-difference target 2⁻⁷⁰. This one-family
+historical rank-seven result supplies useful rank-six controls; it is not a
+blanket qualification of all N≤6 families.
+
+The low-N quad arrays are reference anchors. Storage at 113 bits / 33 decimal
+digits does not establish 33-digit accuracy. Finite generalized coefficients
+are not independently certified merely because a reference returned a stable
+flag, and these six arrays alone do not qualify TIRust dotted reduction.
+
+#text(size: 8pt)[Saved sources: #raw("validation/rank7-numeric-jets"),
+#raw("validation/quad-original-iregi-low-n-rank6-dot-triple"). Their portable
+checkers reconstruct declared source snapshots and replay saved arithmetic;
+they execute no compiler or integral. Timings in their receipts are engineering
+diagnostics.]
+
+#pagebreak()
+= Six-point runtime: Hybrid and precision rescue
+At one real-mass N6 rank-six unit-power point, all 210 cumulative Cartesian
+moments and four native Laurent slots are available. The newer Hybrid and
+specialized precision-rescue cohorts close named ordinary runtime paths.
+Earlier generic, dotted and dimension-shift failures remain visible in their
+original frozen context.
+
+#report-table(table(
+  columns: (1.25fr, 3.35fr, 0.85fr), inset: (x: 7pt, y: 13pt), stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else if y <= 3 { rgb("#d9f0d3") } else { amber },
+  table.header([Path], [Executed result], [Outcome]),
+  [Hybrid primary], [Float128 / requested53: #rank6-feature.six_hybrid.reference_comparisons complex coefficients pass admitted original quad IBP; all #rank6-feature.six_hybrid.exact_PV_delegations equal explicit specialized PV exactly. Maximum normalized reference error 9.3341 × 10⁻¹⁷.], [Pass],
+  [Hybrid orchestration], [#rank6-feature.six_hybrid.focused_tests focused tests: batched Unstable-only retries, coupled component/context scatter, lane isolation, counters, lazy shared plans and actual low-N IBP work. Invalid-mu and empty/reset lifecycle assertions pass in the N6 test.], [Pass],
+  [Public f64 rescue], [Specialized SixPoint: output53, working128, verification256. Primary cancellation remains recorded; accepted output passes 840 quad comparisons and 630 separate zero-pole checks. Maximum reference error 1.8670 × 10⁻¹⁶.], [Scoped pass],
+  [Earlier restricted CLI], [One explicit-PV DoubleFloat array passes 840 references. Five other attempts fail or remain incomplete: generic f64 unit, generic rescue, specialized f64, first-dot Float128 preparation and unit D6 Float128.], [1 / 6 pass],
+))
+
+Hybrid preserves the requested method and uses specialized PV as primary. On
+this point its outer generic IBP fallback has *zero* rows, batches and
+preparation attempts. Existing nested PV child retries remain visible. The
+focused tests verify fallback mechanics, including real low-N IBP execution;
+they do not prove a successful genuine N6 IBP fallback on this fixture.
+
+The first N6 Hybrid invocation passed coefficient comparisons but failed an
+incorrect observer assertion about nested flags. Its failure is retained. The
+corrected native test passed; its controller then failed to parse a payload
+sharing libtest’s test-name line. Additive saved-only extraction recovered the
+unique complete raw payload without another integral evaluation. Both original
+failed receipts remain failed. Independent replay checks the extracted arrays.
+
+The precision-rescue CLI exports the final f64 array, not the internal
+128/256 arrays. Its internal convergence acceptance is supported by the
+executed shared Rust policy and stage counters; it is not independently
+reconstructed from absent arrays. Converted scalar sensitivity context is
+explicitly unavailable rather than replaced with stale data. Neither cohort
+qualifies public highpoint Dual, dots, D6, complex/exceptional cases or speed.
+
+#text(size: 8pt)[Saved sources: #raw("validation/six-point-hybrid-rank6"),
+#raw("validation/public-six-point-precision-rescue-rank6"),
+#raw("validation/n6-rank6-generalized-current-cli"). Historical process absence
+is replayed as saved metadata; portable checks do not recreate PID history.]
+
+#pagebreak()
+= Thresholds, complex masses and retained collinear failure
+The orthogonal CLI corpus is *partial*: 12 of 14 Float128/256 calls return
+complete rank-six arrays. The two collinear zero-Gram N3 reductions fail with
+nonfinite coefficients in both PV and IBP fallback. Their 1,680 unavailable
+complex slots are not reported as successful zeros.
+
+#report-table(table(
+  columns: (1.2fr, 3.35fr, 0.9fr), inset: (x: 7pt, y: 14pt), stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else if y <= 3 { rgb("#d9f0d3") } else { amber },
+  table.header([Domain], [Saved outcome], [Status]),
+  [Threshold / complex], [Three equal-mass N2 threshold positions and lower-half-plane complex squared masses for N2/N3/N4, each at Float128/256. Unit powers; all 210 moments and four native slots.], [12 pass],
+  [Independent checks], [#rank6-feature.orthogonal_partial.reference_comparisons references; #rank6-feature.orthogonal_partial.precision_pairs precision pairs; #rank6-feature.orthogonal_partial.exact_duplicate_checks duplicates; #rank6-feature.orthogonal_partial.separate_IR_checks IR and #rank6-feature.orthogonal_partial.convergent_UV_checks UV controls; #rank6-feature.orthogonal_partial.branch_checks scalar branch anchors. Total #rank6-feature.orthogonal_partial.total_numeric_checks.], [Pass],
+  [Collinear oracle], [A separate order48 parameter reference admits 210 rank-six moments after #rank6-feature.collinear_anchor.refined_record_checks independent record checks. Maximum empirical convergence indicator 4.1716 × 10⁻¹⁴.], [Anchor only],
+  [Earlier collinear TIRust], [Two complete reduction failures retained, no tensor arrays in this frozen CLI. The following page records a newer direct-core affine prepass on the same reference family.], [Failed],
+  [Completion gates], [Generalized N6 arrays, highpoint Dual, checked supplied-G / accepted Legacy runtime closure, exceptional reductions and agreed physical/API coverage remain open.], [Pending],
+))
+
+Maximum normalized reference error among available orthogonal arrays is
+2.629 × 10⁻¹⁵; the precision-pair maximum is 7.167 × 10⁻³⁶. Thresholds remain
+10⁻¹⁰ and 2⁻⁸⁰. Below-threshold batches include duplicate valid samples around
+an invalid-mu neighbor: valid arrays agree exactly and invalid output is null.
+Requested Hybrid executes actual PV through the Generic engine in this frozen
+cohort. Its successful rows use no fallback or precision rescue.
+
+The original N4 complex quad result is rejected despite its stable flag and
+zero finite scalar. N4 instead uses the independently audited order32 parameter
+oracle. The separate collinear order48 anchor retains six failed coarse
+convergence decisions and all 330 originally stored moments, while admitting
+only the 210 rank-six moments. Both parameter-reference qualifications use
+empirical convergence, not rigorous error enclosures.
+
+The captured CLI predates later supplied-G, Legacy and Hybrid source changes.
+It records requested precision, without per-component precision or numeric
+before/after input witnesses. It therefore does not qualify signed-zero/input
+preservation, threshold derivatives, Duals, broad exceptional coverage or later
+source revisions. No benchmark timings or physical acceptance are added.
+
+#text(size: 8pt)[Saved sources: #raw("validation/orthogonal-rank6-current-cli"),
+#raw("validation/collinear-rank6-parameter-oracle"). Every cohort retains its
+failures and declared source context. Full N≤6/rank≤6 acceptance remains open.]
+
+#pagebreak()
+#let numeric-rank6 = data.rank6_numeric_types_qualification.snapshot
+#let collinear-core = data.rank6_affine_collinear_qualification.snapshot
+= Rank-six numeric types and the collinear core fix
+The newer collinear core uses a Symbolica-derived constant-denominator identity
+before a singular parent Gram inverse or master instruction is evaluated.
+It retains the original inputs and batches all accepted lanes through the
+selected child recipe. Its numerical evidence is separate from the earlier
+failed CLI cohort and the independent parameter oracle.
+
+#report-table(table(
+  columns: (1.25fr, 3.4fr, 0.85fr), inset: (x: 7pt, y: 11pt), stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else if y in (3, 6) { amber } else { rgb("#d9f0d3") },
+  table.header([Executed family], [Complete checks and limits], [Outcome]),
+  [N1–N5 numeric], [#numeric-rank6.successful_capture_count complete captures from #numeric-rank6.capture_count actual attempts. Ordinary f64/DD controls and specified static/dynamic first/mixed Dual layouts; Float128/256 mixed components include N5.], [Scoped],
+  [Saved component math], [#numeric-rank6.complete_complex_comparisons complex checks: 216720 quad, 60480 precision pairs, 55440 DD, 40320 f64 and 73920 scale identities.], [Pass],
+  [Precision guards], [Unrescued N4 f64 mixed Dual and ordinary N5 f64 requested53 / DD requested96 remain guarded failures. The next page qualifies a separate public N4 rescue. No tolerance is relaxed.], [3 retained],
+  [Collinear N3], [Float128/256: all 840 coefficients per precision against the independent anchor; 840 precision pairs. Selected first-dilation Dual: all 840 primals and 840 jets per precision; 1680 pairs.], [Pass¹],
+  [Focused core], [16 affine, 10 component-sensitivity and 4 checked-facade tests pass. Geometry/Taylor rejection occurs before masters; batch isolation, metadata, demand masks and mixed products are checked.], [Scoped],
+  [Symbolic stress], [Two fully symbolic general-N rank-four preparation tests exceed their fixed 90-second limits. Three initial build/controller failures remain preserved.], [Retained],
+))
+
+¹ Actual source-bound Rust assertions use the independent order48 anchor and
+existing Symbolica dilation response, with normalized tolerance $10^(-10)$
+and precision-pair threshold $2^(-80)$. Invalid-scale neighbors, equal duplicate
+outputs, unchanged inputs and one grouped child batch are checked. Numerical
+arrays were not exported: portable replay verifies the captured source, tests
+and execution records; it cannot independently recompute absent raw arrays.
+General Dual uncertainty, arbitrary directions and general-N reduction are
+not qualified by this one collinear profile.
+
+The separate numeric-type capsule retains one real massive spacelike
+unit-power, h=0, PV family per N. DD/Float controls keep the $2^(-80)$ gate.
+The N5 mixed Float precision-pair maximum is $5.424 times 10^(-31)$.
+The saved Fraction checker imports no producer. Its author previously wrote
+the four N2 prefix adapters; that overlap is disclosed rather than presented
+as author-independent evidence. The other twenty captures have another
+producer. Five saved mutation probes reject semantic corruptions.
+
+Each cohort reconstructs its own captured sources. The current-core capsule
+retains 349 compiled source bodies and the later formatting-only transition;
+the numeric cohort uses its earlier frozen example. These are correctness
+checks, with no new physical or timing qualification and no full-goal claim.
+
+#text(size: 8pt)[Sources: #raw("validation/rank6-numeric-types"),
+#raw("validation/affine-collinear-current-core"). Generalized high-point
+tensors, public high-point mixed Duals and remaining API domains stay open.]
+
+#pagebreak()
+= Public box rank-six mixed Dual rescue
+The public #raw("TensorRescueWorkspace::new_dual") now has an actual binary64
+box check with all 210 moments, four Laurent slots and six ordered Taylor
+components. It evaluates a static input and a dynamic three-lane batch with
+two valid scales and an invalid-scale neighbor, then checks empty-state reset.
+Higher-precision evaluation preserves the represented input exactly.
+
+#report-table(table(
+  columns: (1.25fr, 3.4fr, 0.85fr), inset: (x: 7pt, y: 15pt), stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else if y == 5 { amber } else { rgb("#d9f0d3") },
+  table.header([Check], [Executed evidence], [Outcome]),
+  [Complete mixed output], [Three valid lanes each return all 840 × 6 complex values. Independent saved arithmetic checks 15120 quad responses, 15120 qualified Float128 controls and 5040 scale identities.], [35280 pass],
+  [Reference accuracy], [Maximum normalized quad error 1.673 × 10⁻¹⁶; Float128-control error 9.572 × 10⁻¹⁷. Both retain the 10⁻¹⁰ gate.], [Pass],
+  [Real fallback], [All three primary lanes hit the original recurrence cancellation guard in Taylor component 2. Working128 and verification256 report convergence; the invalid lane is not rescued.], [Pass],
+  [Numeric integrity], [30240 real/imaginary coordinates are exactly binary64-representable with recorded 53-bit storage. Static/dynamic component ordering, actual counters and empty reset are checked.], [Pass],
+  [Unexported context], [Internal 128/256 arrays and generic detailed stage reports are not exported. Accepted scalar-sensitivity context is explicitly unavailable.], [Limited],
+))
+
+The independent checker verifies returned values, status/counter associations
+and the original primary failure. Internal higher-precision convergence is
+observed through the executed policy and its status; the absent internal arrays
+cannot be independently compared. Nearest rounding of the hidden verification
+array likewise cannot be reconstructed from an external Float128 control.
+The latter's 3326 exact-rounding mismatches are retained as diagnostics,
+including values near roundoff zeros; normalized agreement is unchanged.
+
+The first saved observer incorrectly required exact nearest rounding from that
+external control. Its failure is preserved. The corrected observer retains
+the numerical tolerance, exact binary64 representation, precision, metadata and
+failure gates. The earlier example-build type error and its one-line harness
+repair are also retained. Neither correction changes a reduction formula.
+
+This is one massive spacelike, unit-power, h=0 PV family. It qualifies the
+specified public box rescue, not high-point mixed Duals, arbitrary branches,
+generalized tensors, rigorous error bounds, physical numerators or performance.
+Its actual 106-source context and fresh minimal replay are retained separately
+from the older ordinary binary64 failure and the later unfinished descent code.
+
+#text(size: 8pt)[Source: #raw("validation/public-four-point-dual-rescue-rank6").
+All prior unsuccessful requests remain unsuccessful in their original cohorts.]
 
 #pagebreak()
 = Shared Python facade and native operand precision
