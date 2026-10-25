@@ -2,7 +2,28 @@
 
 ## Goal and working rules
 
-Deliver a Rust library and standalone CLI that reproduce IREGI’s supported mathematical interfaces, propagate batches and generic numeric types through reduction and scalar masters, pass independent numerical validation, and achieve performance parity or better per benchmark family.
+First deliver a fully working, independently validated Rust implementation of IREGI through rank seven and up to seven propagators, including the planned generalized interfaces, batching, numeric types, library, CLI and Python tools. Then profile the fastest available implementation and concentrate optimization on higher ranks. Performance measurements remain part of the final report; bubble/triangle speed relative to COLLIER is not a completion gate.
+
+### User priority and completion clarification — 25 October 2026
+
+This clarification supersedes conflicting performance priorities in the original
+milestones and acceptance text below. Preserve the mathematical validation
+requirements and all failed or incomplete evidence.
+
+- Prioritize complete, independently validated rank-seven reduction. A
+  restricted scalar seven-point API or a converged array without an independent
+  accuracy check does not complete this objective.
+- Use and improve whichever execution path is fastest. Separate interpreted
+  versus native work is useful only when it helps correctness or the measured
+  higher-rank bottleneck; it is not an independent development objective.
+- Defer additional small-topology backend/performance cohorts. After correctness
+  is established, profile and optimize mainly higher-rank workloads. Retain
+  IREGI/COLLIER comparisons with TIRust in every timing-ratio numerator.
+- Once the full implementation is working and validated, update the Typst
+  benchmark report and machine-readable results, commit and push the validated
+  result, mark the objective achieved, give the user the report link and a full
+  summary, then stop as requested. Do not mark a narrower milestone complete as
+  a substitute for the full implementation.
 
 At implementation start:
 

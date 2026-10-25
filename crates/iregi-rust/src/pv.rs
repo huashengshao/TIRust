@@ -18,6 +18,9 @@ use symbolica::{
     tensors::matrix::Matrix,
 };
 
+mod thin_seven;
+pub(crate) use thin_seven::{ThinSevenChart, ThinSevenGeometry, ThinSixGeometry};
+
 use crate::ibp::{MasterLeaf, ScalarCompiler, ScalarRequest};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -1158,13 +1161,13 @@ impl PvCompiler {
     }
 }
 
-struct PreparationTimer {
+pub(crate) struct PreparationTimer {
     started: Option<Instant>,
     label: String,
 }
 
 impl PreparationTimer {
-    fn new(enabled: bool, label: std::fmt::Arguments<'_>) -> Self {
+    pub(crate) fn new(enabled: bool, label: std::fmt::Arguments<'_>) -> Self {
         let label = if enabled {
             label.to_string()
         } else {

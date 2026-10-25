@@ -6,6 +6,8 @@
 pub mod basis;
 pub mod certified_planar;
 mod thin_n6;
+mod thin_n7;
+pub mod seven_point;
 pub mod six_point;
 pub mod certified_scalar;
 pub mod contraction;
@@ -30,6 +32,7 @@ pub use invariant_certificate::ExactInvariantScalar;
 pub use execution::{ExecutionProfile, ExecutionStats, Workspace, reduce_batch};
 pub use plan::ReductionPlan;
 pub use six_point::{SixPointReductionPlan, SixPointWorkspace, SixPointExecutionStats};
+pub use seven_point::{SevenPointReductionPlan, SevenPointWorkspace, SevenPointExecutionStats};
 pub use scalar::{ScalarKinematicsBatch, ScalarReductionPlan, ScalarWorkspace};
 pub use rescue::{
     PrecisionRescueWorkspace, RescueScalar, RescueSettings, RescueStats, RescueStatus,

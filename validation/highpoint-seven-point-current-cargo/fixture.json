@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "name": "thin_n7_rank0_seventh_time_quarter",
+  "rank": 0,
+  "working_bits": 128,
+  "requested_bits": 53,
+  "samples": [
+    {
+      "id": "seventh_time_quarter",
+      "mu": "3",
+      "propagators": [
+        {
+          "shift": [
+            "0",
+            "0",
+            "0",
+            "0"
+          ],
+          "mass_squared": [
+            "1",
+            "0"
+          ],
+          "power": 1
+        },
+        {
+          "shift": [
+            "0",
+            "1",
+            "0",
+            "0"
+          ],
+          "mass_squared": [
+            "2",
+            "0"
+          ],
+          "power": 1
+        },
+        {
+          "shift": [
+            "0",
+            "0",
+            "1",
+            "0"
+          ],
+          "mass_squared": [
+            "3",
+            "0"
+          ],
+          "power": 1
+        },
+        {
+          "shift": [
+            "0",
+            "0",
+            "0",
+            "1"
+          ],
+          "mass_squared": [
+            "4",
+            "0"
+          ],
+          "power": 1
+        },
+        {
+          "shift": [
+            "1/2",
+            "0",
+            "0",
+            "0"
+          ],
+          "mass_squared": [
+            "2",
+            "0"
+          ],
+          "power": 1
+        },
+        {
+          "shift": [
+            "0",
+            "1",
+            "1",
+            "0"
+          ],
+          "mass_squared": [
+            "3",
+            "0"
+          ],
+          "power": 1
+        },
+        {
+          "shift": [
+            "1/4",
+            "0",
+            "1",
+            "1"
+          ],
+          "mass_squared": [
+            "4",
+            "0"
+          ],
+          "power": 1
+        }
+      ]
+    }
+  ],
+  "intent": "New dyadic numerical vertical-slice fixture, not a retained or numerically qualified corpus. Differs from conditioned_masses/base only in seventh-line time: 0 -> 1/4. Exact Symbolica matrix domain audit must pass before preparation.",
+  "parent_fixture": "validation/public-highpoint/fixture-conditioned_masses.json",
+  "f_bound": "min mass_squared - (max time - min time)^2/4 = 15/16; a priori positive-F bound, exact domain audit recomputes it using Symbolica Rational.",
+  "retained_base_limitation": "Removing its only nonzero-time line makes a mandatory six-line coordinate matrix singular. No numerical zero cofactor pruning is permitted."
+}

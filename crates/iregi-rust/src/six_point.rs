@@ -1,5 +1,5 @@
 //! Explicit six-point Cartesian reduction through one batched five-point child
-//! evaluation. This initial interface accepts ranks zero through three.
+//! evaluation. This interface accepts ranks zero through seven.
 //!
 //! The supported domain is unit propagator powers, D=4-2epsilon, preserved
 //! Cartesian shifts, PV, native IREGI normalization and raw tensor components.
@@ -11,9 +11,10 @@
 //! evidence is Float128 only. See `validation/highpoint-six-point-api` for the
 //! exact source and dependency context. Generic numeric typing does not imply
 //! successful binary64 or DoubleFloat qualification.
-//! Public numerical Dual support and ranks above three are deferred; the
-//! private rank-seven implementation has diagnostic precision agreement but
-//! still fails the unchanged original-reference acceptance gate.
+//! Public numerical Dual support remains deferred. Rank-seven reference
+//! validation uses higher-precision original IREGI IBP: its binary64 version
+//! loses accuracy on the retained fixture. Qualification of particular builds,
+//! numeric types and kinematic domains remains explicit in the evidence.
 
 use iregi_masters::NativeFloat;
 use symbolica::{domains::float::Complex, evaluate::EvaluationDomain};
@@ -28,7 +29,7 @@ use crate::{
 pub use crate::thin_n6::SixPointExecutionStats;
 
 /// Immutable, explicitly selected six-point plan, currently restricted to rank
-/// at most three. All requested settings are checked before symbolic work.
+/// at most seven. All requested settings are checked before symbolic work.
 #[derive(Clone, Debug)]
 pub struct SixPointReductionPlan {
     inner: ThinSixReductionPlan,
@@ -55,7 +56,7 @@ impl SixPointReductionPlan {
 
 fn validate_settings(settings: &ReductionSettings) -> Result<(), ReductionError> {
     if settings.propagators != 6
-        || settings.rank > 3
+        || settings.rank > 7
         || settings.powers != [1; 6]
         || settings.dimension_shift != 0
         || settings.algorithm != Algorithm::PassarinoVeltman
@@ -65,7 +66,7 @@ fn validate_settings(settings: &ReductionSettings) -> Result<(), ReductionError>
         || settings.tensor_weights != TensorWeights::Components
     {
         return Err(ReductionError::Unsupported(
-            "explicit six-point reduction requires rank<=3, six unit powers, D=4-2epsilon, preserved Cartesian shifts, PV and native raw components".into(),
+            "explicit six-point reduction requires rank<=7, six unit powers, D=4-2epsilon, preserved Cartesian shifts, PV and native raw components".into(),
         ));
     }
     Ok(())
@@ -120,7 +121,7 @@ mod tests {
     #[test]
     fn unsupported_domain_is_rejected_before_symbolic_preparation() {
         let mut variants = Vec::new();
-        for rank in [4, 7, 8] { let mut x = settings(); x.rank = rank; variants.push(x); }
+        for rank in [8, u16::MAX] { let mut x = settings(); x.rank = rank; variants.push(x); }
         for n in [0, 5, 7] { let mut x = settings(); x.propagators = n; variants.push(x); }
         for powers in [vec![1; 5], vec![1; 7], vec![0; 6], vec![2; 6]] {
             let mut x = settings(); x.powers = powers; variants.push(x);
@@ -136,5 +137,12 @@ mod tests {
         for invalid in variants {
             assert!(matches!(SixPointReductionPlan::new(invalid), Err(ReductionError::Unsupported(_))));
         }
+    }
+
+    #[test]
+    fn rank_seven_passes_the_public_domain_guard() {
+        let mut settings = settings();
+        settings.rank = 7;
+        assert!(validate_settings(&settings).is_ok());
     }
 }

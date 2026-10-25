@@ -198,16 +198,17 @@
 #v(0.4em)
 #block(stroke: 0.6pt + luma(200), inset: 9pt, radius: 4pt, width: 100%)[
   #set text(9pt)
-  *Acceptance gates*
+  *Current priorities*
   #table(columns: (1fr, 2fr, auto), stroke: none, inset: (x: 4pt, y: 4pt),
-    [*Correctness*], [Agreement with original IREGI and isolated MadLoop graphs], [*Pending*],
-    [*Kernel performance*], [Equal or better on identical inputs; separate measured snapshots], [*Unmet*],
+    [*Rank-seven correctness*], [Complete independently validated IREGI interfaces through rank seven], [*Pending*],
+    [*Higher-rank performance*], [Profile the fastest path after correctness; retain all measured snapshots], [*Next*],
     [*Complete evaluation*], [Six physical rows measured; two failures retained], [*Inconclusive*],
   )
 ]
 = Current coverage
 #text(size: 9.5pt)[The local Python interface and example gallery execute successfully with
-repaired wheel004. Complete mathematical and performance acceptance remain open;
+repaired wheel004. Complete mathematical acceptance remains open. Low-rank
+COLLIER speed is not a completion gate under the latest user priority;
 all historical measurements below retain their original source snapshots.]
 #report-table(table(
   columns: (1.05fr, 3.6fr, 0.8fr), inset: (x: 6pt, y: 8pt), stroke: table-stroke,
@@ -216,8 +217,8 @@ all historical measurements below retain their original source snapshots.]
   [Local PyO3 wheel], [17/17 numerical and 12/12 interoperability tests, including the actual SVG renderer; installed consumer typing has zero errors/warnings.], [Passed],
   [Dotted propagators], [Generalized powers/dimension shifts have their strongest retained coverage at N≤4. The current wheel/gallery checks the dotted bubble against its mass Dual derivative.], [Scoped],
   [Example gallery], [4/4 native test methods; three successful HTML exports; all three rendered at desktop and narrow dark sizes in real Chromium.], [Passed],
-  [Six / seven points], [Explicit restricted N6 rank≤3 API: isolated Float rank2/3 checks and current Cargo rank3 replay pass. A private N7 rank0 fixture now passes stable-reference and two-precision checks; broader high-point coverage remains open.], [Scoped],
-  [Performance], [Historical private selected TIRust/COLLIER: seven slower families and one short inconclusive family. A fresh eight-family scheduler experiment is retained but ineligible because of host contention; no default adoption.], [Unmet],
+  [Six / seven points], [Explicit N6 rank≤7 and N7 rank0 APIs. Current Cargo N6 rank7 Float128/256 full arrays pass independent reference checks. N7 scalar checks pass; its lifecycle and tensor coverage remain incomplete.], [Scoped],
+  [Performance], [Historical private selected TIRust/COLLIER: seven slower families and one short inconclusive family. The fresh scheduler cohort is ineligible because of host contention; no default adoption.], [Measured],
 ))
 #text(size: 8.5pt)[Local Linux/Python 3.13 execution qualifies the named examples and
 focused API tests. Release distributions, other platforms, separate Community-host
@@ -225,6 +226,105 @@ loading and a reactive numerical browser frontend remain unqualified.
 C0/D0 mass-Taylor identities now pass on wheel004 at working 128/256 bits with
 requested accuracy 53. Historical broader mixed-Dual finite-difference evidence
 remains separate; these identities do not rerun that complete suite.]
+
+#pagebreak()
+= Rank-seven correctness checkpoint
+#let six-rank7 = data.six_point_rank7_current_cargo_qualification.snapshot
+#block(fill: pale, inset: 10pt, width: 100%)[
+  *Priority: finish validated IREGI through rank seven.* Profile whichever
+  implementation is fastest, concentrating subsequent optimization on higher
+  ranks. Low-rank speed against COLLIER is not a completion gate. The complete
+  objective remains open; historical timings retain their measured contexts.
+]
+
+#report-table(table(
+  columns: (1.2fr, 3.4fr, 0.9fr), inset: (x: 7pt, y: 13pt),
+  stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else if y == 1 { rgb("#d9f0d3") } else { amber },
+  table.header([Domain], [Executed scope], [Outcome]),
+  [N6 / rank7], [Actual Cargo public API: Float128 and Float256, 330 moments / 1,320 complex slots each, stable higher-precision original IBP.], [Pass¹],
+  [N7 / rank0], [Actual Cargo Float128/256 singleton agreement. Nine-call lifecycle stopped after six completed calls; later scratch/recovery checks remain open.], [Partial],
+  [N6 / rank7 COLI], [Native accuracy flag −2; 315 missing diagnostic coefficients and one finite discrepancy. All three pole probes return failure sentinels.], [Rejected],
+  [Full rank-seven goal], [N7 tensors, broader kinematics/numeric types, generalized tensor descendants, contractions and complete batch lifecycle still need qualification.], [Open],
+))
+
+¹ One retained real-mass family. The public N6 rank guard now accepts zero
+through seven, using the existing recurrence and one packed batch of all six
+five-point subsets. Both current captures pass all 2,640 complex reference
+comparisons at the unchanged normalized $10^(-10)$ gate; maximum difference
+$1.265 times 10^(-16)$. All 1,320 precision pairs pass $2^(-80)$, with maximum
+difference $5.421 times 10^(-32)$. Literal rank-four/five/six plans and the
+rank-seven lifecycle remain separate checks.
+
+== Reference accuracy adjudicated
+Original IREGI and its bundled OneLOop were built with uniform quad arithmetic,
+retaining the original complex-matrix sources, formulas, thresholds and
+limited-digit constants. Runtime type canaries and four scalar normalization
+controls pass. Stable IBP agrees with both complete TIRust arrays. The older
+binary64 IBP comparison still fails 90 slots; those failures remain preserved.
+Quad PV is unstable and disagrees in 139 positions. Quad Hybrid reports
+stability but disagrees in 19, and remains unqualified. Stored 113-bit
+arithmetic does not establish achieved 113-bit result accuracy.
+
+The rejected COLI capture is not an independent accuracy witness. Its zero
+explicit Laurent-pole residual count does not turn its failed pole-parameter
+probes into passing checks. No high-rank kernel timings are inferred from
+validation-stage durations.
+
+Saved-evidence replay, without new integral evaluation:
+#raw("python3 validation/highpoint-six-point-rank7-current/check.py") and
+#raw("python3 validation/quad-original-iregi-rank7-adjudication/check.py").
+The separate rejection record is
+#raw("validation/collier-n6-rank7-diagnostic/qualification.json").
+
+#pagebreak()
+= Additional correctness milestones
+These retained private results support the remaining implementation work.
+They do not expand the qualified public domain by themselves.
+
+#report-table(table(
+  columns: (1.2fr, 3.5fr, 0.8fr), inset: (x: 7pt, y: 15pt),
+  stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else { pale },
+  table.header([Scope], [Complete saved checks], [Status]),
+  [Generalized N6/N7], [N6 dotted, N7 dotted and N7 h=−1: 240 complex outputs at Float128/256; original agreement, scaling, repeated/chunked batch profiles and 80 exactly retained control values.], [Private pass],
+  [N6 scalar Dual], [19 tests and four captures: 528 parent Taylor slots, 156 packed child rows and 264 precision pairs. Independent first mass derivative/dotted anchor and coherent dilation jets.], [Private pass],
+  [N7 scalar API], [35 focused actual-Cargo tests; singleton Float128/256 checks pass. The partial lifecycle retains 28 moment and 28 unit-contraction slots, including rejected neighbors and reordered/chunked inputs.], [Partial],
+))
+
+The generalized preparation change uses Symbolica's existing rational-polynomial
+matrix operations, with exact reconstruction certificates and an AtomField
+fallback. It also distinguishes a singular matrix from a preparation failure.
+The retained cohort passes 7,415 independent saved-data checks, covering all
+2,060 input slots and all complete outputs. It is not yet adopted into the main
+Cargo source. Higher-rank generalized requests, genuine D6 domains, complex
+masses and Dual directions remain separate work.
+
+The component-sensitivity prototype transports complete heuristic Taylor
+sensitivity operands rather than padding derivative entries with zeros. Its
+mass derivative agrees with independent dotted IBP/original anchors; its
+coherent scale jets pass homogeneity and precision checks. These are numerical
+sensitivity estimates, not rigorous derivative uncertainty enclosures. General
+independent mixed directions, finite differences and public N6/N7 Dual
+constructors remain unqualified. The rectangular mixed-direction follow-up is
+source-only.
+
+The N7 lifecycle stopped at its fixed deadline during the independent-scratch
+call. Six preceding calls are retained; the remaining scratch, later empty and
+malformed-call recovery checks are not silently treated as passing. The first
+failed Float256 attempt also remains alongside its separately bounded successful
+follow-up. Positive-rank seven-point validation is ongoing.
+
+Exact-master preparation-cache experiments are preserved separately: their
+38-request whole-output regression passes, while earlier typed schedules remain
+incomplete. No cache candidate or timing gain is adopted by this checkpoint.
+No new high-rank benchmark measurements are added here.
+
+Sources and saved-evidence replay:
+#raw("validation/routing-rational-cayley-full-core/") and
+#raw("validation/highpoint-dual-sensitivity/"). The actual N7 source/build
+boundary is recorded in
+#raw("validation/highpoint-seven-point-current-cargo/qualification.json").
 
 #pagebreak()
 = Historical kernel baseline: #raw("4c32ece")

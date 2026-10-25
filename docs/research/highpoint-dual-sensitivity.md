@@ -1,9 +1,74 @@
 # Full-component sensitivity transport for high-point Dual reduction
 
-Source-only investigation, 2026-10-25. This note proposes a private prototype;
-it does not qualify numerical Duals, change a public constructor, run an
-integral, or claim an error certificate. The inspected implementation is the
-source on `main` after the wind-down checkpoint `2c1f334`.
+Investigation and private prototype, 2026-10-25. The original source snapshot
+below is `main` after wind-down checkpoint `2c1f334`; it describes the public
+boundary that this isolated prototype addresses. The prototype has now passed
+19 selected synthetic/regression tests and the narrow numerical cohort described
+below. It does not change a public constructor or provide an error certificate.
+Independent review of the new saved numerical outputs has passed.
+
+## Private qualification checkpoint
+
+Portable evidence is committed under `validation/highpoint-dual-sensitivity`:
+its sealed capsule replays all source patches through the existing committed
+cache parent, preserves the actual tests and raw numerical records, and checks
+without the original ignored target tree or native dependencies. Run
+`python3 validation/highpoint-dual-sensitivity/check.py` from the project root.
+The 1.425 MB payload inherits generated master sources instead of duplicating
+them. A separate `validation/highpoint-dual-rectangular-proposal` bundle retains
+the explicitly uncompiled follow-up source; its checker reconstructs the
+93-file proposal in memory and never runs Rust tests or a Symbolica evaluator.
+
+The frozen five-file core extension is in
+`target/highpoint-dual-sensitivity/source-v3.json` (SHA256
+`a0ae4b8190091e4f25530d9f5f47b68d0463ab404e45b2b542878f169b8a23c8`).
+Its actual bounded build and 19 tests passed, including immediate-alias
+cancellation, complex coefficient norms, higher/mixed component ordering, lazy
+singular branches, stale snapshots and signed zeros. Two independent saved
+reviews checked the actual logs and input guards. The numerical capture overlay
+adds observation only and uses the identical original six-component scale helper.
+
+The new correctness protocol is
+`target/highpoint-dual-sensitivity/numerical-v1/protocol.json` (SHA256
+`36c9555660757cc064d7987590d3414809a5805ea65fedca0907f88c02674410`).
+It completed both 128/256-bit first squared-mass jets and both 128/256-bit
+six-component dilation jets, including the complete fixed batch schedules.
+All 528 parent complex Laurent/Taylor slots, 156 packed child rows, full
+value/precision/signed-zero/route sidecars and mutation probes passed the saved
+checks. The first mass derivative agrees with independent dotted generic-IBP
+results to normalized errors `6.83e-34` (128 bits) and `4.71e-74` (256 bits),
+and with both original dotted interfaces within `1.18e-13`. All 264 paired
+128-to-256 complex components converge within `5.28e-34`, stronger than the
+unchanged `2^-80` gate. All four Laurent slots were checked.
+
+The saved comparison is
+`target/highpoint-dual-sensitivity/numerical-v1/saved-gate-001/comparison.json`
+(SHA256 `bcd751217d117a2dbca29b37ca787be5ddc1e9a6b8c3459a2d5107e37f5f59fc`).
+The local `qualification-summary.json` records every bounded stage and its
+receipt. The independent raw saved audit is
+`target/resume-20261025-review/dual-sensitivity-numerical-v1-independent-saved-review.json`
+(SHA256 `dfa12c20ef5500f26affa1527683785600d63f798e81a35efe8a3dbaa4a75402`).
+It independently checked 171,834 conditions, 182 full parent/child contexts,
+944 mutation probes and all seven terminal process groups, without importing
+the producer/comparator or running an integral. It retained all 528 paired
+scalar-precision and 868 input-precision representation differences explicitly.
+These are a new correctness cohort with explicitly larger predeclared
+budgets; all historical 180-second cache-pilot timeouts remain unchanged.
+Elapsed stage times include setup and guards and are not performance results.
+This remains a private, rank-zero, unit-power N6 Euclidean fixture. Six dilation
+jets cover one physical direction. Independent higher/mixed mass/shift
+directions, finite differences, broader branches, public highpoint Dual
+promotion and E6 backend uncertainty transport remain separate gates.
+
+A separate source-only follow-up uses rectangular shape
+`[[0,0],[1,0],[0,1],[1,1]]`: additive first squared mass `a` and independent
+dilation `lambda=1+b`. Changing the integration variable gives
+`F(a,b)=lambda^-8 I6(m0_squared+a/lambda^2,...)`, so the mixed target is
+minus ten times the independently evaluated first-dotted scalar. Symbolica
+generates both the exact inputs and, through a separate ordinary derivative
+route, the unit/dot coefficient matrix. The local `rectangular-v1` proposal has
+six unexecuted helper tests and an isolated capture overlay. It has not been
+compiled or evaluated and carries no numerical execution authorization.
 
 The minimal useful extension is a **positive formal Taylor series of
 uncancelled contributions**, evaluated with Symbolica's existing Dualizer.

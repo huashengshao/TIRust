@@ -1,5 +1,8 @@
 //! Exact topology preparation. No sampled values are cached in a plan.
 
+mod thin_seven;
+pub(crate) use thin_seven::assemble_thin_seven_moments;
+
 use crate::{
     basis::{Monomial, tensor_basis},
     convention::convert_convention,
@@ -63,6 +66,7 @@ pub struct ReductionPlan {
     certified_planar_mask: u8,
     /// Structural imported-child context; never sampled certificate state.
     thin_six_child_rank: Option<u16>,
+    thin_seven_child_rank: Option<u16>,
 }
 
 /// Exact constraints are structural: numerical values are never stored here.
@@ -80,6 +84,7 @@ struct PlanVariant {
     certified_planar_mask: u8,
     /// Structural imported-child context; never sampled certificate state.
     thin_six_child_rank: Option<u16>,
+    thin_seven_child_rank: Option<u16>,
 }
 
 type StructuralPlanCache =
@@ -132,7 +137,7 @@ impl ReductionPlan {
             algorithm_used:Algorithm::PassarinoVeltman,
             preparation_notes:vec![format!("Private thin N6: one packed N5 rank-{child_rank} batch, retained primal operand envelopes; no quadrature route support")],
             special_kinematics:true, analytic_jet_order, bubble_limit:None, zero_invariants:None,
-            certified_scalar_basis:None, certified_planar_chart:None, certified_planar_mask:0, thin_six_child_rank:Some(child_rank),
+            certified_scalar_basis:None, certified_planar_chart:None, certified_planar_mask:0, thin_six_child_rank:Some(child_rank), thin_seven_child_rank:None,
         })
     }
 
@@ -192,6 +197,7 @@ impl ReductionPlan {
             zero_invariants: self.zero_invariants.clone(),
             certified_planar_mask: self.certified_planar_mask,
             thin_six_child_rank: self.thin_six_child_rank,
+            thin_seven_child_rank: self.thin_seven_child_rank,
         })
     }
 
@@ -225,6 +231,7 @@ impl ReductionPlan {
             zero_invariants: Some(profile),
             certified_planar_mask: self.certified_planar_mask,
             thin_six_child_rank: self.thin_six_child_rank,
+            thin_seven_child_rank: self.thin_seven_child_rank,
         })
     }
 
@@ -234,16 +241,18 @@ impl ReductionPlan {
             && variant.zero_invariants == self.zero_invariants
             && variant.certified_planar_mask == self.certified_planar_mask
             && variant.thin_six_child_rank == self.thin_six_child_rank
+            && variant.thin_seven_child_rank == self.thin_seven_child_rank
         {
             // Do not insert self into its own cache: even an immutable clone
             // would retain this cache and create an ownership cycle.
             return Ok(Arc::new(self.clone()));
         }
         if variant.thin_six_child_rank != self.thin_six_child_rank
-            || (self.thin_six_child_rank.is_some()
+            || variant.thin_seven_child_rank != self.thin_seven_child_rank
+            || ((self.thin_six_child_rank.is_some() || self.thin_seven_child_rank.is_some())
                 && (variant.bubble_equal_masses.is_some() || variant.zero_invariants.is_some()
                     || variant.certified_planar_mask != 0)) {
-            return Err(ReductionError::Unsupported("thin N6 variants preserve imported-child topology and cannot accept invariant profiles".into()));
+            return Err(ReductionError::Unsupported("thin high-point variants preserve imported-child topology and cannot accept invariant profiles".into()));
         }
         let entry = self
             .variant_cache
@@ -256,6 +265,9 @@ impl ReductionPlan {
         // Every newly built child receives fresh caches, with no parent link.
         entry
             .get_or_init(|| {
+                if self.thin_seven_child_rank.is_some() {
+                    return Self::new_thin_seven(self.settings.clone(), variant.analytic_jet_order).map(Arc::new);
+                }
                 if self.thin_six_child_rank.is_some() {
                     return Self::new_thin_six(self.settings.clone(), variant.analytic_jet_order).map(Arc::new);
                 }
@@ -694,6 +706,7 @@ impl ReductionPlan {
             certified_planar_chart,
             certified_planar_mask,
             thin_six_child_rank: None,
+            thin_seven_child_rank: None,
         })
     }
 
@@ -1785,6 +1798,7 @@ mod tests {
                 zero_invariants: None,
                 certified_planar_mask: 0,
                 thin_six_child_rank: None,
+                thin_seven_child_rank: None,
             })
             .unwrap()
             .clone();
@@ -1875,7 +1889,7 @@ mod planar_mask_variant_tests {
         let masked=ReductionPlan::new_certified_planar_masked(configuration(),3,8).unwrap();
         let first=masked.with_analytic_jet_order(2).unwrap();let again=masked.with_analytic_jet_order(2).unwrap();
         assert_eq!(first.certified_planar_mask,8);assert_eq!(first.certified_planar_chart,Some(3));assert_eq!(first.analytic_jet_order,2);assert!(Arc::ptr_eq(&first,&again));
-        assert!(masked.variant_cache.lock().unwrap().contains_key(&PlanVariant{analytic_jet_order:2,bubble_equal_masses:None,zero_invariants:None,certified_planar_mask:8,thin_six_child_rank:None}));
+        assert!(masked.variant_cache.lock().unwrap().contains_key(&PlanVariant{analytic_jet_order:2,bubble_equal_masses:None,zero_invariants:None,certified_planar_mask:8,thin_six_child_rank:None,thin_seven_child_rank:None}));
         let unmasked=ReductionPlan::new_certified_planar(configuration(),3).unwrap().with_analytic_jet_order(2).unwrap();
         assert_eq!(unmasked.certified_planar_mask,0);assert!(!Arc::ptr_eq(&first,&unmasked));
         assert_ne!(first.expressions(),unmasked.expressions());
@@ -1905,16 +1919,16 @@ mod generic_thin_variant_tests {
         assert_eq!(rebuilt.expressions(),plan.expressions());
         assert!(plan.variant_cache.lock().unwrap().contains_key(&PlanVariant {
             analytic_jet_order:2,bubble_equal_masses:None,zero_invariants:None,
-            certified_planar_mask:0,thin_six_child_rank:Some(0),
+            certified_planar_mask:0,thin_six_child_rank:Some(0),thin_seven_child_rank:None,
         }));
         assert!(plan.with_zero_invariants(ZeroInvariantProfile {masses:vec![false;6],distances:Vec::new()}).is_err());
         assert!(plan.variant(PlanVariant {
             analytic_jet_order:2,bubble_equal_masses:None,zero_invariants:None,
-            certified_planar_mask:0,thin_six_child_rank:Some(1),
+            certified_planar_mask:0,thin_six_child_rank:Some(1),thin_seven_child_rank:None,
         }).is_err());
         assert!(plan.variant(PlanVariant {
             analytic_jet_order:2,bubble_equal_masses:None,zero_invariants:None,
-            certified_planar_mask:8,thin_six_child_rank:Some(0),
+            certified_planar_mask:8,thin_six_child_rank:Some(0),thin_seven_child_rank:None,
         }).is_err());
     }
 }

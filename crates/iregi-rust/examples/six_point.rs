@@ -50,7 +50,7 @@ fn run() -> Result<u8, Box<dyn Error>> {
     let output = args.next().ok_or(usage)?;
     if args.next().is_some()
         || n != 6
-        || rank > 3
+        || rank > 7
         || ![128, 256, 384].contains(&working_bits)
         || requested_bits < 53
         || requested_bits > working_bits
@@ -129,7 +129,7 @@ fn run() -> Result<u8, Box<dyn Error>> {
         "components": 1,
         "fixture": input_path,
         "input_exact_rational": original_inputs,
-        "limitations": "Explicit six-point coordinate-input API restricted to rank<=3 with dynamic rank-lowered children, actual-route primal envelopes and fresh full-Taylor zero-cofactor masks; no numerical specialization, no reference scalars, no disabled guards. Working precision is not a claim of achieved requested precision. Timings are diagnostic, not performance gates.",
+        "limitations": "Explicit six-point coordinate-input API restricted to rank<=7 with dynamic rank-lowered children, actual-route primal envelopes and fresh full-Taylor zero-cofactor masks; no numerical specialization, no reference scalars, no disabled guards. Working precision is not a claim of achieved requested precision. Timings are diagnostic, not performance gates.",
     });
     let output = Path::new(&output);
     write(output, &record)?;
@@ -148,7 +148,7 @@ fn run() -> Result<u8, Box<dyn Error>> {
     };
     record["diagnostic_plan_seconds"] = json!(started.elapsed().as_secs_f64());
     record["algorithm_used"] = json!(Algorithm::PassarinoVeltman);
-    record["preparation_notes"] = json!(["Explicit six-point packed-child API; rank<=3/native/raw; no quadrature import support"]);
+    record["preparation_notes"] = json!(["Explicit six-point packed-child API; rank<=7/native/raw; no quadrature import support"]);
     record["basis"] = json!(plan.basis());
     record["status"] = json!("preparing_workspace");
     write(output, &record)?;

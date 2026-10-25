@@ -11,9 +11,11 @@ as successful cases.
 
 Development resumed on 25 October 2026 from the committed
 [handoff](HANDOFF.md). The [current checkpoint](docs/checkpoints/resume-20261025.md)
-tracks subsequent validation and integration. The report includes private
-seven-point scalar and scheduler checks; neither candidate is promoted to the
-default reducer.
+tracks subsequent validation and integration. Rank-seven correctness is the
+current priority. The explicit six-point API reaches rank seven with complete
+retained Float-array checks against higher-precision original IREGI; seven-point
+tensors and broader domains remain under validation. Historical scheduler
+experiments remain separate from the default reducer.
 
 ## Workspace
 
@@ -173,13 +175,23 @@ Cartesian inputs. Ordinary reduction does not invoke it automatically. See the
 settings, precision convergence and independent mixed-Dual comparisons.
 
 `SixPointReductionPlan` and `SixPointWorkspace<T>` provide an explicit batched
-six-point path through rank three, using preserved Cartesian shifts, unit
+six-point path through rank seven, using preserved Cartesian shifts, unit
 powers and native raw moments. Its retained Float128/Float256 fixtures pass
-complete-array reference and convergence checks; failed neighbors, workspace
-reuse and numerator contractions have separate lifecycle checks. The ordinary
+complete-array reference and convergence checks. Earlier lower-rank lifecycle
+checks cover failed neighbors, workspace reuse and numerator contractions;
+the rank-seven lifecycle is being qualified separately. The ordinary
 reducer's defaults remain unchanged. See the [six-point API](docs/six-point.md)
 for its input layout, example, numerical scope and remaining precision/Dual
 qualification.
+
+`SevenPointReductionPlan` and `SevenPointWorkspace<T>` provide a restricted
+explicit scalar path through all 21 five-point subsets. Its current Cargo
+Float128/Float256 singleton arrays pass reference and convergence checks on
+one real-mass family; the complete workspace lifecycle remains incomplete.
+Higher seven-point tensor ranks are still under validation and are not exposed
+by this wrapper. See the [seven-point API](docs/seven-point.md) for the exact
+settings and preserved failures. Complete validation through rank seven is
+the current development priority, before higher-rank performance work.
 
 Derived scalar invariants are checked before selecting analytic branches or
 evaluating masters. Exact represented-input polynomial checks prevent a rounded
