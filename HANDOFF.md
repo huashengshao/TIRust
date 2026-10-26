@@ -1,5 +1,187 @@
 # TIRust / iregi-rust: exhaustive session handoff
 
+## Current checkpoint: complete reference checks, convergence still open
+
+The accepted finish line is the documented one- through six-point families,
+through cumulative tensor rank six, including dotted propagators. Performance
+parity and further rank-seven work are deferred. The goal remains open. An existing unbudgeted goal is already assigned;
+its tool status may still show an earlier blocked state after the user's resume.
+Progress is available. Do not create a second goal or infer completion from that
+status. Finish
+the remaining precision-convergence check, publish its evidence and updated
+benchmark report, commit and push, mark the objective complete, and stop. Do not
+start optimization automatically.
+
+The ordinary six-point/rank-six dotted and dimension-shifted evidence is already
+committed. The restored exact-zero route now also returns complete six-point,
+rank-six, dimension-six second-mass-derivative Dual arrays at both 128 and 256
+working bits. Every one of the 2,520 complex tensor/Laurent/Taylor fields agrees
+with both independent defining-integral rules at the unchanged `1e-10`
+dimensionally normalized mixed tolerance. Both runs pass invalid-lane isolation,
+empty reset, duplicate equality, singleton recovery, and actual owning
+full-component roundoff/quadrature context checks. Native groups exited cleanly.
+These are numerical validation results, not performance benchmarks.
+
+The stricter same-artifact 128/256 comparison **fails**: 628 of 2,520 fields
+exceed `2^-80`, with maximum normalized difference `2.9216229277e-21`.
+Keep this failure visible. Do not relabel it as passing, project small raw poles
+to zero, or lower its threshold. The full joint report is
+`target/e6-dual-restored-zero-profile-opt3-128-256-joint-comparison.json`, SHA
+`2472628367171ba81589e18c949a3e2681489d76d2395693a7c23610b1be0b7a`.
+
+Saved-data analysis is consistent with precision-dependent cancellation and E6
+numerical noise at the requested accuracy parameter 53. At the worst field
+(`qz^6`, second mass Taylor coefficient), the Float128 owning quadrature estimate
+is about `9.99e-21`, larger than the observed `2.92e-21` difference. All 630 finite
+field differences fit combined stored heuristic estimates. Meaningful tracked
+imaginary precision rises from 94 to 222 bits; both runs use E6 order 64 and
+2,400 box rows. Requested parameter 53 admits heuristic thresholds `2^-34`
+(roundoff) and `2^-36` (E6 relative), and does not promise 80-bit cross-precision
+agreement. None of these estimates is a rigorous interval or achieved-bit
+certificate. No formula defect or fixed 53-bit ceiling has been demonstrated.
+
+The immutable capsule is
+`validation/e6-dual-rank6-precision-boundary`, manifest
+`cd656689a9c02dd92c401a0ad9009be7e7f7e655d1f62d337b44fd66555777fa`,
+payload `d0932d88b895e886e33d4e874ee5ca3c4df5da6b4e5d2397f6a13adaae4427fb`.
+The [precision-boundary checkpoint](docs/checkpoints/rank6-dual-precision-boundary-20261026.md)
+and [saved replay packet](docs/data/rank6-dual-precision-boundary-saved-replays-20261026.json)
+record actual portable/source checks. Root independently replayed a fresh
+36-file, environment-cleared copy without target/.local/license dependencies;
+proof `073e5a55…`. A root-only attempt to relocate temporary reports into the
+saved project namespace was correctly refused; its stderr and wrapper are
+retained separately from the passing standard-contract replay. This is not a
+native or numerical failure. No capsule source or threshold was changed.
+
+The capsule and checkpoint identify actual receipt and source joins. The two previous 96-GiB
+nonfinite captures, eight earlier resource/time failures, failed checking-script
+assumptions and compiler/test failures remain separate historical evidence.
+A failed precision comparison is not an additional failed native capture.
+
+### Active numerical work
+
+Only the Float384 convergence witness is active. Owner:
+`/root/e6_precision_failure_research`. Directory:
+`target/e6-dual-restored-zero-profile-opt3-384-256g`.
+
+- Unified session: `27549`.
+- Native PID/group/session: `1144571`; kernel start tick: `105132048`.
+  Verify identity before any signal. The owner polls and collects this session.
+- Protocol: `3e0f5544e1c1fca291c29838dc62137aa07e51e9ebf2869838e2919c338b9aae`.
+- Root release: `1fcbf079008fde752d976e6a7d33514eabd843215367f4a549e3828e8169297e`.
+- One pinned CPU30, 256-GiB address-space limit, 7,200 native seconds,
+  7,380 total seconds and 120 seconds reserved for cleanup.
+- Same frozen executable `749b2ae3489eb0096267421b120fa3586f2243c7eaf78fc9c02b0f9f30895906`,
+  actual 210-source context, original SAMPLE, rank6/h1, mass-second shape
+  `[[0,0],[1,0],[2,0]]`, requested accuracy parameter53 and three fixed calls.
+- All 260 prelaunch bindings were checked independently. No source, Cargo,
+  formula, branch, tolerance or build change. No other full producer or retry.
+  Fresh available host memory was 504.9GiB; the cap is an engineering allowance,
+  not a proof of sufficient resources.
+
+The frozen observer explicitly supports working bits `[128,256,384]`.
+The proposed 192-bit run was rejected to avoid introducing a new observer/build
+epoch. The saved-analysis extension only admits the existing 384-bit mode;
+its arithmetic comes from the unchanged `df350…` comparator. The next qualifying
+convergence pair is explicitly **256/384** at the unchanged `2^-80` threshold.
+The old 128/256 result remains failed even if the higher pair passes.
+
+On the first actual384 array, compare every field against both DD rules and
+perform a labeled preliminary 256/384 check. Full acceptance still requires all
+three calls, exact duplicate/recovery equality, real owning contexts and nonzero
+higher-component quadrature estimates, terminal cleanup and unchanged guards.
+No current384 result may be inferred from128 or256.
+
+### Source and evidence map
+
+Current production restoration deletes the 15-line bypass of the existing
+full-Taylor-certified exact-zero profile. It reuses existing IREGI/Symbolica
+identities; no new algebra engine or numerical guard relaxation was added.
+The old generic path retained removable lightlike-bubble divisions by numerical
+`B=0`. The first bad instruction was not exported in those failed captures.
+
+The full-Dual witness explicitly requests PV and selects the documented
+610-term IBP child recipe (zero canonical PV requests), with no runtime Hybrid
+fallback. Keep `default_Hybrid_qualified=false` local to this invocation.
+Separately saved source-equivalence notes show the same successful h1 recipe for
+PV and Hybrid; they do not fabricate an additional Hybrid numerical run.
+
+Use `validation/e6-dual-restored-zero-profile-core-tests` manifest `1f1a41fd…`
+for current buildb069/product749 and all24 focused passes. Resolve current source
+through its build-specific `current_source_aliases`; inherited canonical
+`execution.rs` is historical, not the restored body. The regression honestly
+retains one analytic transverse germ refused as E6NonConvergent at order128.
+This is a numerical limitation, not proof of mathematical nonanalyticity.
+
+The original saved checker incorrectly assumed only valid parent rows and no
+empty owning result. The observer preserves all original rows, including
+invalid context refusal, and an actual empty result. Source-reviewed additive
+checker `e0b6889d…` requires exact owning-result equality and all original failure
+records. Preserve frozen `b2…`, failed audit `de3…`, and the corrected replay.
+Only the later `dc690560…` bit-domain extension admits384; formula/tolerance
+functions remain unchanged.
+
+The independent DD reference is `validation/e6-dual-rank6-mass-second-defining-integral`
+manifest `dd499b4a…`: 86,272 points, 337 batches, eleven windows, two complete
+5,880-field streams including all2,520 parent fields. Saved stream reconstruction
+and exact hi+lo witnesses are already qualified; do not rerun the integration.
+Nominal106-bit arithmetic uses documented53-bit nodes and proves neither a
+rigorous error bound nor106 achieved bits.
+
+Full128 terminal receipt: `aa36ca07…`; full256: `f3ed1dc0…`.
+Root rehashed all237/248 actual input guards and three outputs per run.
+Root reviews: `bd3414a2…` and `3d3ac05a…`.
+Independent complete128/256 arithmetic/lifecycle receipt: `7e4178aa…`, with closed
+standard-library helper `a6e79be9…`; ten-file minimal replay `03b66c81…` confirms
+all six2520-field comparisons and four1806-pole control sets. Expected exit1
+preserves the failed strict gate. Native/compiler observations are historical
+when their binary files are intentionally absent from a portable copy.
+
+Current Python wheel capsule is `c65b3e60…`: ten installed smoke cases,205 selected
+sources/128 coherent core bodies, N6 frontend smoke rank1. Historical65 API cases,
+seven marimo runs and typing checks retain their own wheel provenance. The
+standalone shared native host is qualified; external Community-host loading is
+separate work. Physical comparisons remain documented rank4 graph examples,
+with graph-isolated MadLoop, bare poles/R1 retained and R2/UV counterterms
+excluded. No new rank6 physical or arbitrary-point-count qualification is claimed.
+
+### Finishing and publishing
+
+The precision-boundary capsule is an immutable parent for the final full capsule:
+inherit its completed128/256 captures and failure records once, then own only384
+and the new convergence proofs. Keep source/DD payloads deduplicated. Replay
+actual saved numerical functions and independent validators, not merely their
+source hashes. Run the final checker in a minimal copied packet without native
+or license dependencies; never pretend omitted binaries were rehashed.
+
+The report owner is `/root/current_rank6_report` (use `followup_task` when idle).
+The capsule owner is its `low_n_generalized_capsule` child. Root owns final
+README/HANDOFF, independent PDF rebuild/visual inspection, payload scan,
+commit/push and objective completion. Preserve every prior raw record and nested
+publication-proof object when rebasing final drafts from this milestone.
+
+All commands run from `/shared/external/iregi/iregi-rust`. Source the pinned
+`.local/tirust-current-toolchain-roots/env.sh` and `scripts/env.sh`; source the
+local Symbolica license silently for native runs or private-literal scans.
+Never print or commit the license. References are read-only except the explicitly
+requested `../references/PLAN.md`. Keep generated work under the project.
+Configure local author `huashengshao <erdissshaw@gmail.com>` and push normally to
+origin/main, without force. Numerical source/inputs stay frozen while384 runs;
+report publication paths have been checked disjoint from all260 bindings.
+
+After actual384/both-DD/strict256384/lifecycle/capsule checks pass, update the
+Typst report and handoff, independently rebuild and inspect the PDF, preserve
+historical records, commit and push, give the immutable GitHub PDF link, mark the
+existing goal complete, then stop. Performance, rank7 and additional charts are
+future work, not automatic continuations.
+
+Everything below is a historical session ledger. Older pending-state statements
+are superseded by this checkpoint, while their source epochs and failures remain
+part of the evidence.
+
+---
+
+
 ## Live status after restoring the exact-zero route — 26 October 2026
 
 Current source execution4f673f8c/testd4bc4ae0 has a successful optimized build

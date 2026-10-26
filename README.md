@@ -10,12 +10,16 @@ qualified. Performance optimization follows functional completion.
 known reference defects, and outstanding work without treating missing results
 as successful cases.
 
-The [current checkpoint](docs/checkpoints/rank6-exact-zero-restoration-20261026.md)
-records the restored exact-zero kinematics route, 24 focused checks and the
-refreshed Python interface. Ordinary six-point/rank-six dotted and
-dimension-shifted cases have passed independent checks. The complete
-quadrature-bearing second-derivative Dual comparison remains pending; earlier
-resource failures and rejected tensor results are retained. See the
+The [current checkpoint](docs/checkpoints/rank6-dual-precision-boundary-20261026.md)
+records complete six-point/rank-six, dimension-shifted second-mass-derivative
+Dual arrays at 128 and 256 working bits. All 2,520 complex fields per array pass
+both independent defining-integral comparisons at `1e-10`; both complete batch
+lifecycles and owning error contexts pass. The stricter `2^-80` precision-pair
+check fails 628 fields and remains visible. A same-code 384-bit run is checking
+higher-precision convergence; full qualification remains open. Ordinary dotted
+and dimension-shifted six-point/rank-six cases have passed independent checks.
+Earlier resource failures, rejected tensor results and checking-script history
+are retained. See the
 [handoff](HANDOFF.md) for active work and reproduction details. The target is generic
 rank-six support, including dots, with propagator-count reduction kept separate
 from the tensor-rank limit. Full six-point/rank-six qualification remains a

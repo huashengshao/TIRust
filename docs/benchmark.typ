@@ -217,11 +217,10 @@
   )
 ]
 = Current coverage
-#text(size: 9.5pt)[The restored exact-zero route passes 24 focused checks and its fresh wheel passes
-10 installed smoke cases. Both earlier 96 GiB full-Dual attempts return nonfinite tensor
-failures with null arrays; they remain preserved beside eight older resource/time failures.
-Ordinary N6/rank-six first-dot/D2/D6 pairs retain their passes. Restored full128 is preparing,
-256 is held, and complete genuine-quadrature Dual validation remains open. Performance is deferred.]
+#text(size: 9.5pt)[The restored N6/rank-six Dual 128/256 runs pass complete DD, error-context and
+lifecycle checks. Their stricter same-source pair fails 628/2520 fields at unchanged 2⁻⁸⁰.
+A same-artifact 384-bit run is active; its data and future 256/384 convergence remain
+unqualified. Feature acceptance stays open; performance is deferred.]
 #report-table(table(
   columns: (1.05fr, 3.6fr, 0.8fr), inset: (x: 6pt, y: 6pt), stroke: table-stroke,
   fill: (x, y) => if y == 0 { navy } else if y <= 3 { rgb("#d9f0d3") } else { amber },
@@ -229,8 +228,8 @@ Ordinary N6/rank-six first-dot/D2/D6 pairs retain their passes. Restored full128
   [Local PyO3 facade], [Restored-source c65b wheel: 10 installed smoke cases / 2709 saved checks, 205 selected bodies / 128 declared coherent of the actual 210-source build. Its N6 smoke is rank one; older 65API/7marimo/typing stay historical.], [Scoped],
   [Dotted propagators], [N1/N4 first-dot/triple and N5 rank-six first-dot results retain their scoped passes. Current N6 first-dot256/prior128 strict pairs now pass; failed pre-repair attempts remain visible.], [Scoped],
   [Example gallery], [Seven historical runtime cases and earlier three HTML exports/six browser views keep their own source contexts. No new gallery or typing run accompanies the current 10-case smoke.], [Historical],
-  [Tensor / API coverage], [Restored source 1f1a passes 24 focused checks, including finite R0 contexts and an honestly refused transverse lane. Historical bypass source 403 and its full-array failures remain separate. Actual full rank-six Dual arrays and TIRust/DD agreement remain pending.], [Scoped],
-  [Public rank-six Dual], [Explicit PV and default Hybrid h=0 unit-power mixed Float128/256 arrays pass, with scoped DoubleFloat/finite-difference controls. Typed f64 stays guarded; genuine quadrature-bearing shifted arrays remain pending.], [Scoped],
+  [Tensor / API coverage], [Source 1f retains 24 focused checks and wheel c65 retains 10 installed cases. Original-SAMPLE128/256 now pass full DD/context/lifecycle checks. The strict precision gate fails;384 convergence is pending. Earlier403 bypass/native failures stay visible.], [Scoped],
+  [Public rank-six Dual], [Historical h0 PV/Hybrid mixed jets retain their scope. Shifted PV-requested / IBP-selected128/256 arrays now pass DD/context/lifecycle checks; the strict precision gate fails and384 is active. No new default-Hybrid h1 invocation is inferred.], [Scoped],
   [Performance], [Historical private selected TIRust/COLLIER: seven slower families and one short inconclusive family. The fresh scheduler cohort is ineligible because of host contention; no default adoption.], [Measured],
 ))
 #text(size: 8.5pt)[Evidence is local Linux/Python3.13 and source-specific.
@@ -238,8 +237,47 @@ Other platforms, separate Community-host loading and broader tensor numeric/exce
 domains remain unqualified. Earlier C0/D0 identities retain their wheel004 context.]
 
 // Sealed intermediate checkpoint; full rank-six Dual numerical gates remain pending.
+// Sealed intermediate precision-boundary capsule; full convergence qualification remains open.
 #pagebreak()
-= Exact-zero restoration: source checks, full Dual pending
+= Genuine rank-six Dual: agreement and a precision boundary
+#block(fill: amber, inset: 9pt, radius: 4pt, width: 100%)[
+  *Intermediate checkpoint — objective open.* The original restored fixture
+  agrees with the independent defining integral, while the stronger
+  same-artifact 128/256 precision gate fails. Its threshold is unchanged.
+]
+
+#report-table(table(
+  columns: (1.2fr, 3.5fr, 0.8fr), inset: (x: 7pt, y: 11pt), stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else if y in (1, 2) { rgb("#d9f0d3") } else if y == 3 { rgb("#fddbc7") } else { amber },
+  table.header([Gate / scope], [Observed result or pending admission], [Outcome]),
+  [Defining-integral agreement], [Both complete 128/256 runs pass 2520 fields per DD rule at 1e-10 (all four maxima≤3.97433×10⁻¹⁵). The DD rule pair also passes. Four retained 1806-control sets preserve raw reducer/reference poles without projection; the joint saved replay counts each dataset explicitly.], [DD pass],
+  [Owned contexts / lifecycle], [Each precision completes 3 parent / 6 child owning contexts with higher errors 0/1/2, bit-identical duplicate/recovery, isolated invalid null/context refusal and actual empty reset. Both terminal codes are 0; guards and cleanup pass. These are actual complete schedules.], [Complete],
+  [Strict 128/256 consistency], [FAILED 628 of 2520 fields at unchanged 2⁻⁸⁰≈8.27181×10⁻²⁵. Maximum normalized difference≈2.92162×10⁻²¹. The independent saved-array replay confirms the failure. Retain all failed fields and the original comparison; no relaxed gate or exclusion.], [Failed],
+  [Precision interpretation], [Requested 53 uses heuristic admission 2⁻³⁴  / E6 target 2⁻³⁶; Success does not promise 80-bit consistency. All 630 finite differences are consistent with combined estimates (saved 128 Q≈9.99×10⁻²¹). Order 64 / 2400 boxes are unchanged; tracked imaginary precision 94→222 bits. This fits precision-dependent cancellation/E6 noise, not a rigorous bound.], [Scoped],
+  [Higher precision], [One 384-bit producer is now active on the same 749b / current 1f source, fixture, 53-bit request and mathematics, under 256 GiB / 7200 native seconds. No 384 result is admitted. Full 384 DD/context/lifecycle and strict 256/384 comparison at 2⁻⁸⁰ remain pending; failed 128/256 stays visible.], [Active],
+  [Preserved scope], [All 451 prior raw values and nested publication history stay exact. Ten old native witnesses and the separate saved-schema failure remain visible; this precision-gate failure is separate. No new performance claim; TIRust remains the timing-ratio numerator.], [Retained],
+))
+
+The DD comparisons and the strict precision comparison answer separate
+qualification questions. Passing the former does not erase the failed latter.
+Source/error estimates are heuristic, not certified achieved-bit accuracy.
+No source formula, input or threshold is changed for the proposed continuation.
+
+Sealed capsule cd656689 owns the actual complete 128/256 packet once. This
+intermediate binds that immutable capsule
+and its checkpoint. Future 384 capture files are excluded while mutable.
+The API has no fixed point-count ceiling; independently documented families
+remain N≤6 / rank≤6. Final feature completion remains pending.
+
+#text(size: 8pt)[Source: #raw("validation/e6-dual-rank6-precision-boundary").
+The adjacent checkpoint and root saved-replay packet preserve exact comparisons,
+source/guard context and harness history. Saved replay success retains the
+FAILED precision gate; it does not promote it to a pass.]
+
+#pagebreak()
+= Earlier exact-zero restoration (a7ccffb)
+#text(size: 8.5pt, fill: luma(100))[Historical a7 cutoff: full128 was preparing and 256 was held.
+The current precision-boundary page supersedes those runtime states, with no change to their archived evidence.]
 #block(fill: amber, inset: 9pt, radius: 4pt, width: 100%)[
   *Intermediate checkpoint — objective open.* The historical optional-profile
   bypass did not produce a valid full rank-six tensor. Its failures are
