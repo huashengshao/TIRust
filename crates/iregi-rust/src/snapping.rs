@@ -32,6 +32,30 @@ pub struct SnapDiagnostic {
     pub expression: Atom,
 }
 
+/// A selected highpoint snap must preserve the original Cartesian polynomial.
+/// The raw branch needs no constraint; snapped branches select one of these.
+#[derive(Clone, Debug)]
+pub(crate) enum SnapTarget { Zero, RealMass(usize) }
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum CartesianConstraintKind { LegacySnap, CoordinateIdentity }
+
+#[derive(Clone, Debug)]
+pub(crate) struct SnapCompatibilityQuery {
+    pub(crate) kind: CartesianConstraintKind,
+    pub(crate) output: Atom,
+    pub(crate) raw: Atom,
+    pub(crate) label: String,
+    pub(crate) choices: Vec<(Atom, SnapTarget)>,
+}
+
+pub(crate) fn highpoint_legacy_domain(settings: &crate::ReductionSettings) -> bool {
+    (5..=6).contains(&settings.propagators)
+        && settings.rank <= 6
+        && settings.invariants == crate::InvariantInput::FromShifts
+        && matches!(settings.input_policy, crate::InputPolicy::LegacyOnShell { .. })
+}
+
 /// Dependency-ordered Symbolica expressions for the legacy snapping policy.
 ///
 /// Construct once with masses in the original input order, before any routing
@@ -47,6 +71,7 @@ pub struct LegacySnapping {
     aliases: Vec<(Atom, Atom)>,
     diagnostics: Vec<SnapDiagnostic>,
     queries: HashMap<Atom, Atom>,
+    compatibility_queries: Vec<SnapCompatibilityQuery>,
 }
 
 impl LegacySnapping {
@@ -61,6 +86,7 @@ impl LegacySnapping {
             aliases: Vec::new(),
             diagnostics: Vec::new(),
             queries: HashMap::new(),
+            compatibility_queries: Vec::new(),
         };
         for (i, mass) in masses.iter().enumerate() {
             let real = result.alias((mass + Symbol::CONJ.call((mass,))) / Atom::num(2));
@@ -122,6 +148,7 @@ impl LegacySnapping {
             format!("{label}: massless absolute zero threshold"),
         );
         let zero = self.alias(choose(&self.has_references, &relative_zero, &absolute_zero));
+        let mut choices = vec![(zero.clone(), SnapTarget::Zero)];
         let mut matched = zero.clone();
         let mut value = input.clone();
         for i in 0..self.real_masses.len() {
@@ -133,12 +160,21 @@ impl LegacySnapping {
                 active,
                 format!("{label}: reference mass {i} threshold"),
             );
+            choices.push((close.clone(), SnapTarget::RealMass(i)));
             value = self.alias(choose(&close, &self.real_masses[i], &value));
             matched = self.alias(choose(&close, &Atom::num(1), &matched));
         }
         let value = self.alias(choose(&zero, &Atom::Zero, &value));
+        self.compatibility_queries.push(SnapCompatibilityQuery {
+            kind: CartesianConstraintKind::LegacySnap,
+            output: value.clone(), raw: raw.clone(), label, choices,
+        });
         self.queries.insert(raw, value.clone());
         value
+    }
+
+    pub(crate) fn compatibility_queries(&self) -> &[SnapCompatibilityQuery] {
+        &self.compatibility_queries
     }
 
     pub fn aliases(&self) -> &[(Atom, Atom)] {
@@ -627,13 +663,12 @@ mod tests {
     }
 
     #[test]
-    fn unqualified_higher_point_legacy_policy_is_explicitly_unsupported() {
-        let mut settings = ReductionSettings::new(5, 0);
-        settings.input_policy = InputPolicy::legacy_onshell();
-        assert!(matches!(
-            ReductionPlan::new(settings),
-            Err(ReductionError::Unsupported(_))
-        ));
+    fn legacy_domains_beyond_six_point_rank_six_remain_explicitly_unsupported() {
+        for (n, rank) in [(7, 0), (5, 7), (6, 7)] {
+            let mut settings = ReductionSettings::new(n, rank);
+            settings.input_policy = InputPolicy::legacy_onshell();
+            assert!(matches!(ReductionPlan::new(settings), Err(ReductionError::Unsupported(_))));
+        }
     }
 
     #[test]

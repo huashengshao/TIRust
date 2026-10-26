@@ -5,20 +5,38 @@ use iregi_masters::{MasterExecutionPolicy, NativeFloat};
 use symbolica::{domains::{dual::DualNumberStructure, float::Complex}, evaluate::EvaluationDomain};
 use crate::{Algorithm, BatchResult, CertificateExecutionStats, Convention, ExecutionStats, InputLayout, KinematicsBatch,
     LaneStatus, ReductionError, ReductionPlan, ReductionSettings, ResultMetadata, TensorWeights,
-    Workspace, basis::{Monomial,tensor_basis}, execution::{WorkspacePolicy, validate_input_row}};
+    Workspace, ExecutionProfile, basis::{Monomial,tensor_basis}, execution::{WorkspacePolicy, validate_input_row}};
+
+mod checked_child;
 
 #[cfg(test)]
 #[path = "thin_n6/policy_composition_tests.rs"]
 mod policy_composition_tests;
 
 #[derive(Clone, Debug)]
-pub(crate) struct ThinSixReductionPlan { parent:ReductionPlan, child:ReductionPlan }
+pub(crate) struct ThinSixReductionPlan { parent:ReductionPlan, child:Option<ReductionPlan> }
 impl ThinSixReductionPlan {
     pub fn new(settings:ReductionSettings)->Result<Self,ReductionError> {
-        let child_rank=settings.rank.saturating_sub(1);
         let parent=ReductionPlan::new_thin_six(settings,0)?;
-        let mut settings=ReductionSettings::new(5,child_rank); settings.algorithm=Algorithm::PassarinoVeltman;
-        let child=ReductionPlan::new(settings)?;
+        Self::from_parent(parent)
+    }
+    /// The supplied-G form is reachable only through the outer checked tensor
+    /// wrapper. This preserves its already prepared immutable parent graph.
+    pub(crate) fn from_parent(parent:ReductionPlan)->Result<Self,ReductionError> {
+        let child_rank=parent.settings().rank.saturating_sub(1);
+        let imported=6usize.checked_mul(4).and_then(|n|n.checked_mul(tensor_basis(child_rank).len()))
+            .and_then(|n|n.checked_mul(2)).and_then(|n|n.checked_add(parent.input_layout().scale+1))
+            .ok_or_else(||ReductionError::InvalidInput("thin N6 imported layout overflow".into()))?;
+        if parent.settings().propagators!=6 || parent.parameter_count()!=imported {
+            return Err(ReductionError::InvalidInput("thin N6 requires its private imported-child parent graph".into()));
+        }
+        let mut settings=ReductionSettings::new(5,child_rank);
+        settings.algorithm=Algorithm::PassarinoVeltman;
+        settings.invariants=parent.settings().invariants;
+        // Checked supplied-G children are classified before any child graph
+        // is compiled. Ordinary Cartesian construction retains its old graph.
+        let child=if settings.invariants==crate::InvariantInput::SuppliedScalarProducts {None}
+            else {Some(ReductionPlan::new(settings)?)};
         Ok(Self{parent,child})
     }
     pub fn basis(&self)->&[Monomial] { self.parent.basis() }
@@ -36,20 +54,52 @@ pub struct SixPointExecutionStats {
     pub parent_certificate_execution:CertificateExecutionStats,
 }
 #[derive(Clone)]
+enum ChildWorkspace<T:NativeFloat> {
+    Ordinary(Workspace<T>),
+    Checked(checked_child::CheckedFiveWorkspace<T>),
+}
+impl<T:NativeFloat> ChildWorkspace<T> where Complex<T>:EvaluationDomain {
+    fn new(plan:&ThinSixReductionPlan,prototype:T,shape:Option<Vec<Vec<usize>>>)->Result<Self,ReductionError> {
+        if let Some(child)=&plan.child {
+            let workspace=match shape {
+                None=>Workspace::new_with_policies(child,prototype,WorkspacePolicy::SIX_POINT_CHILD,MasterExecutionPolicy::Symbolica),
+                Some(shape)=>Workspace::new_dual_with_policies(child,prototype,symbolica::domains::dual::HyperDual::<Complex<symbolica::domains::rational::Rational>>::new(shape),WorkspacePolicy::SIX_POINT_CHILD,MasterExecutionPolicy::Symbolica),
+            }?;
+            Ok(Self::Ordinary(workspace))
+        } else {
+            let mut settings=ReductionSettings::new(5,plan.settings().rank.saturating_sub(1));
+            settings.algorithm=Algorithm::PassarinoVeltman;settings.invariants=crate::InvariantInput::SuppliedScalarProducts;
+            Ok(Self::Checked(checked_child::CheckedFiveWorkspace::new(settings,prototype,shape)?))
+        }
+    }
+    fn set_accuracy_precision(&mut self,bits:u32)->Result<(),ReductionError> {match self {Self::Ordinary(w)=>w.set_accuracy_precision(bits),Self::Checked(w)=>w.set_accuracy_precision(bits)}}
+    fn set_profiling(&mut self,value:bool) {match self {Self::Ordinary(w)=>w.set_profiling(value),Self::Checked(w)=>w.set_profiling(value)}}
+    fn last_execution(&self)->ExecutionStats {match self {Self::Ordinary(w)=>w.last_execution(),Self::Checked(w)=>w.last_execution()}}
+    fn last_planar_certificate_execution(&self)->CertificateExecutionStats {match self {Self::Ordinary(w)=>w.last_planar_certificate_execution(),Self::Checked(w)=>w.last_planar_certificate_execution()}}
+    fn last_diagnostics(&self)->&[Vec<String>] {match self {Self::Ordinary(w)=>w.last_diagnostics(),Self::Checked(w)=>w.last_diagnostics()}}
+    fn last_profile(&self)->Option<ExecutionProfile> {match self {Self::Ordinary(w)=>w.last_profile(),Self::Checked(w)=>w.last_profile()}}
+    fn reduce_batch(&mut self,batch:&KinematicsBatch<T>)->Result<BatchResult<T>,ReductionError> {match self {Self::Ordinary(w)=>w.reduce_batch(batch),Self::Checked(w)=>w.reduce_batch(batch)}}
+}
+
+#[derive(Clone)]
 pub(crate) struct ThinSixWorkspace<T:NativeFloat> {
     prototype:T, accuracy_bits:u32, components:usize, metadata:ResultMetadata, basis:Vec<Monomial>,
-    child:Workspace<T>, parent:Workspace<T>, child_basis:Vec<Monomial>, stats:SixPointExecutionStats, diagnostics:Vec<Vec<String>>,
+    child:ChildWorkspace<T>, parent:Workspace<T>, child_basis:Vec<Monomial>, stats:SixPointExecutionStats, diagnostics:Vec<Vec<String>>,
+    layout:InputLayout,
+    profiling:bool, profile:ExecutionProfile,
     // Only private ignored tests may retain a numerical child observation.
     #[cfg(test)]
     pub(crate) component_probe_children: Option<Box<BatchResult<T>>>,
 }
 impl<T:NativeFloat> ThinSixWorkspace<T> where Complex<T>:EvaluationDomain {
     pub fn new(plan:&ThinSixReductionPlan,prototype:T)->Result<Self,ReductionError> {
-        let child=Workspace::new_with_policies(&plan.child,prototype.clone(),WorkspacePolicy::SIX_POINT_CHILD,MasterExecutionPolicy::Symbolica)?;
+        let child=ChildWorkspace::new(plan,prototype.clone(),None)?;
         let parent=Workspace::new_with_policies(&plan.parent,prototype.clone(),WorkspacePolicy::RETAIN_ENVELOPES,MasterExecutionPolicy::Symbolica)?;
         Ok(Self{accuracy_bits:prototype.get_precision(),prototype,components:1,
-            metadata:ResultMetadata::new(Convention::IregiNative,TensorWeights::Components,None),
-            basis:plan.basis().to_vec(),child_basis:plan.child.basis().to_vec(),child,parent,stats:Default::default(),diagnostics:Vec::new(),
+            metadata:ResultMetadata::new(plan.settings().convention,plan.settings().tensor_weights,None),
+            basis:plan.basis().to_vec(),child_basis:tensor_basis(plan.settings().rank.saturating_sub(1)),child,parent,stats:Default::default(),diagnostics:Vec::new(),
+            layout:plan.input_layout().clone(),
+            profiling:false, profile:ExecutionProfile::default(),
             #[cfg(test)] component_probe_children:None,
         })
     }
@@ -60,11 +110,13 @@ impl<T:NativeFloat> ThinSixWorkspace<T> where Complex<T>:EvaluationDomain {
             .and_then(|n|u16::try_from(n).ok()).map(|n|max.max(n))
             .ok_or_else(||ReductionError::Preparation("Dual order exceeds u16".into())))?;
         let parent_plan=ReductionPlan::new_thin_six(plan.settings().clone(),order)?;
-        let child=Workspace::new_dual_with_policies(&plan.child,prototype.clone(),BorrowedDual(&dual),WorkspacePolicy::SIX_POINT_CHILD,MasterExecutionPolicy::Symbolica)?;
+        let child=ChildWorkspace::new(plan,prototype.clone(),Some(shape.clone()))?;
         let parent=Workspace::new_dual_with_policies(&parent_plan,prototype.clone(),BorrowedDual(&dual),WorkspacePolicy::RETAIN_ENVELOPES,MasterExecutionPolicy::Symbolica)?;
         Ok(Self{accuracy_bits:prototype.get_precision(),prototype,components:shape.len(),
-            metadata:ResultMetadata::new(Convention::IregiNative,TensorWeights::Components,Some(shape)),
-            basis:plan.basis().to_vec(),child_basis:plan.child.basis().to_vec(),child,parent,stats:Default::default(),diagnostics:Vec::new(),
+            metadata:ResultMetadata::new(plan.settings().convention,plan.settings().tensor_weights,Some(shape.clone())),
+            basis:plan.basis().to_vec(),child_basis:tensor_basis(plan.settings().rank.saturating_sub(1)),child,parent,stats:Default::default(),diagnostics:Vec::new(),
+            layout:plan.input_layout().clone(),
+            profiling:false, profile:ExecutionProfile::default(),
             #[cfg(test)] component_probe_children:None,
         })
     }
@@ -73,15 +125,26 @@ impl<T:NativeFloat> ThinSixWorkspace<T> where Complex<T>:EvaluationDomain {
         self.child.set_accuracy_precision(bits)?; self.parent.set_accuracy_precision(bits)?;
         self.accuracy_bits=bits; Ok(())
     }
+    pub(crate) fn set_profiling(&mut self,enabled:bool) {
+        self.profiling=enabled;self.child.set_profiling(enabled);self.parent.set_profiling(enabled);
+    }
+    pub(crate) fn last_profile(&self)->Option<ExecutionProfile> {self.profiling.then_some(self.profile)}
     pub fn last_execution(&self)->&SixPointExecutionStats { &self.stats }
     pub fn last_diagnostics(&self)->&[Vec<String>] { &self.diagnostics }
     pub(crate) fn component_count(&self)->usize { self.components }
     pub(crate) fn binary_precision(&self)->u32 { self.prototype.get_precision() }
     pub fn reduce_batch(&mut self,batch:&KinematicsBatch<T>)->Result<BatchResult<T>,ReductionError> {
+        self.profile=ExecutionProfile::default();
+        let start=self.profiling.then(std::time::Instant::now);
+        let result=self.reduce_batch_impl(batch);
+        if let Some(start)=start {self.profile.total=start.elapsed();}
+        result
+    }
+    fn reduce_batch_impl(&mut self,batch:&KinematicsBatch<T>)->Result<BatchResult<T>,ReductionError> {
         self.stats=SixPointExecutionStats{parent_input_rows:batch.rows,..Default::default()};
         self.diagnostics.clear();
         #[cfg(test)] { self.component_probe_children=None; }
-        let input_width=31usize.checked_mul(self.components).ok_or_else(||ReductionError::InvalidInput("thin N6 dimensions overflow".into()))?;
+        let input_width=self.layout.scale.checked_add(1).and_then(|n|n.checked_mul(self.components)).ok_or_else(||ReductionError::InvalidInput("thin N6 dimensions overflow".into()))?;
         if self.components==0 || batch.components!=self.components || batch.rows.checked_mul(input_width)!=Some(batch.values.len()) {
             return Err(ReductionError::InvalidInput("thin N6 input dimensions do not match plan".into()));
         }
@@ -95,35 +158,27 @@ impl<T:NativeFloat> ThinSixWorkspace<T> where Complex<T>:EvaluationDomain {
             values:vec![zero.clone();output_len],
             statuses:vec![LaneStatus::Success;batch.rows],fallback_used:vec![false;batch.rows],analytic_used:vec![false;batch.rows],
             primal_envelopes:vec![None;batch.rows],primal_envelope_errors:vec![None;batch.rows]};
-        let layout=InputLayout{shifts:0..24,scalar_products:None,masses:24..30,scale:30};
         let mut active=Vec::new();
         for (lane,row) in batch.values.chunks_exact(input_width).enumerate() {
-            if let Some(status)=validate_input_row(row,&layout,self.components) {result.statuses[lane]=status;} else {active.push(lane);}
+            if let Some(status)=validate_input_row(row,&self.layout,self.components) {result.statuses[lane]=status;} else {active.push(lane);}
         }
         if active.is_empty() {return Ok(result);}
-        let child_rows=active.len().checked_mul(6).ok_or_else(||ReductionError::InvalidInput("thin N6 child batch dimensions overflow".into()))?;
-        let mut child_input=KinematicsBatch{rows:child_rows,components:self.components,values:Vec::new()};
-        // Subset-major lane packing. Absolute shifts preserve the integration
-        // variable. Every Taylor component is copied, even for primal-zero weights.
-        for omitted in 0..6 {for &lane in &active {
-            let row=&batch.values[lane*input_width..(lane+1)*input_width];
-            for i in (0..6).filter(|&i|i!=omitted) {child_input.values.extend_from_slice(&row[4*i*self.components..4*(i+1)*self.components]);}
-            for i in (0..6).filter(|&i|i!=omitted) {child_input.values.extend_from_slice(&row[(24+i)*self.components..(25+i)*self.components]);}
-            child_input.values.extend_from_slice(&row[30*self.components..31*self.components]);
-        }}
+        let child_input=pack_children(batch,&active,&self.layout,self.components)?;
         self.stats.child_batch_calls=1; self.stats.packed_child_rows=child_input.rows;
         // The child entry starts fresh guard contexts; no proof state is
         // transferred across the parent and packed-child parameter layouts.
         let children=self.child.reduce_batch(&child_input);
         self.stats.child_execution=self.child.last_execution();
         self.stats.child_certificate_execution=self.child.last_planar_certificate_execution();
+        if let Some(profile)=self.child.last_profile() {self.profile.arguments+=profile.arguments;self.profile.scalar_masters+=profile.scalar_masters;self.profile.reduction+=profile.reduction;}
         for (compact,&lane) in active.iter().enumerate() { for subset in 0..6 {
             if let Some(notes)=self.child.last_diagnostics().get(subset*active.len()+compact) {
                 self.diagnostics[lane].extend(notes.iter().map(|note|format!("N5 subset {subset}: {note}")));
             }
         }}
         let children=children?;
-        validate_result_layout(&children, &self.child_basis, self.components, &self.metadata, child_input.rows)?;
+        let child_metadata=ResultMetadata::new(Convention::IregiNative,TensorWeights::Components,self.metadata.dual_shape().map(<[Vec<usize>]>::to_vec));
+        validate_result_layout(&children, &self.child_basis, self.components, &child_metadata, child_input.rows)?;
         #[cfg(test)] if self.components>1 {self.component_probe_children=Some(Box::new(children.clone()));}
         let mut parent_input=KinematicsBatch{rows:0,components:self.components,values:Vec::new()};
         let mut parent_lanes=Vec::new();
@@ -165,6 +220,7 @@ impl<T:NativeFloat> ThinSixWorkspace<T> where Complex<T>:EvaluationDomain {
         let parent=self.parent.reduce_batch(&parent_input);
         self.stats.parent_execution=self.parent.last_execution();
         self.stats.parent_certificate_execution=self.parent.last_planar_certificate_execution();
+        if let Some(profile)=self.parent.last_profile() {self.profile.arguments+=profile.arguments;self.profile.scalar_masters+=profile.scalar_masters;self.profile.reduction+=profile.reduction;}
         for (compact,&lane) in parent_lanes.iter().enumerate() {
             if let Some(notes)=self.parent.last_diagnostics().get(compact) {self.diagnostics[lane].extend(notes.iter().cloned());}
         }
@@ -172,6 +228,7 @@ impl<T:NativeFloat> ThinSixWorkspace<T> where Complex<T>:EvaluationDomain {
         validate_result_layout(&parent, &self.basis, self.components, &self.metadata, parent_input.rows)?;
         for (compact,&lane) in parent_lanes.iter().enumerate() {
             result.statuses[lane]=parent.statuses[compact].clone();
+            result.fallback_used[lane]|=parent.fallback_used[compact];result.analytic_used[lane]|=parent.analytic_used[compact];
             if let Ok(values)=parent.lane(compact) {
                 result.values[lane*width..(lane+1)*width].clone_from_slice(values);
                 result.primal_envelopes[lane]=parent.primal_envelopes[compact].clone();
@@ -180,6 +237,28 @@ impl<T:NativeFloat> ThinSixWorkspace<T> where Complex<T>:EvaluationDomain {
         }
         Ok(result)
     }
+}
+/// Pure structural packing. Every original G entry and every ordered Taylor
+/// component is copied; no invariant is reconstructed from the coordinates.
+fn pack_children<T:NativeFloat>(batch:&KinematicsBatch<T>,active:&[usize],layout:&InputLayout,components:usize)->Result<KinematicsBatch<T>,ReductionError> {
+    let width=layout.scale.checked_add(1).and_then(|n|n.checked_mul(components)).ok_or_else(||ReductionError::InvalidInput("thin N6 packing width overflow".into()))?;
+    let rows=active.len().checked_mul(6).ok_or_else(||ReductionError::InvalidInput("thin N6 child row count overflow".into()))?;
+    let mut packed=KinematicsBatch{rows,components,values:Vec::new()};
+    for omitted in 0..6 {for &lane in active {
+        let row=&batch.values[lane*width..(lane+1)*width];
+        for i in (0..6).filter(|&i|i!=omitted) {packed.values.extend_from_slice(&row[4*i*components..4*(i+1)*components]);}
+        if let Some(products)=&layout.scalar_products {
+            let mut argument=products.start;
+            for i in 0..6 {for j in i..6 {
+                if i!=omitted&&j!=omitted {packed.values.extend_from_slice(&row[argument*components..(argument+1)*components]);}
+                argument+=1;
+            }}
+            if argument!=products.end {return Err(ReductionError::Evaluation("thin N6 supplied product layout mismatch".into()));}
+        }
+        for i in (0..6).filter(|&i|i!=omitted) {let argument=layout.masses.start+i;packed.values.extend_from_slice(&row[argument*components..(argument+1)*components]);}
+        packed.values.extend_from_slice(&row[layout.scale*components..(layout.scale+1)*components]);
+    }}
+    Ok(packed)
 }
 /// Validate complete dynamic layouts before any lane indexing or scatter.
 /// Per-lane envelope content and precision remain separately checked below.
@@ -208,6 +287,36 @@ mod tests {
     use symbolica::{atom::{Atom,AtomCore}, domains::{dual::HyperDual,rational::{Rational,Q}}, evaluate::{Dualizer,ExpressionEvaluator}};
     use crate::plan::assemble_thin_six_moments;
     #[test]
+    fn supplied_children_copy_original_products_and_every_mixed_component() {
+        let components=4;
+        let layout=InputLayout{shifts:0..24,scalar_products:Some(24..45),masses:45..51,scale:51};
+        let batch=KinematicsBatch{rows:2,components,values:(0..2).flat_map(|lane|
+            (0..52).flat_map(move|argument|(0..components).map(move|component|
+                Complex::new((10000*lane+10*argument+component)as f64,0f64)))).collect()};
+        let before=batch.values.clone();let packed=pack_children(&batch,&[1,0],&layout,components).unwrap();
+        assert_eq!(batch.values,before);assert_eq!(packed.rows,12);assert_eq!(packed.values.len(),12*41*components);
+        // Independent fixed upper-triangle deletion maps, in original G order.
+        let products=[
+            [6,7,8,9,10,11,12,13,14,15,16,17,18,19,20],
+            [0,2,3,4,5,11,12,13,14,15,16,17,18,19,20],
+            [0,1,3,4,5,6,8,9,10,15,16,17,18,19,20],
+            [0,1,2,4,5,6,7,9,10,11,13,14,18,19,20],
+            [0,1,2,3,5,6,7,8,10,11,12,14,15,17,20],
+            [0,1,2,3,4,6,7,8,9,11,12,13,15,16,18],
+        ];
+        for omitted in 0..6 {for (compact,lane) in [1,0].into_iter().enumerate() {
+            let row=&packed.values[(omitted*2+compact)*41*components..(omitted*2+compact+1)*41*components];
+            let expected=(0..6).filter(|&i|i!=omitted).flat_map(|i|4*i..4*i+4)
+                .chain(products[omitted].into_iter().map(|index|24+index))
+                .chain((0..6).filter(|&i|i!=omitted).map(|i|45+i)).chain([51]).collect::<Vec<_>>();
+            assert_eq!(expected.len(),41);
+            for (argument,original) in expected.into_iter().enumerate() {for component in 0..components {
+                assert_eq!(row[argument*components+component].re,(10000*lane+10*original+component)as f64);
+            }}
+        }}
+        assert!(pack_children(&batch,&[],&layout,components).unwrap().values.is_empty());
+    }
+    #[test]
     fn malformed_dimensions_reset_before_any_row_sized_allocation() {
         // This private synthetic wrapper supplies cheap ordinary N1 scratch;
         // no child or parent is evaluated, and it makes no N6 numerical claim.
@@ -217,7 +326,9 @@ mod tests {
             prototype:0f64,accuracy_bits:53,components:1,
             metadata:ResultMetadata::new(Convention::IregiNative,TensorWeights::Components,None),
             basis:vec![Monomial([0;4])],child_basis:vec![Monomial([0;4])],
-            child:scratch.clone(),parent:scratch,stats:Default::default(),diagnostics:Vec::new(),
+            child:ChildWorkspace::Ordinary(scratch.clone()),parent:scratch,stats:Default::default(),diagnostics:Vec::new(),
+            layout:InputLayout{shifts:0..24,scalar_products:None,masses:24..30,scale:30},
+            profiling:false,profile:ExecutionProfile::default(),
             component_probe_children:None,
         };
         for (rows,input_components,stored_components) in [

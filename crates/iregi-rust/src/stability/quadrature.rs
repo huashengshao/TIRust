@@ -6,6 +6,10 @@
 //! the per-component master errors. Thus Symbolica owns every Taylor product
 //! and multiplicity; ABS is never differentiated into a putative error bound.
 
+pub(crate) mod imported_affine;
+#[cfg(test)]
+mod quadrature_patch_tests;
+
 use std::collections::{BTreeSet, HashMap};
 
 use iregi_masters::NativeFloat;
@@ -41,6 +45,8 @@ pub(crate) struct QuadratureStabilityPlan {
     contraction_expressions: Vec<Atom>,
     checks: Vec<OutputCheck>,
     moment_outputs: usize,
+    /// Imported checks receive actual-route amplitudes indexed by output.
+    primal_amplitudes_are_outputs: bool,
 }
 
 impl QuadratureStabilityPlan {
@@ -107,6 +113,7 @@ impl QuadratureStabilityPlan {
             contraction_expressions: Vec::new(),
             checks: Vec::new(),
             moment_outputs: plan.moments.len() * 4,
+            primal_amplitudes_are_outputs: false,
         };
         for (moment, (basis, slots)) in plan.basis.iter().zip(&plan.moments).enumerate() {
             for (pole, expression) in slots.iter().enumerate() {
@@ -201,6 +208,58 @@ impl QuadratureStabilityPlan {
     pub(crate) fn contraction_expressions(&self) -> &[Atom] {
         &self.contraction_expressions
     }
+
+    /// Export every output/component; structurally independent outputs have
+    /// exact zero quadrature contribution. Raw-master estimates have already
+    /// received the infinity-to-Euclidean factor in the positive contraction.
+    pub(crate) fn dense_output_errors<T: NativeFloat>(
+        &self, sparse: &[Complex<T>], components: usize, zero: &Complex<T>,
+    ) -> Result<Vec<Complex<T>>, ReductionError> {
+        let width=self.moment_outputs.checked_mul(components).ok_or_else(||
+            ReductionError::Evaluation("dense quadrature dimensions overflow".into()))?;
+        if components==0 || self.checks.len().checked_mul(components)!=Some(sparse.len())
+            || !zero.re.is_zero() || !zero.im.is_zero() {
+            return Err(ReductionError::Evaluation("inconsistent dense quadrature layout".into()));
+        }
+        let mut result=vec![zero.clone();width];
+        for (index,check) in self.checks.iter().enumerate() {
+            if check.output>=self.moment_outputs {
+                return Err(ReductionError::Evaluation("quadrature output index is out of range".into()));
+            }
+            let errors=&sparse[index*components..(index+1)*components];
+            if errors.iter().any(|e|!e.re.is_finite()||!e.im.is_zero()||e.re<e.re.zero()) {
+                return Err(ReductionError::Evaluation("invalid propagated quadrature estimate".into()));
+            }
+            result[check.output*components..(check.output+1)*components].clone_from_slice(errors);
+        }
+        Ok(result)
+    }
+
+    /// A check-only view for the grouped imported-output kernel. Its dense
+    /// amplitudes come from the returned result's validated actual-route
+    /// PrimalEnvelope; a primary-only cached primal program is insufficient
+    /// after a fallback has replaced an output.
+    pub(crate) fn imported_dense_checks(plan: &ReductionPlan) -> Result<Self,ReductionError> {
+        let outputs=plan.moments.len().checked_mul(4).ok_or_else(||
+            ReductionError::Preparation("imported quadrature dimensions overflow".into()))?;
+        if plan.basis.len()!=plan.moments.len() {
+            return Err(ReductionError::Preparation("imported quadrature basis differs from moments".into()));
+        }
+        let base_dimension=4+2*i32::from(plan.settings.dimension_shift)
+            -2*plan.settings.powers.iter().map(|&n|i32::from(n)).sum::<i32>();
+        let checks=plan.basis.iter().enumerate().flat_map(|(moment,basis)|
+            (0..4).map(move |pole|OutputCheck {
+                output:moment*4+pole,dimension:base_dimension+basis.rank()as i32,
+                primal_amplitude:moment*4+pole,
+                label:format!("moment {:?}, Laurent slot {pole}",basis.0),
+            })).collect();
+        Ok(Self {
+            leaf_indices:Vec::new(),coefficient_parameters:Vec::new(),
+            coefficient_expressions:Vec::new(),coefficient_aliases:Vec::new(),
+            contraction_parameters:Vec::new(),contraction_expressions:Vec::new(),
+            checks,moment_outputs:outputs,primal_amplitudes_are_outputs:true,
+        })
+    }
 }
 
 impl StabilityPlan {
@@ -275,7 +334,12 @@ impl StabilityPlan {
         {
             return Some("invalid propagated quadrature-error buffer".into());
         }
-        let Some(primal) = primal.filter(|values| values.len() == self.primal_expressions.len())
+        let expected_primal_amplitudes = if quadrature.primal_amplitudes_are_outputs {
+            quadrature.moment_outputs
+        } else {
+            self.primal_expressions.len()
+        };
+        let Some(primal) = primal.filter(|values| values.len() == expected_primal_amplitudes)
         else {
             return Some("missing primal amplitudes for propagated quadrature errors".into());
         };

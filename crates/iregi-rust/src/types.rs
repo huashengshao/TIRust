@@ -50,8 +50,10 @@ pub enum InputPolicy {
     /// An exact nonnegative decimal or rational threshold avoids a binary64
     /// configuration round trip. Zero retains the historical massless 1e-3
     /// absolute rule while disabling relative matching for positive masses.
-    /// Coordinate-input topologies with five or more propagators are currently
-    /// rejected until their non-bilinear invariant identities are validated.
+    /// N5/N6 coordinate inputs through rank6 conservatively require every
+    /// demanded selected snap to preserve the original polynomial in every
+    /// Taylor component. Geometry-changing snaps fail explicitly; no momentum
+    /// projection is applied. Other highpoint domains remain unsupported.
     LegacyOnShell { threshold: String },
 }
 
@@ -159,7 +161,10 @@ pub(crate) enum PrimalEnvelopeRoute {
     Hybrid,
     CertifiedPlanar,
     AutomaticPlanar,
+    CertifiedAffine,
+    AutomaticAffine,
     CertifiedScalar,
+    CertifiedTensor,
 }
 
 /// Coupled to one successful result lane. Numerical operands retain their
@@ -458,7 +463,7 @@ mod primal_envelope_tests {
         let source = fixture(3, Some(vec![vec![0, 0], vec![1, 0], vec![0, 1]]));
         let routes = [PrimalEnvelopeRoute::Analytic, PrimalEnvelopeRoute::Hybrid,
             PrimalEnvelopeRoute::CertifiedPlanar, PrimalEnvelopeRoute::AutomaticPlanar,
-            PrimalEnvelopeRoute::CertifiedScalar];
+            PrimalEnvelopeRoute::CertifiedScalar, PrimalEnvelopeRoute::CertifiedTensor];
         for route in routes {
             let mut target = fixture(3, source.metadata.dual_shape.clone());
             let width = source.basis.len() * 4 * source.components;

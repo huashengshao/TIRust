@@ -110,14 +110,24 @@ struct PreparedComponentSensitivity {
 struct Builder {
     coefficients: Vec<Atom>,
     coefficient_parameters: Vec<Atom>,
+    // Exact Symbolica Atom identity includes the active demand mask. Reuse
+    // numerical coefficient inputs without removing any positive edge use.
+    coefficient_indices: HashMap<Atom, usize>,
+    coefficient_uses: usize,
 }
 
 impl Builder {
     fn magnitude(&mut self, expression: &Atom, active: &Atom) -> Atom {
-        let parameter = var(&format!("coefficient_{}", self.coefficients.len()));
-        self.coefficients
-            .push(guarded(active, expression.clone(), false));
+        self.coefficient_uses += 1;
+        let signed = guarded(active, expression.clone(), false);
+        if let Some(index) = self.coefficient_indices.get(&signed) {
+            return self.coefficient_parameters[*index].clone();
+        }
+        let index = self.coefficients.len();
+        let parameter = var(&format!("coefficient_{index}"));
+        self.coefficients.push(signed.clone());
         self.coefficient_parameters.push(parameter.clone());
+        self.coefficient_indices.insert(signed, index);
         parameter
     }
 
@@ -253,6 +263,8 @@ impl PreparedComponentSensitivity {
         let mut builder = Builder {
             coefficients: Vec::new(),
             coefficient_parameters: Vec::new(),
+            coefficient_indices: HashMap::new(),
+            coefficient_uses: 0,
         };
         let mut positive_aliases = Vec::new();
         for (alias, body) in &recipe.aliases {
@@ -272,6 +284,12 @@ impl PreparedComponentSensitivity {
             .iter()
             .map(|expression| builder.local(expression, &always, &amplitudes))
             .collect::<Result<Vec<_>, _>>()?;
+        if std::env::var_os("TIRUST_TRACE_BATCH_ALLOC").is_some() {
+            eprintln!(
+                "TIRUST_COMPONENT_COEFFICIENTS requests={} unique={} shape_components={} outputs={}",
+                builder.coefficient_uses, builder.coefficients.len(), shape.len(), recipe.outputs.len()
+            );
+        }
         let mut selected = BTreeSet::new();
         let mut pending = builder.coefficients.clone();
         while let Some(expression) = pending.pop() {
@@ -516,6 +534,91 @@ mod tests {
             vec![1, 1],
             vec![0, 2],
         ]
+    }
+
+    #[test]
+    fn repeated_guarded_coefficients_keep_every_signed_edge_and_mixed_product() {
+        let x = var("intern_weight");
+        let a = var("intern_master_a");
+        let b = var("intern_master_b");
+        let aa = var("intern_amplitude_a");
+        let ab = var("intern_amplitude_b");
+        let shape = mixed();
+        let dual = HyperDual::<Complex<Rational>>::new(shape.clone());
+        // An independent positive Symbolica evaluator supplies all six Taylor
+        // products. No convolution or derivative arithmetic is implemented here.
+        let positive = compile_exact(
+            &[&x * (&a + &b)],
+            &[x.clone(), a.clone(), b.clone()],
+            &[],
+            Some(&dual),
+        ).unwrap();
+        let mut expected_evaluator = map_exact(&positive, &0f64);
+        let weight = [2., 3., 5., 7., 11., 13.];
+        let amplitudes_a = [1., 17., 19., 23., 29., 31.];
+        let amplitudes_b = [2., 37., 41., 43., 47., 53.];
+        let reference_input = weight.into_iter().chain(amplitudes_a).chain(amplitudes_b)
+            .map(c).collect::<Vec<_>>();
+        let mut expected = vec![c(0.); 6];
+        expected_evaluator.evaluate_batch(&reference_input, &mut expected, 1).unwrap();
+        for sign in [1, -1] {
+            let recipe = fixture(
+                vec![x.clone(), a.clone(), b.clone(), aa.clone(), ab.clone()],
+                vec![],
+                &x * &a + Atom::num(sign) * &x * &b,
+                vec![],
+                vec![(a.clone(), aa.clone(), 0), (b.clone(), ab.clone(), 0)],
+            );
+            let mut workspace = recipe.instantiate(&shape, &0f64).unwrap();
+            // Three zero Laurent outputs share one zero coefficient. The two
+            // finite edges reuse x only when their SIGNED coefficients match.
+            assert_eq!(workspace.exact.coefficient_count, if sign == 1 { 2 } else { 3 });
+            let input = weight.into_iter().map(|v| -v).chain([0.; 12])
+                .chain(amplitudes_a).chain(amplitudes_b).map(c).collect::<Vec<_>>();
+            workspace.evaluate(&input, 1, 6, &c(0.)).unwrap();
+            assert_eq!(&workspace.lane(0, 6)[18..], expected.as_slice());
+            assert_eq!(&workspace.lane(0, 6)[..18], [c(0.); 18]);
+        }
+    }
+
+    #[test]
+    fn coefficient_interning_keeps_independent_demand_masks_per_lane() {
+        let condition_a = var("intern_condition_a");
+        let condition_b = var("intern_condition_b");
+        let x = var("intern_branch_weight");
+        let a = var("intern_branch_master_a");
+        let b = var("intern_branch_master_b");
+        let aa = var("intern_branch_amplitude_a");
+        let ab = var("intern_branch_amplitude_b");
+        let finite = Symbol::IF.call((&condition_a, &x * &a, Atom::new()))
+            + Symbol::IF.call((&condition_b, &x * &b, Atom::new()));
+        let parameters = vec![condition_a.clone(), condition_b.clone(), x.clone(), a.clone(), b.clone()];
+        let shape = mixed();
+        let positive = compile_exact(&[finite.clone()], &parameters, &[],
+            Some(&HyperDual::<Complex<Rational>>::new(shape.clone()))).unwrap();
+        let recipe = fixture(
+            parameters.into_iter().chain([aa.clone(), ab.clone()]).collect(),
+            vec![], finite, vec![], vec![(a, aa, 0), (b, ab, 0)],
+        );
+        let mut workspace = recipe.instantiate(&shape, &0f64).unwrap();
+        let mut expected_evaluator = map_exact(&positive, &0f64);
+        let mut inputs = Vec::new();
+        let mut reference = Vec::new();
+        for (ca, cb) in [(1., 0.), (0., 1.), (1., 1.)] {
+            let conditions = [ca, 0., 0., 0., 0., 0., cb, 0., 0., 0., 0., 0.];
+            let weight = [2., 3., 5., 7., 11., 13.];
+            let amps_a = [1., 17., 19., 23., 29., 31.];
+            let amps_b = [2., 37., 41., 43., 47., 53.];
+            inputs.extend(conditions.into_iter().chain(weight.map(|v| -v)).chain([0.; 12])
+                .chain(amps_a).chain(amps_b).map(c));
+            reference.extend(conditions.into_iter().chain(weight).chain(amps_a).chain(amps_b).map(c));
+        }
+        let mut expected = vec![c(0.); 18];
+        expected_evaluator.evaluate_batch(&reference, &mut expected, 3).unwrap();
+        workspace.evaluate(&inputs, 3, 6, &c(0.)).unwrap();
+        for row in 0..3 {
+            assert_eq!(&workspace.lane(row, 6)[18..], &expected[row*6..(row+1)*6]);
+        }
     }
 
     #[test]

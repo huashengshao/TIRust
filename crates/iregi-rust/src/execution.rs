@@ -51,8 +51,20 @@ use crate::{
     },
 };
 
+#[path = "execution/legacy_compatibility.rs"]
+mod legacy_compatibility;
+use legacy_compatibility::{PreparedLegacyCompatibility, LegacyCompatibilityWorkspace};
+
+pub(crate) mod quadrature_context;
+use quadrature_context::{CoupledQuadratureBatch, QuadratureErrorContext, QuadratureErrorOrigin};
+#[cfg(test)]
+#[path = "execution/quadrature_context_tests.rs"]
+mod quadrature_context_tests;
+
 mod planar_fallback;
 use planar_fallback::PlanarFallback;
+mod affine_fallback;
+use affine_fallback::AffineFallback;
 
 /// Immutable execution-only options. Ordinary public constructors never opt in.
 /// Numeric child caches belong to one workspace and therefore one policy.
@@ -60,21 +72,59 @@ use planar_fallback::PlanarFallback;
 pub(crate) struct WorkspacePolicy {
     pub(crate) retain_primal_envelopes: bool,
     pub(crate) planar_retry: bool,
+    /// Retain owning, actual-route output quadrature diagnostics separately.
+    pub(crate) retain_quadrature_context: bool,
+    /// Imported uncertain observables require an outer, coupled error kernel.
+    pub(crate) quadrature_imports_pending: bool,
 }
 
 impl WorkspacePolicy {
     pub(crate) const ORDINARY: Self = Self {
         retain_primal_envelopes: false,
         planar_retry: false,
+        retain_quadrature_context: false,
+        quadrature_imports_pending: false,
     };
     pub(crate) const SIX_POINT_CHILD: Self = Self {
         retain_primal_envelopes: true,
         planar_retry: true,
+        retain_quadrature_context: false,
+        quadrature_imports_pending: false,
     };
     pub(crate) const RETAIN_ENVELOPES: Self = Self {
         retain_primal_envelopes: true,
         planar_retry: false,
+        retain_quadrature_context: false,
+        quadrature_imports_pending: false,
     };
+    /// Complete base-child recipe: no imported uncertain observables.
+    pub(crate) const AFFINE_QUADRATURE_CHILD: Self = Self {
+        retain_primal_envelopes: true,
+        planar_retry: false,
+        retain_quadrature_context: true,
+        quadrature_imports_pending: false,
+    };
+    /// Parent values may depend on imported child integrals. Local absence of
+    /// E6 sources cannot establish absence of propagated quadrature errors.
+    pub(crate) const AFFINE_QUADRATURE_PARENT: Self = Self {
+        retain_primal_envelopes: true,
+        planar_retry: false,
+        retain_quadrature_context: true,
+        quadrature_imports_pending: true,
+    };
+
+    fn validate_quadrature_recipe(self, has_external_seeds: bool) -> Result<(), ReductionError> {
+        if self.quadrature_imports_pending && !self.retain_quadrature_context {
+            return Err(ReductionError::Preparation("pending quadrature imports require retained context".into()));
+        }
+        if self.retain_quadrature_context && !self.retain_primal_envelopes {
+            return Err(ReductionError::Preparation("quadrature context requires actual-route primal envelopes".into()));
+        }
+        if self.retain_quadrature_context && !self.quadrature_imports_pending && has_external_seeds {
+            return Err(ReductionError::Preparation("base-child quadrature policy cannot accept imported observables".into()));
+        }
+        Ok(())
+    }
 }
 
 /// Work performed by the last batch, independently of Taylor component count.
@@ -567,6 +617,7 @@ where
 /// rounded coefficients, scratch buffers, or reference back to ReductionPlan.
 pub(crate) struct PreparedExecution {
     master_policy: MasterExecutionPolicy,
+    has_external_primal_seeds: bool,
     basis: Vec<Monomial>,
     parameters: usize,
     layout: InputLayout,
@@ -586,6 +637,7 @@ pub(crate) struct PreparedExecution {
     primal_monitor: Option<ExpressionEvaluator<Complex<Rational>>>,
     primal_monitor_outputs: usize,
     snapping_monitor: Option<ExpressionEvaluator<Complex<Rational>>>,
+    legacy_compatibility: Option<PreparedLegacyCompatibility>,
     snapping_labels: Vec<String>,
     snapping_positive_threshold: bool,
     snapping_zero_image: bool,
@@ -769,6 +821,7 @@ impl PreparedExecution {
             dual,
         )?;
         report_preparation("argument exact evaluator", started);
+        let legacy_compatibility = PreparedLegacyCompatibility::prepare(plan, &stability, dual)?;
         let started = preparation_timer();
         let snapping_labels = stability.snapping_labels().to_vec();
         let snapping_zero_image = stability.snapping_zero_image().is_some();
@@ -922,6 +975,7 @@ impl PreparedExecution {
             .map(|_|Arc::new(ComponentSensitivityRecipe::new(plan)));
         Ok(Self {
             master_policy,
+            has_external_primal_seeds: !plan.external_primal_seeds.is_empty(),
             basis: plan.basis.clone(),
             parameters: plan.parameters.len(),
             layout: plan.layout.clone(),
@@ -941,6 +995,7 @@ impl PreparedExecution {
             primal_monitor,
             primal_monitor_outputs,
             snapping_monitor,
+            legacy_compatibility,
             snapping_labels,
             snapping_positive_threshold,
             snapping_zero_image,
@@ -1002,6 +1057,7 @@ pub struct Workspace<T: NativeFloat> {
     policy: WorkspacePolicy,
     master_policy: MasterExecutionPolicy,
     planar_fallback: Option<PlanarFallback<T>>,
+    affine_fallback: Option<AffineFallback<T>>,
     planar_certificate_stats: CertificateExecutionStats,
     prototype: T,
     accuracy_bits: u32,
@@ -1027,12 +1083,14 @@ pub struct Workspace<T: NativeFloat> {
     primal_monitor: Option<BatchExpressionEvaluator<Complex<T>>>,
     primal_monitor_outputs: usize,
     snapping_monitor: Option<BatchExpressionEvaluator<Complex<T>>>,
+    legacy_compatibility: Option<LegacyCompatibilityWorkspace<T>>,
     snapping_labels: Vec<String>,
     snapping_positive_threshold: bool,
     snapping_zero_image: bool,
     stability: Arc<StabilityPlan>,
     guard_context: GuardContext<T>,
     quadrature: Option<QuadratureWorkspace<T>>,
+    last_quadrature_context: QuadratureErrorContext<T>,
     component_sensitivity: Option<ComponentSensitivityWorkspace<T>>,
     masters: Vec<MasterGroup<T>>,
     valid_lanes: Vec<usize>,
@@ -1129,6 +1187,7 @@ where
         policy: WorkspacePolicy,
         master_policy: MasterExecutionPolicy,
     ) -> Result<Self, ReductionError> {
+        policy.validate_quadrature_recipe(!plan.external_primal_seeds.is_empty())?;
         master_policy.validate_available()
             .map_err(|error| ReductionError::Preparation(error.to_string()))?;
         iregi_masters::validate_dual_structure(&dual)
@@ -1148,6 +1207,7 @@ where
         policy: WorkspacePolicy,
         master_policy: MasterExecutionPolicy,
     ) -> Result<Self, ReductionError> {
+        policy.validate_quadrature_recipe(!plan.external_primal_seeds.is_empty())?;
         master_policy.validate_available()
             .map_err(|error| ReductionError::Preparation(error.to_string()))?;
         if prototype.get_precision() == 0 {
@@ -1169,6 +1229,7 @@ where
         exact: &PreparedExecution,
         policy: WorkspacePolicy,
     ) -> Result<Self, ReductionError> {
+        policy.validate_quadrature_recipe(exact.has_external_primal_seeds)?;
         let started = preparation_timer();
         let arguments = map_exact(&exact.arguments, &prototype);
         let reduction = map_exact(&exact.reduction, &prototype);
@@ -1180,6 +1241,8 @@ where
             .snapping_monitor
             .as_ref()
             .map(|value| map_exact(value, &prototype));
+        let legacy_compatibility = exact.legacy_compatibility.as_ref()
+            .map(|prepared| LegacyCompatibilityWorkspace::instantiate(prepared, &prototype));
         let quadrature = exact
             .quadrature
             .as_ref()
@@ -1279,6 +1342,8 @@ where
             } else {
                 None
             },
+            affine_fallback: plan.and_then(ReductionPlan::automatic_affine_settings)
+                .map(|settings|AffineFallback::new(settings,policy,exact.master_policy)),
             planar_certificate_stats: CertificateExecutionStats::default(),
             guard_context,
             accuracy_bits: prototype.get_precision(),
@@ -1305,11 +1370,13 @@ where
             primal_monitor,
             primal_monitor_outputs: exact.primal_monitor_outputs,
             snapping_monitor,
+            legacy_compatibility,
             snapping_labels: exact.snapping_labels.clone(),
             snapping_positive_threshold: exact.snapping_positive_threshold,
             snapping_zero_image: exact.snapping_zero_image,
             stability: exact.stability.clone(),
             quadrature,
+            last_quadrature_context: QuadratureErrorContext::missing(0),
             component_sensitivity,
             masters,
             fallback,
@@ -1362,6 +1429,7 @@ where
         if let Some(state) = &mut self.planar_fallback {
             state.set_accuracy_precision(bits)?;
         }
+        if let Some(state)=&mut self.affine_fallback { state.set_accuracy_precision(bits)?; }
         self.guard_context.set_accuracy(&self.prototype, bits);
         for group in &mut self.masters {
             if let ScalarMasterEvaluator::Pentagon6 { options, .. } = &mut group.evaluator {
@@ -1404,6 +1472,7 @@ where
         if let Some(state) = &mut self.planar_fallback {
             state.set_profiling(enabled);
         }
+        if let Some(state)=&mut self.affine_fallback { state.set_profiling(enabled); }
         for child in [
             &mut self.fallback,
             &mut self.lightlike_equal,
@@ -1432,12 +1501,22 @@ where
         &mut self,
         batch: &KinematicsBatch<T>,
     ) -> Result<BatchResult<T>, ReductionError> {
+        // Reset before even malformed whole-buffer preflight can return.
+        self.last_quadrature_context.clear();
         self.planar_certificate_stats = CertificateExecutionStats::default();
         self.profile = ExecutionProfile::default();
         let started = self.profiling.then(Instant::now);
         let mut result = self.reduce_batch_impl(batch);
         if self.policy.planar_retry {
             if let Ok(reduced) = &mut result {
+                if self.policy.retain_quadrature_context {
+                    for lane in 0..reduced.rows() {
+                        if reduced.statuses[lane] != LaneStatus::Success {
+                            let _ = self.last_quadrature_context.reject(lane,
+                                "automatic planar replacement has no coupled quadrature transport".into());
+                        }
+                    }
+                }
                 if let Err(error) = self.retry_planar(batch, reduced) {
                     result = Err(error);
                 }
@@ -1446,7 +1525,55 @@ where
         if let Some(started) = started {
             self.profile.total = started.elapsed();
         }
+        if result.is_err() {
+            self.last_quadrature_context.clear();
+        }
         result
+    }
+
+    /// Owning boundary used only by explicit affine composition policies.
+    /// Missing/error contexts remain per-lane failures at this boundary; they
+    /// never alter the ordinary result's standalone success contract.
+    pub(crate) fn reduce_batch_with_quadrature_context(
+        &mut self, batch: &KinematicsBatch<T>,
+    ) -> Result<CoupledQuadratureBatch<T>, ReductionError> {
+        self.last_quadrature_context.clear();
+        if !self.policy.retain_quadrature_context {
+            self.stats = ExecutionStats { input_rows: batch.rows, ..ExecutionStats::default() };
+            self.profile = ExecutionProfile::default();
+            self.diagnostics.clear();
+            self.planar_certificate_stats = CertificateExecutionStats::default();
+            return Err(ReductionError::Unsupported(
+                "workspace did not opt into quadrature-context retention".into()));
+        }
+        let result = self.reduce_batch(batch)?;
+        let context = std::mem::replace(&mut self.last_quadrature_context,
+            QuadratureErrorContext::missing(0));
+        CoupledQuadratureBatch::new(result, context)
+    }
+
+    /// Reuse the existing uncached inspector with the amplitudes that describe
+    /// these returned values, including actual fallback/scatter routes. The
+    /// established combined budget includes roundoff only for component zero;
+    /// joint higher-Dual quadrature acceptance requires a separate policy gate.
+    pub(crate) fn inspect_imported_quadrature_output(
+        &self, checks: &QuadratureStabilityPlan, result: &BatchResult<T>, lane: usize,
+        input: &[Complex<T>], dense_errors: &[Complex<T>],
+    ) -> Result<Option<String>, String> {
+        if result.basis != self.basis || result.metadata() != &self.metadata
+            || result.components != self.components
+            || self.parameters.checked_mul(self.components) != Some(input.len()) {
+            return Err("imported quadrature result/input interpretation differs".into());
+        }
+        // This validates the row and buffer dimensions before lane() indexes.
+        let envelope = result.validated_primal_envelope(lane,
+            self.prototype.get_precision(), self.accuracy_bits)?;
+        let output = result.lane(lane)
+            .map_err(|status| format!("imported quadrature requires success: {status:?}"))?;
+        let actual_amplitudes: Vec<_> = envelope.operands.iter()
+            .map(|operand| operand.amplitude.clone()).collect();
+        Ok(self.stability.inspect_quadrature_lane(checks, dense_errors, output, input,
+            self.components, &self.prototype, self.accuracy_bits, Some(&actual_amplitudes)))
     }
 
     fn reduce_batch_impl(
@@ -1473,6 +1600,9 @@ where
             )));
         }
         self.diagnostics.resize_with(batch.rows, Vec::new);
+        if self.policy.retain_quadrature_context {
+            self.last_quadrature_context = QuadratureErrorContext::missing(batch.rows);
+        }
         let output_width = checked_mul(checked_mul(self.basis.len(), 4)?, self.components)?;
         let output_len = checked_mul(batch.rows, output_width)?;
         let zero = Complex::new(self.prototype.zero(), self.prototype.zero());
@@ -1502,7 +1632,21 @@ where
         if valid == 0 {
             return Ok(result);
         }
-        self.stats.argument_rows = valid;
+        // Prove and dispatch constant-one affine lanes before any parent
+        // argument/Gram evaluation or scalar-master activation.
+        self.dispatch_affine(batch,&mut result)?;
+        if self.policy.retain_quadrature_context {
+            for lane in 0..result.rows() {
+                if result.analytic_used[lane] {
+                    self.last_quadrature_context.reject(lane,
+                        "automatic certified affine route has no coupled quadrature transport".into())
+                        .map_err(ReductionError::Evaluation)?;
+                }
+            }
+        }
+        valid=self.valid_lanes.len();
+        if valid==0{return Ok(result);}
+        self.stats.argument_rows=self.stats.argument_rows.checked_add(valid).ok_or_else(size_error)?;
         if let Some(monitor) = &mut self.snapping_monitor {
             // Strict policy comparisons only have primal branch semantics.
             // Their residuals must never be differentiated, and rejected
@@ -1585,6 +1729,22 @@ where
                 return Ok(result);
             }
         }
+        if let Some(compatibility) = &mut self.legacy_compatibility {
+            let started = self.profiling.then(Instant::now);
+            let failures = compatibility.failures(&self.input, valid, self.components, &self.prototype)?;
+            record_time(started, &mut self.profile.arguments);
+            let mut rejected = vec![false; valid];
+            for (compact, status) in failures {
+                let lane = self.valid_lanes[compact];
+                self.diagnostics[lane].push(format!("{status:?}"));
+                result.statuses[lane] = status;
+                rejected[compact] = true;
+            }
+            let selected: Vec<_> = (0..valid).filter(|&row| !rejected[row]).collect();
+            self.retain_lanes(&selected, input_width, 0);
+            valid = selected.len();
+            if valid == 0 { return Ok(result); }
+        }
         let argument_width = checked_mul(self.argument_count, self.components)?;
         self.argument_values
             .resize(checked_mul(valid, argument_width)?, zero.clone());
@@ -1651,7 +1811,7 @@ where
                 }
             }
             if !equal.is_empty() {
-                dispatch_profile(
+                dispatch_profile_with_context(
                     self.lightlike_equal.as_mut().unwrap(),
                     &equal,
                     batch,
@@ -1660,10 +1820,11 @@ where
                     &mut self.profile,
                     &mut self.diagnostics,
                     &mut self.planar_certificate_stats,
+                    &mut self.last_quadrature_context,
                 )?;
             }
             if !unequal.is_empty() {
-                dispatch_profile(
+                dispatch_profile_with_context(
                     self.lightlike_unequal.as_mut().unwrap(),
                     &unequal,
                     batch,
@@ -1672,6 +1833,7 @@ where
                     &mut self.profile,
                     &mut self.diagnostics,
                     &mut self.planar_certificate_stats,
+                    &mut self.last_quadrature_context,
                 )?;
             }
             self.retain_lanes(&ordinary, input_width, argument_width);
@@ -1748,7 +1910,7 @@ where
                             .iter()
                             .map(|&compact| self.valid_lanes[compact])
                             .collect();
-                        dispatch_profile(
+                        dispatch_profile_with_context(
                             workspace,
                             &lanes,
                             batch,
@@ -1757,6 +1919,7 @@ where
                             &mut self.profile,
                             &mut self.diagnostics,
                             &mut self.planar_certificate_stats,
+                            &mut self.last_quadrature_context,
                         )?;
                         for (&compact, &lane) in compact_lanes.iter().zip(&lanes) {
                             if result.statuses[lane] != LaneStatus::Success {
@@ -1767,6 +1930,11 @@ where
                                 result.statuses[lane] = LaneStatus::Success;
                                 result.analytic_used[lane] = false;
                                 result.fallback_used[lane] = false;
+                                if self.policy.retain_quadrature_context {
+                                    self.last_quadrature_context.reject(lane,
+                                        "failed optional profile context discarded before ordinary retry".into())
+                                        .map_err(ReductionError::Evaluation)?;
+                                }
                                 ordinary.push(compact);
                             }
                         }
@@ -2170,7 +2338,7 @@ where
                 // Export only the buffers from this guarded successful route.
                 // Disabled ordinary calls allocate or clone no sidecar data.
                 if self.policy.retain_primal_envelopes {
-                    if self.quadrature.is_some() {
+                    if self.quadrature.is_some() && !self.policy.retain_quadrature_context {
                         result.primal_envelope_errors[lane] = Some(
                             "quadrature error transport is unsupported by the six-point parent".into(),
                         );
@@ -2200,6 +2368,32 @@ where
                             }
                             Err(reason) => result.primal_envelope_errors[lane] = Some(reason),
                         }
+                    }
+                }
+                if self.policy.retain_quadrature_context {
+                    let dense = if self.policy.quadrature_imports_pending {
+                        Err("imported child quadrature context is pending the outer affine kernel".to_string())
+                    } else if let Some(quadrature) = &self.quadrature {
+                        let zero = Complex::new(self.prototype.zero(), self.prototype.zero());
+                        quadrature.plan.dense_output_errors(
+                            quadrature.lane(compact, self.components), self.components, &zero)
+                            .map(|errors| (errors, QuadratureErrorOrigin::PropagatedEuclidean))
+                            .map_err(|error| error.to_string())
+                    } else {
+                        // Base-child construction proves this complete recipe
+                        // has no imported uncertain values, not merely no local E6.
+                        let zero = Complex::new(self.prototype.zero(), self.prototype.zero());
+                        Ok((vec![zero; output_width], QuadratureErrorOrigin::KnownNoQuadrature))
+                    };
+                    let retained = dense.and_then(|(errors, origin)| {
+                        result.validated_primal_envelope(lane,
+                            self.prototype.get_precision(), self.accuracy_bits)?;
+                        self.last_quadrature_context.install_dense(&result, lane,
+                            self.prototype.get_precision(), self.accuracy_bits, &errors, origin)
+                    });
+                    if let Err(reason) = retained {
+                        self.last_quadrature_context.reject(lane, reason)
+                            .map_err(ReductionError::Evaluation)?;
                     }
                 }
             }
@@ -2266,9 +2460,21 @@ where
                             if self.policy.retain_primal_envelopes {
                                 result.inherit_primal_envelope(lane, &retried, compact, PrimalEnvelopeRoute::Hybrid);
                             }
+                            if self.policy.retain_quadrature_context {
+                                // Values and their error estimates must come from
+                                // the same replacement route, including descendants.
+                                let _ = self.last_quadrature_context.inherit_lane(&result, lane,
+                                    &retried, &fallback.last_quadrature_context, compact,
+                                    self.prototype.get_precision(), self.accuracy_bits);
+                            }
                             self.stats.fallback_successes += 1;
                         }
                         Err(status) => {
+                            if self.policy.retain_quadrature_context {
+                                self.last_quadrature_context.reject(lane,
+                                    "replacement IBP route did not return a successful coupled context".into())
+                                    .map_err(ReductionError::Evaluation)?;
+                            }
                             let primary = &result.statuses[lane];
                             result.statuses[lane] = LaneStatus::Unstable(format!(
                                 "PV reduction failed its stability check ({primary:?}); IBP fallback returned {status:?}",
@@ -2348,6 +2554,7 @@ where
         rows: usize,
         components: impl for<'a> Fn(&'a D) -> &'a [Complex<T>],
     ) -> Result<BatchResult<T>, ReductionError> {
+        self.last_quadrature_context.clear();
         // Typed-input validation can return before reduce_batch resets the
         // observable state. Attribute every early error to this requested call.
         self.stats = ExecutionStats { input_rows: rows, ..ExecutionStats::default() };
@@ -2412,7 +2619,20 @@ where
     workspace.reduce_batch(batch)
 }
 
+#[cfg(test)]
 fn dispatch_profile<T: NativeFloat>(
+    workspace: &mut Workspace<T>, lanes: &[usize], batch: &KinematicsBatch<T>,
+    result: &mut BatchResult<T>, stats: &mut ExecutionStats,
+    profile: &mut ExecutionProfile, diagnostics: &mut [Vec<String>],
+    certificate_stats: &mut CertificateExecutionStats,
+) -> Result<(), ReductionError>
+where Complex<T>: EvaluationDomain {
+    let mut unavailable = QuadratureErrorContext::missing(result.rows());
+    dispatch_profile_with_context(workspace, lanes, batch, result, stats, profile,
+        diagnostics, certificate_stats, &mut unavailable)
+}
+
+fn dispatch_profile_with_context<T: NativeFloat>(
     workspace: &mut Workspace<T>,
     lanes: &[usize],
     batch: &KinematicsBatch<T>,
@@ -2421,6 +2641,7 @@ fn dispatch_profile<T: NativeFloat>(
     profile: &mut ExecutionProfile,
     diagnostics: &mut [Vec<String>],
     certificate_stats: &mut CertificateExecutionStats,
+    quadrature_context: &mut QuadratureErrorContext<T>,
 ) -> Result<(), ReductionError>
 where
     Complex<T>: EvaluationDomain,
@@ -2460,9 +2681,21 @@ where
         if let Ok(output) = evaluated.lane(compact) {
             result.values[lane * output_width..(lane + 1) * output_width].clone_from_slice(output);
             result.inherit_primal_envelope(lane, &evaluated, compact, PrimalEnvelopeRoute::Analytic);
-        } else if !result.primal_envelopes.is_empty() {
-            result.primal_envelopes[lane] = None;
-            result.primal_envelope_errors[lane] = None;
+            if workspace.policy.retain_quadrature_context {
+                let _ = quadrature_context.inherit_lane(result, lane, &evaluated,
+                    &workspace.last_quadrature_context, compact,
+                    workspace.prototype.get_precision(), workspace.accuracy_bits);
+            }
+        } else {
+            if !result.primal_envelopes.is_empty() {
+                result.primal_envelopes[lane] = None;
+                result.primal_envelope_errors[lane] = None;
+            }
+            if workspace.policy.retain_quadrature_context {
+                quadrature_context.reject(lane,
+                    "analytic profile did not return a successful coupled quadrature context".into())
+                    .map_err(ReductionError::Evaluation)?;
+            }
         }
     }
     stats.analytic_rows = stats

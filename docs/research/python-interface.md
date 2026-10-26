@@ -58,7 +58,9 @@ The numerical bindings now delegate reduction selection and contraction
 preparation to the shared Rust `TensorReductionPlan`/`TensorWorkspace` facade.
 No Python-side topology list selects a backend. Workspace construction passes
 profiling before engine selection, and every explicit Dual layout, including a
-primal-only shape, uses the facade's generic Dual constructor. The compiled
+primal-only shape, uses the facade's Dual constructor. Eligible positive-power
+high-point inputs retain the affine-power engine for profiling and Duals;
+low-point inputs retain generic execution. The compiled
 default scalar-master policy is retained. Python's existing API does not expose
 precision rescue or a nondefault master-policy selector; these remain Rust
 facade capabilities rather than silently added Python options.
@@ -79,15 +81,25 @@ packed batching, sparse contraction, invalid-lane isolation, empty/reset state,
 immutable result diagnostics and recovery. Its high-point samples reuse the
 retained six-point and seventh-time-quarter fixtures. These are installed-wheel
 interface checks, not new high-point reference or performance qualification.
-The corrected standalone development wheel passes 60 installed tests on Linux
-with CPython 3.13: the existing 29 numerical/interoperability tests, six facade
-tests, six upstream ComplexFloat native-operand precision regressions and 19
-upstream Float/ComplexFloat tests. Installed consumer typing reports zero errors
-and warnings. The [saved qualification](../../validation/python-interface/facade-wheel-002/README.md)
-retains the exact owned source and wheel/native hashes, every stage receipt and
-both failed historical trait-surface observer runs. Those observers needed only
-Rust-only `real_classify` and mutating `set_precision` exclusions; numerical
-assertions and tolerances were unchanged.
+The current fresh standalone development wheel passes 64 installed API cases
+on Linux with CPython 3.13: 29 numerical/interoperability cases, ten facade
+cases, six upstream ComplexFloat native-operand precision regressions and 19
+upstream Float/ComplexFloat cases. Seven actual marimo runtime cases also pass.
+Installed consumer typing reports zero errors and warnings, including the new
+checked-input option and tagged affine execution types. The
+[saved qualification](../../validation/python-interface/facade-wheel-003/README.md)
+retains 147 selected source files, exact wheel/native hashes and every stage
+receipt. Source/runtime/compiler closure limits are explicit.
+
+The original eight-case dispatch phase reached its fixed aggregate deadline
+after seven cases had passed. Only its unfinished final checked-Dual case was
+completed with a full per-case budget; no assertion or tolerance changed. The
+external removal of Nix toolchain paths and an offline marimo cache miss are
+also preserved. The exact prior Rust/Cargo 1.99 closure was restored and rooted
+before the successful build. The
+[earlier 60-case qualification](../../validation/python-interface/facade-wheel-002/README.md)
+retains its two historical trait-surface observer failures and narrow exclusions
+for Rust-only `real_classify` and mutating `set_precision`.
 
 An actual installed-wheel reproduction exposed precision loss when native
 integer operands were converted at the smaller of a complex value's component
@@ -99,9 +111,26 @@ asymmetric reproduction and passes all six dedicated regression cases. The
 earlier wheel and its failing reproduction remain independently archived.
 
 This is frontend qualification on the specified fixtures, rather than a new
-full-array integral oracle or performance result. The agreed stopping envelope
-is at most six propagators and rank six, including positive propagator powers
-and dimension shifts;
-seven-point and rank-seven results remain separately reported challenge cases.
+full-array integral oracle or performance result. The current objective is
+generic rank-six reduction, including positive propagator powers and dimension
+shifts, with propagator-count reduction treated separately. Six-point coverage
+is a concrete validation checkpoint, not proof of arbitrary-point support.
+Historical rank-seven results remain separately reported challenge cases.
 The existing seven-point scalar frontend regression was retained, without
 adding positive-rank seven-point work.
+
+The source API adds an explicit supplied-product check through
+`ReductionPlan(6, rank, invariants="scalar_products", check_scalar_products=True)`.
+It delegates to the Rust checked Cartesian facade and retains the supplied
+products. Cartesian compatibility and a regular rank-four Gram certificate are
+separate checks across all Taylor components. Profiling and explicit Dual
+layouts retain these checks. The source tests verify rejection before any
+master evaluation, tagged certificate counters, and empty-state reset. The
+current wheel passes these constructor, rejection and empty-state checks for
+ordinary, profiling and primal-only Dual workspaces. Ordinary inputs keep their
+existing constructor guards. Checked six-point rank-one numerical evidence is
+separate from these frontend tests; the original inline rank-six attempt
+exceeded its preparation resource deadline. Neither generalized nor rank-six
+checked numerical coverage is claimed from the constructor accepting those
+settings. Checked precision rescue currently returns an explicit unsupported
+error.

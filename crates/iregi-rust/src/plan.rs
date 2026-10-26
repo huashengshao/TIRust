@@ -1,11 +1,12 @@
 //! Exact topology preparation. No sampled values are cached in a plan.
 
 mod thin_seven;
+mod affine_power;
 pub(crate) use thin_seven::assemble_thin_seven_moments;
 
 use crate::{
     basis::{Monomial, tensor_basis},
-    convention::convert_convention,
+    convention::{convert_convention, convert_native_convention},
     ibp::{MasterLeaf, MasterLeafKind, ScalarCompiler, ScalarRequest},
     pv::PvCompiler,
     snapping::{LegacySnapping, SnapDiagnostic, exact_threshold},
@@ -51,6 +52,8 @@ pub struct ReductionPlan {
     /// diagonal assumed by the recurrence. Reject only demanded matrix paths.
     pub(crate) snapping_zero_image: Option<Atom>,
     pub(crate) snapping_zero_image_required: bool,
+    /// Demanded highpoint snaps need an exact full-Taylor no-change proof.
+    pub(crate) snapping_compatibility: Vec<crate::snapping::SnapCompatibilityQuery>,
     pub(crate) fallback: Option<Box<ReductionPlan>>,
     algorithm_used: Algorithm,
     preparation_notes: Vec<String>,
@@ -60,13 +63,39 @@ pub struct ReductionPlan {
     zero_invariants: Option<ZeroInvariantProfile>,
     /// A structural chart whose full-Taylor invariant constraints are checked
     /// by the private certified scalar entry point before numerical execution.
-    certified_scalar_basis: Option<[usize; 4]>,
+    certified_invariant_chart: Option<CertifiedInvariantChart>,
     /// Fixed constant-one pentagon chart, executable only after full input certification.
     certified_planar_chart: Option<usize>,
     certified_planar_mask: u8,
+    certified_affine_chart: Option<CertifiedAffineChart>,
     /// Structural imported-child context; never sampled certificate state.
     thin_six_child_rank: Option<u16>,
     thin_seven_child_rank: Option<u16>,
+}
+
+/// Private proof context. A structural plan is executable only through its
+/// checked wrapper, which recertifies every lane and every requested jet.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum CertifiedInvariantChart {
+    Scalar([usize; 4]),
+    CartesianTensor([usize; 4]),
+}
+
+impl CertifiedInvariantChart {
+    fn basis(self) -> [usize; 4] {
+        match self { Self::Scalar(basis) | Self::CartesianTensor(basis) => basis }
+    }
+    fn tensor_completion_allowed(self) -> bool {
+        matches!(self, Self::CartesianTensor(_))
+    }
+}
+
+/// Private structural proof context; fresh full-Taylor certificates live only
+/// in the owning affine workspace, never in this plan/cache key.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct CertifiedAffineChart {
+    pub key: crate::pv::AffineChartKey,
+    pub inactive: Vec<usize>,
 }
 
 /// Exact constraints are structural: numerical values are never stored here.
@@ -82,9 +111,11 @@ struct PlanVariant {
     bubble_equal_masses: Option<bool>,
     zero_invariants: Option<ZeroInvariantProfile>,
     certified_planar_mask: u8,
+    certified_affine_chart: Option<CertifiedAffineChart>,
     /// Structural imported-child context; never sampled certificate state.
     thin_six_child_rank: Option<u16>,
     thin_seven_child_rank: Option<u16>,
+    certified_invariant_chart: Option<CertifiedInvariantChart>,
 }
 
 type StructuralPlanCache =
@@ -95,24 +126,43 @@ impl ReductionPlan {
         Self::build(settings, None, None, 0, None, None, 0)
     }
 
+    pub(crate) fn new_certified_affine(settings: ReductionSettings,
+        context: CertifiedAffineChart) -> Result<Self,ReductionError> {
+        Self::build_with_affine(settings,None,None,0,None,None,0,Some(context))
+    }
+
     /// Private, bounded thin N6 plan. Imported child moments are already in
     /// native IREGI normalization and are never converted a second time.
     pub(crate) fn new_thin_six(settings: ReductionSettings, analytic_jet_order: u16) -> Result<Self, ReductionError> {
         use crate::types::{Convention, TensorWeights};
-        if settings.propagators != 6 || settings.rank > 7 || settings.powers != [1;6]
-            || settings.dimension_shift != 0 || settings.invariants != InvariantInput::FromShifts
+        let supplied = settings.invariants == InvariantInput::SuppliedScalarProducts;
+        if settings.propagators != 6 || settings.rank > if supplied { 6 } else { 7 }
+            || settings.powers != [1;6] || settings.dimension_shift != 0
             || settings.input_policy != InputPolicy::Preserve
-            || settings.convention != Convention::IregiNative
-            || settings.tensor_weights != TensorWeights::Components
+            || (!supplied && (settings.convention != Convention::IregiNative
+                || settings.tensor_weights != TensorWeights::Components))
             || settings.algorithm != Algorithm::PassarinoVeltman {
-            return Err(ReductionError::Unsupported("private thin N6 requires rank<=7, unit powers, h=0, preserved shifts, PV, native raw components".into()));
+            return Err(ReductionError::Unsupported("private thin N6 requires unit powers, h=0, preserved inputs and PV; supplied products additionally require the checked tensor entry and rank<=6".into()));
         }
         let shifts: Vec<[Atom;4]> = (0..6).map(|i| std::array::from_fn(|mu| variable(&format!("p{i}_{mu}")))).collect();
         let masses: Vec<_> = (0..6).map(|i| variable(&format!("m2_{i}"))).collect();
         let mut parameters: Vec<_> = shifts.iter().flatten().cloned().collect();
+        let (scalar_products, distances): (Option<std::ops::Range<usize>>, Vec<Vec<Atom>>) = if supplied {
+            let start=parameters.len();
+            let mut products=vec![vec![Atom::new();6];6];
+            for i in 0..6 { for j in i..6 {
+                let value=variable(&format!("g{i}_{j}"));
+                parameters.push(value.clone()); products[i][j]=value.clone(); products[j][i]=value;
+            }}
+            let distances=(0..6).map(|i|(0..6).map(|j|
+                &products[i][i]+&products[j][j]-Atom::num(2)*&products[i][j]).collect()).collect();
+            (Some(start..parameters.len()),distances)
+        } else {
+            (None,shifts.iter().map(|p| shifts.iter().map(|q| squared_difference(p,q)).collect()).collect())
+        };
+        let mass_start=parameters.len();
         parameters.extend(masses.iter().cloned()); parameters.push(variable("mu"));
-        let layout = InputLayout { shifts:0..24, scalar_products:None, masses:24..30, scale:30 };
-        let distances: Vec<Vec<_>> = shifts.iter().map(|p| shifts.iter().map(|q| squared_difference(p,q)).collect()).collect();
+        let layout = InputLayout { shifts:0..24, scalar_products, masses:mass_start..mass_start+6, scale:mass_start+6 };
         let mut compiler = PvCompiler::with_distances(shifts, masses, distances.clone(), true).map_err(ReductionError::Preparation)?;
         let weights = compiler.thin_six_weights().map_err(ReductionError::Preparation)?;
         let child_rank = settings.rank.saturating_sub(1);
@@ -127,17 +177,26 @@ impl ReductionPlan {
         // Children are already native raw moments: apply only the existing
         // final-output UV rule, never a second convention conversion.
         apply_final_uv_power_counting(&settings, &basis, &mut moments)?;
+        if supplied {
+            // Imported children remain native raw components. Convert exactly
+            // once at this final parent, using the native-to-requested Symbolica adapter.
+            for (moment,monomial) in moments.iter_mut().zip(&basis) {
+                *moment=convert_native_convention(moment,*monomial,&settings);
+            }
+        }
         Ok(Self {
             execution_cache: Default::default(), variant_cache: Default::default(),
             settings, basis, parameters, external_primal_seeds, layout,
             raw_distances: distances.clone(), distances, moments,
             leaves: Vec::new(), master_arguments: Vec::new(), aliases: compiler.aliases().to_vec(),
             snapping_aliases:Vec::new(), snapping_diagnostics:Vec::new(), snapping_threshold:None,
-            snapping_zero_image:None, snapping_zero_image_required:false, fallback:None,
+            snapping_zero_image:None, snapping_zero_image_required:false, snapping_compatibility:Vec::new(), fallback:None,
             algorithm_used:Algorithm::PassarinoVeltman,
-            preparation_notes:vec![format!("Private thin N6: one packed N5 rank-{child_rank} batch, retained primal operand envelopes; no quadrature route support")],
+            preparation_notes:vec![if supplied {
+                format!("Private packed checked-G N6 PV: original supplied products in parent weights and every packed N5 scalar argument; fresh complete G/p child proofs and planar masks precede child graph preparation; rank-{child_rank} native children converted only at final output")
+            } else {format!("Private thin N6: one packed N5 rank-{child_rank} batch, retained primal operand envelopes; no quadrature route support")}],
             special_kinematics:true, analytic_jet_order, bubble_limit:None, zero_invariants:None,
-            certified_scalar_basis:None, certified_planar_chart:None, certified_planar_mask:0, thin_six_child_rank:Some(child_rank), thin_seven_child_rank:None,
+            certified_invariant_chart:None, certified_planar_chart:None, certified_planar_mask:0, certified_affine_chart: None, thin_six_child_rank:Some(child_rank), thin_seven_child_rank:None,
         })
     }
 
@@ -147,7 +206,23 @@ impl ReductionPlan {
         settings: ReductionSettings,
         basis: [usize; 4],
     ) -> Result<Self, ReductionError> {
-        Self::build(settings, None, None, 0, Some(basis), None, 0)
+        Self::build(settings, None, None, 0, Some(CertifiedInvariantChart::Scalar(basis)), None, 0)
+    }
+
+    /// Private checked Cartesian chart: supplied G remains authoritative for
+    /// scalar arguments, while the wrapper proves its full-jet compatibility
+    /// with the unchanged Cartesian momenta before every numerical call.
+    pub(crate) fn new_certified_tensor(
+        settings: ReductionSettings,
+        basis: [usize; 4],
+    ) -> Result<Self, ReductionError> {
+        if crate::certified_tensor::packed_settings_supported(&settings) {
+            // Only the enclosing checked wrapper can reach this private plan;
+            // its full G/p and Gram proofs still precede every numerical call.
+            return Self::new_thin_six(settings,0);
+        }
+        Self::build(settings, None, None, 0,
+            Some(CertifiedInvariantChart::CartesianTensor(basis)), None, 0)
     }
 
     /// Private fixed chart for the checked planar wrapper. Inputs must be
@@ -195,7 +270,8 @@ impl ReductionPlan {
             analytic_jet_order: order,
             bubble_equal_masses: self.bubble_limit.map(|(_, equal)| equal),
             zero_invariants: self.zero_invariants.clone(),
-            certified_planar_mask: self.certified_planar_mask,
+            certified_planar_mask: self.certified_planar_mask, certified_affine_chart: self.certified_affine_chart.clone(),
+            certified_invariant_chart: self.certified_invariant_chart,
             thin_six_child_rank: self.thin_six_child_rank,
             thin_seven_child_rank: self.thin_seven_child_rank,
         })
@@ -229,7 +305,8 @@ impl ReductionPlan {
             analytic_jet_order: self.analytic_jet_order,
             bubble_equal_masses: None,
             zero_invariants: Some(profile),
-            certified_planar_mask: self.certified_planar_mask,
+            certified_planar_mask: self.certified_planar_mask, certified_affine_chart: self.certified_affine_chart.clone(),
+            certified_invariant_chart: self.certified_invariant_chart,
             thin_six_child_rank: self.thin_six_child_rank,
             thin_seven_child_rank: self.thin_seven_child_rank,
         })
@@ -239,13 +316,31 @@ impl ReductionPlan {
         if variant.analytic_jet_order == self.analytic_jet_order
             && variant.bubble_equal_masses == self.bubble_limit.map(|(_, equal)| equal)
             && variant.zero_invariants == self.zero_invariants
+            && variant.certified_affine_chart == self.certified_affine_chart
             && variant.certified_planar_mask == self.certified_planar_mask
+            && variant.certified_invariant_chart == self.certified_invariant_chart
             && variant.thin_six_child_rank == self.thin_six_child_rank
             && variant.thin_seven_child_rank == self.thin_seven_child_rank
         {
             // Do not insert self into its own cache: even an immutable clone
             // would retain this cache and create an ownership cycle.
             return Ok(Arc::new(self.clone()));
+        }
+        // Imported affine-power graphs have their exact analytic order and
+        // proof-selected source layout fixed by their owning wrapper. Never
+        // rebuild one as an unrelated generic scalar/tensor plan.
+        if !self.external_primal_seeds.is_empty()
+            && self.thin_six_child_rank.is_none() && self.thin_seven_child_rank.is_none()
+        {
+            return Err(ReductionError::Unsupported(
+                "affine-power imported plans require their owner to rebuild a structural variant".into()));
+        }
+        if variant.certified_affine_chart != self.certified_affine_chart {
+            return Err(ReductionError::Unsupported("structural variant cannot change affine proof context".into()));
+        }
+        if variant.certified_invariant_chart != self.certified_invariant_chart {
+            return Err(ReductionError::Unsupported(
+                "structural variants cannot change the checked supplied-G proof context".into()));
         }
         if variant.thin_six_child_rank != self.thin_six_child_rank
             || variant.thin_seven_child_rank != self.thin_seven_child_rank
@@ -269,18 +364,28 @@ impl ReductionPlan {
                     return Self::new_thin_seven(self.settings.clone(), variant.analytic_jet_order).map(Arc::new);
                 }
                 if self.thin_six_child_rank.is_some() {
-                    return Self::new_thin_six(self.settings.clone(), variant.analytic_jet_order).map(Arc::new);
+                    // Imported-child parents contain no master/analytic
+                    // recurrence. Their exact formulas and imported operands
+                    // are independent of the requested Taylor expansion order.
+                    // Preserve that immutable graph while each ordered shape
+                    // gets its own execution and structural cache contexts.
+                    let mut rebuilt = self.clone();
+                    rebuilt.execution_cache = Default::default();
+                    rebuilt.variant_cache = Default::default();
+                    rebuilt.analytic_jet_order = variant.analytic_jet_order;
+                    return Ok(Arc::new(rebuilt));
                 }
-                Self::build(
+                Self::build_with_affine(
                     self.settings.clone(),
                     variant
                         .bubble_equal_masses
                         .map(|equal| (variant.analytic_jet_order, equal)),
                     variant.zero_invariants,
                     variant.analytic_jet_order,
-                    self.certified_scalar_basis,
+                    self.certified_invariant_chart,
                     self.certified_planar_chart,
                     variant.certified_planar_mask,
+                    variant.certified_affine_chart.clone(),
                 )
                 .map(Arc::new)
             })
@@ -297,16 +402,40 @@ impl ReductionPlan {
     }
 
     fn build(
+        settings: ReductionSettings, bubble_limit: Option<(u16,bool)>,
+        zero_invariants: Option<ZeroInvariantProfile>, analytic_jet_order: u16,
+        certified_invariant_chart: Option<CertifiedInvariantChart>,
+        certified_planar_chart: Option<usize>, certified_planar_mask: u8,
+    ) -> Result<Self, ReductionError> {
+        Self::build_with_affine(settings,bubble_limit,zero_invariants,analytic_jet_order,
+            certified_invariant_chart,certified_planar_chart,certified_planar_mask,None)
+    }
+
+    fn build_with_affine(
         settings: ReductionSettings,
         bubble_limit: Option<(u16, bool)>,
         zero_invariants: Option<ZeroInvariantProfile>,
         analytic_jet_order: u16,
-        certified_scalar_basis: Option<[usize; 4]>,
+        certified_invariant_chart: Option<CertifiedInvariantChart>,
         certified_planar_chart: Option<usize>,
     certified_planar_mask: u8,
+        certified_affine_chart: Option<CertifiedAffineChart>,
     ) -> Result<Self, ReductionError> {
         if certified_planar_mask >= 31 || (certified_planar_mask != 0 && certified_planar_chart.is_none()) {
             return Err(ReductionError::InvalidInput("certified planar mask must contain only five child bits, retain a child, and belong to a checked chart".into()));
+        }
+        if let Some(chart) = &certified_affine_chart {
+            if !crate::certified_affine::settings_supported(&settings)
+                || chart.key.coordinate_rows.len()!=1
+                || chart.key.coordinate_rows[0]>=4
+                || chart.key.relative_columns!=[0,1]
+                || chart.inactive.len()>=3
+                || chart.inactive.iter().any(|&i|i>=3)
+                || chart.inactive.windows(2).any(|p|p[0]>=p[1])
+                || certified_invariant_chart.is_some() || certified_planar_chart.is_some()
+                || certified_planar_mask!=0 || bubble_limit.is_some() || zero_invariants.is_some() {
+                return Err(ReductionError::Unsupported("invalid private certified N3 affine context".into()));
+            }
         }
         let n = settings.propagators;
         if n == 0 || settings.powers.len() != n || settings.powers.iter().any(|&p| p == 0) {
@@ -320,13 +449,14 @@ impl ReductionPlan {
             ));
         }
         if let Some(omitted) = certified_planar_chart {
-            if !crate::certified_planar::settings_supported(&settings)
+            if !(crate::certified_planar::settings_supported(&settings)
+                || crate::certified_planar::supplied_six_point_child_settings(&settings))
                 || omitted >= 4
                 || (certified_planar_mask != 0
                     && crate::certified_planar::generalized_scalar_settings(&settings))
                 || zero_invariants.is_some()
                 || bubble_limit.is_some()
-                || certified_scalar_basis.is_some()
+                || certified_invariant_chart.is_some()
             {
                 return Err(ReductionError::InvalidInput("certified planar charts require a supported preserved Cartesian N5 domain, an omitted coordinate row in 0..4, and no generalized cofactor mask".into()));
             }
@@ -335,25 +465,28 @@ impl ReductionPlan {
         // Gram matrix. Arbitrary supplied invariants, including Dual directions
         // transverse to that variety, do not satisfy those identities. Until
         // every Taylor component is checked, do not accept this input domain.
-        if let Some(chart) = certified_scalar_basis {
+        if let Some(context) = certified_invariant_chart {
+            let chart = context.basis();
+            let valid_mode = match context {
+                CertifiedInvariantChart::Scalar(_) => settings.rank == 0
+                    && settings.algorithm == Algorithm::Ibp,
+                CertifiedInvariantChart::CartesianTensor(_) =>
+                    crate::certified_tensor::settings_supported(&settings),
+            };
             if !(6..=7).contains(&n)
-                || settings.rank != 0
-                || settings.algorithm != Algorithm::Ibp
+                || !valid_mode
                 || settings.invariants != InvariantInput::SuppliedScalarProducts
                 || chart.iter().any(|&index| index == 0 || index >= n)
-                || chart
-                    .iter()
-                    .enumerate()
-                    .any(|(i, index)| chart[..i].contains(index))
+                || chart.iter().enumerate().any(|(i, index)| chart[..i].contains(index))
             {
                 return Err(ReductionError::InvalidInput(
-                    "certified scalar charts require six or seven propagators, rank-zero IBP, supplied scalar products, and four distinct nonzero propagator indices".into(),
+                    "certified supplied-G charts require their checked scalar/tensor settings and four distinct nonzero propagator indices".into(),
                 ));
             }
         }
         if settings.invariants == InvariantInput::SuppliedScalarProducts
             && n >= 6
-            && certified_scalar_basis.is_none()
+            && certified_invariant_chart.is_none()
         {
             return Err(ReductionError::Unsupported(
                 "supplied scalar products with six or more propagators require validated four-dimensional Gram constraints in every Taylor component; coordinate inputs remain supported".into(),
@@ -368,9 +501,10 @@ impl ReductionPlan {
         } else {
             None
         };
-        if snapping_threshold.is_some() && n >= 5 {
+        if snapping_threshold.is_some() && n >= 5
+            && !crate::snapping::highpoint_legacy_domain(&settings) {
             return Err(ReductionError::Unsupported(
-                "legacy on-shell snapping for five or more propagators awaits independent validation of coordinate identities with non-bilinear snapped invariants".into(),
+                "highpoint legacy on-shell coordinates currently require N=5 or 6 and rank<=6; geometry-changing snaps are not admitted".into(),
             ));
         }
         let shifts: Vec<[Atom; 4]> = (0..n)
@@ -455,10 +589,23 @@ impl ReductionPlan {
                 "Supplied scalar products bypass the legacy on-shell policy, matching the original supplied-invariant interface".into()
             });
         }
+        let checked_cartesian = matches!(certified_invariant_chart,
+            Some(CertifiedInvariantChart::CartesianTensor(_)));
+        let mut coordinate_constraints = Vec::new();
         let mut generalized_ibp_used = false;
-        let (mut moments, leaves, mut aliases, algorithm_used) = if !ordinary
+        let (mut moments, leaves, mut aliases, algorithm_used) = if let Some(context) = &certified_affine_chart {
+            let mut compiler=PvCompiler::with_distances(shifts.clone(),masses.clone(),distances.clone(),true)
+                .map_err(ReductionError::Preparation)?;
+            compiler.set_analytic_jet_order(analytic_jet_order).map_err(ReductionError::Preparation)?;
+            let exponents:Vec<_>=basis.iter().map(|m|m.0).collect();
+            let moments=compiler.compile_affine_descent_chart_moments(&context.key,&context.inactive,
+                &exponents,crate::pv::AffineDescentBudget::default()).map_err(ReductionError::Preparation)?;
+            preparation_notes.push(format!("Certified constant-one affine descent: original q, N3->same-rank bubbles, coordinate chart {:?}, inactive children {:?}; every selected row requires fresh full-Taylor rank/chart/cofactor certificates",context.key,context.inactive));
+            (moments,compiler.leaves().to_vec(),compiler.aliases().to_vec(),Algorithm::PassarinoVeltman)
+        } else if !ordinary
             && !special_kinematics
             && settings.algorithm != Algorithm::Ibp
+            && !matches!(certified_invariant_chart, Some(CertifiedInvariantChart::CartesianTensor(_)))
         {
             let generalized = compile_generalized_pv(
                 &settings,
@@ -512,7 +659,7 @@ impl ReductionPlan {
                         &distances,
                         bubble_limit,
                         zero_invariants.as_ref(),
-                        certified_scalar_basis,
+                        certified_invariant_chart.map(CertifiedInvariantChart::basis),
                         certified_planar_chart,
                     ) {
                         Ok((moments, leaves, aliases)) => {
@@ -522,7 +669,7 @@ impl ReductionPlan {
                             if ordinary
                                 && n >= 5
                                 && !special_kinematics
-                                && certified_scalar_basis.is_none() =>
+                                && certified_invariant_chart.is_none_or(CertifiedInvariantChart::tensor_completion_allowed) =>
                         {
                             // Original IBP also completes its four-dimensional
                             // high-point tensor system with PV at zero dimension
@@ -539,6 +686,7 @@ impl ReductionPlan {
                                 snapping.clone(),
                                 certified_planar_chart,
                                 certified_planar_mask,
+                                checked_cartesian.then_some(&mut coordinate_constraints),
                             )?;
                             (moments, leaves, aliases, Algorithm::PassarinoVeltman)
                         }
@@ -555,6 +703,7 @@ impl ReductionPlan {
                         snapping.clone(),
                         certified_planar_chart,
                         certified_planar_mask,
+                        checked_cartesian.then_some(&mut coordinate_constraints),
                     );
                     match pv {
                         Ok((moments, leaves, aliases)) => {
@@ -571,7 +720,7 @@ impl ReductionPlan {
                                 &distances,
                                 bubble_limit,
                                 zero_invariants.as_ref(),
-                                certified_scalar_basis,
+                                certified_invariant_chart.map(CertifiedInvariantChart::basis),
                                 certified_planar_chart,
                             )?;
                             (moments, leaves, aliases, Algorithm::Ibp)
@@ -604,10 +753,33 @@ impl ReductionPlan {
             }
             preparation_notes.push("Certified planar generalized scalar: exact constant-one denominator identity, original invariants preserved, and IBP pinches with at most four active propagators".into());
         }
+        if matches!(certified_invariant_chart, Some(CertifiedInvariantChart::CartesianTensor(_))) {
+            if ordinary && leaves.iter().any(|leaf| leaf.kind != MasterLeafKind::FourDimensional) {
+                return Err(ReductionError::Preparation(
+                    "ordinary checked supplied-G tensor completion emitted an unexpected shifted master".into()));
+            }
+            preparation_notes.push("Checked supplied-G Cartesian tensor chart: original G in scalar/master arguments, original p in moments; exact full-jet compatibility is required before execution".into());
+            if !ordinary {
+                preparation_notes.push("Generalized checked Cartesian tensors retain genuine scalar IBP, including D6 pentagon leaves with their existing endpoint, convergence and propagated-error guards; requested algorithm is preserved in settings".into());
+            }
+        }
         let snapping_zero_image_required = snapping_zero_image.is_some()
-            && n == 1
-            && (algorithm_used == Algorithm::Ibp || generalized_ibp_used)
-            && (settings.rank > 0 || !ordinary);
+            && ((n == 1 && (algorithm_used == Algorithm::Ibp || generalized_ibp_used)
+                && (settings.rank > 0 || !ordinary))
+                || crate::snapping::highpoint_legacy_domain(&settings));
+        let mut snapping_compatibility = if crate::snapping::highpoint_legacy_domain(&settings) {
+            preparation_notes.push("Highpoint legacy on-shell domain is conservative: every demanded selected snap must equal its original Cartesian polynomial in every Taylor component; geometry-changing snaps fail before masters".into());
+            snapping.as_ref().map_or_else(Vec::new,
+                |policy| policy.borrow().compatibility_queries().to_vec())
+        } else { Vec::new() };
+        snapping_compatibility.extend(coordinate_constraints.into_iter().map(|constraint|
+            crate::snapping::SnapCompatibilityQuery {
+                kind: crate::snapping::CartesianConstraintKind::CoordinateIdentity,
+                output: constraint.owner,
+                raw: constraint.expression,
+                label: constraint.label,
+                choices: vec![(constraint.active, crate::snapping::SnapTarget::Zero)],
+            }));
         if !snapping_aliases.is_empty() {
             let mut ordered = snapping_aliases.clone();
             ordered.append(&mut aliases);
@@ -654,7 +826,7 @@ impl ReductionPlan {
                 args
             })
             .collect();
-        let fallback = if !special_kinematics
+        let fallback = if certified_affine_chart.is_none() && !special_kinematics
             && settings.algorithm == Algorithm::Hybrid
             && algorithm_used == Algorithm::PassarinoVeltman
         {
@@ -665,7 +837,7 @@ impl ReductionPlan {
                 None,
                 None,
                 analytic_jet_order,
-                certified_scalar_basis,
+                certified_invariant_chart,
                 certified_planar_chart,
                 certified_planar_mask,
             ) {
@@ -701,6 +873,7 @@ impl ReductionPlan {
             snapping_threshold,
             snapping_zero_image,
             snapping_zero_image_required,
+            snapping_compatibility,
             fallback,
             algorithm_used,
             preparation_notes,
@@ -708,9 +881,10 @@ impl ReductionPlan {
             analytic_jet_order,
             bubble_limit,
             zero_invariants,
-            certified_scalar_basis,
+            certified_invariant_chart,
             certified_planar_chart,
             certified_planar_mask,
+            certified_affine_chart,
             thin_six_child_rank: None,
             thin_seven_child_rank: None,
         })
@@ -738,9 +912,10 @@ impl ReductionPlan {
     /// matrix selected by legacy PV snapping.
     pub(crate) fn zero_profile_dispatch_allowed(&self) -> bool {
         !self.special_kinematics
+            && self.certified_affine_chart.is_none()
             // Rounded invariant evaluations cannot establish new exact-zero
             // constraints beyond the certified full-Taylor Gram relations.
-            && self.certified_scalar_basis.is_none()
+            && self.certified_invariant_chart.is_none()
             && self.certified_planar_chart.is_none()
             && !(self.snapping_threshold.is_some()
                 && self.algorithm_used == Algorithm::PassarinoVeltman)
@@ -750,7 +925,7 @@ impl ReductionPlan {
     pub(crate) fn automatic_planar_settings(&self) -> Option<ReductionSettings> {
         let settings = &self.settings;
         if self.special_kinematics
-            || self.certified_scalar_basis.is_some()
+            || self.certified_invariant_chart.is_some()
             || self.certified_planar_chart.is_some()
             || settings.propagators != 5
             || settings.rank > 7
@@ -760,7 +935,8 @@ impl ReductionPlan {
                 settings.algorithm,
                 Algorithm::PassarinoVeltman | Algorithm::Hybrid
             )
-            || settings.invariants != InvariantInput::FromShifts
+            || !(settings.invariants == InvariantInput::FromShifts
+                || crate::certified_planar::supplied_six_point_child_settings(settings))
             || settings.input_policy != InputPolicy::Preserve
         {
             return None;
@@ -768,6 +944,12 @@ impl ReductionPlan {
         let mut settings = settings.clone();
         settings.algorithm = Algorithm::PassarinoVeltman;
         Some(settings)
+    }
+
+    pub(crate) fn automatic_affine_settings(&self) -> Option<ReductionSettings> {
+        (!self.special_kinematics && self.certified_affine_chart.is_none()
+            && self.certified_invariant_chart.is_none() && self.certified_planar_chart.is_none()
+            && crate::certified_affine::settings_supported(&self.settings)).then(||self.settings.clone())
     }
 
     pub fn preparation_notes(&self) -> &[String] {
@@ -802,6 +984,7 @@ fn compile_pv(
     snapping: Option<Rc<RefCell<LegacySnapping>>>,
     certified_planar_chart: Option<usize>,
     certified_planar_mask: u8,
+    coordinate_constraints: Option<&mut Vec<crate::pv::CoordinateConstraint>>,
 ) -> Result<(Vec<[Atom; 4]>, Vec<MasterLeaf>, Vec<(Atom, Atom)>), ReductionError> {
     let mut compiler =
         PvCompiler::with_distances(shifts.to_vec(), masses.to_vec(), distances.to_vec(), true)
@@ -809,6 +992,9 @@ fn compile_pv(
     compiler
         .set_analytic_jet_order(analytic_jet_order)
         .map_err(ReductionError::Preparation)?;
+    if coordinate_constraints.is_some() {
+        compiler.set_checked_coordinate_identities().map_err(ReductionError::Preparation)?;
+    }
     if let Some(omitted) = certified_planar_chart {
         compiler
             .set_certified_planar_chart(omitted)
@@ -829,6 +1015,9 @@ fn compile_pv(
         .map(|m| compiler.compile_moment(m.0))
         .collect::<Result<Vec<_>, _>>()
         .map_err(ReductionError::Preparation)?;
+    if let Some(constraints) = coordinate_constraints {
+        constraints.extend_from_slice(compiler.coordinate_constraints());
+    }
     Ok((
         moments,
         compiler.leaves().to_vec(),
@@ -983,7 +1172,8 @@ fn compile_scalar_tensors(
             .set_certified_linear_coordinates(coordinates)
             .map_err(ReductionError::Preparation)?;
     } else if settings.invariants == InvariantInput::FromShifts
-        && settings.input_policy == InputPolicy::Preserve
+        && (settings.input_policy == InputPolicy::Preserve
+            || crate::snapping::highpoint_legacy_domain(settings))
     {
         compiler
             .set_routing(shifts.to_vec())
@@ -1220,7 +1410,7 @@ pub(crate) fn assemble_thin_six_moments(basis:&[Monomial], child_basis:&[Monomia
 fn variable(name: &str) -> Atom {
     Atom::var(symbolica::symbol!(format!("iregi::{name}")))
 }
-fn squared_difference(a: &[Atom; 4], b: &[Atom; 4]) -> Atom {
+pub(crate) fn squared_difference(a: &[Atom; 4], b: &[Atom; 4]) -> Atom {
     (&a[0] - &b[0]).pow(2)
         - (&a[1] - &b[1]).pow(2)
         - (&a[2] - &b[2]).pow(2)
@@ -1823,7 +2013,8 @@ mod tests {
                 analytic_jet_order: 2,
                 bubble_equal_masses: None,
                 zero_invariants: None,
-                certified_planar_mask: 0,
+                certified_planar_mask: 0, certified_affine_chart: None,
+                certified_invariant_chart: None,
                 thin_six_child_rank: None,
                 thin_seven_child_rank: None,
             })
@@ -1916,7 +2107,7 @@ mod planar_mask_variant_tests {
         let masked=ReductionPlan::new_certified_planar_masked(configuration(),3,8).unwrap();
         let first=masked.with_analytic_jet_order(2).unwrap();let again=masked.with_analytic_jet_order(2).unwrap();
         assert_eq!(first.certified_planar_mask,8);assert_eq!(first.certified_planar_chart,Some(3));assert_eq!(first.analytic_jet_order,2);assert!(Arc::ptr_eq(&first,&again));
-        assert!(masked.variant_cache.lock().unwrap().contains_key(&PlanVariant{analytic_jet_order:2,bubble_equal_masses:None,zero_invariants:None,certified_planar_mask:8,thin_six_child_rank:None,thin_seven_child_rank:None}));
+        assert!(masked.variant_cache.lock().unwrap().contains_key(&PlanVariant{analytic_jet_order:2,bubble_equal_masses:None,zero_invariants:None,certified_planar_mask:8, certified_affine_chart: None,certified_invariant_chart:None,thin_six_child_rank:None,thin_seven_child_rank:None}));
         let unmasked=ReductionPlan::new_certified_planar(configuration(),3).unwrap().with_analytic_jet_order(2).unwrap();
         assert_eq!(unmasked.certified_planar_mask,0);assert!(!Arc::ptr_eq(&first,&unmasked));
         assert_ne!(first.expressions(),unmasked.expressions());
@@ -1946,16 +2137,16 @@ mod generic_thin_variant_tests {
         assert_eq!(rebuilt.expressions(),plan.expressions());
         assert!(plan.variant_cache.lock().unwrap().contains_key(&PlanVariant {
             analytic_jet_order:2,bubble_equal_masses:None,zero_invariants:None,
-            certified_planar_mask:0,thin_six_child_rank:Some(0),thin_seven_child_rank:None,
+            certified_planar_mask:0, certified_affine_chart: None,certified_invariant_chart:None,thin_six_child_rank:Some(0),thin_seven_child_rank:None,
         }));
         assert!(plan.with_zero_invariants(ZeroInvariantProfile {masses:vec![false;6],distances:Vec::new()}).is_err());
         assert!(plan.variant(PlanVariant {
             analytic_jet_order:2,bubble_equal_masses:None,zero_invariants:None,
-            certified_planar_mask:0,thin_six_child_rank:Some(1),thin_seven_child_rank:None,
+            certified_planar_mask:0, certified_affine_chart: None,certified_invariant_chart:None,thin_six_child_rank:Some(1),thin_seven_child_rank:None,
         }).is_err());
         assert!(plan.variant(PlanVariant {
             analytic_jet_order:2,bubble_equal_masses:None,zero_invariants:None,
-            certified_planar_mask:8,thin_six_child_rank:Some(0),thin_seven_child_rank:None,
+            certified_planar_mask:8, certified_affine_chart: None,certified_invariant_chart:None,thin_six_child_rank:Some(0),thin_seven_child_rank:None,
         }).is_err());
     }
 }
@@ -2035,5 +2226,89 @@ mod certified_planar_generalized_tests {
                     leaf.kind == MasterLeafKind::FourDimensional && leaf.active.len() <= 4));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod checked_tensor_chart_context_tests {
+    use super::*;
+
+    #[test]
+    fn scalar_tensor_and_unchecked_chart_modes_have_distinct_cache_identity() {
+        let base = PlanVariant {
+            analytic_jet_order: 2,
+            bubble_equal_masses: None,
+            zero_invariants: None,
+            certified_planar_mask: 0, certified_affine_chart: None,
+            thin_six_child_rank: None,
+            thin_seven_child_rank: None,
+            certified_invariant_chart: None,
+        };
+        let mut scalar = base.clone();
+        scalar.certified_invariant_chart = Some(CertifiedInvariantChart::Scalar([1,2,3,4]));
+        let mut tensor = base.clone();
+        tensor.certified_invariant_chart = Some(CertifiedInvariantChart::CartesianTensor([1,2,3,4]));
+        assert_ne!(base, scalar);
+        assert_ne!(scalar, tensor);
+        assert!(!scalar.certified_invariant_chart.unwrap().tensor_completion_allowed());
+        assert!(tensor.certified_invariant_chart.unwrap().tensor_completion_allowed());
+        let mut other_chart = tensor.clone();
+        other_chart.certified_invariant_chart = Some(CertifiedInvariantChart::CartesianTensor([1,2,3,5]));
+        assert_ne!(tensor, other_chart);
+    }
+
+    #[test]
+    fn packed_supplied_tensor_variant_retains_original_input_and_imported_context() {
+        let mut settings=ReductionSettings::new(6,0);
+        settings.algorithm=Algorithm::PassarinoVeltman;
+        settings.invariants=InvariantInput::SuppliedScalarProducts;
+        settings.convention=crate::Convention::MadLoop;
+        settings.tensor_weights=crate::TensorWeights::Multinomial;
+        assert!(ReductionPlan::new(settings.clone()).is_err(),"unchecked public N6 G guard remains");
+        let plan=ReductionPlan::new_certified_tensor(settings.clone(),[1,2,3,4]).unwrap();
+        eprintln!("packed-G structural test: initial parent prepared");
+        assert_eq!(plan.layout.scalar_products,Some(24..45));assert_eq!(plan.layout.masses,45..51);
+        assert_eq!(plan.layout.scale,51);assert_eq!(plan.thin_six_child_rank,Some(0));
+        assert_eq!(plan.parameter_count(),100);assert_eq!(plan.external_primal_seeds.len(),24);
+        let variant=plan.with_analytic_jet_order(2).unwrap();let cached=plan.with_analytic_jet_order(2).unwrap();
+        assert!(Arc::ptr_eq(&variant,&cached));assert_eq!(variant.parameters,plan.parameters);
+        assert_eq!(variant.aliases,plan.aliases);assert_eq!(variant.moments,plan.moments);
+        assert!(!Arc::ptr_eq(&variant.execution_cache,&plan.execution_cache));
+        assert!(!Arc::ptr_eq(&variant.variant_cache,&plan.variant_cache));
+        eprintln!("packed-G structural test: analytic variant reused exact parent graph with fresh caches");
+        assert_eq!(variant.layout.scalar_products,Some(24..45));assert_eq!(variant.thin_six_child_rank,Some(0));
+        assert_eq!(variant.analytic_jet_order,2);assert_eq!(variant.external_primal_seeds,plan.external_primal_seeds);
+        assert_eq!(serde_json::to_value(variant.settings()).unwrap(),serde_json::to_value(settings).unwrap());
+        assert!(plan.variant(PlanVariant {analytic_jet_order:2,bubble_equal_masses:None,zero_invariants:None,
+            certified_planar_mask:0,certified_affine_chart:None,thin_six_child_rank:None,thin_seven_child_rank:None,
+            certified_invariant_chart:None}).is_err());
+    }
+
+    #[test]
+    #[ignore = "real N6 supplied-G tensor symbolic preparation; requires a separate finite source-reviewed run"]
+    fn checked_tensor_proof_mode_survives_full_dual_variant_rebuild() {
+        let mut settings = ReductionSettings::new(6,1);
+        settings.powers[0] = 2;
+        settings.invariants = InvariantInput::SuppliedScalarProducts;
+        settings.algorithm = Algorithm::PassarinoVeltman;
+        let plan = ReductionPlan::new_certified_tensor(settings,[1,2,3,4]).unwrap();
+        let variant = plan.with_analytic_jet_order(2).unwrap();
+        let again = plan.with_analytic_jet_order(2).unwrap();
+        assert!(Arc::ptr_eq(&variant,&again));
+        assert_eq!(variant.certified_invariant_chart,Some(CertifiedInvariantChart::CartesianTensor([1,2,3,4])));
+        assert_eq!(variant.settings.rank,1);
+        assert_eq!(variant.settings.powers,vec![2,1,1,1,1,1]);
+        assert_eq!(variant.algorithm_used(),Algorithm::Ibp);
+        assert_eq!(variant.layout.scalar_products,Some(24..45));
+        assert_eq!(variant.parameters,plan.parameters);
+        assert_eq!(variant.external_primal_seeds,plan.external_primal_seeds);
+        let mut wrong = PlanVariant {
+            analytic_jet_order:2,bubble_equal_masses:None,zero_invariants:None,
+            certified_planar_mask:0, certified_affine_chart: None,thin_six_child_rank:None,thin_seven_child_rank:None,
+            certified_invariant_chart:Some(CertifiedInvariantChart::Scalar([1,2,3,4])),
+        };
+        assert!(matches!(plan.variant(wrong.clone()),Err(ReductionError::Unsupported(_))));
+        wrong.certified_invariant_chart=None;
+        assert!(matches!(plan.variant(wrong),Err(ReductionError::Unsupported(_))));
     }
 }

@@ -53,7 +53,7 @@ impl ContractionPlan {
         )
     }
 
-    fn from_basis(
+    pub(crate) fn from_basis(
         basis: &[Monomial],
         convention: Convention,
         weights: TensorWeights,

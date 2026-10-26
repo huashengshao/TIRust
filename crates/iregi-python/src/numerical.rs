@@ -38,7 +38,7 @@ pub struct PyReductionPlan {
 impl PyReductionPlan {
     /// Prepare immutable recurrence structure. dimension_shift is h in D=4+2h-2ε.
     #[new]
-    #[pyo3(signature = (propagators, rank, *, powers=None, dimension_shift=0, algorithm="hybrid", convention="iregi", invariants="shifts", input_policy="preserve", on_shell_threshold=None, tensor_weights="components"))]
+    #[pyo3(signature = (propagators, rank, *, powers=None, dimension_shift=0, algorithm="hybrid", convention="iregi", invariants="shifts", input_policy="preserve", on_shell_threshold=None, tensor_weights="components", check_scalar_products=false))]
     fn new(
         propagators: usize,
         rank: u16,
@@ -50,6 +50,7 @@ impl PyReductionPlan {
         input_policy: &str,
         on_shell_threshold: Option<String>,
         tensor_weights: &str,
+        check_scalar_products: bool,
     ) -> PyResult<Self> {
         let mut settings = ReductionSettings::new(propagators, rank);
         if let Some(powers) = powers {
@@ -111,8 +112,19 @@ impl PyReductionPlan {
                 ));
             }
         };
+        let plan = if check_scalar_products {
+            if settings.invariants != InvariantInput::SuppliedScalarProducts {
+                return Err(PyValueError::new_err(
+                    "check_scalar_products requires invariants='scalar_products'",
+                ));
+            }
+            TensorReductionPlan::new_checked_cartesian(settings)
+        } else {
+            TensorReductionPlan::new(settings)
+        }
+        .map_err(reduction_error)?;
         Ok(Self {
-            inner: Arc::new(TensorReductionPlan::new(settings).map_err(reduction_error)?),
+            inner: Arc::new(plan),
         })
     }
 
@@ -1092,7 +1104,18 @@ fn engine_name(kind: TensorEngineKind) -> &'static str {
     match kind {
         TensorEngineKind::Generic => "generic",
         TensorEngineKind::SixPoint => "six_point",
+        TensorEngineKind::SixPointHybrid => "six_point_hybrid",
+        TensorEngineKind::CertifiedTensor => "certified_tensor",
+        TensorEngineKind::AffinePower => "affine_power",
         TensorEngineKind::SevenPoint => "seven_point",
+    }
+}
+
+fn algorithm_name(algorithm: Algorithm) -> &'static str {
+    match algorithm {
+        Algorithm::Ibp => "ibp",
+        Algorithm::PassarinoVeltman => "pv",
+        Algorithm::Hybrid => "hybrid",
     }
 }
 
@@ -1142,6 +1165,82 @@ fn engine_execution(execution: &TensorEngineExecution, py: Python<'_>) -> PyResu
             )?;
         }
         TensorEngineExecution::SixPoint(value) => packed!(TensorEngineKind::SixPoint, value),
+        TensorEngineExecution::AffinePower(value) => {
+            output.set_item("engine", engine_name(TensorEngineKind::AffinePower))?;
+            output.set_item("input_rows", value.input_rows)?;
+            output.set_item(
+                "certificate_execution",
+                certificate_stats(value.certificate, py)?,
+            )?;
+            output.set_item("profiles", value.profiles)?;
+            output.set_item("dag_nodes", value.dag_nodes)?;
+            output.set_item("dag_edges", value.dag_edges)?;
+            output.set_item("packed_child_rows", value.packed_child_rows)?;
+            output.set_item("child_batch_calls", value.child_batch_calls)?;
+            output.set_item("parent_batch_calls", value.parent_batch_calls)?;
+            output.set_item("parent_rows", value.parent_rows)?;
+            output.set_item("quadrature_work_rows", value.quadrature_work_rows)?;
+            output.set_item("child_execution", stats(value.child_execution, py)?)?;
+            output.set_item("parent_execution", stats(value.parent_execution, py)?)?;
+            let methods = value
+                .child_methods
+                .iter()
+                .map(|method| {
+                    let item = PyDict::new(py);
+                    item.set_item("propagators", method.propagators)?;
+                    item.set_item("powers", &method.powers)?;
+                    item.set_item("requested", algorithm_name(method.requested))?;
+                    item.set_item("actual", method.actual.map(algorithm_name))?;
+                    item.set_item("rows", method.rows)?;
+                    item.set_item("notes", &method.notes)?;
+                    Ok(item.unbind())
+                })
+                .collect::<PyResult<Vec<_>>>()?;
+            output.set_item("child_methods", methods)?;
+        }
+        TensorEngineExecution::CertifiedTensor {
+            execution,
+            certificate_execution,
+        } => {
+            output.set_item("engine", engine_name(TensorEngineKind::CertifiedTensor))?;
+            output.set_item("execution", stats(*execution, py)?)?;
+            let certificates = PyDict::new(py);
+            certificates.set_item(
+                "cartesian",
+                certificate_stats(certificate_execution.cartesian, py)?,
+            )?;
+            certificates.set_item("gram", certificate_stats(certificate_execution.gram, py)?)?;
+            output.set_item("certificate_execution", certificates)?;
+        }
+        TensorEngineExecution::SixPointHybrid {
+            primary,
+            fallback,
+            fallback_certificate_execution,
+            fallback_rows,
+            fallback_successes,
+            fallback_batches,
+            fallback_preparation_attempts,
+            fallback_preparation_error,
+        } => {
+            output.set_item("engine", engine_name(TensorEngineKind::SixPointHybrid))?;
+            output.set_item(
+                "primary",
+                engine_execution(&TensorEngineExecution::SixPoint(primary.clone()), py)?,
+            )?;
+            output.set_item("fallback", stats(*fallback, py)?)?;
+            output.set_item(
+                "fallback_certificate_execution",
+                certificate_stats(*fallback_certificate_execution, py)?,
+            )?;
+            output.set_item("fallback_rows", fallback_rows)?;
+            output.set_item("fallback_successes", fallback_successes)?;
+            output.set_item("fallback_batches", fallback_batches)?;
+            output.set_item(
+                "fallback_preparation_attempts",
+                fallback_preparation_attempts,
+            )?;
+            output.set_item("fallback_preparation_error", fallback_preparation_error)?;
+        }
         TensorEngineExecution::SevenPoint(value) => packed!(TensorEngineKind::SevenPoint, value),
     }
     Ok(output.unbind())

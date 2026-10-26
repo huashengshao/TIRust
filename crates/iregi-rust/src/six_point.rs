@@ -4,7 +4,8 @@
 //! The supported domain is unit propagator powers, D=4-2epsilon, preserved
 //! Cartesian shifts, PV, native IREGI normalization and raw tensor components.
 //! Singular charts and unavailable child error contexts remain lane failures.
-//! This interface does not change ordinary or Hybrid reduction dispatch.
+//! The shared TensorReductionPlan facade can use this PV interface as its
+//! Hybrid primary, with a separate lazy genuine IBP fallback.
 //!
 //! Isolated public-API qualification covers the retained real-mass base fixture
 //! with Symbolica Float128/Float256 at requested53; scaled-input lifecycle

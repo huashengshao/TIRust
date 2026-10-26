@@ -5,9 +5,9 @@ use iregi_masters::{Complex, DoubleFloat, Float, NativeFloat};
 use iregi_prepare::{NumeratorSource, PrepareOptions, PreparedGraph, prepare_dot};
 use iregi_rust::{
     Algorithm, BatchResult, CertificateExecutionStats, ContractionWorkspace, Convention,
-    ExecutionStats, KinematicsBatch, NumeratorBatch, PrecisionRescueWorkspace, ReductionSettings,
-    RescueScalar, RescueSettings, RescueStatus, RescueTrigger, TensorEngineExecution,
-    TensorEngineKind, TensorReductionPlan, TensorWorkspace,
+    ExecutionStats, KinematicsBatch, NumeratorBatch, ReductionSettings, RescueScalar,
+    RescueSettings, RescueStatus, RescueTrigger, TensorEngineExecution, TensorEngineKind,
+    TensorReductionPlan, TensorRescueWorkspace, TensorWorkspace,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -93,6 +93,9 @@ impl From<Normalization> for Convention {
 }
 #[derive(Args)]
 struct NumericArgs {
+    /// Check supplied scalar products against Cartesian shifts with the six-point tensor API.
+    #[arg(long)]
+    check_scalar_products: bool,
     /// binary64, Symbolica DoubleFloat, or arbitrary precision.
     #[arg(long, value_enum, default_value = "f64")]
     precision: Precision,
@@ -181,7 +184,7 @@ impl NumericPolicy {
 enum NumericalWorkspace<T: RescueScalar> {
     Ordinary(TensorWorkspace<T>),
     Verified {
-        workspace: PrecisionRescueWorkspace<T>,
+        workspace: TensorRescueWorkspace<T>,
         algorithm_used: Algorithm,
         preparation_notes: Vec<String>,
     },
@@ -193,14 +196,14 @@ where
 {
     fn new(plan: &TensorReductionPlan, prototype: T, policy: NumericPolicy) -> CliResult<Self> {
         if let Some(settings) = policy.rescue {
-            let generic = plan.generic_plan().map_err(|e| e.to_string())?;
-            let mut preparation_notes = vec![
-                "Facade workspace selection: generic; precision rescue.".into(),
-            ];
-            preparation_notes.extend_from_slice(generic.preparation_notes());
+            let workspace = plan
+                .rescue_workspace(prototype, settings)
+                .map_err(|e| e.to_string())?;
+            let algorithm_used = workspace.algorithm_used();
+            let preparation_notes = workspace.preparation_notes().to_vec();
             Ok(Self::Verified {
-                workspace: plan.rescue_workspace(prototype, settings).map_err(|e| e.to_string())?,
-                algorithm_used: generic.algorithm_used(),
+                workspace,
+                algorithm_used,
                 preparation_notes,
             })
         } else {
@@ -222,7 +225,9 @@ where
 
     fn execution(&self) -> CliResult<Value> {
         Ok(execution_json(match self {
-            Self::Ordinary(workspace) => workspace.execution_summary().map_err(|e| e.to_string())?,
+            Self::Ordinary(workspace) => {
+                workspace.execution_summary().map_err(|e| e.to_string())?
+            }
             Self::Verified { workspace, .. } => workspace.last_execution().primary,
         }))
     }
@@ -231,9 +236,12 @@ where
         match self {
             Self::Ordinary(workspace) => engine_execution_json(workspace.engine_execution()),
             Self::Verified { workspace, .. } => json!({
-                "engine":"Generic", "execution":execution_json(workspace.last_execution().primary),
-                "certificate_execution":null,
-                "certificate_scope":"the existing precision-rescue API does not expose certificate counters"
+                "engine":format!("{:?}", workspace.engine_kind()),
+                "execution":execution_json(workspace.last_execution().primary),
+                "primary":workspace.primary_engine_execution().map(engine_execution_json),
+                "working":workspace.working_engine_execution().map(engine_execution_json),
+                "verification":workspace.verification_engine_execution().map(engine_execution_json),
+                "certificate_scope":"available certificate counters are retained in the actual tagged stage; the legacy generic rescue does not expose them"
             }),
         }
     }
@@ -241,7 +249,10 @@ where
     fn algorithm_used(&self, plan: &TensorReductionPlan) -> CliResult<Algorithm> {
         match self {
             Self::Ordinary(workspace) if workspace.engine_kind() == TensorEngineKind::Generic => {
-                Ok(plan.generic_plan().map_err(|e| e.to_string())?.algorithm_used())
+                Ok(plan
+                    .generic_plan()
+                    .map_err(|e| e.to_string())?
+                    .algorithm_used())
             }
             // Specialized wrappers preserve their validated requested algorithm.
             // The tagged engine/counters describe their actual nested work.
@@ -253,14 +264,16 @@ where
     fn preparation_notes(&self) -> &[String] {
         match self {
             Self::Ordinary(workspace) => workspace.preparation_notes(),
-            Self::Verified { preparation_notes, .. } => preparation_notes,
+            Self::Verified {
+                preparation_notes, ..
+            } => preparation_notes,
         }
     }
 
     fn diagnostics(&self) -> Value {
         match self {
             Self::Ordinary(workspace) => json!(workspace.last_diagnostics()),
-            Self::Verified { .. } => Value::Null,
+            Self::Verified { workspace, .. } => json!(workspace.last_diagnostics()),
         }
     }
 
@@ -309,7 +322,10 @@ fn certificate_execution_json(stats: CertificateExecutionStats) -> Value {
 
 fn engine_execution_json(detail: TensorEngineExecution) -> Value {
     match detail {
-        TensorEngineExecution::Generic { execution, certificate_execution } => json!({
+        TensorEngineExecution::Generic {
+            execution,
+            certificate_execution,
+        } => json!({
             "engine":"Generic","execution":execution_json(execution),
             "certificate_execution":certificate_execution_json(certificate_execution)
         }),
@@ -321,6 +337,52 @@ fn engine_execution_json(detail: TensorEngineExecution) -> Value {
             "parent_execution":execution_json(stats.parent_execution),
             "child_certificate_execution":certificate_execution_json(stats.child_certificate_execution),
             "parent_certificate_execution":certificate_execution_json(stats.parent_certificate_execution)
+        }),
+        TensorEngineExecution::AffinePower(stats) => json!({
+            "engine":"AffinePower", "input_rows":stats.input_rows,
+            "certificate_execution":certificate_execution_json(stats.certificate),
+            "profiles":stats.profiles, "dag_nodes":stats.dag_nodes, "dag_edges":stats.dag_edges,
+            "packed_child_rows":stats.packed_child_rows,
+            "child_batch_calls":stats.child_batch_calls,
+            "parent_batch_calls":stats.parent_batch_calls, "parent_rows":stats.parent_rows,
+            "quadrature_work_rows":stats.quadrature_work_rows,
+            "child_execution":execution_json(stats.child_execution),
+            "parent_execution":execution_json(stats.parent_execution),
+            "child_methods":stats.child_methods.iter().map(|method| json!({
+                "propagators":method.propagators,"powers":method.powers,
+                "requested":format!("{:?}",method.requested),
+                "actual":method.actual.map(|value|format!("{value:?}")),
+                "rows":method.rows,"notes":method.notes
+            })).collect::<Vec<_>>()
+        }),
+        TensorEngineExecution::CertifiedTensor {
+            execution,
+            certificate_execution,
+        } => json!({
+            "engine":"CertifiedTensor", "execution":execution_json(execution),
+            "certificate_execution":{
+                "cartesian":certificate_execution_json(certificate_execution.cartesian),
+                "gram":certificate_execution_json(certificate_execution.gram)
+            }
+        }),
+        TensorEngineExecution::SixPointHybrid {
+            primary,
+            fallback,
+            fallback_certificate_execution,
+            fallback_rows,
+            fallback_successes,
+            fallback_batches,
+            fallback_preparation_attempts,
+            fallback_preparation_error,
+        } => json!({
+            "engine":"SixPointHybrid",
+            "primary":engine_execution_json(TensorEngineExecution::SixPoint(primary)),
+            "fallback":execution_json(fallback),
+            "fallback_certificate_execution":certificate_execution_json(fallback_certificate_execution),
+            "fallback_rows":fallback_rows,"fallback_successes":fallback_successes,
+            "fallback_batches":fallback_batches,
+            "fallback_preparation_attempts":fallback_preparation_attempts,
+            "fallback_preparation_error":fallback_preparation_error
         }),
         TensorEngineExecution::SevenPoint(stats) => json!({
             "engine":"SevenPoint","parent_input_rows":stats.parent_input_rows,
@@ -545,6 +607,21 @@ fn dispatch_reduction(
         ),
     }
 }
+fn tensor_plan(
+    settings: ReductionSettings,
+    numeric: &NumericArgs,
+) -> CliResult<TensorReductionPlan> {
+    let plan = if numeric.check_scalar_products {
+        if settings.invariants != iregi_rust::InvariantInput::SuppliedScalarProducts {
+            return Err("--check-scalar-products requires scalar_products in the input".into());
+        }
+        TensorReductionPlan::new_checked_cartesian(settings)
+    } else {
+        TensorReductionPlan::new(settings)
+    };
+    plan.map_err(|error| error.to_string())
+}
+
 fn reduce<T: RescueScalar>(
     samples: &[Sample],
     settings: ReductionSettings,
@@ -558,7 +635,7 @@ where
     let policy = numeric.resolve(prototype.get_precision())?;
     let batch = pack(samples, &prototype, false)?;
     let started = Instant::now();
-    let plan = TensorReductionPlan::new(settings.clone()).map_err(|e| e.to_string())?;
+    let plan = tensor_plan(settings.clone(), numeric)?;
     let mut workspace = NumericalWorkspace::new(&plan, prototype.clone(), policy)?;
     let preparation_seconds = started.elapsed().as_secs_f64();
     let started = Instant::now();
@@ -662,8 +739,9 @@ where
         coefficients[row * width..(row + 1) * width]
             .clone_from_slice(&output.values[compact * width..(compact + 1) * width]);
     }
-    let contraction_plan =
-        plan.contraction_plan(coefficient_plan.support()).map_err(|e| e.to_string())?;
+    let contraction_plan = plan
+        .contraction_plan(coefficient_plan.support())
+        .map_err(|e| e.to_string())?;
     let mut workspace = ContractionWorkspace::new(&contraction_plan, prototype.clone())
         .map_err(|e| e.to_string())?;
     let contracted = workspace
@@ -711,12 +789,18 @@ mod tests {
         let mut invalid = valid.clone();
         invalid.id = "invalid-scale".into();
         invalid.mu = Literal::Text("0".into());
-        let Command::Reduce(parsed) = Cli::try_parse_from([
-            "iregi-rust", "reduce", "--input", "unused.json",
-        ]).unwrap().command else { unreachable!() };
+        let Command::Reduce(parsed) =
+            Cli::try_parse_from(["iregi-rust", "reduce", "--input", "unused.json"])
+                .unwrap()
+                .command
+        else {
+            unreachable!()
+        };
         assert!(matches!(parsed.algorithm, Method::Hybrid));
-        let settings = settings(&valid, 0, parsed.algorithm.into(), parsed.convention.into()).unwrap();
-        let (output, success) = reduce(&[valid, invalid], settings, 0f64, None, &parsed.numeric).unwrap();
+        let settings =
+            settings(&valid, 0, parsed.algorithm.into(), parsed.convention.into()).unwrap();
+        let (output, success) =
+            reduce(&[valid, invalid], settings, 0f64, None, &parsed.numeric).unwrap();
         assert!(!success);
         assert_eq!(output["algorithm_requested"], "Hybrid");
         assert_eq!(output["engine_execution"]["engine"], "Generic");
@@ -727,7 +811,10 @@ mod tests {
         assert_eq!(output["samples"][0]["moments"].as_array().unwrap().len(), 1);
         assert_eq!(output["samples"][1]["status"], "failed");
         assert!(output["samples"][1]["moments"].is_null());
-        assert_eq!(output["samples"][1]["reason"], "InvalidInput(\"mu must be positive and real\")");
+        assert_eq!(
+            output["samples"][1]["reason"],
+            "InvalidInput(\"mu must be positive and real\")"
+        );
         assert_eq!(output["diagnostics"].as_array().unwrap().len(), 2);
         assert_eq!(output["precision_control"]["accuracy_bits"], 53);
     }
@@ -737,22 +824,57 @@ mod tests {
         let sample: Sample = serde_json::from_str(
             r#"{"id":"massive","propagators":[{"shift":["0","0","0","0"],"mass_squared":"4"}],"mu":"3"}"#,
         ).unwrap();
-        let settings = settings(&sample, 0, Algorithm::PassarinoVeltman, Convention::IregiNative).unwrap();
-        let (output, success) = reduce(&[sample], settings, 0f64, None,
-            &numeric_options(&["--rescue", "--accuracy-bits", "53"])).unwrap();
+        let settings = settings(
+            &sample,
+            0,
+            Algorithm::PassarinoVeltman,
+            Convention::IregiNative,
+        )
+        .unwrap();
+        let (output, success) = reduce(
+            &[sample],
+            settings,
+            0f64,
+            None,
+            &numeric_options(&["--rescue", "--accuracy-bits", "53"]),
+        )
+        .unwrap();
         assert!(success);
         assert_eq!(output["engine_execution"]["engine"], "Generic");
         assert_eq!(output["execution"], output["engine_execution"]["execution"]);
         assert_eq!(output["algorithm_used"], "PassarinoVeltman");
-        assert!(output["preparation_notes"].as_array().unwrap().iter()
-            .any(|note| note.as_str().unwrap().contains("precision rescue")));
+        assert!(
+            output["preparation_notes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|note| note.as_str().unwrap().contains("precision rescue"))
+        );
         assert!(output["engine_execution"]["certificate_execution"].is_null());
-        assert!(output["diagnostics"].is_null());
-        assert_eq!(output["samples"][0]["precision_rescue"]["status"], "converged");
+        assert_eq!(output["diagnostics"].as_array().unwrap().len(), 1);
+        // The existing generic rescue exposes primary lane diagnostics but
+        // does not expose tagged stage/certificate execution details.
+        for stage in ["primary", "working", "verification"] {
+            assert!(output["engine_execution"][stage].is_null());
+        }
+        assert_eq!(
+            output["samples"][0]["precision_rescue"]["status"],
+            "converged"
+        );
         assert_eq!(output["rescue_execution"]["requested_rows"], 1);
         assert_eq!(output["rescue_execution"]["accepted_rows"], 1);
-        assert!(output["rescue_execution"]["working"]["master_rows"].as_u64().unwrap() > 0);
-        assert!(output["rescue_execution"]["verification"]["master_rows"].as_u64().unwrap() > 0);
+        assert!(
+            output["rescue_execution"]["working"]["master_rows"]
+                .as_u64()
+                .unwrap()
+                > 0
+        );
+        assert!(
+            output["rescue_execution"]["verification"]["master_rows"]
+                .as_u64()
+                .unwrap()
+                > 0
+        );
     }
 
     #[test]
@@ -938,11 +1060,32 @@ mod tests {
             Err(iregi_rust::ReductionError::InvalidInput(_))
         ));
         sample.threshold = None;
-        sample.propagators = vec![sample.propagators[0].clone(); 5];
+        // The conservative checked Legacy path now admits N5/N6. Exercise
+        // the still-unsupported N7 boundary without changing any kinematics.
+        sample.propagators = vec![sample.propagators[0].clone(); 7];
         assert!(
             matches!(TensorReductionPlan::new(settings(&sample, 0, Algorithm::Ibp, Convention::IregiNative).unwrap()),
-            Err(iregi_rust::ReductionError::Unsupported(reason)) if reason.contains("five or more"))
+            Err(iregi_rust::ReductionError::Unsupported(reason)) if reason.contains("N=5 or 6"))
         );
+    }
+
+    #[test]
+    fn checked_scalar_products_are_explicit_and_preserve_the_guarded_layout() {
+        let options = numeric_options(&["--check-scalar-products"]);
+        let mut settings = ReductionSettings::new(6, 1);
+        assert!(
+            tensor_plan(settings.clone(), &options)
+                .unwrap_err()
+                .contains("requires scalar_products")
+        );
+        settings.invariants = iregi_rust::InvariantInput::SuppliedScalarProducts;
+        assert!(tensor_plan(settings.clone(), &numeric_options(&[])).is_err());
+        let checked = tensor_plan(settings.clone(), &options).unwrap();
+        assert_eq!(checked.engine_kind(), TensorEngineKind::CertifiedTensor);
+        assert_eq!(checked.settings().algorithm, settings.algorithm);
+        assert_eq!(checked.settings().invariants, settings.invariants);
+        assert_eq!(checked.input_layout().scalar_products, Some(24..45));
+        assert_eq!(checked.parameter_count(), 52);
     }
 
     #[test]
@@ -1046,7 +1189,7 @@ where
     for (_, (settings, fixtures)) in groups {
         let samples: Vec<_> = fixtures.iter().map(|f| f.input.clone()).collect();
         let attempt: CliResult<_> = (|| {
-            let plan = TensorReductionPlan::new(settings.clone()).map_err(|e| e.to_string())?;
+            let plan = tensor_plan(settings.clone(), &args.numeric)?;
             let mut workspace = NumericalWorkspace::new(&plan, prototype.clone(), policy)?;
             let result = workspace.reduce_batch(&pack(&samples, &prototype, true)?)?;
             Ok((

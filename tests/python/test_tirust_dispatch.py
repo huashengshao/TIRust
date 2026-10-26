@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from tirust import ComplexFloat, Dual, Float, LaneError, ReductionPlan
+from tirust import ComplexFloat, Dual, Float, LaneError, ReductionError, ReductionPlan
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -83,16 +83,65 @@ def test_explicit_dual_shape_uses_generic_and_preserves_components(shape):
         assert all(component == 0 for component in value.values[1:])
 
 
-def test_highpoint_profiling_and_zero_order_dual_keep_generic_capabilities():
+def test_highpoint_profiling_and_zero_order_dual_keep_affine_capabilities():
     plan = ReductionPlan(6, 0, algorithm="pv")
     for options in ({"profiling": True}, {"dual_shape": [[0]]}):
         workspace = plan.workspace(dtype="float", precision=128, accuracy_bits=53, **options)
-        assert workspace.engine == "generic"
-        assert workspace.preparation_notes
+        assert workspace.engine == "affine_power"
+        assert any("AffinePower" in note for note in workspace.preparation_notes)
         empty = workspace.reduce_batch([])
-        assert empty.engine_execution["engine"] == "generic"
-        assert empty.stats["input_rows"] == 0
+        detail = empty.engine_execution
+        assert detail["engine"] == "affine_power"
+        assert detail["input_rows"] == empty.stats["input_rows"] == 0
+        assert detail["child_batch_calls"] == detail["parent_batch_calls"] == 0
+        assert detail["packed_child_rows"] == 0
+        assert detail["child_methods"] == []
         assert (empty.profile is not None) == options.get("profiling", False)
+        if "dual_shape" in options:
+            assert workspace.dual_shape == options["dual_shape"]
+
+
+def test_checked_scalar_products_require_explicit_compatible_inputs():
+    with pytest.raises(ValueError, match="requires invariants='scalar_products'"):
+        ReductionPlan(6, 0, check_scalar_products=True)
+    with pytest.raises(ReductionError):
+        ReductionPlan(6, 0, invariants="scalar_products")
+    plan = ReductionPlan(6, 0, invariants="scalar_products", check_scalar_products=True)
+    assert plan.parameter_count == 52
+    assert plan.input_layout["scalar_products"] == (24, 45)
+    assert plan.powers == [1] * 6 and plan.dimension_shift == 0
+    with pytest.raises(ValueError, match="scalar_products must be supplied"):
+        _batch(plan, _fixture(6), ["3"])
+
+
+@pytest.mark.parametrize("options", [{}, {"profiling": True}, {"dual_shape": [[0]]}])
+def test_checked_scalar_products_cannot_bypass_certificates(options):
+    # Deliberately incompatible data: nonzero Cartesian vectors and zero G.
+    # The test supplies inputs; it performs no invariant reconstruction.
+    plan = ReductionPlan(6, 0, invariants="scalar_products", check_scalar_products=True)
+    workspace = plan.workspace(**options)
+    assert workspace.engine == "certified_tensor"
+    batch = plan.pack(
+        shifts=[[[0, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0],
+                 [0, 0, 0, 1], [1, 0, 0, 0], [0, 1, 1, 0]]],
+        masses_squared=[[1, 2, 3, 4, 2, 3]], mu=[3], scalar_products=[[0] * 21],
+    )
+    result = workspace.reduce_batch(batch)
+    assert result.statuses == ("invalid_input",)
+    assert result.lanes() == (None,)
+    with pytest.raises(LaneError):
+        result.lane(0)
+    detail = result.engine_execution
+    assert detail["engine"] == "certified_tensor"
+    assert detail["execution"]["master_rows"] == 0
+    assert detail["execution"]["reduction_rows"] == 0
+    assert detail["certificate_execution"]["cartesian"]["evaluated_rows"] == 1
+    assert detail["certificate_execution"]["gram"]["evaluated_rows"] == 0
+    assert (result.profile is not None) == options.get("profiling", False)
+    empty = workspace.reduce_batch([])
+    assert empty.stats["input_rows"] == 0
+    assert empty.engine_execution["certificate_execution"]["cartesian"]["input_rows"] == 0
+    assert result.engine_execution == detail
 
 
 @pytest.mark.parametrize("n,rank,kind,subsets", [(6, 1, "six_point", 6), (7, 0, "seven_point", 21)])

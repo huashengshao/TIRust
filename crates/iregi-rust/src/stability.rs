@@ -72,6 +72,7 @@ pub(crate) struct StabilityPlan {
     snapping_labels: Vec<String>,
     snapping_threshold: Option<Atom>,
     snapping_zero_image: Option<Atom>,
+    snapping_compatibility: Vec<(crate::snapping::SnapCompatibilityQuery, Atom)>,
     checks: Vec<Check>,
     output_dimensions: Vec<i32>,
     layout: InputLayout,
@@ -92,6 +93,7 @@ impl StabilityPlan {
             snapping_labels: Vec::new(),
             snapping_threshold: None,
             snapping_zero_image: None,
+            snapping_compatibility: Vec::new(),
             checks: Vec::new(),
             output_dimensions: Vec::new(),
             layout: plan.layout.clone(),
@@ -273,8 +275,13 @@ impl StabilityPlan {
         self.snapping_zero_image.as_ref()
     }
 
+    pub(crate) fn snapping_compatibility(&self) -> &[(crate::snapping::SnapCompatibilityQuery, Atom)] {
+        &self.snapping_compatibility
+    }
+
     fn prepare_snapping_diagnostics(&mut self, plan: &ReductionPlan) -> Result<(), ReductionError> {
-        if plan.snapping_diagnostics.is_empty() && !plan.snapping_zero_image_required {
+        if plan.snapping_diagnostics.is_empty() && !plan.snapping_zero_image_required
+            && plan.snapping_compatibility.is_empty() {
             return Ok(());
         }
         // Activation aliases contain a subset of existing aliases plus fresh
@@ -367,6 +374,11 @@ impl StabilityPlan {
             collect_alias_uses(body.as_view(), &active, &definitions, &mut uses);
             demanded.insert(alias.clone(), active);
         }
+        for query in &plan.snapping_compatibility {
+            if let Some(active) = demanded.get(&query.output) {
+                self.snapping_compatibility.push((query.clone(), active.clone()));
+            }
+        }
         let mut active_paths = BTreeSet::new();
         for diagnostic in &plan.snapping_diagnostics {
             let Some(active) = demanded.get(&diagnostic.owner) else {
@@ -388,7 +400,8 @@ impl StabilityPlan {
             self.snapping_labels.push(diagnostic.label.clone());
             active_paths.insert(active.clone());
         }
-        if self.snapping_expressions.is_empty() && !plan.snapping_zero_image_required {
+        if self.snapping_expressions.is_empty() && !plan.snapping_zero_image_required
+            && self.snapping_compatibility.is_empty() {
             return Ok(());
         }
         // A diagonal-only IBP tadpole may require the compatibility probe even
@@ -416,6 +429,10 @@ impl StabilityPlan {
             .chain(self.snapping_zero_image.iter())
             .cloned()
             .collect();
+        pending.extend(self.snapping_compatibility.iter().flat_map(|(query, active)| {
+            std::iter::once(active.clone())
+                .chain(query.choices.iter().map(|(choice, _)| choice.clone()))
+        }));
         while let Some(expression) = pending.pop() {
             for symbol in expression.get_all_symbols(false) {
                 let alias = Atom::var(symbol);
@@ -1217,6 +1234,30 @@ fn master_amplitude(
     expression: &Atom,
     amplitudes: &HashMap<Atom, Atom>,
 ) -> Result<Atom, ReductionError> {
+    // The amplitude environment is immutable throughout this one traversal.
+    // Repeated conditional subtrees share the same Symbolica result. A fresh
+    // map per call prevents aliases defined later from reusing an older scope.
+    master_amplitude_cached(expression, amplitudes, &mut HashMap::new())
+}
+
+fn master_amplitude_cached(
+    expression: &Atom,
+    amplitudes: &HashMap<Atom, Atom>,
+    memo: &mut HashMap<Atom, Atom>,
+) -> Result<Atom, ReductionError> {
+    if let Some(value) = memo.get(expression) {
+        return Ok(value.clone());
+    }
+    let value = master_amplitude_uncached(expression, amplitudes, memo)?;
+    memo.insert(expression.clone(), value.clone());
+    Ok(value)
+}
+
+fn master_amplitude_uncached(
+    expression: &Atom,
+    amplitudes: &HashMap<Atom, Atom>,
+    memo: &mut HashMap<Atom, Atom>,
+) -> Result<Atom, ReductionError> {
     if let Some(amplitude) = amplitudes.get(expression) {
         return Ok(amplitude.clone());
     }
@@ -1226,8 +1267,8 @@ fn master_amplitude(
     if let Some((condition, yes, no)) = if_parts(expression.as_view()) {
         return Ok(Symbol::IF.call((
             condition,
-            master_amplitude(&yes.to_owned(), amplitudes)?,
-            master_amplitude(&no.to_owned(), amplitudes)?,
+            master_amplitude_cached(&yes.to_owned(), amplitudes, memo)?,
+            master_amplitude_cached(&no.to_owned(), amplitudes, memo)?,
         )));
     }
     let mut variables = BTreeSet::new();
@@ -1235,7 +1276,7 @@ fn master_amplitude(
     let variables: Vec<_> = variables.into_iter().collect();
     let variable_amplitudes = variables
         .iter()
-        .map(|variable| master_amplitude(variable, amplitudes))
+        .map(|variable| master_amplitude_cached(variable, amplitudes, memo))
         .collect::<Result<Vec<_>, _>>()?;
     let field = AtomField {
         statistical_zero_test: false,
@@ -1816,6 +1857,7 @@ mod tests {
             snapping_labels: Vec::new(),
             snapping_threshold: None,
             snapping_zero_image: None,
+            snapping_compatibility: Vec::new(),
             checks: vec![Check {
                 value: 0,
                 terms: vec![1, 2],
@@ -2020,6 +2062,51 @@ mod tests {
         );
         assert!(master_amplitude(&x.pow(2), &amplitudes).is_err());
         assert!(master_amplitude(&Symbol::EXP.call((&x,)), &amplitudes).is_err());
+    }
+
+    #[test]
+    fn repeated_conditional_subexpressions_reuse_primal_amplitude_recipes() {
+        let x = Atom::var(symbolica::symbol!("iregi_memo_test::x"));
+        let mut expression = x.clone();
+        let mut expected = Symbol::ABS.call((&x,));
+        for index in 0..10 {
+            let condition = Atom::var(symbolica::symbol!(format!("iregi_memo_test::p{index}")));
+            expression = Symbol::IF.call((&condition, &expression, -&expression));
+            expected = Symbol::IF.call((&condition, &expected, Symbol::ABS.call((Atom::num(-1),)) * &expected));
+        }
+        let amplitudes = HashMap::from([(x.clone(), Symbol::ABS.call((&x,)))]);
+        eprintln!("conditional input and expected recipes constructed");
+        let mut memo = HashMap::new();
+        let actual = master_amplitude_cached(&expression, &amplitudes, &mut memo).unwrap();
+        eprintln!("cached amplitude traversal completed: {} unique expressions", memo.len());
+        assert_eq!(actual, expected);
+        assert!(memo.len() <= 3 * 10 + 2, "unique subtree count {}", memo.len());
+    }
+
+    #[test]
+    fn primal_amplitude_memo_is_scoped_to_the_current_alias_environment() {
+        let x = Atom::var(symbolica::symbol!("iregi_memo_context::x"));
+        let expression = Atom::num(3) * &x + Atom::num(7);
+        let first = master_amplitude(&expression, &HashMap::from([(x.clone(), Atom::num(2))])).unwrap();
+        let second = master_amplitude(&expression, &HashMap::from([(x, Atom::num(5))])).unwrap();
+        assert_eq!(first, Atom::num(13));
+        assert_eq!(second, Atom::num(22));
+    }
+
+    #[test]
+    fn cached_primal_amplitude_keeps_inactive_zero_denominator_lazy_in_a_batch() {
+        use symbolica::domains::dual::HyperDual;
+        let p = Atom::var(symbolica::symbol!("iregi_memo_lazy::p"));
+        let x = Atom::var(symbolica::symbol!("iregi_memo_lazy::x"));
+        let z = Atom::var(symbolica::symbol!("iregi_memo_lazy::z"));
+        let expression = Symbol::IF.call((&p, &x / &z, Atom::num(3) * &x));
+        let amplitude = master_amplitude(&expression, &HashMap::from([(x.clone(), Symbol::ABS.call((&x,)))])).unwrap();
+        let exact = crate::execution::compile_exact::<HyperDual<u8>>(&[amplitude], &[p, x, z], &[], None).unwrap();
+        let mut evaluator = crate::execution::map_exact(&exact, &0_f64);
+        let input: Vec<_> = [0., 2., 0., 1., 2., 4.].into_iter().map(complex).collect();
+        let mut values = vec![complex(0.); 2];
+        evaluator.evaluate_batch(&input, &mut values, 2).unwrap();
+        assert_eq!(values, vec![complex(6.), complex(0.5)]);
     }
 
     #[test]

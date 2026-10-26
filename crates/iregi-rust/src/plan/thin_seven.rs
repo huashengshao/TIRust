@@ -112,6 +112,7 @@ impl ReductionPlan {
             snapping_threshold: None,
             snapping_zero_image: None,
             snapping_zero_image_required: false,
+            snapping_compatibility: Vec::new(),
             fallback: None,
             algorithm_used: Algorithm::PassarinoVeltman,
             preparation_notes: vec![format!(
@@ -121,9 +122,9 @@ impl ReductionPlan {
             analytic_jet_order,
             bubble_limit: None,
             zero_invariants: None,
-            certified_scalar_basis: None,
+            certified_invariant_chart: None,
             certified_planar_chart: None,
-            certified_planar_mask: 0,
+            certified_planar_mask: 0, certified_affine_chart:None,
             thin_six_child_rank: None,
             thin_seven_child_rank: Some(child_rank),
         })
@@ -323,7 +324,8 @@ mod tests {
                     analytic_jet_order: 2,
                     bubble_equal_masses: None,
                     zero_invariants: None,
-                    certified_planar_mask: 0,
+                    certified_planar_mask: 0, certified_affine_chart:None,
+            certified_invariant_chart: None,
                     thin_six_child_rank: six,
                     thin_seven_child_rank: seven,
                 })

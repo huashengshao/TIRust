@@ -1,6 +1,6 @@
 // Measured values live in data/results.json. null means no measurement.
 #let data = json("data/results.json")
-#let report-date = data.at("report_updated_on", default: data.date)
+#let report-date = data.at("rank6_current_report_updated_on", default: data.at("report_updated_on", default: data.date))
 #set document(title: "TIRust benchmark", author: "Hua-Sheng Shao")
 #set page(paper: "a4", margin: (x: 1.6cm, y: 1.8cm), numbering: "1 / 1",
   header: context {
@@ -101,6 +101,11 @@
 #let native-operand-vendor = data.numerica_native_operand_precision_vendor_reproduction.snapshot
 #let complex-parameter-oracle = data.complex_parameter_tensor_oracle_manifest.snapshot
 #let generalized-quad-six = data.n6_rank6_generalized_quad_qualification.snapshot
+#let facade-wheel003 = data.python_shared_facade_wheel003_qualification.snapshot
+#let facade-replay003 = data.python_shared_facade_wheel003_portable_replay.snapshot
+#let low-N-generalized = data.rank6_low_N_generalized_current_manifest.snapshot
+#let checked-G-unit = data.rank6_checked_supplied_G_unit_manifest.snapshot
+#let current-physical = data.current_cli_physical_integration_qualification.snapshot
 #let collier-cell(r) = table.cell(
   fill: if not r.correctness_passed or r.gate in ("inconclusive-noise", "inconclusive-short-block") {
     amber
@@ -195,7 +200,7 @@
   *Reading guide.* Every displayed timing ratio has TIRust in the numerator:
   _TIRust / IREGI_, _TIRust / COLLIER_, or
   _TIRust(candidate) / TIRust(baseline)_. Physical graphs use _TIRust / MadLoop_.
-  Green means TIRust is faster, white parity and red slower. The archival
+  In timing cells, green means TIRust is faster, white parity and red slower. The archival
   reference-only table shows absolute times and outcomes. Gray is unmeasured;
   amber marks pending or inconclusive evidence.
   Source inspection does not establish numerical agreement. #data.measurement_note
@@ -207,13 +212,13 @@
   #table(columns: (1fr, 2fr, auto), stroke: none, inset: (x: 4pt, y: 4pt),
     [*Feature completion*], [Generic rank-six tensors, including dots; N≤6 is the current validation checkpoint. Higher-N denominator descent needs separate qualification.], [*Pending*],
     [*Performance optimization*], [Separate later work; publish the tested version and stop once the feature gate passes], [*Deferred*],
-    [*Complete evaluation*], [Six physical rows measured; two failures retained], [*Inconclusive*],
+    [*Physical validation*], [Current fixed-graph checks appear below; historical timing failures remain visible], [*Scoped*],
   )
 ]
 = Current coverage
-#text(size: 9.5pt)[The latest standalone shared Python facade passes 60 installed tests
-and clean consumer typing. The earlier wheel004 gallery retains its separately
-executed qualification. New scoped derivative, dotted-reference, Hybrid/rescue,
+#text(size: 9.5pt)[The latest standalone shared Python facade passes 64 installed API cases,
+seven marimo runtime cases and clean consumer typing. The earlier wheel004 gallery retains its separately
+executed qualification. Scoped derivative, dotted-reference, Hybrid/rescue,
 threshold, complex and collinear results appear below. Complete mathematical acceptance remains open. Low-rank
 COLLIER speed is not a completion gate under the latest user priority;
 all historical measurements below retain their original source snapshots.]
@@ -221,20 +226,270 @@ all historical measurements below retain their original source snapshots.]
   columns: (1.05fr, 3.6fr, 0.8fr), inset: (x: 6pt, y: 8pt), stroke: table-stroke,
   fill: (x, y) => if y == 0 { navy } else if y <= 3 { rgb("#d9f0d3") } else { amber },
   table.header([Interface / domain], [Executed scope or remaining gate], [Status]),
-  [Local PyO3 facade], [60 installed tests: upstream numeric classes, existing interoperability/numerical checks, generic facade and specified N6/N7 frontends. Consumer typing has zero errors/warnings.], [Passed],
-  [Dotted propagators], [Retained TIRust tensor checks remain scoped; planar N5 scalars have separate validation. New original-quad N6 dotted/dimension-shifted tensors supply reference anchors.], [Scoped],
-  [Example gallery], [Earlier wheel004: 4/4 native test methods, three HTML exports and six real Chromium views. The new standalone facade does not rerun this gallery.], [Passed],
-  [Tensor coverage], [Actual Cargo N1–N5 rank7 massive arrays, massless N2–N4 arrays and N6 ranks4–7 pass retained-family checks at Float128/256. N6 lifecycle/contractions pass. Public N7 is still scalar-only.], [Scoped],
+  [Local PyO3 facade], [64 installed API cases: upstream numeric classes, existing interoperability/numerical checks, shared facade and specified N6/N7 frontends. Consumer typing has zero errors/warnings.], [Passed],
+  [Dotted propagators], [N1/N4 rank-six first-dot/triple Float128/256 arrays pass saved reference and mass-Taylor checks. N5 first-dot times out; N6 generalized closure remains open.], [Scoped],
+  [Example gallery], [Current wheel003: seven actual marimo runtime cases. Earlier wheel004 separately retains three HTML exports and six Chromium views; the current wheel does not rerun those browser checks.], [Passed],
+  [Tensor coverage], [Ordinary N6 rank-six arrays and lifecycle retain earlier qualification. Checked supplied-G explicit PV now passes all 840 slots at Float128/256; generalized and mixed Dual closure remains open.], [Scoped],
   [Rank-six numeric], [N1–N5 fixed-family cohort: 21 complete captures, three preserved precision guards and 446,880 saved component comparisons. A newer collinear N3 core passes full arrays and a selected dilation Dual.], [Scoped],
   [Performance], [Historical private selected TIRust/COLLIER: seven slower families and one short inconclusive family. The fresh scheduler cohort is ineligible because of host contention; no default adoption.], [Measured],
 ))
-#text(size: 8.5pt)[Local Linux/Python 3.13 execution qualifies the named examples and
-focused API tests. Release distributions, other platforms, separate Community-host
-loading and a reactive numerical browser frontend remain unqualified.
-C0/D0 mass-Taylor identities retain their wheel004 context at working 128/256
-bits and requested accuracy 53. The later shared-facade build and these earlier
-identities qualify their own captured sources. Broader tensor precision/Dual,
-complex, threshold and collinear acceptance remains open.]
+#text(size: 8.5pt)[Evidence is local Linux/Python3.13 and source-specific.
+Other platforms, separate Community-host loading and broader tensor numeric/exceptional
+domains remain unqualified. Earlier C0/D0 identities retain their wheel004 context.]
+
+#pagebreak()
+= Current standalone Python facade
+A newly built standalone wheel uses one native host for the shared Symbolica,
+Numerica, FeynKit and Spenso PyO3 classes. Its installed tests exercise the
+public shared tensor facade, ordered Dual layouts and the explicit checked
+scalar-product option. These frontend results qualify their captured source
+context; the full generic rank-six mathematical gate remains open.
+
+#report-table(table(
+  columns: (1.25fr, 3.4fr, 0.85fr), inset: (x: 7pt, y: 14pt), stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else if y == 5 { amber } else { rgb("#d9f0d3") },
+  table.header([Executed check], [Current wheel003 evidence], [Outcome]),
+  [Installed API], [64 cases: 25 upstream numeric precision/Float, 29 existing native-object interoperability/numerical cases and ten facade cases. Consumer typing has zero errors and warnings.], [Pass],
+  [Actual marimo runtime], [Seven cases execute graph rendering, numerator preparation, batched contraction, dots, Duals, beyond-binary64 inputs and the existing benchmark explorer with the installed wheel.], [Pass],
+  [Routing and guards], [Eligible six-point profiling and primal-only Dual workspaces select #raw("affine_power"). Checked ordinary, profiling and primal-only Dual calls reject inconsistent supplied products before scalar masters; empty/reset counters are checked.], [Scoped pass],
+  [Source and saved replay], [#facade-wheel003.source_files selected source files. The saved-only replay passes #facade-replay003.checks checks over source/evidence bindings, test cases, consumer typing, process cleanup metadata and retained failures.], [Pass],
+  [Domain limits], [This frontend cohort alone does not qualify complete checked rank-six or six-point mixed Dual arrays. Other platforms, Community-host loading and current browser exports remain unqualified. Existing N6 rank-one and N7 scalar cases are frontend regressions.], [Limited],
+))
+
+The first wheel build failed after external Nix Rust/Cargo paths disappeared.
+The exact preceding 1.99 toolchain was restored and protected with project GC
+roots; all 146 common frozen inputs agree across the failed and successful
+builds. The first environment installation then hit an offline cache miss for
+pinned marimo 0.24.0. Installing the same pins with downloads allowed succeeded.
+Both original failed receipts remain failed.
+
+The aggregate eight-case dispatch phase reached its fixed deadline after
+seven exact pytest nodes had passed. Its final checked-Dual case was unfinished.
+Only that case was completed with its full per-case budget; it passed without
+changing numerical assertions or accuracy guards. The partial raw log and
+failed aggregate receipt remain archived. The 64 API cases count each exact
+successful node once.
+
+The capsule records the wheel/native identities but contains no compiled
+wheel, native binary, environment or cache. Its 147-file source selection is
+not a full compiler/native/system closure. Portable replay starts no native
+host, integral or benchmark. Historical wheel002 and wheel004 evidence below
+retains its original contexts and measurements.
+
+#text(size: 8pt)[Source: #raw("validation/python-interface/facade-wheel-003").
+Linux CPython3.13 development build only; no new timing or performance gate.]
+
+#pagebreak()
+= Dotted rank-six tensors: N1 and N4
+The first-propagator power-two and power-three families now have complete
+TIRust rank-zero through six arrays at Float128 and Float256 for N1 and N4.
+Every valid lane returns 210 Cartesian moments and four separated native
+Laurent slots. The fixed massive spacelike inputs use h=0 and requested Hybrid.
+This is actual dotted tensor evaluation, beyond the earlier reference anchors.
+
+#report-table(table(
+  columns: (1.25fr, 3.4fr, 0.85fr), inset: (x: 7pt, y: 14pt), stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else if y == 5 { amber } else { rgb("#d9f0d3") },
+  table.header([Check], [Saved complete evidence], [Outcome]),
+  [Eight actual calls], [Four N1 and four N4 power-two/power-three calls. Each batch has base, exact-duplicate and scale-two valid lanes around an invalid-mu neighbor. All 20160 requested complex slots are present.], [Pass],
+  [Reference and precision], [20160 original-quad comparisons at normalized tolerance 10⁻¹⁰ and 10080 Float128/256 pairs at 2⁻⁸⁰. Complete arrays are compared before any numerator contraction.], [Pass],
+  [Batch and pole controls], [6720 exact duplicates, 6720 scale identities, 10080 massive IR zeros, 2046 UV zeros and 12240 parity zeros. Together with reference/precision checks: 68046 main gates and zero numerical failures.], [Pass],
+  [Mass-Taylor consistency], [A separate ordinary-Dual path passes 10080 saved mass-Taylor identities per N, 20160 total. This is agreement between distinct TIRust paths; it is not an independent integral oracle.], [Scoped pass],
+  [N5 completion gap], [The first-dot Float128 call reaches its fixed 810-second preparation limit under 32 GiB, with no array. Its Float256 partner and both power-three cases remain unrun.], [Open],
+))
+
+The initial N4 aggregate controller stopped at a deliberate barrier after
+three completed cases. Only the previously unstarted fourth case was executed
+with the corrected per-capture budget. Its original partial receipt remains
+unchanged. The N5 timeout likewise remains failed, with input guards and
+owned-process cleanup recorded; missing slots are never successful zeros.
+
+The source-bound capsule retains all #low-N-generalized.counts.actual_selected_compiled_sources
+selected compiled source bodies for its actual frozen CLI. Its source context
+predates the later wheel003 CLI and does not claim equivalence to that binary.
+The portable saved-only replay reconstructs the full original Fraction review
+and separate mass-Taylor reports in a minimal copy without the external target
+tree or a license. It starts no integral evaluator.
+
+The original finite reference coefficients are empirically admitted. Pole and
+parity identities do not independently certify every finite coefficient or
+provide rigorous error bounds. These h=0 real-mass families do not qualify
+shifted dimensions, arbitrary kinematics, complex masses, N5/N6 dotted closure,
+or the complete rank-six objective. No timing measurement is added.
+
+#text(size: 8pt)[Source: #raw("validation/low-n-generalized-rank6-current-cli").
+Actual CLI #raw("f69615f9…"), coherent build002; historical failures retained.]
+
+#pagebreak()
+= Checked supplied products: six-point rank six
+The opt-in checked Cartesian interface retains the supplied scalar products
+and proves compatibility before evaluating child engines. Its newer packed
+implementation now returns complete ordinary N6 rank-six arrays at Float128
+and Float256, in addition to the earlier guard and rejection evidence.
+The numerical scope is explicit PV, unit powers, h=0, Preserve and native
+Cartesian components.
+
+#report-table(table(
+  columns: (1.25fr, 3.4fr, 0.85fr), inset: (x: 7pt, y: 14pt), stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else if y in (4, 5) { amber } else { rgb("#d9f0d3") },
+  table.header([Check], [Source-bound executed evidence], [Outcome]),
+  [Complete rank-six output], [All 840 native complex slots at each working precision pass admitted original-quad comparisons at 10⁻¹⁰. Both maximum normalized reference errors are approximately 2.10018 × 10⁻¹⁶.], [Pass],
+  [Working-precision pairs], [All 840 Float128/256 pairs pass 2⁻⁸⁰ normalized agreement, maximum 2.13539 × 10⁻³². Requested precision is 53 for both runs. This does not establish achieved 80/128/256-bit accuracy.], [Scoped pass],
+  [Guard and batch lifecycle], [20 exact named normal tests plus an actual rank-one mixed-validity/full-array/contraction/recovery test. Its two valid rows use one packed child call with 12 child rows and one parent call; the invalid neighbor remains failed.], [Pass],
+  [Earlier resource failures], [The old inline rank-six run has no completed array and a sampled last RSS near 145.7 GiB. A separate constructor test hits its fixed 60-second limit before immutable-variant reuse. Both failures remain archived.], [Retained],
+  [Unqualified domains], [Generalized supplied-G powers/dimension shifts, numerical Dual derivatives, other conventions, default Hybrid and arbitrary kinematics remain outside this fixed numerical cohort.], [Open],
+))
+
+The compatible full-Taylor certificate is checked before child compilation.
+Zero cofactors are masked before singular pinches are prepared. Child outputs
+keep their supplied products and native UV/IR split; nonzero components and
+poles are not projected away. The accepted native convention adapter is
+covered by focused source/tests. The earlier normalization draft and its
+positive source review are preserved together with their retraction; that
+rejected packet was never compiled or numerically evaluated.
+
+The source capsule reconstructs all #checked-G-unit.compiled_source_count
+selected compiled-source hashes using 110 byte-identical wheel003 files and
+35 own additions. Its checker imports no producer or native library and
+recomputes all 1680 quad records, 840 pair records and 840 strict pair decisions
+with exact Fraction arithmetic. Binary identities and historical cleanup are
+saved attestations, not fresh binary or process probes.
+
+The old inline timeout retains its original cleanup errors; a later additive
+release records historical process-group absence. The RSS value is a sample,
+not a measured peak or a performance result. No new timing ratio, speedup,
+rigorous error bound or complete-feature claim is added.
+
+#text(size: 8pt)[Source: #raw("validation/checked-supplied-g-unit-rank6").
+Generalized and derivative runtime closure remain separate requirements.]
+
+#pagebreak()
+= Affine denominator descent: ordinary N6 rank six
+The new dynamic positive-power engine uses a Symbolica-derived constant-one
+denominator identity to descend to packed child topologies. It retains the
+tensor rank, denominator powers, dimension and numerical component layout.
+The ordinary N6 rank-six unit-power family now has complete Float128/256
+arrays; its dotted and D6 resource gates remain open.
+
+#report-table(table(
+  columns: (1.25fr, 3.4fr, 0.85fr), inset: (x: 7pt, y: 14pt), stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else if y in (4, 5) { amber } else { rgb("#d9f0d3") },
+  table.header([Check], [Frozen actual engine evidence], [Outcome]),
+  [Complete ordinary arrays], [All 840 complex slots per Float precision pass admitted original-quad comparisons at 10⁻¹⁰. Maximum normalized reference error is 2.10018 × 10⁻¹⁶. Separate controls check 840 IR zeros and 420 power-counted UV zeros across both captures.], [Pass],
+  [Precision and batching], [840 Float128/256 pairs pass 2⁻⁸⁰, maximum approximately 1.80270 × 10⁻³¹. One affine profile has four DAG edges and four packed N5 rows in one child batch; 120 master rows use four families and the parent has no scalar masters.], [Scoped pass],
+  [Actual source tests], [56 exact focused tests, a preparation-only guard and the core/CLI/public-example/PyO3 feature build pass. All 145 selected build-source copies are retained. PyO3 compile checking is separate from the installed wheel runtime cohort.], [Pass],
+  [Generalized requests], [Both first-dot Float128 and D6 unit-power Float128 reach their fixed 810-second preparation deadlines without tensor arrays. Their Float256 partners remain unrun; cleanup and unchanged-source guards pass.], [Open],
+  [Method scope], [The outer request is IBP; child execution is explicitly Passarino–Veltman completion. Raw method tags, preparation notes and diagnostics are retained. This is no pure-IBP or complete generalized-domain qualification.], [Limited],
+))
+
+The structure supports denominator descent without an imposed small point-count
+limit. Its actual validation envelope is narrower: this fixed ordinary N6
+family does not establish arbitrary-N numerical behavior. Resource budgets,
+singular identity charts and exceptional kinematics still require explicit
+diagnostics and qualification. The requested rank remains independent of
+the number of denominators during descent.
+
+The capsule retains three initial test-only Symbolica replacement-API compile
+errors, the successful corrected build, the listing-only test failure and its
+single module-path correction. No failed integral is relabeled successful.
+Both generalized timeouts retain their original terminal receipts and empty
+outputs; portable replay succeeds only when those failures remain intact.
+
+Independent saved arithmetic checks all arrays and precision pairs. Native
+products are represented by their recorded omitted identities; the checker
+does not rehash absent executables or probe current processes. The original
+quad reference has 113-bit storage with its original approximately 16-digit
+constants and stopping criteria. Agreement at 2⁻⁸⁰ between TIRust outputs is
+not a certified achieved-accuracy bound. No Dual, physical or timing claim is
+added by this capsule.
+
+#text(size: 8pt)[Source: #raw("validation/affine-power-generalized-current-core").
+Complete generic rank-six positive-power/dimension-shift closure remains open.]
+
+#pagebreak()
+= Current CLI and physical graph integration
+The current source-bound CLI passes fourteen tests. Complete rank-four tensor
+and contracted physical checks pass for one top-loop $g g arrow H H$ box
+and one $g g arrow H H H$ pentagon. Both graphs have seventy Cartesian moments,
+with all four native Laurent slots retained before contraction. These are
+fixed-graph spot checks, separate from the rank-six synthetic families.
+
+#report-table(table(
+  columns: (1.25fr, 3.4fr, 0.85fr), inset: (x: 7pt, y: 14pt), stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else if y == 5 { amber } else { rgb("#d9f0d3") },
+  table.header([Executed check], [Complete saved evidence], [Outcome]),
+  [Current CLI], [14 actual tests pass from the wheel003 build context. The capsule binds the exact CLI/test products, inherited 147 build sources and twenty additional physical input/helper/controller files.], [Pass],
+  [Box N4 / rank4], [Float128/256: 1680 original-IREGI tensor comparisons against IBP, PV and Hybrid; maximum normalized error 1.144 × 10⁻¹³. Largest MadLoop merged-coefficient error 4.766 × 10⁻¹⁵.], [Pass],
+  [Pentagon N5 / rank4], [Float256/384: 1120 original-IREGI tensor comparisons against PV and Hybrid; maximum error 4.616 × 10⁻¹⁴. Largest MadLoop merged-coefficient error 9.291 × 10⁻¹⁴. Historical original-IBP disagreement is not retested here.], [Pass],
+  [Exact precision pairs], [Each graph passes 280 tensor and four contracted Laurent checks, 568 total, using saved decimal strings and exact Fraction arithmetic at 2⁻⁸⁰. Maximum normalized L1 differences: box 7.952 × 10⁻³⁶; pentagon 6.145 × 10⁻⁵⁵.], [Scoped pass],
+  [Retained pentagon failure], [Float128 / requested53 hits the conservative cancellation guard at #raw("pv_node_852"), with no tensor array or subsequent reference comparison. Prospective Float256/384 runs pass at unchanged requested accuracy.], [Failed128],
+))
+
+The current CLI requests Hybrid and executes PV in these successful cases.
+The external comparison threshold remains dimensionally normalized 10⁻¹⁰,
+using binary64 reference/comparison arithmetic. MadLoop uses isolated graph
+groups two and five, fixed equal gluon colors, the retained helicity-one inputs
+and graph factor −1/2. Its three Laurent coefficients combine UV and IR single
+poles; complete original-IREGI tensor checks retain their separation. Bare
+UV/IR poles and reduction-generated R1 are included; R2 and UV counterterms
+are excluded. The cohort reuses the documented numerator/routing correspondence.
+
+Precision-pair checks use $Q = 600$ for the box and $Q = 750$ for the pentagon,
+tensor dimension $4 + r - 2 N$, and contracted dimensions zero and minus one.
+The normalized L1 delta uses the larger of $Q^d$ and higher-precision coordinate
+magnitudes. Pair agreement is not a certified eighty-bit accuracy bound.
+
+The failed first controller preserves its unrun planned pentagon256 and
+128/256 pair stages. The independent higher-precision receipts do not promote
+its failed128 result. The capsule's saved replay checks all #current-physical.external_tensor_complex_checks
+external tensor slots, #current-physical.madloop_merged_complex_checks MadLoop merged slots and the exact
+pairs without evaluating an integral or starting a compiler. No new physical
+numerator export, rank-six physical coverage or performance claim is added.
+
+#text(size: 8pt)[Source: #raw("validation/current-cli-physical-integration").
+The previous timing measurements and their failed cases remain unchanged.]
+
+#pagebreak()
+= Integration scope and remaining functional gates
+This is an intermediate implementation checkpoint. The complete generic
+rank-six objective remains open. The latest source integration adds per-call
+reuse of repeated primal-amplitude bound expressions using the existing
+Symbolica operations. Its focused tests qualify that narrow change; they
+do not turn incomplete dotted or dimension-shifted requests into successes.
+
+#report-table(table(
+  columns: (1.25fr, 3.4fr, 0.85fr), inset: (x: 7pt, y: 15pt), stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else if y <= 2 { rgb("#d9f0d3") } else { amber },
+  table.header([Area], [Executed scope or required closure], [Status]),
+  [Primal-amplitude memo], [Six focused tests pass: alias-environment isolation, repeated conditional reuse, lazy inactive zero denominators, conditional path unions, nonlinear-master rejection and dimensional/Taylor-axis normalization.], [Focused pass],
+  [Source/build bridge], [Both actual 119-source builds are retained. The saved checker recomputes equality of the entire production-module prefix between the builds; the later change is test-only. Core/CLI and the revised test executable compile successfully.], [Pass],
+  [Positive powers / shifts], [N1/N4 first-dot/triple arrays pass; current N5 first-dot and N6 first-dot/D6 preparations remain failed in their frozen cohorts. Their unavailable arrays and unrun precision partners remain visible.], [Open],
+  [Agreed numeric / API], [Public highpoint higher/mixed Duals, generalized checked supplied products, accepted Legacy runtime closure and remaining exceptional/method coverage still require actual numerical qualification.], [Open],
+  [Completion and speed], [Commit the feature-full tested version with an updated report when the functional gates pass. Higher-rank optimization and low-rank COLLIER parity are later work; no new performance result is added here.], [Pending],
+))
+
+The initial memo stress fixture used forty nested conditional levels and
+timed out before completing. It remains failed. A smaller representative
+ten-level fixture explicitly records construction and cached traversal, with
+21 unique amplitude recipes; all six focused tests pass. This replacement
+does not establish that the original forty-level construction now succeeds
+or supply a before/after runtime comparison.
+
+The memo source follows the earlier complete tensor and physical capture
+contexts. Source binding is per capsule: the focused build/test bridge does
+not automatically confer their full numerical qualification on later edits.
+The capsule claims no complete dotted array, current-CLI equivalence,
+physical validation, achieved-precision bound or performance improvement.
+
+Six new immutable cohorts are summarized before the historical sections.
+All 395 preceding top-level result values and their original JSON spelling
+are preserved, including unsuccessful cases and every historical timing.
+Saved-only replay reconstructs the declared evidence and existing numerical
+checks; it executes no compiler, native library, integral or benchmark.
+
+#text(size: 8pt)[Latest narrow source evidence:
+#raw("validation/primal-amplitude-memo-current-core"). Current completion scope:
+#raw("docs/data/rank6-current-checkpoint-20261026.json").]
 
 #pagebreak()
 #let rank6-feature = data.rank6_feature_checkpoint.snapshot

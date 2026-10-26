@@ -2,11 +2,16 @@
 //!
 //! Settings retain their requested semantics. Ordinary PV requests use the
 //! existing public six-/seven-point wrappers only when their own domain guards
-//! accept them. Explicit Duals, profiling and native master-policy requests
-//! use the existing generic implementation. A feature-dependent native default
-//! also retains generic execution. No numerical result is cached here.
+//! accept them. Preserved Cartesian positive-power requests may instead use
+//! constant-denominator affine descent before the low-point planner. That
+//! composite retains explicit Duals, profiling and requested master policies;
+//! old thin wrappers use generic execution for those capabilities. No numerical
+//! result is cached here.
 
 use std::sync::{Arc, OnceLock};
+
+#[cfg(test)]
+use crate::affine_power::AffinePowerChildObservation;
 
 use iregi_masters::{MasterBackend, MasterExecutionPolicy, NativeFloat};
 use symbolica::{
@@ -15,50 +20,80 @@ use symbolica::{
 };
 
 use crate::{
-    BatchResult, CertificateExecutionStats, ContractionPlan, ExecutionProfile, ExecutionStats,
-    InputLayout, KinematicsBatch, PrecisionRescueWorkspace, ReductionError, ReductionPlan,
-    ReductionSettings, RescueScalar, RescueSettings, SevenPointExecutionStats,
-    SevenPointReductionPlan, SevenPointWorkspace, SixPointExecutionStats, SixPointReductionPlan,
-    SixPointWorkspace, Workspace, basis::Monomial,
+    AffinePowerExecutionStats, AffinePowerReductionPlan, AffinePowerWorkspace,
+    BatchResult, CertificateExecutionStats, CertifiedTensorReductionPlan, CertifiedTensorWorkspace,
+    ContractionPlan, ExecutionProfile, ExecutionStats, InputLayout, KinematicsBatch,
+    ReductionError, ReductionPlan, ReductionSettings, RescueScalar, RescueSettings,
+    SevenPointExecutionStats, SevenPointReductionPlan, SevenPointWorkspace, SixPointExecutionStats,
+    SixPointReductionPlan, SixPointWorkspace, TensorCertificateExecutionStats,
+    TensorRescueWorkspace, Workspace, basis::Monomial,
 };
+
+mod six_hybrid;
+use six_hybrid::{SixHybridPlan, SixHybridWorkspace};
 
 /// The actual reduction implementation, distinct from its requested algorithm.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TensorEngineKind {
     Generic,
     SixPoint,
+    SixPointHybrid,
+    CertifiedTensor,
     SevenPoint,
+    AffinePower,
 }
 
 #[derive(Clone, Debug)]
 enum OrdinaryPlan {
     Generic(Arc<ReductionPlan>),
     SixPoint(Arc<SixPointReductionPlan>),
+    SixPointHybrid(Arc<SixHybridPlan>),
+    CertifiedTensor(Arc<CertifiedTensorReductionPlan>),
     SevenPoint(Arc<SevenPointReductionPlan>),
+    AffinePower(Arc<AffinePowerReductionPlan>),
 }
 
 /// Immutable ordinary dispatch with a separately cached generic structural plan.
 ///
-/// `new` prepares the selected ordinary plan eagerly. A later Dual, profiling,
-/// rescue or generic-only policy request lazily prepares the generic plan with the
-/// same requested settings. Thus an ordinary thin-plan preparation error is
-/// returned before any later workspace request; it is never silently retried.
+/// `new` prepares the selected ordinary plan eagerly. Existing thin wrappers
+/// use a separately cached generic plan for unsupported workspace capabilities.
+/// Affine-power composition keeps its own engine for Duals, profiling, native
+/// policies and ordinary precision rescue; it never prepares the full generic
+/// high-point graph implicitly. Explicit generic_plan() remains a separate request.
 #[derive(Clone, Debug)]
 pub struct TensorReductionPlan {
     requested_settings: ReductionSettings,
     ordinary: OrdinaryPlan,
     generic: Arc<OnceLock<Result<Arc<ReductionPlan>, ReductionError>>>,
+    affine: Arc<OnceLock<Result<Arc<AffinePowerReductionPlan>, ReductionError>>>,
     notes: Vec<String>,
 }
 
 fn ordinary_kind(settings: &ReductionSettings) -> TensorEngineKind {
     if crate::six_point::validate_settings(settings).is_ok() {
         TensorEngineKind::SixPoint
+    } else if settings.algorithm == crate::Algorithm::Hybrid && {
+        let mut primary = settings.clone();
+        primary.algorithm = crate::Algorithm::PassarinoVeltman;
+        crate::six_point::validate_settings(&primary).is_ok()
+    } {
+        TensorEngineKind::SixPointHybrid
     } else if crate::seven_point::validate_settings(settings).is_ok() {
         TensorEngineKind::SevenPoint
+    } else if affine_power_eligible(settings) {
+        TensorEngineKind::AffinePower
     } else {
         TensorEngineKind::Generic
     }
+}
+
+/// Facade selection domain; actual charts and resource bounds are checked by
+/// the affine plan/guard. There is no mathematical maximum point count here.
+pub(crate) fn affine_power_eligible(settings: &ReductionSettings) -> bool {
+    settings.propagators >= 6 && settings.rank <= 6
+        && settings.powers.len() == settings.propagators && !settings.powers.contains(&0)
+        && settings.invariants == crate::InvariantInput::FromShifts
+        && settings.input_policy == crate::InputPolicy::Preserve
 }
 
 fn clone_error(error: &ReductionError) -> ReductionError {
@@ -80,24 +115,63 @@ impl TensorReductionPlan {
             TensorEngineKind::SixPoint => {
                 OrdinaryPlan::SixPoint(Arc::new(SixPointReductionPlan::new(settings)?))
             }
+            TensorEngineKind::SixPointHybrid => {
+                OrdinaryPlan::SixPointHybrid(Arc::new(SixHybridPlan::new(settings)?))
+            }
+            TensorEngineKind::CertifiedTensor => {
+                unreachable!("checked tensors require the explicit constructor")
+            }
             TensorEngineKind::SevenPoint => {
                 OrdinaryPlan::SevenPoint(Arc::new(SevenPointReductionPlan::new(settings)?))
+            }
+            TensorEngineKind::AffinePower => {
+                OrdinaryPlan::AffinePower(Arc::new(AffinePowerReductionPlan::new(settings)?))
             }
         };
         let generic = match &ordinary {
             OrdinaryPlan::Generic(plan) => Arc::new(OnceLock::from(Ok(plan.clone()))),
             _ => Arc::new(OnceLock::new()),
         };
+        let affine = match &ordinary {
+            OrdinaryPlan::AffinePower(plan) => Arc::new(OnceLock::from(Ok(plan.clone()))),
+            _ => Arc::new(OnceLock::new()),
+        };
         let notes = match &ordinary {
             OrdinaryPlan::Generic(plan) => plan.preparation_notes().to_vec(),
             OrdinaryPlan::SixPoint(_) => vec!["Facade ordinary selection: SixPointReductionPlan; specialized preparation logs are not exposed by that wrapper.".into()],
+            OrdinaryPlan::SixPointHybrid(_) => vec!["Facade ordinary selection: specialized six-point PV primary with lazy genuine batched IBP fallback; requested Hybrid settings retained.".into()],
+            OrdinaryPlan::CertifiedTensor(_) => unreachable!("ordinary constructor never selects checked input"),
             OrdinaryPlan::SevenPoint(_) => vec!["Facade ordinary selection: SevenPointReductionPlan; specialized preparation logs are not exposed by that wrapper.".into()],
+            OrdinaryPlan::AffinePower(_) => vec!["Facade selection: affine positive-power descent into packed same-dimension child plans; actual requested/selected child algorithms and notes are retained in tagged execution metadata.".into()],
         };
         Ok(Self {
             requested_settings,
             ordinary,
             generic,
+            affine,
             notes,
+        })
+    }
+
+    /// Explicitly select the existing checked Cartesian supplied-product API.
+    ///
+    /// This constructor selects `SuppliedScalarProducts`, as does the direct
+    /// CertifiedTensorReductionPlan constructor. All other requested settings
+    /// are preserved. Every lane must pass both full-component compatibility
+    /// checks before chart execution. Native policies and unchecked generic
+    /// conversion are unavailable; this is never selected automatically by new.
+    /// Generalized and Dual numeric qualification remains explicitly scoped.
+    pub fn new_checked_cartesian(settings: ReductionSettings) -> Result<Self, ReductionError> {
+        let checked = Arc::new(CertifiedTensorReductionPlan::new(settings)?);
+        Ok(Self {
+            requested_settings: checked.settings().clone(),
+            ordinary: OrdinaryPlan::CertifiedTensor(checked),
+            generic: Arc::new(OnceLock::new()),
+            affine: Arc::new(OnceLock::new()),
+            notes: vec![
+                "Facade selection: opt-in checked Cartesian supplied-G tensors; Cartesian compatibility and regular rank-four Gram certificates precede each accepted chart dispatch.".into(),
+                "Checked tensor workspaces use Symbolica. Numeric qualification of generalized or ordered Dual requests is separate from API acceptance.".into(),
+            ],
         })
     }
 
@@ -105,13 +179,16 @@ impl TensorReductionPlan {
         &self.requested_settings
     }
 
-    /// Eligible specialized ordinary engine. Workspace capabilities and the
-    /// feature-dependent default master backend may select generic execution.
+    /// Eligible ordinary engine. Capabilities may send old thin wrappers to
+    /// generic execution; affine composition preserves its own selected engine.
     pub fn engine_kind(&self) -> TensorEngineKind {
         match &self.ordinary {
             OrdinaryPlan::Generic(_) => TensorEngineKind::Generic,
             OrdinaryPlan::SixPoint(_) => TensorEngineKind::SixPoint,
+            OrdinaryPlan::SixPointHybrid(_) => TensorEngineKind::SixPointHybrid,
+            OrdinaryPlan::CertifiedTensor(_) => TensorEngineKind::CertifiedTensor,
             OrdinaryPlan::SevenPoint(_) => TensorEngineKind::SevenPoint,
+            OrdinaryPlan::AffinePower(_) => TensorEngineKind::AffinePower,
         }
     }
 
@@ -119,7 +196,10 @@ impl TensorReductionPlan {
         match &self.ordinary {
             OrdinaryPlan::Generic(plan) => plan.basis(),
             OrdinaryPlan::SixPoint(plan) => plan.basis(),
+            OrdinaryPlan::SixPointHybrid(plan) => plan.primary.basis(),
+            OrdinaryPlan::CertifiedTensor(plan) => plan.basis(),
             OrdinaryPlan::SevenPoint(plan) => plan.basis(),
+            OrdinaryPlan::AffinePower(plan) => plan.basis(),
         }
     }
 
@@ -127,7 +207,10 @@ impl TensorReductionPlan {
         match &self.ordinary {
             OrdinaryPlan::Generic(plan) => plan.input_layout(),
             OrdinaryPlan::SixPoint(plan) => plan.input_layout(),
+            OrdinaryPlan::SixPointHybrid(plan) => plan.primary.input_layout(),
+            OrdinaryPlan::CertifiedTensor(plan) => plan.input_layout(),
             OrdinaryPlan::SevenPoint(plan) => plan.input_layout(),
+            OrdinaryPlan::AffinePower(plan) => plan.input_layout(),
         }
     }
 
@@ -135,7 +218,10 @@ impl TensorReductionPlan {
         match &self.ordinary {
             OrdinaryPlan::Generic(plan) => plan.parameter_count(),
             OrdinaryPlan::SixPoint(plan) => plan.parameter_count(),
+            OrdinaryPlan::SixPointHybrid(plan) => plan.primary.parameter_count(),
+            OrdinaryPlan::CertifiedTensor(plan) => plan.parameter_count(),
             OrdinaryPlan::SevenPoint(plan) => plan.parameter_count(),
+            OrdinaryPlan::AffinePower(plan) => plan.parameter_count(),
         }
     }
 
@@ -151,12 +237,19 @@ impl TensorReductionPlan {
         match &self.ordinary {
             OrdinaryPlan::Generic(plan) => ContractionPlan::new(plan, monomials),
             OrdinaryPlan::SixPoint(plan) => plan.contraction_plan(monomials),
+            OrdinaryPlan::SixPointHybrid(plan) => plan.primary.contraction_plan(monomials),
+            OrdinaryPlan::CertifiedTensor(plan) => plan.contraction_plan(monomials),
             OrdinaryPlan::SevenPoint(plan) => plan.contraction_plan(monomials),
+            OrdinaryPlan::AffinePower(plan) => plan.contraction_plan(monomials),
         }
     }
 
     /// Reuse only immutable generic preparation, preserving error variants.
     pub fn generic_plan(&self) -> Result<Arc<ReductionPlan>, ReductionError> {
+        if matches!(&self.ordinary, OrdinaryPlan::CertifiedTensor(_)) {
+            return Err(ReductionError::Unsupported(
+                "checked Cartesian plans cannot bypass their certificates through an unchecked generic plan".into()));
+        }
         self.generic
             .get_or_init(|| ReductionPlan::new(self.requested_settings.clone()).map(Arc::new))
             .as_ref()
@@ -164,18 +257,32 @@ impl TensorReductionPlan {
             .map_err(clone_error)
     }
 
-    /// Existing generic precision rescue, without widening ordinary numeric bounds.
+    /// Immutable alternate composition recipe for capabilities unsupported by
+    /// old thin wrappers. Its shape/child caches are shared across workspaces;
+    /// requesting it never constructs the generic full high-point recurrence.
+    fn affine_plan(&self) -> Result<Arc<AffinePowerReductionPlan>, ReductionError> {
+        if !affine_power_eligible(&self.requested_settings) {
+            return Err(ReductionError::Unsupported(
+                "settings are outside the affine-power facade domain".into()));
+        }
+        self.affine.get_or_init(|| AffinePowerReductionPlan::new(self.requested_settings.clone()).map(Arc::new))
+            .as_ref().map(Arc::clone).map_err(clone_error)
+    }
+
+    /// Precision rescue through the same selected ordinary engine. Specialized
+    /// stages retain their actual engine details. Explicit Dual rescue stays
+    /// generic in existing low-point domains; affine joint-context rescue is
+    /// explicitly unsupported until precision transport is qualified.
     /// Master-policy/profiling options are not accepted by the rescue API.
     pub fn rescue_workspace<T: RescueScalar>(
         &self,
         prototype: T,
         settings: RescueSettings,
-    ) -> Result<PrecisionRescueWorkspace<T>, ReductionError>
+    ) -> Result<TensorRescueWorkspace<T>, ReductionError>
     where
         Complex<T>: EvaluationDomain,
     {
-        let generic = self.generic_plan()?;
-        PrecisionRescueWorkspace::new(generic.as_ref(), prototype, settings)
+        TensorRescueWorkspace::new(self, prototype, settings)
     }
 
     pub fn rescue_dual_workspace<T: RescueScalar, D: DualNumberStructure>(
@@ -183,12 +290,11 @@ impl TensorReductionPlan {
         prototype: T,
         settings: RescueSettings,
         dual: D,
-    ) -> Result<PrecisionRescueWorkspace<T>, ReductionError>
+    ) -> Result<TensorRescueWorkspace<T>, ReductionError>
     where
         Complex<T>: EvaluationDomain,
     {
-        let generic = self.generic_plan()?;
-        PrecisionRescueWorkspace::new_dual(generic.as_ref(), prototype, settings, dual)
+        TensorRescueWorkspace::new_dual(self, prototype, settings, dual)
     }
 }
 
@@ -196,13 +302,30 @@ impl TensorReductionPlan {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TensorWorkspaceOptions {
     /// Preserve the compiled default backend, or explicitly select Symbolica
-    /// to permit eligible specialized wrappers. Native policies use generic.
+    /// to permit eligible old thin wrappers. Affine composition forwards native
+    /// policies to its actual child workspaces instead of forcing generic.
     pub master_policy: MasterExecutionPolicy,
-    /// Use the existing generic profiler, including for eligible high points.
+    /// Enable the generic profiler or the affine composite's child/parent profiler.
+    /// Existing thin wrappers require a generic workspace for profiling.
     pub profiling: bool,
 }
 
 impl TensorWorkspaceOptions {
+    fn validate_checked(self) -> Result<(), ReductionError> {
+        let symbolic = match self.master_policy {
+            MasterExecutionPolicy::Symbolica => true,
+            MasterExecutionPolicy::Default => {
+                iregi_masters::default_master_backend() == MasterBackend::SymbolicaBatch
+            }
+            MasterExecutionPolicy::NativeF64Abc => false,
+        };
+        if !symbolic {
+            return Err(ReductionError::Unsupported(
+                "checked Cartesian workspaces require the Symbolica master policy; native policies cannot bypass the supplied-product certificates".into()));
+        }
+        Ok(())
+    }
+
     fn permits_thin(self) -> bool {
         !self.profiling
             && match self.master_policy {
@@ -219,7 +342,13 @@ impl TensorWorkspaceOptions {
 enum WorkspaceEngine<T: NativeFloat> {
     Generic(Workspace<T>),
     SixPoint(SixPointWorkspace<T>),
+    SixPointHybrid(SixHybridWorkspace<T>),
+    CertifiedTensor {
+        workspace: CertifiedTensorWorkspace<T>,
+        binary_precision: u32,
+    },
     SevenPoint(SevenPointWorkspace<T>),
+    AffinePower(AffinePowerWorkspace<T>),
 }
 
 /// Exact tagged execution detail, including actual nested certificate work.
@@ -230,7 +359,23 @@ pub enum TensorEngineExecution {
         certificate_execution: CertificateExecutionStats,
     },
     SixPoint(SixPointExecutionStats),
+    CertifiedTensor {
+        execution: ExecutionStats,
+        certificate_execution: TensorCertificateExecutionStats,
+    },
+    SixPointHybrid {
+        primary: SixPointExecutionStats,
+        fallback: ExecutionStats,
+        fallback_certificate_execution: CertificateExecutionStats,
+        fallback_rows: usize,
+        fallback_successes: usize,
+        fallback_batches: usize,
+        fallback_preparation_attempts: usize,
+        fallback_preparation_error: Option<String>,
+    },
     SevenPoint(SevenPointExecutionStats),
+    /// Composite counters retain actual child methods, powers and notes.
+    AffinePower(AffinePowerExecutionStats),
 }
 
 impl TensorEngineExecution {
@@ -241,19 +386,51 @@ impl TensorEngineExecution {
     /// remain in the tagged detail and are not added to these work fields.
     pub fn summary(&self) -> Result<ExecutionStats, ReductionError> {
         match self {
-            Self::Generic { execution, .. } => Ok(*execution),
+            Self::Generic { execution, .. } | Self::CertifiedTensor { execution, .. } => {
+                Ok(*execution)
+            }
             Self::SixPoint(stats) => summarize(
                 stats.parent_input_rows,
                 stats.child_execution,
                 stats.parent_execution,
             ),
+            Self::SixPointHybrid {
+                primary,
+                fallback,
+                fallback_rows,
+                fallback_successes,
+                ..
+            } => {
+                let primary = summarize(
+                    primary.parent_input_rows,
+                    primary.child_execution,
+                    primary.parent_execution,
+                )?;
+                let mut result = summarize(primary.input_rows, primary, *fallback)?;
+                result.fallback_rows = result
+                    .fallback_rows
+                    .checked_add(*fallback_rows)
+                    .ok_or_else(counter_overflow)?;
+                result.fallback_successes = result
+                    .fallback_successes
+                    .checked_add(*fallback_successes)
+                    .ok_or_else(counter_overflow)?;
+                Ok(result)
+            }
             Self::SevenPoint(stats) => summarize(
                 stats.parent_input_rows,
                 stats.child_execution,
                 stats.parent_execution,
             ),
+            Self::AffinePower(stats) => summarize(
+                stats.input_rows, stats.child_execution, stats.parent_execution,
+            ),
         }
     }
+}
+
+fn counter_overflow() -> ReductionError {
+    ReductionError::Evaluation("tensor execution summary counter overflow".into())
 }
 
 fn summarize(
@@ -300,11 +477,31 @@ where
         prototype: T,
         options: TensorWorkspaceOptions,
     ) -> Result<Self, ReductionError> {
+        if let OrdinaryPlan::CertifiedTensor(checked) = &plan.ordinary {
+            options.validate_checked()?;
+            let binary_precision = prototype.get_precision();
+            let mut workspace = CertifiedTensorWorkspace::new(checked, prototype)?;
+            workspace.set_profiling(options.profiling);
+            return Ok(Self {
+                engine: WorkspaceEngine::CertifiedTensor {
+                    workspace,
+                    binary_precision,
+                },
+                requested_master_policy: options.master_policy,
+                notes: plan.preparation_notes().to_vec(),
+            });
+        }
         options
             .master_policy
             .validate_available()
             .map_err(|e| ReductionError::Preparation(e.to_string()))?;
+        if matches!(&plan.ordinary, OrdinaryPlan::AffinePower(_)) {
+            return Self::affine(plan, prototype, options);
+        }
         if !options.permits_thin() {
+            if affine_power_eligible(plan.settings()) {
+                return Self::affine(plan, prototype, options);
+            }
             return Self::generic(plan, prototype, options);
         }
         let engine = match &plan.ordinary {
@@ -313,6 +510,15 @@ where
             ),
             OrdinaryPlan::SixPoint(six) => {
                 WorkspaceEngine::SixPoint(SixPointWorkspace::new(six, prototype)?)
+            }
+            OrdinaryPlan::SixPointHybrid(six) => {
+                WorkspaceEngine::SixPointHybrid(SixHybridWorkspace::new(six.clone(), prototype)?)
+            }
+            OrdinaryPlan::CertifiedTensor(_) => {
+                unreachable!("checked workspace returns before generic policy dispatch")
+            }
+            OrdinaryPlan::AffinePower(_) => {
+                unreachable!("affine workspace returns before thin policy dispatch")
             }
             OrdinaryPlan::SevenPoint(seven) => {
                 WorkspaceEngine::SevenPoint(SevenPointWorkspace::new(seven, prototype)?)
@@ -339,10 +545,39 @@ where
         dual: D,
         options: TensorWorkspaceOptions,
     ) -> Result<Self, ReductionError> {
+        if let OrdinaryPlan::CertifiedTensor(checked) = &plan.ordinary {
+            options.validate_checked()?;
+            let binary_precision = prototype.get_precision();
+            let mut workspace = CertifiedTensorWorkspace::new_dual(checked, prototype, dual)?;
+            workspace.set_profiling(options.profiling);
+            let mut notes = plan.preparation_notes().to_vec();
+            notes.push("Facade checked workspace retains the existing full ordered Dual certificates; this does not qualify private thin highpoint Dual engines.".into());
+            return Ok(Self {
+                engine: WorkspaceEngine::CertifiedTensor {
+                    workspace,
+                    binary_precision,
+                },
+                requested_master_policy: options.master_policy,
+                notes,
+            });
+        }
         options
             .master_policy
             .validate_available()
             .map_err(|e| ReductionError::Preparation(e.to_string()))?;
+        if affine_power_eligible(plan.settings()) {
+            let affine = plan.affine_plan()?;
+            let mut workspace = AffinePowerWorkspace::new_dual_with_master_policy(
+                &affine, prototype, dual, options.master_policy)?;
+            workspace.set_profiling(options.profiling);
+            let mut notes = vec!["Facade actual workspace: AffinePower; supplied ordered Dual layout and selected master policy retained; propagated-quadrature joint-Dual acceptance remains explicitly guarded.".into()];
+            notes.extend_from_slice(plan.preparation_notes());
+            return Ok(Self {
+                engine: WorkspaceEngine::AffinePower(workspace),
+                requested_master_policy: options.master_policy,
+                notes,
+            });
+        }
         let generic = plan.generic_plan()?;
         let mut workspace = Workspace::new_dual_with_master_policy(
             &generic,
@@ -355,6 +590,27 @@ where
         notes.extend_from_slice(generic.preparation_notes());
         Ok(Self {
             engine: WorkspaceEngine::Generic(workspace),
+            requested_master_policy: options.master_policy,
+            notes,
+        })
+    }
+
+    fn affine(
+        plan: &TensorReductionPlan,
+        prototype: T,
+        options: TensorWorkspaceOptions,
+    ) -> Result<Self, ReductionError> {
+        let affine = plan.affine_plan()?;
+        let mut workspace = AffinePowerWorkspace::new_with_master_policy(
+            &affine, prototype, options.master_policy)?;
+        workspace.set_profiling(options.profiling);
+        let mut notes = vec![format!(
+            "Facade actual workspace: AffinePower; profiling={}, requested master policy={:?}.",
+            options.profiling, options.master_policy,
+        )];
+        notes.extend_from_slice(plan.preparation_notes());
+        Ok(Self {
+            engine: WorkspaceEngine::AffinePower(workspace),
             requested_master_policy: options.master_policy,
             notes,
         })
@@ -385,12 +641,16 @@ where
         match &self.engine {
             WorkspaceEngine::Generic(_) => TensorEngineKind::Generic,
             WorkspaceEngine::SixPoint(_) => TensorEngineKind::SixPoint,
+            WorkspaceEngine::SixPointHybrid(_) => TensorEngineKind::SixPointHybrid,
+            WorkspaceEngine::CertifiedTensor { .. } => TensorEngineKind::CertifiedTensor,
             WorkspaceEngine::SevenPoint(_) => TensorEngineKind::SevenPoint,
+            WorkspaceEngine::AffinePower(_) => TensorEngineKind::AffinePower,
         }
     }
 
     /// Requested policy, not a claim about an observed scalar backend. The
-    /// specialized public wrappers explicitly use Symbolica internally.
+    /// old thin wrappers explicitly use Symbolica internally; affine composites
+    /// forward the requested policy to their actual child workspaces.
     pub fn requested_master_policy(&self) -> MasterExecutionPolicy {
         self.requested_master_policy
     }
@@ -402,15 +662,47 @@ where
         match &mut self.engine {
             WorkspaceEngine::Generic(workspace) => workspace.set_accuracy_precision(bits),
             WorkspaceEngine::SixPoint(workspace) => workspace.set_accuracy_precision(bits),
+            WorkspaceEngine::SixPointHybrid(workspace) => workspace.set_accuracy_precision(bits),
+            WorkspaceEngine::CertifiedTensor { workspace, .. } => {
+                workspace.set_accuracy_precision(bits)
+            }
             WorkspaceEngine::SevenPoint(workspace) => workspace.set_accuracy_precision(bits),
+            WorkspaceEngine::AffinePower(workspace) => workspace.set_accuracy_precision(bits),
         }
     }
 
-    /// Thin workspaces require `profiling: true` at construction to select the
-    /// existing generic profiler. Disabling profiling is always supported.
+    /// Set the refinement budget of both exact certificates for checked input.
+    /// Other engines do not expose this opt-in certificate operation.
+    pub fn set_certificate_precision_budget(
+        &mut self,
+        initial: u32,
+        maximum: u32,
+    ) -> Result<(), ReductionError> {
+        match &mut self.engine {
+            WorkspaceEngine::CertifiedTensor { workspace, .. } => {
+                workspace.set_certificate_precision_budget(initial, maximum)
+            }
+            _ => Err(ReductionError::Unsupported(
+                "certificate refinement budgets require an opt-in checked Cartesian workspace"
+                    .into(),
+            )),
+        }
+    }
+
+    /// Affine workspaces profile their actual child and parent stages. Old thin
+    /// workspaces require profiling at construction to select the generic path.
+    /// Disabling profiling is always supported.
     pub fn set_profiling(&mut self, enabled: bool) -> Result<(), ReductionError> {
         match &mut self.engine {
             WorkspaceEngine::Generic(workspace) => {
+                workspace.set_profiling(enabled);
+                Ok(())
+            }
+            WorkspaceEngine::CertifiedTensor { workspace, .. } => {
+                workspace.set_profiling(enabled);
+                Ok(())
+            }
+            WorkspaceEngine::AffinePower(workspace) => {
                 workspace.set_profiling(enabled);
                 Ok(())
             }
@@ -426,7 +718,22 @@ where
         match &self.engine {
             WorkspaceEngine::Generic(workspace) => workspace.component_count(),
             WorkspaceEngine::SixPoint(workspace) => workspace.component_count(),
+            WorkspaceEngine::SixPointHybrid(workspace) => workspace.component_count(),
+            WorkspaceEngine::CertifiedTensor { workspace, .. } => workspace.component_count(),
             WorkspaceEngine::SevenPoint(workspace) => workspace.component_count(),
+            WorkspaceEngine::AffinePower(workspace) => workspace.component_count(),
+        }
+    }
+
+    /// Ordered Taylor directions for generic, checked, or affine execution.
+    /// The ordinary six-/seven-point thin wrappers accept scalar inputs only.
+    pub fn dual_shape(&self) -> Option<&[Vec<usize>]> {
+        match &self.engine {
+            WorkspaceEngine::Generic(workspace) => workspace.dual_shape(),
+            WorkspaceEngine::CertifiedTensor { workspace, .. } => workspace.dual_shape(),
+            WorkspaceEngine::AffinePower(workspace) => workspace.dual_shape(),
+            WorkspaceEngine::SixPoint(_) | WorkspaceEngine::SixPointHybrid(_)
+                | WorkspaceEngine::SevenPoint(_) => None,
         }
     }
 
@@ -434,7 +741,12 @@ where
         match &self.engine {
             WorkspaceEngine::Generic(workspace) => workspace.binary_precision(),
             WorkspaceEngine::SixPoint(workspace) => workspace.binary_precision(),
+            WorkspaceEngine::SixPointHybrid(workspace) => workspace.binary_precision(),
+            WorkspaceEngine::CertifiedTensor {
+                binary_precision, ..
+            } => *binary_precision,
             WorkspaceEngine::SevenPoint(workspace) => workspace.binary_precision(),
+            WorkspaceEngine::AffinePower(workspace) => workspace.binary_precision(),
         }
     }
 
@@ -442,7 +754,10 @@ where
         match &self.engine {
             WorkspaceEngine::Generic(workspace) => workspace.last_diagnostics(),
             WorkspaceEngine::SixPoint(workspace) => workspace.last_diagnostics(),
+            WorkspaceEngine::SixPointHybrid(workspace) => workspace.last_diagnostics(),
+            WorkspaceEngine::CertifiedTensor { workspace, .. } => workspace.last_diagnostics(),
             WorkspaceEngine::SevenPoint(workspace) => workspace.last_diagnostics(),
+            WorkspaceEngine::AffinePower(workspace) => workspace.last_diagnostics(),
         }
     }
 
@@ -455,9 +770,45 @@ where
             WorkspaceEngine::SixPoint(workspace) => {
                 TensorEngineExecution::SixPoint(workspace.last_execution().clone())
             }
+            WorkspaceEngine::SixPointHybrid(workspace) => workspace.engine_execution(),
+            WorkspaceEngine::CertifiedTensor { workspace, .. } => {
+                TensorEngineExecution::CertifiedTensor {
+                    execution: workspace.last_execution(),
+                    certificate_execution: workspace.last_certificate_execution(),
+                }
+            }
             WorkspaceEngine::SevenPoint(workspace) => {
                 TensorEngineExecution::SevenPoint(workspace.last_execution().clone())
             }
+            WorkspaceEngine::AffinePower(workspace) => {
+                TensorEngineExecution::AffinePower(workspace.last_execution().clone())
+            }
+        }
+    }
+
+    /// Private qualification observer; absent from release builds and disabled
+    /// by default. It retains complete real child inputs/results when enabled.
+    #[cfg(test)]
+    pub(crate) fn enable_affine_power_child_observer(
+        &mut self, enabled: bool,
+    ) -> Result<(), ReductionError> {
+        match &mut self.engine {
+            WorkspaceEngine::AffinePower(workspace) => {
+                workspace.enable_component_child_observer(enabled);
+                Ok(())
+            }
+            _ => Err(ReductionError::Unsupported(
+                "child observations require an actual affine-power workspace".into())),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn affine_power_child_observations(
+        &self,
+    ) -> Option<&[AffinePowerChildObservation<T>]> {
+        match &self.engine {
+            WorkspaceEngine::AffinePower(workspace) => workspace.component_child_observations(),
+            _ => None,
         }
     }
 
@@ -468,6 +819,8 @@ where
     pub fn last_profile(&self) -> Option<ExecutionProfile> {
         match &self.engine {
             WorkspaceEngine::Generic(workspace) => workspace.last_profile(),
+            WorkspaceEngine::CertifiedTensor { workspace, .. } => workspace.last_profile(),
+            WorkspaceEngine::AffinePower(workspace) => workspace.last_profile(),
             _ => None,
         }
     }
@@ -479,7 +832,10 @@ where
         match &mut self.engine {
             WorkspaceEngine::Generic(workspace) => workspace.reduce_batch(batch),
             WorkspaceEngine::SixPoint(workspace) => workspace.reduce_batch(batch),
+            WorkspaceEngine::SixPointHybrid(workspace) => workspace.reduce_batch(batch),
+            WorkspaceEngine::CertifiedTensor { workspace, .. } => workspace.reduce_batch(batch),
             WorkspaceEngine::SevenPoint(workspace) => workspace.reduce_batch(batch),
+            WorkspaceEngine::AffinePower(workspace) => workspace.reduce_batch(batch),
         }
     }
 }
@@ -508,52 +864,65 @@ mod tests {
         for (n, rank) in [(6, 3), (7, 0)] {
             let settings = pv(n, rank);
             let mut variants = Vec::new();
-            for algorithm in [Algorithm::Ibp, Algorithm::Hybrid] {
+            for algorithm in [Algorithm::Ibp, Algorithm::Hybrid]
+                .into_iter()
+                .filter(|algorithm| n != 6 || *algorithm != Algorithm::Hybrid)
+            {
                 let mut s = settings.clone();
                 s.algorithm = algorithm;
-                variants.push(s);
+                variants.push((s, TensorEngineKind::AffinePower));
             }
             for convention in [Convention::OneLoop, Convention::MadLoop] {
                 let mut s = settings.clone();
                 s.convention = convention;
-                variants.push(s);
+                variants.push((s, TensorEngineKind::AffinePower));
             }
             let mut s = settings.clone();
             s.tensor_weights = TensorWeights::Multinomial;
-            variants.push(s);
+            variants.push((s, TensorEngineKind::AffinePower));
             let mut s = settings.clone();
             s.invariants = InvariantInput::SuppliedScalarProducts;
-            variants.push(s);
+            variants.push((s, TensorEngineKind::Generic));
             let mut s = settings.clone();
             s.input_policy = InputPolicy::legacy_onshell();
-            variants.push(s);
+            variants.push((s, TensorEngineKind::Generic));
             let mut s = settings.clone();
             s.powers[0] = 2;
-            variants.push(s);
+            variants.push((s, TensorEngineKind::AffinePower));
             let mut s = settings.clone();
             s.powers.pop();
-            variants.push(s);
+            variants.push((s, TensorEngineKind::Generic));
             let mut s = settings.clone();
             s.dimension_shift = 1;
-            variants.push(s);
+            variants.push((s, TensorEngineKind::AffinePower));
             let mut s = settings.clone();
             s.dimension_shift = -1;
-            variants.push(s);
+            variants.push((s, TensorEngineKind::AffinePower));
             let mut s = settings.clone();
             s.rank = if n == 6 { 8 } else { 1 };
-            variants.push(s);
-            for variant in variants {
+            variants.push((s, if n == 6 { TensorEngineKind::Generic } else { TensorEngineKind::AffinePower }));
+            for (variant, expected) in variants {
                 let before = serde_json::to_value(&variant).unwrap();
-                assert_eq!(ordinary_kind(&variant), TensorEngineKind::Generic);
+                assert_eq!(ordinary_kind(&variant), expected);
                 assert_eq!(serde_json::to_value(&variant).unwrap(), before);
             }
         }
         for n in 1..=7 {
             assert_eq!(
                 ordinary_kind(&ReductionSettings::new(n, 0)),
-                TensorEngineKind::Generic
+                if n == 6 {
+                    TensorEngineKind::SixPointHybrid
+                } else if n == 7 {
+                    TensorEngineKind::AffinePower
+                } else {
+                    TensorEngineKind::Generic
+                }
             );
         }
+        let requested = ReductionSettings::new(6, 6);
+        let before = serde_json::to_value(&requested).unwrap();
+        assert_eq!(ordinary_kind(&requested), TensorEngineKind::SixPointHybrid);
+        assert_eq!(serde_json::to_value(&requested).unwrap(), before);
     }
 
     #[test]
@@ -636,12 +1005,21 @@ mod tests {
         });
         assert_eq!(six.summary().unwrap(), expected);
         assert_eq!(seven.summary().unwrap(), expected);
+        let affine = TensorEngineExecution::AffinePower(AffinePowerExecutionStats {
+            input_rows: 3, packed_child_rows: 3000, quadrature_work_rows: 840,
+            child_execution: child, parent_execution: parent, ..Default::default()
+        });
+        assert_eq!(affine.summary().unwrap(), expected);
         let mut enormous = child;
         enormous.master_rows = usize::MAX;
         assert!(matches!(
             summarize(3, enormous, parent),
             Err(ReductionError::Evaluation(_))
         ));
+        assert!(TensorEngineExecution::AffinePower(AffinePowerExecutionStats {
+            input_rows: 3, child_execution: enormous, parent_execution: parent,
+            ..Default::default()
+        }).summary().is_err());
     }
 
     fn tadpole_batch() -> KinematicsBatch<f64> {
@@ -886,4 +1264,33 @@ mod tests {
             assert!(workspace.last_diagnostics().is_empty());
         }
     }
+
+    #[test]
+    #[ignore = "separately bounded construction of three actual specialized precision stages"]
+    fn specialized_precision_rescue_does_not_prepare_unrelated_generic_plan() {
+        if iregi_masters::default_master_backend() != MasterBackend::SymbolicaBatch {
+            return;
+        }
+        let plan = TensorReductionPlan::new(pv(6, 0)).unwrap();
+        assert!(plan.generic.get().is_none());
+        let rescue = plan
+            .rescue_workspace(0., RescueSettings::default())
+            .unwrap();
+        assert_eq!(rescue.engine_kind(), TensorEngineKind::SixPoint);
+        assert_eq!(rescue.algorithm_used(), Algorithm::PassarinoVeltman);
+        assert!(rescue.primary_engine_execution().is_none());
+        assert!(rescue.working_engine_execution().is_none());
+        assert!(rescue.verification_engine_execution().is_none());
+        assert!(rescue.last_primary_statuses().is_empty());
+        assert!(rescue.last_rescue_statuses().is_empty());
+        assert_eq!(rescue.last_execution(), crate::RescueStats::default());
+        assert!(plan.generic.get().is_none());
+    }
 }
+
+#[cfg(test)]
+mod checked_tests;
+
+
+#[cfg(test)]
+mod affine_power_tests;

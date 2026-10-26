@@ -47,8 +47,8 @@ Dual components. Numerator and graph preparation accept the upstream Symbolica,
 FeynKit and Spenso types registered in the same native host. See the
 [extension architecture](docs/research/python-interface.md) for source revisions
 and the separate Community-host integration boundary.
-The current development wheel passes 60 installed numerical and interoperability
-tests and consumer typing. Its [source and artifact record](validation/python-interface/facade-wheel-002/README.md)
+The current development wheel passes 64 installed API cases, seven notebook
+runtime cases and consumer typing. Its [source and artifact record](validation/python-interface/facade-wheel-003/README.md)
 defines the tested subset; it does not establish full six-point coverage.
 
 The [marimo gallery](examples/notebooks/README.md) covers graph-to-integral
@@ -81,19 +81,24 @@ and exact revisions are pinned in `Cargo.toml` and `Cargo.lock`. Symbolica's
 license requirements apply; its GMP/MPFR dependencies are permitted by the
 project's implementation specification.
 
-The CLI uses `TensorReductionPlan` and `TensorWorkspace<T>` to select the generic,
-six-point or seven-point engine. It exposes tagged engine counters and per-lane
-diagnostics. Precision rescue retains its generic execution path.
+The CLI uses `TensorReductionPlan` and `TensorWorkspace<T>` to select the reduction
+engine and exposes its actual counters and per-lane diagnostics. Preserved
+Cartesian positive-power inputs can use a denominator-descent DAG before the
+low-point tensor planner. This separates point count from the rank-six target;
+each accepted numerical chart still needs a fresh certificate. Explicit resource
+budgets and the tested point counts remain part of the supported domain.
+`TensorRescueWorkspace` keeps the selected ordinary engine when supported and
+checks a second working precision before accepting a replacement result.
 
 ## Library interface
 
 ```rust
-use iregi_rust::{KinematicsBatch, ReductionPlan, ReductionSettings, Workspace};
+use iregi_rust::{KinematicsBatch, ReductionSettings, TensorReductionPlan, TensorWorkspace};
 use symbolica::domains::float::Complex;
 
 fn example() -> Result<(), Box<dyn std::error::Error>> {
-let plan = ReductionPlan::new(ReductionSettings::new(2, 2))?;
-let mut workspace = Workspace::new(&plan, 0.0_f64)?;
+let plan = TensorReductionPlan::new(ReductionSettings::new(2, 2))?;
+let mut workspace = TensorWorkspace::new(&plan, 0.0_f64)?;
 // Two shifts, two squared masses, then mu (not mu squared).
 let row = [0., 0., 0., 0., 0., 1., 0., 0., 4., 9., 3.];
 let batch = KinematicsBatch {
@@ -117,10 +122,15 @@ coefficients and accounts for these choices.
 Results retain their convention, tensor weights and complete Dual layout.
 Contraction rejects incompatible metadata before evaluating coefficients.
 
-`Workspace::new_dual` accepts Symbolica static or dynamic Dual layouts. Sample
+`TensorWorkspace::new_dual` accepts Symbolica static or dynamic Dual layouts. Sample
 lanes and Taylor components remain separate. `DoubleFloat` and arbitrary
 precision `Float` use the same API, with constants converted directly at the
 working precision. Independent workspaces own their numerical scratch storage.
+The lower-level `ReductionPlan` and `Workspace<T>` APIs remain available when
+the generic engine is explicitly required. Use the shared tensor facade for
+automatic point-count reduction. Workspace capability and engine selection are
+observable; API acceptance does not establish numerical qualification of every
+combination of rank, powers, precision and kinematics.
 
 The optional [`native-f64-abc` policy](docs/native-masters.md) selects generated
 oneloopmaster A0/B0/C0 evaluators for ordinary binary64 workspaces through

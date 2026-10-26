@@ -27,6 +27,7 @@ use crate::{
     ScalarKinematicsBatch, Workspace,
     types::PrimalEnvelopeRoute,
     basis::Monomial,
+    exact_zero_certificate::{ExactZeroCertificate, ExactZeroConstraintPlan, ExactZeroConstraintWorkspace},
     invariant_certificate::{
         ExactInvariantScalar, InvariantCertificate, InvariantCertificatePlan,
         InvariantCertificateWorkspace,
@@ -36,6 +37,7 @@ use crate::{
 type Shape = Option<Vec<Vec<usize>>>;
 type Prepared<P> = Arc<OnceLock<Result<Arc<P>, String>>>;
 type ChartCache = Arc<Mutex<HashMap<[usize; 4], Prepared<ReductionPlan>>>>;
+type CompatibilityCache = Arc<Mutex<HashMap<Shape, Prepared<ExactZeroConstraintPlan>>>>;
 type CertificateCache = Arc<Mutex<HashMap<Shape, Prepared<InvariantCertificatePlan>>>>;
 
 /// Opt-in rank-zero IBP plan for six or seven supplied-G propagators.
@@ -53,12 +55,16 @@ pub struct CertifiedScalarReductionPlan {
     settings: ReductionSettings,
     charts: ChartCache,
     certificates: CertificateCache,
+    /// Private shared runtime mode; scalar and tensor structural caches never alias.
+    cartesian_tensor: bool,
+    compatibilities: CompatibilityCache,
 }
 
 impl std::fmt::Debug for CertifiedScalarReductionPlan {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CertifiedScalarReductionPlan")
             .field("settings", &self.settings)
+            .field("cartesian_tensor", &self.cartesian_tensor)
             .finish_non_exhaustive()
     }
 }
@@ -80,11 +86,42 @@ impl CertifiedScalarReductionPlan {
             settings,
             charts: Arc::default(),
             certificates: Arc::default(),
+            cartesian_tensor: false,
+            compatibilities: Arc::default(),
         };
         // Validate settings and compile one immutable chart at preparation
         // time. Other charts are prepared once on first demand.
         plan.chart([1, 2, 3, 4])?;
         Ok(plan)
+    }
+
+    pub(crate) fn new_tensor(mut settings: ReductionSettings) -> Result<Self, ReductionError> {
+        settings.invariants = InvariantInput::SuppliedScalarProducts;
+        if !crate::certified_tensor::settings_supported(&settings) {
+            return Err(ReductionError::Unsupported(
+                "checked Cartesian supplied-G tensors require N6, rank<=6, positive powers and preserved inputs".into()));
+        }
+        let plan = Self { settings, charts: Arc::default(), certificates: Arc::default(),
+            cartesian_tensor: true, compatibilities: Arc::default() };
+        // No chart is numerically accepted by construction. Other structural
+        // charts share this immutable plan's once-only cache, as for scalars.
+        plan.chart([1, 2, 3, 4])?;
+        Ok(plan)
+    }
+
+    pub(crate) fn basis(&self) -> Vec<Monomial> {
+        crate::basis::tensor_basis(self.settings.rank)
+    }
+
+    pub(crate) fn tensor_input_layout(&self) -> crate::InputLayout {
+        let n = self.settings.propagators;
+        let gram_end = 4 * n + n * (n + 1) / 2;
+        crate::InputLayout { shifts: 0..4*n, scalar_products: Some(4*n..gram_end),
+            masses: gram_end..gram_end+n, scale: gram_end+n }
+    }
+
+    pub(crate) fn contraction_plan(&self, monomials: &[Monomial]) -> Result<crate::ContractionPlan, ReductionError> {
+        crate::ContractionPlan::new(self.chart([1, 2, 3, 4])?.as_ref(), monomials)
     }
 
     pub fn settings(&self) -> &ReductionSettings {
@@ -93,7 +130,7 @@ impl CertifiedScalarReductionPlan {
 
     pub fn argument_count(&self) -> usize {
         let n = self.settings.propagators;
-        n * (n + 1) / 2 + n + 1
+        (if self.cartesian_tensor { 4*n } else { 0 }) + n * (n + 1) / 2 + n + 1
     }
 
     fn chart(&self, basis: [usize; 4]) -> Result<Arc<ReductionPlan>, ReductionError> {
@@ -106,8 +143,11 @@ impl CertifiedScalarReductionPlan {
             .clone();
         entry
             .get_or_init(|| {
-                ReductionPlan::new_certified_scalar(self.settings.clone(), basis)
-                    .map(Arc::new)
+                (if self.cartesian_tensor {
+                    ReductionPlan::new_certified_tensor(self.settings.clone(), basis)
+                } else {
+                    ReductionPlan::new_certified_scalar(self.settings.clone(), basis)
+                }).map(Arc::new)
                     .map_err(|error| error.to_string())
             })
             .as_ref()
@@ -139,6 +179,20 @@ impl CertifiedScalarReductionPlan {
             .cloned()
             .map_err(preparation)
     }
+    fn compatibility(&self, shape: &Shape) -> Result<Arc<ExactZeroConstraintPlan>, ReductionError> {
+        let entry = self.compatibilities.lock()
+            .map_err(|_| preparation("Cartesian compatibility cache poisoned"))?
+            .entry(shape.clone()).or_default().clone();
+        entry.get_or_init(|| {
+            let (parameters, residuals) = crate::certified_tensor::compatibility_constraints(self.settings.propagators);
+            match shape {
+                None => ExactZeroConstraintPlan::new(&parameters, &residuals),
+                Some(shape) => ExactZeroConstraintPlan::new_dual(&parameters, &residuals,
+                    &HyperDual::<u8>::new(shape.clone())),
+            }.map(Arc::new).map_err(|error| error.to_string())
+        }).as_ref().cloned().map_err(preparation)
+    }
+
 }
 
 /// Work performed by the full-Taylor certificate before numeric reduction.
@@ -153,6 +207,44 @@ pub struct CertificateExecutionStats {
     pub reduction_batches: usize,
 }
 
+/// Ordinary checked PV keeps imported child moments as graph inputs instead
+/// of expanding six high-rank pentagon recurrences into one evaluator.
+#[derive(Clone)]
+enum ChartWorkspace<T:NativeFloat> {
+    Generic(Workspace<T>),
+    Packed(crate::thin_n6::ThinSixWorkspace<T>),
+}
+impl<T:NativeFloat> ChartWorkspace<T> where Complex<T>:EvaluationDomain {
+    fn set_accuracy_precision(&mut self,bits:u32)->Result<(),ReductionError> {
+        match self {Self::Generic(workspace)=>workspace.set_accuracy_precision(bits),Self::Packed(workspace)=>workspace.set_accuracy_precision(bits)}
+    }
+    fn set_profiling(&mut self,enabled:bool) {
+        match self {Self::Generic(workspace)=>workspace.set_profiling(enabled),Self::Packed(workspace)=>workspace.set_profiling(enabled)}
+    }
+    fn last_profile(&self)->Option<ExecutionProfile> {
+        match self {Self::Generic(workspace)=>workspace.last_profile(),Self::Packed(workspace)=>workspace.last_profile()}
+    }
+    fn last_diagnostics(&self)->&[Vec<String>] {
+        match self {Self::Generic(workspace)=>workspace.last_diagnostics(),Self::Packed(workspace)=>workspace.last_diagnostics()}
+    }
+    fn reduce_batch(&mut self,input:&KinematicsBatch<T>)->Result<BatchResult<T>,ReductionError> {
+        match self {Self::Generic(workspace)=>workspace.reduce_batch(input),Self::Packed(workspace)=>workspace.reduce_batch(input)}
+    }
+    fn packed_execution(&self)->Option<&crate::SixPointExecutionStats> {
+        match self {Self::Generic(_)=>None,Self::Packed(workspace)=>Some(workspace.last_execution())}
+    }
+    fn execution(&self)->Result<ExecutionStats,ReductionError> {
+        match self {
+            Self::Generic(workspace)=>Ok(workspace.last_execution()),
+            Self::Packed(workspace)=>{
+                let nested=workspace.last_execution();
+                let mut total=ExecutionStats{input_rows:nested.parent_input_rows,..Default::default()};
+                add_stats(&mut total,nested.child_execution)?;add_stats(&mut total,nested.parent_execution)?;Ok(total)
+            }
+        }
+    }
+}
+
 /// Owned numeric scratch for [`CertifiedScalarReductionPlan`].
 ///
 /// Numeric workspaces and certificate refinement buffers are never shared.
@@ -164,11 +256,14 @@ pub struct CertifiedScalarWorkspace<T: NativeFloat + ExactInvariantScalar> {
     shape: Shape,
     components: usize,
     certificate: InvariantCertificateWorkspace,
-    charts: HashMap<[usize; 4], Workspace<T>>,
+    compatibility: Option<ExactZeroConstraintWorkspace>,
+    charts: HashMap<[usize; 4], ChartWorkspace<T>>,
+    packed_execution:Vec<crate::SixPointExecutionStats>,
     accuracy_bits: u32,
     profiling: bool,
     stats: ExecutionStats,
     certificate_stats: CertificateExecutionStats,
+    compatibility_stats: CertificateExecutionStats,
     profile: ExecutionProfile,
     diagnostics: Vec<Vec<String>>,
 }
@@ -209,12 +304,15 @@ where
             prototype,
             components: shape.as_ref().map_or(1, Vec::len),
             certificate: plan.certificate(&shape)?.instantiate(),
+            compatibility: if plan.cartesian_tensor { Some(plan.compatibility(&shape)?.instantiate()) } else { None },
             shape,
             charts: HashMap::new(),
+            packed_execution:Vec::new(),
             accuracy_bits,
             profiling: false,
             stats: ExecutionStats::default(),
             certificate_stats: CertificateExecutionStats::default(),
+            compatibility_stats: CertificateExecutionStats::default(),
             profile: ExecutionProfile::default(),
             diagnostics: Vec::new(),
         })
@@ -235,8 +333,11 @@ where
         initial_bits: u32,
         maximum_bits: u32,
     ) -> Result<(), ReductionError> {
-        self.certificate
-            .set_precision_budget(initial_bits, maximum_bits)
+        self.certificate.set_precision_budget(initial_bits, maximum_bits)?;
+        if let Some(compatibility) = &mut self.compatibility {
+            compatibility.set_precision_budget(initial_bits, maximum_bits)?;
+        }
+        Ok(())
     }
 
     pub fn set_accuracy_precision(&mut self, bits: u32) -> Result<(), ReductionError> {
@@ -280,36 +381,53 @@ where
         &mut self,
         input: &ScalarKinematicsBatch<T>,
     ) -> Result<BatchResult<T>, ReductionError> {
+        self.reduce_values(input.rows, input.components, &input.values)
+    }
+
+    pub(crate) fn reduce_tensor_batch(&mut self, input: &KinematicsBatch<T>) -> Result<BatchResult<T>, ReductionError> {
+        if !self.plan.cartesian_tensor {
+            return Err(ReductionError::InvalidInput("scalar workspace cannot dispatch Cartesian tensors".into()));
+        }
+        self.reduce_values(input.rows, input.components, &input.values)
+    }
+
+    pub(crate) fn compatibility_execution(&self) -> CertificateExecutionStats { self.compatibility_stats }
+    pub(crate) fn packed_execution(&self)->&[crate::SixPointExecutionStats] { &self.packed_execution }
+
+    fn reduce_values(&mut self, rows: usize, components: usize, values: &[Complex<T>]) -> Result<BatchResult<T>, ReductionError> {
         let start = self.profiling.then(Instant::now);
         self.stats = ExecutionStats {
-            input_rows: input.rows,
+            input_rows: rows,
             ..Default::default()
         };
         self.certificate_stats = CertificateExecutionStats {
-            input_rows: input.rows,
+            input_rows: rows,
             ..Default::default()
         };
+        self.compatibility_stats = CertificateExecutionStats { input_rows: rows, ..Default::default() };
         self.profile = ExecutionProfile::default();
         self.diagnostics.clear();
-        if input.components != self.components {
+        self.packed_execution.clear();
+        if components != self.components {
             return Err(ReductionError::InvalidInput(
-                "scalar input Taylor layout does not match workspace".into(),
+                (if self.plan.cartesian_tensor { "tensor input Taylor layout does not match workspace" } else { "scalar input Taylor layout does not match workspace" }).into(),
             ));
         }
         let width = product(self.plan.argument_count(), self.components)?;
-        let expected = product(width, input.rows)?;
-        if input.values.len() != expected {
+        let expected = product(width, rows)?;
+        if values.len() != expected {
             return Err(ReductionError::InvalidInput(format!(
-                "scalar batch expects {expected} values, received {}",
-                input.values.len(),
+                "{} batch expects {expected} values, received {}",
+                if self.plan.cartesian_tensor { "tensor" } else { "scalar" }, values.len(),
             )));
         }
         let zero = Complex::new(self.prototype.zero(), self.prototype.zero());
-        let output_width = product(4, self.components)?;
-        let output_len = product(output_width, input.rows)?;
-        self.diagnostics.resize_with(input.rows, Vec::new);
+        let output_basis = self.plan.basis();
+        let output_width = product(product(4, output_basis.len())?, self.components)?;
+        let output_len = product(output_width, rows)?;
+        self.diagnostics.resize_with(rows, Vec::new);
         let mut result = BatchResult {
-            basis: vec![Monomial([0; 4])],
+            basis: output_basis,
             components: self.components,
             metadata: ResultMetadata::new(
                 self.plan.settings.convention,
@@ -320,20 +438,22 @@ where
             // Success is assigned only after both certification and reduction.
             statuses: vec![
                 LaneStatus::Unstable("invariant certificate not evaluated".into());
-                input.rows
+                rows
             ],
-            fallback_used: vec![false; input.rows],
-            analytic_used: vec![false; input.rows],
+            fallback_used: vec![false; rows],
+            analytic_used: vec![false; rows],
             primal_envelopes: Vec::new(),
             primal_envelope_errors: Vec::new(),
         };
         let n = self.plan.settings.propagators;
         let gram_width = product(n * (n + 1) / 2, self.components)?;
-        let mut exact = Vec::with_capacity(product(gram_width, input.rows)?);
-        let mut lanes = Vec::with_capacity(input.rows);
-        for (lane, row) in input.values.chunks_exact(width).enumerate() {
+        let coordinate_width = if self.plan.cartesian_tensor { product(4*n, self.components)? } else { 0 };
+        let geometry_width = coordinate_width.checked_add(gram_width).ok_or_else(size_error)?;
+        let mut exact = Vec::with_capacity(product(geometry_width, rows)?);
+        let mut lanes = Vec::with_capacity(rows);
+        for (lane, row) in values.chunks_exact(width).enumerate() {
             let previous_len = exact.len();
-            for (slot, value) in row[..gram_width].iter().enumerate() {
+            for (slot, value) in row[..geometry_width].iter().enumerate() {
                 match (
                     value.re.exact_invariant_value(),
                     value.im.exact_invariant_value(),
@@ -341,19 +461,45 @@ where
                     (Some(re), Some(im)) => exact.push(Complex::new(re, im)),
                     _ => {
                         result.statuses[lane] = LaneStatus::InvalidInput(format!(
-                            "nonfinite scalar product at argument {}, Taylor component {}",
-                            slot / self.components,
+                            "nonfinite {} at argument {}, Taylor component {}",
+                            if self.plan.cartesian_tensor { "certified geometry" } else { "scalar product" }, slot / self.components,
                             slot % self.components,
                         ));
                         break;
                     }
                 }
             }
-            if exact.len() == previous_len + gram_width {
+            if exact.len() == previous_len + geometry_width {
                 lanes.push(lane);
             } else {
                 exact.truncate(previous_len);
             }
+        }
+        if let Some(compatibility) = &mut self.compatibility {
+            let proofs = compatibility.check_batch(&exact, lanes.len())?;
+            self.compatibility_stats.evaluated_rows = compatibility.evaluated_rows();
+            self.compatibility_stats.passes = compatibility.passes();
+            let mut gram = Vec::with_capacity(exact.len());
+            let mut accepted = Vec::with_capacity(lanes.len());
+            for ((lane, row), proof) in lanes.into_iter().zip(exact.chunks_exact(geometry_width)).zip(proofs) {
+                match proof {
+                    ExactZeroCertificate::Zero => {
+                        accepted.push(lane);
+                        gram.extend_from_slice(&row[coordinate_width..]);
+                        self.diagnostics[lane].push("exact full-Taylor supplied-G/Cartesian relative-product compatibility".into());
+                    }
+                    ExactZeroCertificate::Nonzero { constraint, component } => {
+                        result.statuses[lane] = LaneStatus::InvalidInput(format!(
+                            "supplied scalar products disagree with Cartesian relative momenta: constraint {constraint}, Taylor component {component} is certified nonzero"));
+                    }
+                    ExactZeroCertificate::Unresolved { working_bits } => {
+                        result.statuses[lane] = LaneStatus::Unstable(format!(
+                            "exact supplied-G/Cartesian compatibility unresolved at {working_bits} bits; input was preserved"));
+                    }
+                }
+            }
+            exact = gram;
+            lanes = accepted;
         }
         let certificates = self.certificate.check_batch(&exact, lanes.len())?;
         self.certificate_stats.evaluated_rows = self.certificate.evaluated_rows();
@@ -413,7 +559,7 @@ where
                     }
                 }
             }
-            let padding = product(4 * n, self.components)?;
+            let padding = if self.plan.cartesian_tensor { 0 } else { product(4 * n, self.components)? };
             let packed_width = width.checked_add(padding).ok_or_else(size_error)?;
             let mut packed = KinematicsBatch {
                 rows: lanes.len(),
@@ -422,12 +568,28 @@ where
             };
             for (index, &lane) in lanes.iter().enumerate() {
                 packed.values[index * packed_width + padding..(index + 1) * packed_width]
-                    .clone_from_slice(&input.values[lane * width..(lane + 1) * width]);
+                    .clone_from_slice(&values[lane * width..(lane + 1) * width]);
+            }
+            if self.plan.cartesian_tensor {
+                let chart = self.plan.chart(basis)?;
+                let selection = format!(
+                    "checked Cartesian supplied-G chart {basis:?}: requested {:?}; actual {:?}",
+                    self.plan.settings.algorithm, chart.algorithm_used(),
+                );
+                for &lane in &lanes {
+                    self.diagnostics[lane].push(selection.clone());
+                    self.diagnostics[lane].extend_from_slice(chart.preparation_notes());
+                }
             }
             let workspace = self.charts.get_mut(&basis).expect("prepared chart");
             self.certificate_stats.reduction_batches += 1;
-            let reduced = workspace.reduce_batch(&packed)?;
-            add_stats(&mut self.stats, workspace.last_execution());
+            let reduced = workspace.reduce_batch(&packed);
+            add_stats(&mut self.stats, workspace.execution()?)?;
+            if let Some(nested)=workspace.packed_execution() {self.packed_execution.push(nested.clone());}
+            let reduced=reduced?;
+            if reduced.basis != result.basis || reduced.components != self.components {
+                return Err(ReductionError::Evaluation("checked chart returned incompatible tensor layout".into()));
+            }
             if let Some(profile) = workspace.last_profile() {
                 self.profile.arguments += profile.arguments;
                 self.profile.scalar_masters += profile.scalar_masters;
@@ -442,7 +604,9 @@ where
                     result.values[lane * output_width..(lane + 1) * output_width]
                         .clone_from_slice(values);
                     result.inherit_primal_envelope(
-                        lane, &reduced, index, PrimalEnvelopeRoute::CertifiedScalar,
+                        lane, &reduced, index, if self.plan.cartesian_tensor {
+                            PrimalEnvelopeRoute::CertifiedTensor
+                        } else { PrimalEnvelopeRoute::CertifiedScalar },
                     );
                 }
             }
@@ -453,31 +617,49 @@ where
         Ok(result)
     }
 
-    fn prepare_chart(&self, basis: [usize; 4]) -> Result<Workspace<T>, ReductionError> {
+    fn prepare_chart(&self, basis: [usize; 4]) -> Result<ChartWorkspace<T>, ReductionError> {
         let plan = self.plan.chart(basis)?;
+        if self.plan.cartesian_tensor && crate::certified_tensor::packed_settings_supported(self.plan.settings()) {
+            let packed=crate::thin_n6::ThinSixReductionPlan::from_parent(plan.as_ref().clone())?;
+            let mut workspace=match &self.shape {
+                None=>crate::thin_n6::ThinSixWorkspace::new(&packed,self.prototype.clone()),
+                Some(shape)=>crate::thin_n6::ThinSixWorkspace::new_dual(&packed,self.prototype.clone(),HyperDual::<Complex<Rational>>::new(shape.clone())),
+            }?;
+            workspace.set_accuracy_precision(self.accuracy_bits)?;workspace.set_profiling(self.profiling);
+            return Ok(ChartWorkspace::Packed(workspace));
+        }
+        // The opt-in tensor wrapper has an explicit Symbolica master contract.
+        // Preserve the existing scalar API's feature-dependent Default policy.
+        let master_policy = if self.plan.cartesian_tensor {
+            crate::MasterExecutionPolicy::Symbolica
+        } else {
+            crate::MasterExecutionPolicy::Default
+        };
         let mut workspace = match &self.shape {
-            None => Workspace::new(&plan, self.prototype.clone()),
-            Some(shape) => Workspace::new_dual(
+            None => Workspace::new_with_master_policy(&plan, self.prototype.clone(), master_policy),
+            Some(shape) => Workspace::new_dual_with_master_policy(
                 &plan,
                 self.prototype.clone(),
                 HyperDual::<Complex<Rational>>::new(shape.clone()),
+                master_policy,
             ),
         }?;
         workspace.set_accuracy_precision(self.accuracy_bits)?;
         workspace.set_profiling(self.profiling);
-        Ok(workspace)
+        Ok(ChartWorkspace::Generic(workspace))
     }
 }
 
-fn add_stats(total: &mut ExecutionStats, value: ExecutionStats) {
-    total.argument_rows += value.argument_rows;
-    total.master_family_batches += value.master_family_batches;
-    total.master_rows += value.master_rows;
-    total.pentagon_box_rows += value.pentagon_box_rows;
-    total.reduction_rows += value.reduction_rows;
-    total.fallback_rows += value.fallback_rows;
-    total.fallback_successes += value.fallback_successes;
-    total.analytic_rows += value.analytic_rows;
+fn add_stats(total: &mut ExecutionStats, value: ExecutionStats)->Result<(),ReductionError> {
+    let add=|a:usize,b:usize|a.checked_add(b).ok_or_else(||ReductionError::Evaluation("checked chart execution counter overflow".into()));
+    total.argument_rows=add(total.argument_rows,value.argument_rows)?;
+    total.master_family_batches=add(total.master_family_batches,value.master_family_batches)?;
+    total.master_rows=add(total.master_rows,value.master_rows)?;
+    total.pentagon_box_rows=add(total.pentagon_box_rows,value.pentagon_box_rows)?;
+    total.reduction_rows=add(total.reduction_rows,value.reduction_rows)?;
+    total.fallback_rows=add(total.fallback_rows,value.fallback_rows)?;
+    total.fallback_successes=add(total.fallback_successes,value.fallback_successes)?;
+    total.analytic_rows=add(total.analytic_rows,value.analytic_rows)?;Ok(())
 }
 
 fn product(a: usize, b: usize) -> Result<usize, ReductionError> {
@@ -635,7 +817,18 @@ mod tests {
             let reference_plan = ReductionPlan::new(settings(n)).unwrap();
             phase("coordinate_plan_prepare_end");
             phase("coordinate_workspace_prepare_begin");
-            let mut reference = Workspace::new(&reference_plan, 0_f64).unwrap();
+            // The retained coordinate f64 observer can be conservatively
+            // Unstable from cancellation at requested53. Keep that actual
+            // failure as evidence and compare against a higher-precision
+            // observer with the same requested accuracy and tolerance.
+            use symbolica::domains::float::{Float, SingleFloat};
+            let prototype = Float::new(128);
+            let lift = |value: &Complex<f64>| Complex::new(
+                prototype.from_rational(&value.re.exact_rational().unwrap()),
+                prototype.from_rational(&value.im.exact_rational().unwrap()),
+            );
+            let mut reference = Workspace::new(&reference_plan, prototype.clone()).unwrap();
+            reference.set_accuracy_precision(53).unwrap();
             phase("coordinate_workspace_prepare_end");
             let mut coordinates: Vec<_> = q.iter().flatten().copied().map(c).collect();
             coordinates.extend_from_slice(&row[gram_arguments..]);
@@ -644,7 +837,7 @@ mod tests {
                 .reduce_batch(&KinematicsBatch {
                     rows: 1,
                     components: 1,
-                    values: coordinates,
+                    values: coordinates.iter().map(lift).collect(),
                 })
                 .unwrap();
             phase("coordinate_reduce_end");
@@ -655,11 +848,14 @@ mod tests {
                     .iter()
                     .zip(expected.lane(0).unwrap())
                 {
-                    let scale = expected.re.hypot(expected.im).max(1e-14);
-                    assert!(
-                        (actual.re - expected.re).hypot(actual.im - expected.im) <= 1e-10 * scale,
-                        "n={n}, lane={lane}: {actual:?} versus {expected:?}"
-                    );
+                    let actual = lift(actual);
+                    let norm = NativeFloat::hypot(&expected.re, &expected.im);
+                    let floor = prototype.from_rational(&(1e-14_f64).exact_rational().unwrap());
+                    let scale = if norm > floor { norm } else { floor };
+                    let tolerance = prototype.from_rational(&(1e-10_f64).exact_rational().unwrap());
+                    let difference = &actual - expected;
+                    assert!(NativeFloat::hypot(&difference.re, &difference.im) <= tolerance * scale,
+                        "n={n}, lane={lane}: {actual:?} versus {expected:?}");
                 }
             }
             let empty = workspace

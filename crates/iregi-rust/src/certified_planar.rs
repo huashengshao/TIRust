@@ -6,6 +6,9 @@
 //! determinant must have a nonzero primal. Numerical values are never projected.
 //! Accepted lanes run together through the ordinary instruction-major reducer,
 //! including its complete scalar-master and stability checks.
+//! The private masked six-point child also accepts authoritative supplied G
+//! after a separate complete-Taylor compatibility proof against Cartesian p.
+//! Public planar construction retains its Cartesian-only input contract.
 
 use std::{
     collections::{BTreeMap, HashMap},
@@ -65,9 +68,11 @@ pub struct CertifiedPlanarReductionPlan {
     layout: InputLayout,
     parameters: Vec<Atom>,
     constraints: Vec<Atom>,
+    compatibility_constraints: Vec<Atom>,
     cofactor_masks: bool,
     charts: ChartCache,
     certificates: CertificateCache,
+    compatibility_certificates: CertificateCache,
 }
 
 impl std::fmt::Debug for CertifiedPlanarReductionPlan {
@@ -88,18 +93,36 @@ impl CertifiedPlanarReductionPlan {
     }
 
     fn prepare(settings: ReductionSettings, cofactor_masks: bool) -> Result<Self, ReductionError> {
-        if !settings_supported(&settings)
+        let supplied_child = cofactor_masks && supplied_six_point_child_settings(&settings);
+        if (!settings_supported(&settings) && !supplied_child)
             || (cofactor_masks && generalized_scalar_settings(&settings))
         {
-            return Err(ReductionError::Unsupported(
-                "certified planar reduction requires preserved Cartesian N=5 inputs and either ordinary rank<=7 D4 unit-power PV, or scalar D4/D6 with at most one doubled propagator; generalized six-point child masks are unsupported".into(),
-            ));
+            let message = if cofactor_masks
+                && settings.invariants == InvariantInput::SuppliedScalarProducts
+            {
+                "private supplied-G planar six-point children require preserved N=5 ordinary rank<=6 D4 unit-power PV; generalized supplied-G child masks are unsupported"
+            } else {
+                "certified planar reduction requires preserved Cartesian N=5 inputs and either ordinary rank<=7 D4 unit-power PV, or scalar D4/D6 with at most one doubled propagator; generalized six-point child masks are unsupported"
+            };
+            return Err(ReductionError::Unsupported(message.into()));
         }
+        // The private supplied-G child keeps the compatibility adapter's exact
+        // p/G symbols and order. Its input still reaches reduction unchanged;
+        // coordinate-derived chart predicates are authorized only after every
+        // relative G/p equality has passed in the complete Taylor algebra.
+        let (mut parameters, compatibility_constraints) = if supplied_child {
+            crate::certified_tensor::compatibility_constraints(5)
+        } else {
+            let parameters = (0..5)
+                .flat_map(|i| (0..4).map(move |mu| variable(&format!("p{i}_{mu}"))))
+                .collect();
+            (parameters, Vec::new())
+        };
         let shifts: Vec<[Atom; 4]> = (0..5)
-            .map(|i| std::array::from_fn(|mu| variable(&format!("p{i}_{mu}"))))
+            .map(|i| std::array::from_fn(|mu| parameters[4 * i + mu].clone()))
             .collect();
         let masses: Vec<_> = (0..5).map(|i| variable(&format!("m2_{i}"))).collect();
-        let mut parameters: Vec<_> = shifts.iter().flatten().cloned().collect();
+        let mass_start = parameters.len();
         parameters.extend(masses.iter().cloned());
         parameters.push(variable("mu"));
         let mut constraints = planar_chart_polynomials(&shifts, &masses).map_err(preparation)?;
@@ -115,16 +138,18 @@ impl CertifiedPlanarReductionPlan {
             basis: tensor_basis(settings.rank),
             layout: InputLayout {
                 shifts: 0..20,
-                scalar_products: None,
-                masses: 20..25,
-                scale: 25,
+                scalar_products: supplied_child.then_some(20..35),
+                masses: mass_start..mass_start + 5,
+                scale: mass_start + 5,
             },
             constraints,
+            compatibility_constraints,
             cofactor_masks,
             settings,
             parameters,
             charts: Arc::default(),
             certificates: Arc::default(),
+            compatibility_certificates: Arc::default(),
         })
     }
 
@@ -188,6 +213,42 @@ impl CertifiedPlanarReductionPlan {
             .cloned()
             .map_err(preparation)
     }
+
+    fn compatibility_certificate(
+        &self,
+        shape: &Shape,
+    ) -> Result<Option<Arc<ExactZeroConstraintPlan>>, ReductionError> {
+        if self.compatibility_constraints.is_empty() {
+            return Ok(None);
+        }
+        let entry = self
+            .compatibility_certificates
+            .lock()
+            .map_err(|_| preparation("planar compatibility certificate cache poisoned"))?
+            .entry(shape.clone())
+            .or_default()
+            .clone();
+        entry
+            .get_or_init(|| {
+                match shape {
+                    None => ExactZeroConstraintPlan::new(
+                        &self.parameters,
+                        &self.compatibility_constraints,
+                    ),
+                    Some(shape) => ExactZeroConstraintPlan::new_dual(
+                        &self.parameters,
+                        &self.compatibility_constraints,
+                        &HyperDual::<u8>::new(shape.clone()),
+                    ),
+                }
+                .map(Arc::new)
+                .map_err(|e| e.to_string())
+            })
+            .as_ref()
+            .cloned()
+            .map(Some)
+            .map_err(preparation)
+    }
 }
 
 /// Owned scratch for the certified planar interface. Structural plans are
@@ -201,6 +262,7 @@ pub struct CertifiedPlanarWorkspace<T: NativeFloat> {
     policy: WorkspacePolicy,
     master_policy: MasterExecutionPolicy,
     certificate: ExactZeroConstraintWorkspace,
+    compatibility: Option<ExactZeroConstraintWorkspace>,
     charts: HashMap<ChartKey, Workspace<T>>,
     accuracy_bits: u32,
     profiling: bool,
@@ -289,6 +351,9 @@ where
             policy,
             master_policy,
             certificate: plan.certificate(&shape)?.instantiate(),
+            compatibility: plan
+                .compatibility_certificate(&shape)?
+                .map(|certificate| certificate.instantiate()),
             shape,
             charts: HashMap::new(),
             accuracy_bits,
@@ -314,7 +379,11 @@ where
         maximum_bits: u32,
     ) -> Result<(), ReductionError> {
         self.certificate
-            .set_precision_budget(initial_bits, maximum_bits)
+            .set_precision_budget(initial_bits, maximum_bits)?;
+        if let Some(compatibility) = &mut self.compatibility {
+            compatibility.set_precision_budget(initial_bits, maximum_bits)?;
+        }
+        Ok(())
     }
     pub fn set_accuracy_precision(&mut self, bits: u32) -> Result<(), ReductionError> {
         if bits == 0 || bits > self.prototype.get_precision() {
@@ -441,6 +510,49 @@ where
             } else {
                 exact.truncate(previous);
             }
+        }
+        // This independent check consumes the full original p/G/mass/mu row.
+        // No rank/chart/cofactor selection or child preparation may occur
+        // before all relative compatibility polynomials vanish in every
+        // ordered Taylor component. A positive-radius enclosure never passes.
+        if let Some(compatibility) = &mut self.compatibility {
+            let certificates = compatibility.check_batch(&exact, lanes.len());
+            let evaluated_rows = compatibility.evaluated_rows();
+            let passes = compatibility.passes();
+            self.add_certificate_work(evaluated_rows, passes)?;
+            let certificates = certificates?;
+            if certificates.len() != lanes.len() {
+                return Err(ReductionError::Evaluation(
+                    "invalid planar compatibility certificate row count".into(),
+                ));
+            }
+            let mut compatible_lanes = Vec::with_capacity(lanes.len());
+            let mut compatible_exact = Vec::with_capacity(exact.len());
+            for (compact, (lane, certificate)) in lanes.into_iter().zip(certificates).enumerate() {
+                match certificate {
+                    ExactZeroCertificate::Zero => {
+                        compatible_lanes.push(lane);
+                        compatible_exact.extend_from_slice(
+                            &exact[compact * width..(compact + 1) * width],
+                        );
+                        self.diagnostics[lane].push(
+                            "exact full-Taylor supplied-G/Cartesian compatibility for private planar child".into(),
+                        );
+                    }
+                    ExactZeroCertificate::Nonzero { constraint, component } => {
+                        result.statuses[lane] = LaneStatus::InvalidInput(format!(
+                            "supplied-G/Cartesian compatibility constraint {constraint} is certified nonzero in Taylor component {component}; input was preserved"
+                        ));
+                    }
+                    ExactZeroCertificate::Unresolved { working_bits } => {
+                        result.statuses[lane] = LaneStatus::Unstable(format!(
+                            "supplied-G/Cartesian compatibility certificate unresolved at {working_bits} bits; input was preserved"
+                        ));
+                    }
+                }
+            }
+            lanes = compatible_lanes;
+            exact = compatible_exact;
         }
         let rank_selection = vec![
             (0..self.components)
@@ -648,15 +760,19 @@ where
     }
 
     fn add_certificate_stats(&mut self) -> Result<(), ReductionError> {
+        self.add_certificate_work(self.certificate.evaluated_rows(), self.certificate.passes())
+    }
+
+    fn add_certificate_work(&mut self, evaluated_rows: usize, passes: usize) -> Result<(), ReductionError> {
         self.certificate_stats.evaluated_rows = self
             .certificate_stats
             .evaluated_rows
-            .checked_add(self.certificate.evaluated_rows())
+            .checked_add(evaluated_rows)
             .ok_or_else(|| preparation("planar certificate counter overflow"))?;
         self.certificate_stats.passes = self
             .certificate_stats
             .passes
-            .checked_add(self.certificate.passes())
+            .checked_add(passes)
             .ok_or_else(|| preparation("planar certificate counter overflow"))?;
         Ok(())
     }
@@ -699,6 +815,18 @@ pub(crate) fn settings_supported(settings: &ReductionSettings) -> bool {
             && settings.dimension_shift == 0
             && settings.algorithm == Algorithm::PassarinoVeltman)
             || generalized_scalar_settings(settings))
+}
+
+/// Only the masked six-point child wrapper may admit this supplied-G domain.
+/// Public planar construction remains Cartesian-only; generalized G is absent.
+pub(crate) fn supplied_six_point_child_settings(settings: &ReductionSettings) -> bool {
+    settings.propagators == 5
+        && settings.invariants == InvariantInput::SuppliedScalarProducts
+        && settings.input_policy == InputPolicy::Preserve
+        && settings.rank <= 6
+        && settings.powers == [1; 5]
+        && settings.dimension_shift == 0
+        && settings.algorithm == Algorithm::PassarinoVeltman
 }
 
 fn variable(name: &str) -> Atom {
@@ -1590,6 +1718,148 @@ mod tests {
             assert_eq!(result[0],ExactZeroCertificate::Zero);
             assert_eq!(result[1],ExactZeroCertificate::Nonzero {constraint:0,component:3});
         }
+    }
+
+    #[test]
+    fn supplied_planar_children_keep_full_layout_and_private_domain() {
+        for rank in [0, 1, 6] {
+            let mut configuration = settings(rank);
+            configuration.invariants = InvariantInput::SuppliedScalarProducts;
+            assert!(!settings_supported(&configuration));
+            assert!(CertifiedPlanarReductionPlan::new(configuration.clone()).is_err());
+            assert!(supplied_six_point_child_settings(&configuration));
+            let child = CertifiedPlanarReductionPlan::new_for_six_point_child(configuration).unwrap();
+            assert_eq!(child.parameter_count(), 41);
+            assert_eq!(child.layout.shifts, 0..20);
+            assert_eq!(child.layout.scalar_products, Some(20..35));
+            assert_eq!(child.layout.masses, 35..40);
+            assert_eq!(child.layout.scale, 40);
+            assert_eq!(child.constraints.len(), 25);
+            assert_eq!(child.compatibility_constraints.len(), 10);
+            assert!(child.cofactor_masks);
+            let (parameters, residuals) = crate::certified_tensor::compatibility_constraints(5);
+            assert_eq!(&child.parameters[..35], parameters.as_slice());
+            assert_eq!(child.compatibility_constraints, residuals);
+            for (i, parameter) in child.parameters[35..40].iter().enumerate() {
+                assert_eq!(parameter, &variable(&format!("m2_{i}")));
+            }
+            assert_eq!(child.parameters[40], variable("mu"));
+            assert!(child.charts.lock().unwrap().is_empty());
+        }
+        for (rank, h, dot, algorithm, policy) in [
+            (7, 0, false, Algorithm::PassarinoVeltman, InputPolicy::Preserve),
+            (0, 1, false, Algorithm::PassarinoVeltman, InputPolicy::Preserve),
+            (0, 0, true, Algorithm::PassarinoVeltman, InputPolicy::Preserve),
+            (0, 0, false, Algorithm::Ibp, InputPolicy::Preserve),
+            (0, 0, false, Algorithm::Hybrid, InputPolicy::Preserve),
+            (0, 0, false, Algorithm::PassarinoVeltman, InputPolicy::legacy_onshell()),
+        ] {
+            let mut configuration = settings(rank);
+            configuration.invariants = InvariantInput::SuppliedScalarProducts;
+            configuration.dimension_shift = h;
+            configuration.algorithm = algorithm;
+            configuration.input_policy = policy;
+            if dot { configuration.powers[0] = 2; }
+            assert!(!supplied_six_point_child_settings(&configuration));
+            assert!(CertifiedPlanarReductionPlan::new_for_six_point_child(configuration).is_err());
+        }
+        // Existing private/public Cartesian paths retain their rank-seven domain.
+        for child in [
+            CertifiedPlanarReductionPlan::new(settings(7)).unwrap(),
+            CertifiedPlanarReductionPlan::new_for_six_point_child(settings(7)).unwrap(),
+        ] {
+            assert_eq!(child.parameter_count(), 26);
+            assert_eq!(child.layout.scalar_products, None);
+            assert_eq!(child.layout.masses, 20..25);
+            assert_eq!(child.layout.scale, 25);
+            assert!(child.compatibility_constraints.is_empty());
+            assert!(child.compatibility_certificate(&None).unwrap().is_none());
+        }
+    }
+
+    fn supplied_planar_certificate_row() -> Vec<Complex<Rational>> {
+        // Exact retained geometry from points(): the packed products are fixed
+        // input data, not a second scalar-product or Dual implementation.
+        points().into_iter().flatten()
+            .chain([0, 0, 0, 0, 0, -1, 0, 0, -1, -1, 0, -1, -1, -1, -3])
+            .chain([4, 9, 16, 25, 36, 3])
+            .map(|value| Complex::new(Rational::from(value), Rational::from(0)))
+            .collect()
+    }
+
+    #[test]
+    fn supplied_planar_compatibility_preserves_ordered_mixed_jets_and_lane_isolation() {
+        let mut configuration = settings(1);
+        configuration.invariants = InvariantInput::SuppliedScalarProducts;
+        let plan = CertifiedPlanarReductionPlan::new_for_six_point_child(configuration).unwrap();
+        let shape = Some(vec![vec![0, 0], vec![0, 1], vec![1, 0], vec![1, 1]]);
+        let zero = Complex::new(Rational::from(0), Rational::from(0));
+        let mut good: Vec<_> = supplied_planar_certificate_row().into_iter()
+            .flat_map(|value| [value, zero.clone(), zero.clone(), zero.clone()]).collect();
+        // A shared full-jet translation leaves relative shifts and G unchanged.
+        for i in 0..5 {
+            good[(4 * i) * 4 + 1].re = Rational::from(2);
+            good[(4 * i + 1) * 4 + 2].re = Rational::from(3);
+            good[(4 * i + 2) * 4 + 3].re = Rational::from(5);
+        }
+        let mut bad = good.clone();
+        bad[20 * 4 + 3].re = Rational::from(1); // mixed G00 only
+        let input = [good.clone(), bad, good].concat();
+        let original = input.clone();
+        let first = plan.compatibility_certificate(&shape).unwrap().unwrap();
+        assert!(Arc::ptr_eq(&first, &plan.compatibility_certificate(&shape).unwrap().unwrap()));
+        let reordered = Some(vec![vec![0, 0], vec![1, 0], vec![0, 1], vec![1, 1]]);
+        assert!(!Arc::ptr_eq(&first, &plan.compatibility_certificate(&reordered).unwrap().unwrap()));
+        let mut proof = first.instantiate();
+        let actual = proof.check_batch(&input, 3).unwrap();
+        assert_eq!(input, original);
+        assert_eq!(actual[0], ExactZeroCertificate::Zero);
+        assert!(matches!(actual[1], ExactZeroCertificate::Nonzero { component: 3, .. }));
+        assert_eq!(actual[2], ExactZeroCertificate::Zero);
+        assert_eq!(proof.evaluated_rows(), 3);
+        assert!(proof.check_batch(&[], 0).unwrap().is_empty());
+        assert_eq!(proof.evaluated_rows(), 0);
+    }
+
+    #[test]
+    fn supplied_planar_compatibility_failure_precedes_rank_masks_and_child_preparation() {
+        let mut configuration = settings(0);
+        configuration.invariants = InvariantInput::SuppliedScalarProducts;
+        let plan = CertifiedPlanarReductionPlan::new_for_six_point_child(configuration).unwrap();
+        let shape = vec![vec![0, 0], vec![0, 1], vec![1, 0], vec![1, 1]];
+        let mut workspace = CertifiedPlanarWorkspace::new_dual(
+            &plan, 0_f64, HyperDual::<u8>::new(shape),
+        ).unwrap();
+        let mut mixed = supplied_planar_certificate_row().into_iter()
+            .flat_map(|value| [
+                Complex::new(0_f64.from_rational(&value.re), 0.),
+                Complex::new(0., 0.), Complex::new(0., 0.), Complex::new(0., 0.),
+            ]).collect::<Vec<_>>();
+        mixed[20 * 4 + 3].re = 1.;
+        let mut primal = mixed.clone();
+        primal[20 * 4 + 3].re = 0.;
+        primal[20 * 4].re = 1.;
+        let input = KinematicsBatch { rows: 2, components: 4, values: [mixed, primal].concat() };
+        let original = input.values.clone();
+        let result = workspace.reduce_batch(&input).unwrap();
+        assert_eq!(input.values, original);
+        for (lane, component) in [(0, 3), (1, 0)] {
+            assert!(matches!(&result.statuses[lane], LaneStatus::InvalidInput(message)
+                if message.contains("supplied-G/Cartesian compatibility")
+                    && message.contains(&format!("Taylor component {component}"))));
+            assert!(result.lane(lane).is_err());
+        }
+        assert_eq!(workspace.last_chart_attempts(), [false, false]);
+        assert_eq!(workspace.last_chart_masks(), [None, None]);
+        assert!(workspace.charts.is_empty());
+        assert!(plan.charts.lock().unwrap().is_empty());
+        assert_eq!(workspace.last_execution().master_rows, 0);
+        assert_eq!(workspace.last_certificate_execution().reduction_batches, 0);
+        assert_eq!(workspace.last_certificate_execution().evaluated_rows, 2);
+        assert_eq!(workspace.last_certificate_execution().passes, 1);
+        assert!(workspace.reduce_batch(&KinematicsBatch { rows: 0, components: 4, values: vec![] }).unwrap().statuses.is_empty());
+        assert_eq!(workspace.last_certificate_execution(), CertificateExecutionStats::default());
+        assert!(workspace.last_chart_masks().is_empty());
     }
 
 }

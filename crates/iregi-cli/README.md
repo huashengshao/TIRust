@@ -67,9 +67,11 @@ is enabled. Zero disables relative matching for positive reference masses but
 retains the original massless absolute `1e-3` rule.
 
 Legacy snapping acts at internal real scalar-product calls, including PV cross
-products. Supplied shifts, masses and widths remain unchanged. Coordinate input
-currently supports this policy through four propagators; five or more returns
-an explicit unsupported error. A zero threshold with a negative reference mass
+products. Supplied shifts, masses and widths remain unchanged. Through four
+propagators, coordinate input applies the selected policy. Five- and six-point
+coordinate inputs admit only samples for which the selected snapping operation
+preserves the original geometry; a geometry-changing snap is rejected. Other
+high-point Legacy domains remain unsupported. A zero threshold with a negative reference mass
 can make the original policy map a zero scalar product to a nonzero value;
 affected lanes are rejected because that Cayley-diagonal domain is unsupported.
 Some pure-IBP kinematics also return explicit instability diagnostics; enabling
@@ -84,9 +86,16 @@ invariant input convention throughout. Explicit shifts remain necessary for
 Cartesian numerator moments. Omitting this field computes invariants from shifts.
 Supplied scalar products remain authoritative and bypass legacy snapping,
 including its coordinate-input restriction. This bypass is recorded in the
-preparation notes. The core separately rejects supplied scalar products with
-six or more propagators until their four-dimensional Gram constraints can be
-validated across every Taylor component.
+preparation notes. The default constructor separately rejects supplied products
+with six or more propagators. The explicit `--check-scalar-products` option
+selects the checked Cartesian six-point API and requires `scalar_products` in
+the input. It preserves those products and checks Cartesian compatibility and
+regular rank-four Gram constraints across every Taylor component. Failure of
+either check rejects the affected lane before reduction; it does not substitute
+products reconstructed from shifts. Its direct rank-one numerical checks pass,
+but the inline rank-six path exceeded its preparation deadline. Generalized and
+full rank-six checked coverage remain unfinished. Checked precision rescue is
+explicitly unsupported.
 
 `run` requires explicit canonical `(q+p_i)` propagators in the order printed by
 `prepare`. It validates supplied `edge_id` values against that order. For a
@@ -112,8 +121,12 @@ The core selects eligible public six-/seven-point ordinary PV wrappers using
 its existing domain guards; the CLI maintains no separate eligibility list.
 `--algorithm` still defaults to **Hybrid**. This integration does not change
 Hybrid to PV or widen a wrapper's qualified rank, convention, power, invariant,
-kinematic or Dual domain. `--rescue` uses the facade's existing generic precision
-rescue path. The CLI retains its unprofiled/default master-policy behavior;
+kinematic or Dual domain. Ordinary eligible six-point Hybrid work uses a PV
+primary and a lazy independent IBP fallback for unstable lanes. If the available
+IBP plan itself requires PV completion, the diagnostics record that it cannot
+provide an independent fallback. `--rescue` now retains eligible tensor engines
+at each precision; generic and explicit Dual work uses the existing generic
+rescue implementation. The CLI retains its unprofiled/default master-policy behavior;
 capability/backend selection remains the core's responsibility. The outer CLI
 stage timings do not enable the generic workspace profiler.
 
@@ -121,19 +134,22 @@ Results are JSON with decimal-string complex values, basis exponents, Laurent
 slots `[uv1,ir1,ir2,finite]`, per-sample status, fallback and analytic-limit usage, and batch
 execution counters. The output also records requested and prepared algorithms
 and the actual workspace preparation notes. `engine_execution.engine` identifies
-`Generic`, `SixPoint` or `SevenPoint` execution. For specialized engines its tagged
+`Generic`, `SixPoint`, `SixPointHybrid`, `CertifiedTensor` or `SevenPoint` execution. For specialized engines its tagged
 record retains packed child/parent rows, batch-call counts, nested reduction work
 and both certificate counters. The legacy `execution` fields are the facade's
 logical-input/work summary: child and parent work is counted once, while packed
 rows and certificate passes remain in the tagged detail. Fallback/analytic work
 can exceed the number of logical samples; do not add packed rows to the summary.
 The algorithm field describes the selected engine's algorithm; the engine tag and
-nested counters distinguish the actual composition.
+nested counters distinguish the actual composition. Hybrid records the primary
+engine and actual fallback rows, batches, preparation attempts and failures.
+Checked Cartesian execution keeps Cartesian and Gram certificate work separate.
 
-Ordinary `diagnostics` contains the actual per-lane core messages. The existing
-precision-rescue API does not expose its internal certificate counters or those
-messages; rescue outputs mark these fields null instead of inventing zero counts
-or empty messages. `input_policy` records the requested preserve/snapping
+`diagnostics` contains actual per-lane core messages, including messages from
+precision rescue. Rescue's `engine_execution` retains tagged `primary`,
+`working` and `verification` stages when available. The legacy generic rescue
+does not expose tagged stage/certificate details, so those fields are null.
+`input_policy` records the requested preserve/snapping
 policy and exact threshold; comparison cases carry the same field.
 `precision_control` records the accuracy and verification
 policy. Per-sample `precision_rescue` preserves the primary status, convergence

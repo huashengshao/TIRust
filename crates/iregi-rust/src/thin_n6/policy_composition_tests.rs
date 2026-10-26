@@ -12,8 +12,9 @@ fn composition_six_point_constructors_pin_symbolica_with_no_backend_option() {
         &plan, 0., HyperDual::<Complex<Rational>>::new(vec![vec![0]]),
     ).unwrap();
     for workspace in [&ordinary, &dual] {
+        let ChildWorkspace::Ordinary(child)=&workspace.child else {panic!("ordinary constructor changed child engine")};
         assert!(crate::execution::policy_composition_tests::assert_context(
-            &workspace.child, WorkspacePolicy::SIX_POINT_CHILD,
+            child, WorkspacePolicy::SIX_POINT_CHILD,
             MasterExecutionPolicy::Symbolica, true,
         ) > 0);
         crate::execution::policy_composition_tests::assert_context(
@@ -21,8 +22,10 @@ fn composition_six_point_constructors_pin_symbolica_with_no_backend_option() {
             MasterExecutionPolicy::Symbolica, true,
         );
     }
-    assert_eq!(ordinary.child.dual_shape(), None);
+    let ChildWorkspace::Ordinary(ordinary_child)=&ordinary.child else {panic!("ordinary child")};
+    let ChildWorkspace::Ordinary(dual_child)=&dual.child else {panic!("dual child")};
+    assert_eq!(ordinary_child.dual_shape(), None);
     assert_eq!(ordinary.parent.dual_shape(), None);
-    assert_eq!(dual.child.dual_shape(), Some([vec![0]].as_slice()));
+    assert_eq!(dual_child.dual_shape(), Some([vec![0]].as_slice()));
     assert_eq!(dual.parent.dual_shape(), Some([vec![0]].as_slice()));
 }

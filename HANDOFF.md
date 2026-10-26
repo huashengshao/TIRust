@@ -1,5 +1,102 @@
 # TIRust / iregi-rust: exhaustive session handoff
 
+## Current state, 26 October 2026 — supersedes older status below
+
+The unbudgeted goal is active. The user prioritizes feature-complete, validated
+generic rank-six reduction, including dots; further performance optimization is
+not a completion requirement. There is no mathematical point-count ceiling in
+the new Cartesian denominator-descent facade. N≤6 remains the concrete numerical
+checkpoint, not an arbitrary-N or all-singular-kinematics claim. Do not begin new
+rank-seven stress campaigns. Finish the agreed features, update the report,
+commit/push, then mark the goal complete and stop only when the remaining gates
+actually pass.
+
+Published `d4d2f9e` contains the previous 50-page report and saved validation.
+The next report and coherent implementation milestone are being prepared. These
+new sealed capsules contain the current positive and negative evidence:
+
+- `validation/python-interface/facade-wheel-003`: 64 installed API cases, seven
+  marimo runtime cases and consumer typing pass; 1,042 saved replay checks.
+  The exact source context is `e873a0be…`. The external toolchain removal,
+  offline package-cache miss and aggregate test timeout remain retained; only
+  the unfinished test was completed separately.
+- `validation/current-cli-physical-integration`: 14 current CLI tests, 2,800
+  original-IREGI tensor comparisons, 12 MadLoop coefficient comparisons and
+  568 exact `2^-80` precision-pair gates pass. Physical graphs are rank four.
+  The pentagon at working128/requested53 is correctly rejected by its
+  cancellation estimate; independent working256/384 recomputations pass.
+- `validation/checked-supplied-g-unit-rank6`: actual checked N6 PV/unit/h0
+  full arrays at Float128/256 pass 1,680 quad comparisons and all 840 strict
+  precision pairs. This does not qualify generalized G or default Hybrid.
+- `validation/affine-power-generalized-current-core`: ordinary N6 rank-six
+  Cartesian AffinePower arrays at 128/256 pass 1,680 quad comparisons and 840
+  strict precision pairs. Four N5 children execute as one packed batch.
+  First-dot and D6 preparation each exceeded the original 810-second bound
+  without producing arrays; their partners remain unrun. Child IBP requests
+  may use the documented PV completion; do not call this pure IBP.
+- `validation/low-n-generalized-rank6-current-cli`: explicit N1/N4 first-dot
+  and triple-propagator arrays at 128/256 pass 68,046 main checks plus 20,160
+  separate mass-Taylor identities. Direct N5 first-dot preparation also
+  exceeded 810 seconds, without an array; three partners remain unrun.
+
+The public AffinePower N6 mixed-Dual Float128 probe has now completed all three
+calls and passed its independent saved/reference gate (15,120 parent Taylor
+slots, maximum normalized error about `3.08e-15`). All 12 actual child rows have
+validated `KnownNoQuadrature` contexts. Its Float256 partner has also passed: 30,240 external parent Taylor comparisons
+and 75,600 parent/child precision pairs in total, maximum normalized pair
+difference about `5.48e-30`, below `2^-80`. These newest Dual results are not
+yet in the current sealed report. Default-Hybrid mixed128 is running; its
+256 partner and public N6 typed f64/DoubleFloat coverage remain separate work. The old private mixed-Dual OOM
+cases are not superseded retroactively.
+
+Root added only a per-traversal memo to the existing Symbolica primal-amplitude
+extraction in `stability.rs`; no formulas, branch choices or numerical budgets
+changed. Build/CLI receipt `target/primal-amplitude-memo/build-001/receipt.json`
+is `f242c55c…`; six focused tests pass at `tests-002/receipt.json`, `f9bee951…`.
+An initial 40-level literal IF stress test exceeded 30 seconds; the retained
+record has no internal phase attribution. The representative 10-level test
+passes, along with context isolation, inactive-pole batching, nonlinear
+rejection and existing branch/normalization checks. The CLI production prefix
+is identical across this test-only adjustment. The original bridge had split
+at the first helper-level `cfg(test)`; the additive
+`test-only-bridge-addendum.json` correctly anchors the actual test module and
+verifies the entire production prefix including the memo (`92296f91…`).
+One actual N5 first-dot run on the changed CLI is now being checked by
+`/root/rank6_completion_map`; inspect its owned receipt before doing any repeat.
+The user imposed no 810-second or 32-GiB acceptance requirement. These are
+local run guardrails; evidence-based larger preparation budgets can be
+appropriate for the unoptimized functional milestone.
+
+All generalized-G and auxiliary mass-Taylor implementation proposals remain
+**target-only and unapplied** while this smaller change is investigated. The
+main proposals are `target/checked-g-generalized-source`, root's
+`target/checked-g-generalized-facade-proposal`, and
+`target/lowpoint-dotted-mass-proposal`; root's frontend additions are under
+`target/mass-taylor-frontend-proposal`. Coordinate their owners before composing
+them. Mass-Taylor extraction must keep auxiliary directions distinct from user
+components/sample lanes and transport amplitudes/quadrature errors through a
+fresh guard at the dotted integral's mass dimension. A value-only projection is
+insufficient. Never bypass the existing full-Dual joint quadrature guard.
+
+The actual accepted no-op Legacy N5 rank-six call aborted at the 32-GiB bound
+with a 17.4-GB allocation request before any coefficients; receipt
+`target/legacy-n5-rank6-noop/128-001/receipt.json`, `a07f634d…`, and release
+`01b2cb92…` retain it. Its 256-bit partner was not run. A target-only lightweight proof of
+unchanged snapping before preparing a preserved-input engine is being designed;
+geometry-changing highpoint snaps remain explicitly rejected by the current
+contract. This is an unresolved functional/resource gate, not a successful
+array validation.
+
+All commands still run from `/shared/external/iregi/iregi-rust`. An external
+Nix-store cleanup removed the previous compiler during a wheel build. Exact
+Rust/Cargo1.99 and Python3.13.12 were restored and GC-rooted locally. Source
+`.local/tirust-current-toolchain-roots/env.sh` **before** `scripts/env.sh` for
+the restored pins; the Symbolica license environment remains in its ignored
+local file and must not be printed or committed. Rustfmt1.99 is also rooted
+there. Do not race Cargo or mutate another owner's live source snapshot;
+numerical jobs use owned binaries and immutable copies, so documentation-only
+commits and unrelated target proposals do not require stopping them.
+
 Prepared on **24 October 2026**, at the user's explicit request to wind down,
 consolidate on `main`, update the report, preserve context and stop. This is a
 restart document, not a claim that the original implementation goal is complete.

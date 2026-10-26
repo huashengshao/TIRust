@@ -11,7 +11,7 @@ use symbolica::{
     domains::{
         atom::AtomField,
         dual::{DualNumberStructure, HyperDual},
-        float::{Complex, ComplexBall, DoubleFloat, Float, SingleFloat},
+        float::{Complex, ComplexBall, Float, SingleFloat},
         rational::{Q, Rational},
     },
     evaluate::{BatchExpressionEvaluator, Dualizer, ExpressionEvaluator},
@@ -29,19 +29,10 @@ pub trait ExactInvariantScalar {
     fn exact_invariant_value(&self) -> Option<Rational>;
 }
 
-impl ExactInvariantScalar for f64 {
-    fn exact_invariant_value(&self) -> Option<Rational> {
-        iregi_masters::NativeFloat::exact_rational(self)
-    }
-}
-
-impl ExactInvariantScalar for DoubleFloat {
-    fn exact_invariant_value(&self) -> Option<Rational> {
-        iregi_masters::NativeFloat::exact_rational(self)
-    }
-}
-
-impl ExactInvariantScalar for Float {
+// NativeFloat already requires lossless represented-value conversion. This
+// bridge adds no weaker decimal/binary64 path, and the public trait remains
+// independently implementable by exact scalar types that are not NativeFloat.
+impl<T: iregi_masters::NativeFloat> ExactInvariantScalar for T {
     fn exact_invariant_value(&self) -> Option<Rational> {
         iregi_masters::NativeFloat::exact_rational(self)
     }
@@ -605,6 +596,7 @@ fn size_error() -> ReductionError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use symbolica::domains::float::DoubleFloat;
     fn real(value: i64) -> Complex<Rational> {
         Complex::new(Rational::from(value), Rational::from(0))
     }

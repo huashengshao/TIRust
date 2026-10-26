@@ -1,11 +1,13 @@
 # TIRust for Python
 
-Status: a local development wheel is qualified on Linux with CPython 3.13.
-All 60 focused numerical, precision and native interoperability tests pass,
-including the actual FeynKit SVG renderer and the shared reduction facade;
-installed-wheel consumer typing also passes with zero errors or warnings.
-The [qualification evidence](../validation/python-interface/facade-wheel-002/README.md)
-records the exact wheel, owned source snapshot and tested coverage.
+Status: a fresh local development wheel is qualified on Linux with CPython 3.13.
+All 64 focused numerical, precision, native interoperability and facade cases
+pass, together with seven actual marimo notebook runtime cases. Installed-wheel
+consumer typing passes with zero errors or warnings.
+The [qualification evidence](../validation/python-interface/facade-wheel-003/README.md)
+records the exact wheel, 147 selected source files, tested coverage and preserved
+failed attempts. These are frontend checks on specified fixtures; full-array
+integral validation is reported separately.
 Release wheels, full Symbolica Community host integration, and other Python or
 platform versions still require their own qualification.
 
@@ -68,7 +70,9 @@ that position. Failed or unsupported results never become successful zeros.
 
 The source bindings use the shared Rust `TensorReductionPlan` and
 `TensorWorkspace` facade. It selects eligible ordinary PV high-point paths;
-explicit Dual layouts and `profiling=True` retain the generic path. The requested
+eligible positive-power high-point inputs use affine-power descent for explicit
+Dual layouts and `profiling=True`. Lower-point inputs retain generic execution.
+The requested
 algorithm and compiled default scalar-master policy are preserved. Inspect
 `workspace.engine` and `workspace.preparation_notes` for the actual workspace
 selection. `result.engine_execution` captures its tagged Rust counters, including
@@ -82,6 +86,18 @@ propagator powers and dimension shifts, with propagator-count reduction kept
 separate. Six-point coverage is a concrete validation checkpoint; supported and
 tested point counts remain explicit. Historical rank-seven cases remain
 separate challenge coverage.
+
+The source API also offers
+`ReductionPlan(6, rank, invariants="scalar_products", check_scalar_products=True)`
+to check supplied products against the explicit Cartesian shifts before
+reduction. Its `certified_tensor` engine keeps Cartesian and Gram certificate
+counters separate, including with profiling or explicit Dual layouts. This
+option is tested in the current wheel: incompatible inputs are rejected before
+scalar-master evaluation for ordinary, profiling and primal-only Dual
+workspaces, and empty calls reset the certificate counters. Rank-one numerical
+evidence is separate. The original inline rank-six path exceeded its preparation
+resource deadline; these frontend rejection checks do not establish complete
+checked rank-six, generalized-integral or checked-rescue numerical coverage.
 
 `PreparedNumerator.from_expression` accepts actual shared Symbolica Expressions;
 `from_tensor` accepts actual shared Spenso TensorExpression objects. Preparation,

@@ -17,9 +17,12 @@ use symbolica::{
 };
 
 use crate::{
+    basis::Monomial,
     execution::{ExecutionStats, Workspace},
     plan::ReductionPlan,
-    types::{BatchResult, KinematicsBatch, LaneStatus, ReductionError},
+    types::{
+        BatchResult, InputLayout, KinematicsBatch, LaneStatus, ReductionError, ReductionSettings,
+    },
 };
 
 /// Which otherwise valid samples require a higher-precision check.
@@ -196,17 +199,7 @@ where
         settings: RescueSettings,
         dual: Option<&D>,
     ) -> Result<Self, ReductionError> {
-        let output_bits = prototype.get_precision();
-        let accuracy_bits = settings.accuracy_bits.unwrap_or(output_bits);
-        if accuracy_bits == 0
-            || accuracy_bits > output_bits
-            || settings.working_bits <= output_bits
-            || settings.verification_bits <= settings.working_bits
-        {
-            return Err(ReductionError::InvalidInput(
-                "rescue requires 0 < accuracy_bits <= output bits < working_bits < verification_bits".into(),
-            ));
-        }
+        let accuracy_bits = validate_rescue_settings(prototype.get_precision(), settings)?;
         // Specialize the mathematical plan once for this Dual algebra. Calling
         // Workspace::new_dual with the original zero-jet plan at each precision
         // would otherwise repeat the complete symbolic tensor preparation.
@@ -284,6 +277,16 @@ where
         &self.primary_statuses
     }
 
+    pub fn last_diagnostics(&self) -> &[Vec<String>] {
+        self.primary.last_diagnostics()
+    }
+
+    pub(crate) fn clear_last_report(&mut self) {
+        self.stats = RescueStats::default();
+        self.diagnostics.clear();
+        self.primary_statuses.clear();
+    }
+
     pub fn component_count(&self) -> usize {
         self.primary.component_count()
     }
@@ -305,7 +308,6 @@ where
         self.diagnostics
             .resize(batch.rows, RescueStatus::NotRequested);
         let input_width = self.plan.parameters.len() * batch.components;
-        let output_width = result.basis.len() * 4 * batch.components;
         let mut lanes = Vec::new();
         let mut low_inputs = Vec::new();
         let mut high_inputs = Vec::new();
@@ -351,92 +353,28 @@ where
         self.stats.working = self.working.last_execution();
         self.stats.verification = self.verification.last_execution();
         for (compact, &lane) in lanes.iter().enumerate() {
-            let attempt = (|| {
-                let low = low.lane(compact).map_err(|status| {
-                    format!(
-                        "{}-bit reduction returned {status:?}",
-                        self.settings.working_bits,
-                    )
-                })?;
-                let high = high.lane(compact).map_err(|status| {
-                    format!(
-                        "{}-bit verification returned {status:?}",
-                        self.settings.verification_bits,
-                    )
-                })?;
-                let input = &high_batch.values[compact * input_width..(compact + 1) * input_width];
-                self.compare(low, high, input, batch.components, 8)?;
-                #[cfg(test)]
-                if std::env::var_os("IREGI_RESCUE_PROFILE").is_some()
-                    && let Some(moment) = self
-                        .plan
-                        .basis
-                        .iter()
-                        .position(|moment| moment.0 == [5, 0, 0, 1])
-                {
-                    let index = (moment * 4 + 3) * batch.components;
-                    eprintln!(
-                        "precision coefficient lane={lane}, moment=[5,0,0,1], slot=finite, Taylor component=0: bits={} real={} imag={}; bits={} real={} imag={}",
-                        self.settings.working_bits,
-                        low[index].re,
-                        low[index].im,
-                        self.settings.verification_bits,
-                        high[index].re,
-                        high[index].im,
-                    );
-                }
-                let rounded: Vec<_> = high
-                    .iter()
-                    .map(|value| {
-                        Complex::new(
-                            self.prototype.round_rescued(&value.re),
-                            self.prototype.round_rescued(&value.im),
-                        )
-                    })
-                    .collect();
-                if rounded
-                    .iter()
-                    .any(|value| !value.re.is_finite() || !value.im.is_finite())
-                {
-                    return Err(
-                        "converged result is outside the output domain's finite range".into(),
-                    );
-                }
-                let promoted: Result<Vec<_>, String> = rounded
-                    .iter()
-                    .map(|value| {
-                        Ok(Complex::new(
-                            value.re.promote_exact(self.settings.verification_bits)?,
-                            value.im.promote_exact(self.settings.verification_bits)?,
-                        ))
-                    })
-                    .collect();
-                self.compare(&promoted?, high, input, batch.components, 0)?;
-                let primary_agreed = result.lane(lane).ok().map(|primary| {
-                    let promoted: Result<Vec<_>, String> = primary
-                        .iter()
-                        .map(|value| {
-                            Ok(Complex::new(
-                                value.re.promote_exact(self.settings.verification_bits)?,
-                                value.im.promote_exact(self.settings.verification_bits)?,
-                            ))
-                        })
-                        .collect();
-                    promoted
-                        .and_then(|values| self.compare(&values, high, input, batch.components, 0))
-                        .is_ok()
-                });
-                Ok((rounded, primary_agreed))
-            })();
+            let input = &high_batch.values[compact * input_width..(compact + 1) * input_width];
+            let attempt = verify_rescued_row(
+                &self.prototype,
+                self.settings,
+                self.comparison(),
+                &low,
+                &high,
+                compact,
+                lane,
+                input,
+                batch.components,
+                result.lane(lane).ok(),
+            );
             match attempt {
                 Ok((values, primary_agreed)) => {
-                    result.values[lane * output_width..(lane + 1) * output_width]
-                        .clone_from_slice(&values);
-                    result.statuses[lane] = LaneStatus::Success;
-                    result.fallback_used[lane] |=
-                        low.fallback_used[compact] || high.fallback_used[compact];
-                    result.analytic_used[lane] |=
-                        low.analytic_used[compact] || high.analytic_used[compact];
+                    accept_rescued_row(
+                        &mut result,
+                        lane,
+                        &values,
+                        low.fallback_used[compact] || high.fallback_used[compact],
+                        low.analytic_used[compact] || high.analytic_used[compact],
+                    );
                     self.diagnostics[lane] = RescueStatus::Converged {
                         working_bits: self.settings.working_bits,
                         verification_bits: self.settings.verification_bits,
@@ -494,7 +432,29 @@ where
         })
     }
 
-    fn compare(
+    fn comparison(&self) -> RescueComparison<'_> {
+        RescueComparison {
+            settings: &self.plan.settings,
+            basis: &self.plan.basis,
+            layout: &self.plan.layout,
+            verification_bits: self.settings.verification_bits,
+            accuracy_bits: self.accuracy_bits,
+        }
+    }
+}
+
+/// Shared convergence policy; this contains metadata, never a new symbolic plan.
+#[derive(Clone, Copy)]
+pub(crate) struct RescueComparison<'a> {
+    pub settings: &'a ReductionSettings,
+    pub basis: &'a [Monomial],
+    pub layout: &'a InputLayout,
+    pub verification_bits: u32,
+    pub accuracy_bits: u32,
+}
+
+impl RescueComparison<'_> {
+    pub(crate) fn compare(
         &self,
         low: &[Complex<Float>],
         high: &[Complex<Float>],
@@ -502,40 +462,37 @@ where
         components: usize,
         guard_bits: u32,
     ) -> Result<(), String> {
-        if low.len() != high.len() || high.len() != self.plan.basis.len() * 4 * components {
+        if low.len() != high.len() || high.len() != self.basis.len() * 4 * components {
             return Err("inconsistent precision-verification output dimensions".into());
         }
-        let bits = self.settings.verification_bits;
+        let bits = self.verification_bits;
         let prototype = Float::new(bits);
         let mut scale = prototype.zero();
-        for index in self.plan.layout.shifts.clone() {
+        for index in self.layout.shifts.clone() {
             scale = max(scale, magnitude(&input[index * components]));
         }
-        for index in self.plan.layout.masses.clone().chain(
-            self.plan
-                .layout
-                .scalar_products
-                .clone()
-                .into_iter()
-                .flatten(),
-        ) {
+        for index in self
+            .layout
+            .masses
+            .clone()
+            .chain(self.layout.scalar_products.clone().into_iter().flatten())
+        {
             scale = max(scale, magnitude(&input[index * components]).sqrt());
         }
         if scale.is_zero() {
-            scale = input[self.plan.layout.scale * components].re.clone();
+            scale = input[self.layout.scale * components].re.clone();
         }
         let exponent = 19i64 - i64::from(self.accuracy_bits) - i64::from(guard_bits);
         let power = Float::with_val(bits, 2).pow(exponent.unsigned_abs());
         let tolerance = if exponent < 0 { power.inv() } else { power };
-        let base_dimension = 4 + 2 * i32::from(self.plan.settings.dimension_shift)
+        let base_dimension = 4 + 2 * i32::from(self.settings.dimension_shift)
             - 2 * self
-                .plan
                 .settings
                 .powers
                 .iter()
                 .map(|&power| i32::from(power))
                 .sum::<i32>();
-        for (moment, monomial) in self.plan.basis.iter().enumerate() {
+        for (moment, monomial) in self.basis.iter().enumerate() {
             let dimension = base_dimension + monomial.rank() as i32;
             let natural = scale.pow(u64::from(dimension.unsigned_abs()));
             let natural = if dimension < 0 {
@@ -572,7 +529,134 @@ where
     }
 }
 
-fn promote_row<T: RescueScalar>(
+pub(crate) fn validate_rescue_settings(
+    output_bits: u32,
+    settings: RescueSettings,
+) -> Result<u32, ReductionError> {
+    let accuracy_bits = settings.accuracy_bits.unwrap_or(output_bits);
+    if accuracy_bits == 0
+        || accuracy_bits > output_bits
+        || settings.working_bits <= output_bits
+        || settings.verification_bits <= settings.working_bits
+    {
+        return Err(ReductionError::InvalidInput(
+            "rescue requires 0 < accuracy_bits <= output bits < working_bits < verification_bits"
+                .into(),
+        ));
+    }
+    Ok(accuracy_bits)
+}
+
+/// Run the existing convergence, output rounding, round-trip and primary checks.
+pub(crate) fn verify_rescued_row<T: RescueScalar>(
+    prototype: &T,
+    settings: RescueSettings,
+    comparison: RescueComparison<'_>,
+    low: &BatchResult<Float>,
+    high: &BatchResult<Float>,
+    compact: usize,
+    lane: usize,
+    input: &[Complex<Float>],
+    components: usize,
+    primary: Option<&[Complex<T>]>,
+) -> Result<(Vec<Complex<T>>, Option<bool>), String> {
+    let low = low.lane(compact).map_err(|status| {
+        format!(
+            "{}-bit reduction returned {status:?}",
+            settings.working_bits,
+        )
+    })?;
+    let high = high.lane(compact).map_err(|status| {
+        format!(
+            "{}-bit verification returned {status:?}",
+            settings.verification_bits,
+        )
+    })?;
+
+    comparison.compare(low, high, input, components, 8)?;
+    #[cfg(test)]
+    if std::env::var_os("IREGI_RESCUE_PROFILE").is_some()
+        && let Some(moment) = comparison
+            .basis
+            .iter()
+            .position(|moment| moment.0 == [5, 0, 0, 1])
+    {
+        let index = (moment * 4 + 3) * components;
+        eprintln!(
+            "precision coefficient lane={lane}, moment=[5,0,0,1], slot=finite, Taylor component=0: bits={} real={} imag={}; bits={} real={} imag={}",
+            settings.working_bits,
+            low[index].re,
+            low[index].im,
+            settings.verification_bits,
+            high[index].re,
+            high[index].im,
+        );
+    }
+    let rounded: Vec<_> = high
+        .iter()
+        .map(|value| {
+            Complex::new(
+                prototype.round_rescued(&value.re),
+                prototype.round_rescued(&value.im),
+            )
+        })
+        .collect();
+    if rounded
+        .iter()
+        .any(|value| !value.re.is_finite() || !value.im.is_finite())
+    {
+        return Err("converged result is outside the output domain's finite range".into());
+    }
+    let promoted: Result<Vec<_>, String> = rounded
+        .iter()
+        .map(|value| {
+            Ok(Complex::new(
+                value.re.promote_exact(settings.verification_bits)?,
+                value.im.promote_exact(settings.verification_bits)?,
+            ))
+        })
+        .collect();
+    comparison.compare(&promoted?, high, input, components, 0)?;
+    let primary_agreed = primary.map(|primary| {
+        let promoted: Result<Vec<_>, String> = primary
+            .iter()
+            .map(|value| {
+                Ok(Complex::new(
+                    value.re.promote_exact(settings.verification_bits)?,
+                    value.im.promote_exact(settings.verification_bits)?,
+                ))
+            })
+            .collect();
+        promoted
+            .and_then(|values| comparison.compare(&values, high, input, components, 0))
+            .is_ok()
+    });
+    Ok((rounded, primary_agreed))
+}
+
+/// Values changed precision: a primary sensitivity envelope is no longer coupled.
+pub(crate) fn accept_rescued_row<T: RescueScalar>(
+    result: &mut BatchResult<T>,
+    lane: usize,
+    values: &[Complex<T>],
+    fallback_used: bool,
+    analytic_used: bool,
+) {
+    let width = result.basis.len() * 4 * result.components;
+    result.values[lane * width..(lane + 1) * width].clone_from_slice(values);
+    result.statuses[lane] = LaneStatus::Success;
+    result.fallback_used[lane] |= fallback_used;
+    result.analytic_used[lane] |= analytic_used;
+    let rows = result.statuses.len();
+    result.primal_envelopes.resize_with(rows, || None);
+    result.primal_envelope_errors.resize_with(rows, || None);
+    result.primal_envelopes[lane] = None;
+    result.primal_envelope_errors[lane] = Some(
+        "precision-rescued output passed convergence and rounding checks; a coupled scalar sensitivity context is unavailable after precision conversion".into(),
+    );
+}
+
+pub(crate) fn promote_row<T: RescueScalar>(
     values: &[Complex<T>],
     low_bits: u32,
     high_bits: u32,
@@ -597,7 +681,7 @@ fn promote_row<T: RescueScalar>(
     Ok((low, high))
 }
 
-fn reject<T: RescueScalar>(
+pub(crate) fn reject<T: RescueScalar>(
     result: &mut BatchResult<T>,
     diagnostics: &mut [RescueStatus],
     lane: usize,

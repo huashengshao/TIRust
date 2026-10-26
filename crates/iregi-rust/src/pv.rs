@@ -21,6 +21,9 @@ use symbolica::{
 mod thin_seven;
 pub(crate) use thin_seven::{ThinSevenChart, ThinSevenGeometry, ThinSixGeometry};
 
+mod affine_descent;
+pub(crate) use affine_descent::{AffineChartKey,AffineDescentBudget,AffineDescentChart,AffineDescentPolynomials,affine_descent_chart,affine_descent_polynomials};
+
 use crate::ibp::{MasterLeaf, ScalarCompiler, ScalarRequest};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -41,6 +44,9 @@ struct Geometry {
 struct FivePointRelation {
     active: Atom,
     coefficients: Vec<Atom>,
+    /// A lazy omission is legal only after its selected raw Cramer numerator
+    /// is proved zero through the full Taylor shape before master evaluation.
+    coefficient_guards: Vec<Atom>,
 }
 
 /// A rank constraint required by a lazily selected coordinate identity.
@@ -73,6 +79,9 @@ pub struct PvCompiler {
     bubble_expansions: HashMap<(Vec<usize>, bool), ScalarCompiler>,
     analytic_jet_order: u16,
     coordinate_identities: bool,
+    /// Caller must transport every selected coordinate constraint to the
+    /// existing exact full-Taylor pre-master guard before executing this plan.
+    checked_coordinate_constraints: bool,
     /// Private execution chart; its full Taylor constraints are checked by the wrapper.
     certified_planar_chart: Option<usize>,
     certified_planar_mask: u8,
@@ -204,6 +213,7 @@ impl PvCompiler {
             bubble_expansions: HashMap::new(),
             analytic_jet_order: 0,
             coordinate_identities: false,
+            checked_coordinate_constraints: false,
             certified_planar_chart: None,
             certified_planar_mask: 0,
             preparation_notes: Vec::new(),
@@ -238,6 +248,15 @@ impl PvCompiler {
             return Err("set coordinate identity policy before compiling moments".into());
         }
         self.coordinate_identities = enabled;
+        Ok(())
+    }
+
+    /// Private checked Cartesian mode. This does not prove a numerical rank:
+    /// the caller must retain `coordinate_constraints()` and certify each
+    /// selected raw determinant through the complete ordered Taylor shape.
+    pub(crate) fn set_checked_coordinate_identities(&mut self) -> Result<(), String> {
+        self.set_coordinate_identities(true)?;
+        self.checked_coordinate_constraints = true;
         Ok(())
     }
 
@@ -520,7 +539,19 @@ impl PvCompiler {
             for (i, coefficient) in relation.coefficients.iter().enumerate() {
                 if !coefficient.is_zero() {
                     let child = self.moment(&without(active, i), exponents)?;
-                    accumulate(&mut value, coefficient, &child);
+                    if let Some(guard) = relation.coefficient_guards.get(i) {
+                        // The generic child is structurally regular, but a
+                        // selected physical lane can have a singular Gram.
+                        // Preserve the factor and avoid 0*nonfinite only after
+                        // the raw zero cofactor is certified in every jet.
+                        for slot in 0..4 {
+                            let weighted = coefficient * &child[slot];
+                            value[slot] = &value[slot]
+                                + conditional(guard, &weighted, &Atom::new());
+                        }
+                    } else {
+                        accumulate(&mut value, coefficient, &child);
+                    }
                 }
             }
             if relation.active == Atom::num(1) {
@@ -934,6 +965,7 @@ impl PvCompiler {
                 .ok_or_else(|| "certified planar chart is structurally singular".to_string())?;
             let relation = FivePointRelation {
                 active: Atom::num(1),
+                coefficient_guards: Vec::new(),
                 coefficients: coefficients
                     .into_iter()
                     .enumerate()
@@ -983,6 +1015,7 @@ impl PvCompiler {
                 coefficients[0] = -coefficients[1..].iter().fold(Atom::new(), |sum, c| sum + c);
                 FivePointRelation {
                     active: Atom::num(1),
+                    coefficient_guards: Vec::new(),
                     coefficients: coefficients
                         .into_iter()
                         .map(|c| self.bind_alias(c))
@@ -993,7 +1026,7 @@ impl PvCompiler {
                 .insert(active.to_vec(), relation.clone());
             return Ok(relation);
         }
-        if self.analytic_jet_order > 0 {
+        if self.analytic_jet_order > 0 && !self.checked_coordinate_constraints {
             let note = "Generic rank-three pentagon pinching is disabled for Dual layouts until every Taylor coefficient of the coordinate-rank constraint is certified; structurally exact rank-three families remain supported";
             if !self.preparation_notes.iter().any(|value| value == note) {
                 self.preparation_notes.push(note.into());
@@ -1002,6 +1035,7 @@ impl PvCompiler {
             return Ok(None);
         }
         let mut charts = Vec::new();
+        let mut cofactor_charts = Vec::new();
         for omitted in 0..4 {
             let _chart = PreparationTimer::new(
                 self.profile_preparation,
@@ -1010,7 +1044,11 @@ impl PvCompiler {
             let Some((determinant, coefficients)) = constant_chart(&rows, omitted)? else {
                 continue;
             };
-            charts.push((self.bind_alias(determinant), coefficients));
+            let determinant = self.bind_alias(determinant);
+            if self.checked_coordinate_constraints {
+                cofactor_charts.push((determinant.clone(), omitted));
+            }
+            charts.push((determinant, coefficients));
         }
         let mut available = Atom::new();
         let mut coefficients = vec![Atom::new(); 5];
@@ -1032,13 +1070,36 @@ impl PvCompiler {
                 expression: coordinate_determinant,
                 label: format!("rank-three pentagon coordinate identity {active:?}"),
             });
-            Some(FivePointRelation {
-                active: enabled,
-                coefficients: coefficients
-                    .into_iter()
-                    .map(|c| self.bind_alias(c))
-                    .collect(),
-            })
+            let coefficients: Vec<_> = coefficients.into_iter()
+                .map(|c| self.bind_alias(c)).collect();
+            let coefficient_guards = if self.checked_coordinate_constraints {
+                let guards: Vec<_> = coefficients.iter().map(|coefficient|
+                    self.bind_alias(conditional(coefficient, &Atom::num(1), &Atom::new()))
+                ).collect();
+                let local_shifts: Vec<_> = active.iter().map(|&i| self.shifts[i].clone()).collect();
+                let local_masses: Vec<_> = active.iter().map(|&i| self.mass_squared[i].clone()).collect();
+                // Reuse the existing tested Symbolica Matrix Cramer numerators.
+                // The enclosing full-Taylor G/p certificate proves that their
+                // Cartesian f rows equal the authoritative supplied-G f rows.
+                let numerators = planar_chart_cofactor_polynomials(&local_shifts, &local_masses)?;
+                let mut earlier = Atom::new();
+                for (determinant, omitted) in cofactor_charts {
+                    let selected = conditional(&earlier, &Atom::new(),
+                        &conditional(&determinant, &Atom::num(1), &Atom::new()));
+                    let selected = self.bind_alias(selected);
+                    earlier = self.bind_alias(conditional(&determinant, &Atom::num(1), &earlier));
+                    for (child, guard) in guards.iter().enumerate() {
+                        let selected_zero = self.bind_alias(conditional(guard, &Atom::new(), &selected));
+                        self.coordinate_constraints.push(CoordinateConstraint {
+                            owner: guard.clone(), active: selected_zero,
+                            expression: numerators[omitted*5+child].clone(),
+                            label: format!("zero pentagon cofactor {active:?}, chart {omitted}, child {child}"),
+                        });
+                    }
+                }
+                guards
+            } else { Vec::new() };
+            Some(FivePointRelation { active: enabled, coefficients, coefficient_guards })
         };
         self.five_point_relations
             .insert(active.to_vec(), relation.clone());

@@ -12,7 +12,7 @@ Number: TypeAlias = int | float | complex | str | Expression | Float | ComplexFl
 NumericInput: TypeAlias = Number | "Dual"
 DType: TypeAlias = Literal["f64", "double-double", "float"]
 Algorithm: TypeAlias = Literal["hybrid", "pv", "ibp"]
-Engine: TypeAlias = Literal["generic", "six_point", "seven_point"]
+Engine: TypeAlias = Literal["generic", "six_point", "six_point_hybrid", "certified_tensor", "affine_power", "seven_point"]
 Convention: TypeAlias = Literal["iregi", "oneloop", "madloop"]
 Shape: TypeAlias = Sequence[Sequence[int]]
 Monomial: TypeAlias = tuple[int, int, int, int]
@@ -39,7 +39,39 @@ PackedEngineExecution = TypedDict("PackedEngineExecution", {
     "parent_certificate_execution": dict[str, int],
 })
 
-EngineExecution: TypeAlias = GenericEngineExecution | PackedEngineExecution
+HybridEngineExecution = TypedDict("HybridEngineExecution", {
+    "engine": Literal["six_point_hybrid"],
+    "primary": PackedEngineExecution,
+    "fallback": dict[str, int],
+    "fallback_certificate_execution": dict[str, int],
+    "fallback_rows": int,
+    "fallback_successes": int,
+    "fallback_batches": int,
+    "fallback_preparation_attempts": int,
+    "fallback_preparation_error": str | None,
+})
+
+CertifiedEngineExecution = TypedDict("CertifiedEngineExecution", {
+    "engine": Literal["certified_tensor"],
+    "execution": dict[str, int],
+    "certificate_execution": dict[Literal["cartesian", "gram"], dict[str, int]],
+})
+
+AffineChildMethod = TypedDict("AffineChildMethod", {
+    "propagators": int, "powers": list[int], "requested": Algorithm,
+    "actual": Algorithm | None, "rows": int, "notes": list[str],
+})
+
+AffinePowerEngineExecution = TypedDict("AffinePowerEngineExecution", {
+    "engine": Literal["affine_power"], "input_rows": int,
+    "certificate_execution": dict[str, int], "profiles": int,
+    "dag_nodes": int, "dag_edges": int, "packed_child_rows": int,
+    "child_batch_calls": int, "parent_batch_calls": int, "parent_rows": int,
+    "quadrature_work_rows": int, "child_execution": dict[str, int],
+    "parent_execution": dict[str, int], "child_methods": list[AffineChildMethod],
+})
+
+EngineExecution: TypeAlias = GenericEngineExecution | PackedEngineExecution | HybridEngineExecution | CertifiedEngineExecution | AffinePowerEngineExecution
 
 class ReductionError(RuntimeError): ...
 class LaneError(ReductionError): ...
@@ -69,7 +101,8 @@ class ReductionPlan:
         dimension_shift: int = 0, algorithm: Algorithm = "hybrid",
         convention: Convention = "iregi", invariants: Literal["shifts", "scalar_products"] = "shifts",
         input_policy: Literal["preserve", "legacy_on_shell"] = "preserve",
-        on_shell_threshold: str | None = None, tensor_weights: Literal["components", "multinomial"] = "components") -> ReductionPlan: ...
+        on_shell_threshold: str | None = None, tensor_weights: Literal["components", "multinomial"] = "components",
+        check_scalar_products: bool = False) -> ReductionPlan: ...
     @property
     def propagators(self) -> int: ...
     @property

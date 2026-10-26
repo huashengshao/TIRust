@@ -111,6 +111,43 @@ pub(crate) fn convert_convention(
     result
 }
 
+/// Convert already-native raw child moments to the requested parent output.
+///
+/// The inverse uses the same Symbolica-prepared split Laurent map with the
+/// exponential parameters negated, then removes the native normalization.
+/// Native output bypasses that roundtrip. Tensor weights are applied once by
+/// the existing final convention adapter, after conversion of raw components.
+pub(crate) fn convert_native_convention(
+    value: &[Atom; 4],
+    monomial: Monomial,
+    settings: &ReductionSettings,
+) -> [Atom; 4] {
+    if settings.convention == Convention::IregiNative {
+        let mut component_settings = settings.clone();
+        component_settings.convention = Convention::OneLoop;
+        return convert_convention(value, monomial, &component_settings);
+    }
+    let pi = Atom::var(Symbol::PI);
+    let a = Atom::from(symbolica::transcendental::euler_gamma()) + Symbol::LOG.call((&pi,));
+    let b = pi.pow(2) / Atom::num(12);
+    let replacements: Vec<_> = NATIVE_MAP
+        .values
+        .iter()
+        .zip(value)
+        .map(|(symbol, value)| Replacement::new(symbol.clone(), value.clone()))
+        .chain([
+            Replacement::new(NATIVE_MAP.a.clone(), -a),
+            Replacement::new(NATIVE_MAP.b.clone(), -b),
+        ])
+        .collect();
+    let normalization = symbolica::parse!("𝑖") * pi.pow(2 + i64::from(settings.dimension_shift));
+    let internal = NATIVE_MAP
+        .expressions
+        .each_ref()
+        .map(|expression| expression.replace_multiple(replacements.iter()) / &normalization);
+    convert_convention(&internal, monomial, settings)
+}
+
 pub(crate) fn multinomial(monomial: Monomial) -> Atom {
     let rank: u32 = monomial.0.iter().map(|&power| u32::from(power)).sum();
     monomial
@@ -149,6 +186,85 @@ mod tests {
         let result = convert_convention(&values, Monomial([2, 1, 0, 0]), &settings);
         for (actual, expected) in result.iter().zip([-3, -6, -9, -12]) {
             assert_eq!(actual, &Atom::num(expected));
+        }
+    }
+
+    #[test]
+    fn native_components_are_identity_and_odd_multinomial_is_applied_once() {
+        let native: [Atom; 4] = std::array::from_fn(|slot| {
+            Atom::var(symbolica::symbol!(format!(
+                "iregi_test::native_identity_{slot}"
+            )))
+        });
+        for dimension_shift in [-1, 0, 1] {
+            let mut settings = ReductionSettings::new(6, 3);
+            settings.dimension_shift = dimension_shift;
+            assert_eq!(
+                convert_native_convention(&native, Monomial([2, 1, 0, 0]), &settings),
+                native
+            );
+            settings.tensor_weights = TensorWeights::Multinomial;
+            let actual = convert_native_convention(&native, Monomial([2, 1, 0, 0]), &settings);
+            for (coefficient, original) in actual.iter().zip(&native) {
+                assert!((coefficient - original * Atom::num(3)).together().is_zero());
+            }
+        }
+    }
+
+    #[test]
+    fn every_native_laurent_basis_and_scaleless_poles_roundtrip_at_shifted_dimension() {
+        let mut native_inputs: Vec<[Atom; 4]> = (0..4)
+            .map(|active| std::array::from_fn(|slot| Atom::num(i32::from(slot == active))))
+            .collect();
+        native_inputs.push([Atom::num(1), Atom::num(-1), Atom::Zero, Atom::Zero]);
+        for dimension_shift in [-1, 0, 1] {
+            let mut settings = ReductionSettings::new(6, 0);
+            settings.dimension_shift = dimension_shift;
+            for native in &native_inputs {
+                settings.convention = Convention::OneLoop;
+                let internal = convert_native_convention(native, Monomial([0; 4]), &settings);
+                settings.convention = Convention::IregiNative;
+                let recovered = convert_convention(&internal, Monomial([0; 4]), &settings);
+                for (slot, (actual, expected)) in recovered.iter().zip(native).enumerate() {
+                    assert!(
+                        (actual - expected).together().is_zero(),
+                        "h={dimension_shift}, slot={slot}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn native_inverse_matches_requested_odd_sign_and_weights_for_independent_poles() {
+        let internal: [Atom; 4] = std::array::from_fn(|slot| {
+            Atom::var(symbolica::symbol!(format!(
+                "iregi_test::native_roundtrip_{slot}"
+            )))
+        });
+        let monomial = Monomial([2, 1, 0, 0]);
+        for dimension_shift in [-1, 0, 1] {
+            let mut settings = ReductionSettings::new(6, 3);
+            settings.dimension_shift = dimension_shift;
+            let native = convert_convention(&internal, monomial, &settings);
+            for convention in [
+                Convention::OneLoop,
+                Convention::MadLoop,
+                Convention::IregiNative,
+            ] {
+                settings.convention = convention;
+                for weights in [TensorWeights::Components, TensorWeights::Multinomial] {
+                    settings.tensor_weights = weights;
+                    let actual = convert_native_convention(&native, monomial, &settings);
+                    let expected = convert_convention(&internal, monomial, &settings);
+                    for (slot, (actual, expected)) in actual.iter().zip(&expected).enumerate() {
+                        assert!(
+                            (actual - expected).together().is_zero(),
+                            "h={dimension_shift}, convention={convention:?}, weights={weights:?}, slot={slot}"
+                        );
+                    }
+                }
+            }
         }
     }
 }
