@@ -96,6 +96,14 @@ where
     pub fn set_accuracy_precision(&mut self, bits: u32) -> Result<(), ReductionError> {
         self.inner.set_accuracy_precision(bits)
     }
+    /// Enable timing of the existing thin child and parent execution stages.
+    /// This does not change the selected reduction engine or accuracy policy.
+    pub fn set_profiling(&mut self, enabled: bool) {
+        self.inner.set_profiling(enabled);
+    }
+    pub fn last_profile(&self) -> Option<crate::ExecutionProfile> {
+        self.inner.last_profile()
+    }
     pub fn component_count(&self) -> usize { self.inner.component_count() }
     pub fn binary_precision(&self) -> u32 { self.inner.binary_precision() }
     pub fn last_execution(&self) -> &SixPointExecutionStats { self.inner.last_execution() }

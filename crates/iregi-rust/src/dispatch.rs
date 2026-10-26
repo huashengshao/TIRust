@@ -361,7 +361,8 @@ pub struct TensorWorkspaceOptions {
     /// policies to its actual child workspaces instead of forcing generic.
     pub master_policy: MasterExecutionPolicy,
     /// Enable the generic profiler or the affine composite's child/parent profiler.
-    /// Existing thin wrappers require a generic workspace for profiling.
+    /// Construction retains its existing generic/affine dispatch; to profile a
+    /// selected six-point thin engine, enable profiling after construction.
     pub profiling: bool,
 }
 
@@ -838,12 +839,22 @@ where
         }
     }
 
-    /// Affine workspaces profile their actual child and parent stages. Old thin
-    /// workspaces require profiling at construction to select the generic path.
-    /// Disabling profiling is always supported.
+    /// Profile the actual selected engine, including the six-point thin child
+    /// and parent and any genuine Hybrid fallback. Construction with profiling
+    /// enabled retains its existing generic/affine dispatch; enabling it after
+    /// construction preserves a selected six-point thin engine. Seven-point
+    /// thin workspaces still require profiling at construction.
     pub fn set_profiling(&mut self, enabled: bool) -> Result<(), ReductionError> {
         match &mut self.engine {
             WorkspaceEngine::Generic(workspace) => {
+                workspace.set_profiling(enabled);
+                Ok(())
+            }
+            WorkspaceEngine::SixPoint(workspace) => {
+                workspace.set_profiling(enabled);
+                Ok(())
+            }
+            WorkspaceEngine::SixPointHybrid(workspace) => {
                 workspace.set_profiling(enabled);
                 Ok(())
             }
@@ -998,6 +1009,8 @@ where
     pub fn last_profile(&self) -> Option<ExecutionProfile> {
         match &self.engine {
             WorkspaceEngine::Generic(workspace) => workspace.last_profile(),
+            WorkspaceEngine::SixPoint(workspace) => workspace.last_profile(),
+            WorkspaceEngine::SixPointHybrid(workspace) => workspace.last_profile(),
             WorkspaceEngine::CertifiedTensor { workspace, .. } => workspace.last_profile(),
             WorkspaceEngine::AffinePower(workspace) => workspace.last_profile(),
             WorkspaceEngine::MassTaylor(workspace) => workspace.last_profile(),
@@ -1532,10 +1545,23 @@ mod tests {
             assert!(matches!(actual.lane(1), Err(LaneStatus::InvalidInput(_))));
             assert!(plan.generic.get().is_none());
             assert!(workspace.last_profile().is_none());
-            assert!(matches!(
-                workspace.set_profiling(true),
-                Err(ReductionError::Unsupported(_))
-            ));
+            if n == 6 {
+                workspace.set_profiling(true).unwrap();
+                assert!(workspace.last_profile().is_some());
+                assert_eq!(workspace.engine_kind(), TensorEngineKind::SixPoint);
+                let profiled = workspace.reduce_batch(&input).unwrap();
+                assert_eq!(profiled.lane(0).unwrap(), actual.lane(0).unwrap());
+                let profile = workspace.last_profile().unwrap();
+                assert!(profile.scalar_masters > std::time::Duration::ZERO);
+                assert!(profile.arguments + profile.scalar_masters + profile.reduction <= profile.total);
+                workspace.set_profiling(false).unwrap();
+                assert!(workspace.last_profile().is_none());
+            } else {
+                assert!(matches!(
+                    workspace.set_profiling(true),
+                    Err(ReductionError::Unsupported(_))
+                ));
+            }
             let summary = workspace.execution_summary().unwrap();
             assert_eq!(summary.input_rows, 2);
             match workspace.engine_execution() {

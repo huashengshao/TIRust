@@ -14,10 +14,18 @@ rank six, followed by dotted and dimension-shifted requests outside COLLIER's
 direct integral API. Large coloured cells separate TIRust time from nested
 scalar-master evaluation. Exact inputs, raw calls, preparation costs, precision
 and reproduction commands are in the
-[opening timing suite](validation/benchmark/opening-rank6-20261026/README.md).
-The ordinary table also includes a right-most COLLIER binary64 column: nine
-rows pass validation, while three higher-point failures are explicitly marked.
-See the [COLLIER capture and audit](validation/benchmark/opening-collier-20261026/RESULTS.md).
+[binary64 opening timing suite](validation/benchmark/opening-double-20261026/README.md).
+Both opening tables use double precision throughout. They show the fastest
+measured configured path per input, with the achieved full-array relative
+discrepancy alongside each total. The ordinary table includes COLLIER's total
+time in the right-most column. The three ordinary N5/R5, N5/R6 and N6/R6 rows
+request approximately `1e-6` accuracy from both tools. Internal warning flags
+alone do not suppress timings; outputs worse than three relative digits or
+nonfinite results remain explicit. Earlier mixed-precision captures and their
+stricter admission decisions remain archived unchanged.
+Two rank-six dotted binary64 requests hit the retained cancellation guard;
+their cells explicitly show diagnostic timings with unavailable coefficients.
+Their higher-precision functional validation remains separate evidence.
 
 The [final checkpoint](docs/checkpoints/rank6-functional-completion-20261026.md)
 records ordinary dotted/shifted tensors and the completed six-point, rank-six

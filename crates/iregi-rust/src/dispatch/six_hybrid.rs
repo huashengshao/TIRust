@@ -122,6 +122,8 @@ pub(super) struct SixHybridWorkspace<T: NativeFloat> {
     accuracy_bits: u32,
     stats: HybridStats,
     diagnostics: Vec<Vec<String>>,
+    profiling: bool,
+    profile: ExecutionProfile,
 }
 impl<T: NativeFloat> SixHybridWorkspace<T>
 where
@@ -137,6 +139,8 @@ where
             prototype,
             stats: Default::default(),
             diagnostics: Vec::new(),
+            profiling: false,
+            profile: ExecutionProfile::default(),
         })
     }
     pub(super) fn set_accuracy_precision(&mut self, bits: u32) -> Result<(), ReductionError> {
@@ -146,6 +150,16 @@ where
         }
         self.accuracy_bits = bits;
         Ok(())
+    }
+    pub(super) fn set_profiling(&mut self, enabled: bool) {
+        self.profiling = enabled;
+        self.primary.set_profiling(enabled);
+        if let FallbackState::Ready(fallback) = &mut self.fallback {
+            fallback.set_profiling(enabled);
+        }
+    }
+    pub(super) fn last_profile(&self) -> Option<ExecutionProfile> {
+        self.profiling.then_some(self.profile)
     }
     pub(super) fn component_count(&self) -> usize {
         self.primary.component_count()
@@ -163,9 +177,24 @@ where
         &mut self,
         batch: &KinematicsBatch<T>,
     ) -> Result<BatchResult<T>, ReductionError> {
+        self.profile = ExecutionProfile::default();
+        let started = self.profiling.then(std::time::Instant::now);
+        let result = self.reduce_batch_impl(batch);
+        if let Some(started) = started {
+            self.profile.total = started.elapsed();
+        }
+        result
+    }
+    fn reduce_batch_impl(
+        &mut self,
+        batch: &KinematicsBatch<T>,
+    ) -> Result<BatchResult<T>, ReductionError> {
         self.stats = HybridStats::default();
         self.diagnostics.clear();
         let result = self.primary.reduce_batch(batch);
+        if let Some(profile) = self.primary.last_profile() {
+            add_profile_stages(&mut self.profile, profile);
+        }
         self.stats.primary = self.primary.last_execution().clone();
         self.diagnostics
             .extend_from_slice(self.primary.last_diagnostics());
@@ -187,7 +216,9 @@ where
         let state = &mut self.fallback;
         let prototype = &self.prototype;
         let accuracy = self.accuracy_bits;
-        retry_unstable(
+        let profiling = self.profiling;
+        let mut fallback_profile = None;
+        let retried = retry_unstable(
             batch,
             &mut result,
             &mut self.diagnostics,
@@ -207,6 +238,7 @@ where
                         workspace
                             .set_accuracy_precision(accuracy)
                             .map_err(|e| e.to_string())?;
+                        workspace.set_profiling(profiling);
                         Ok(workspace)
                     });
                     *state = match prepared {
@@ -220,6 +252,7 @@ where
                     }
                     FallbackState::Ready(workspace) => {
                         let result = workspace.reduce_batch(packed).map_err(|e| e.to_string());
+                        fallback_profile = workspace.last_profile();
                         FallbackOutcome {
                             result,
                             execution: workspace.last_execution(),
@@ -233,9 +266,19 @@ where
                     FallbackState::Unprepared => unreachable!("fallback preparation changes state"),
                 }
             },
-        )?;
+        );
+        if let Some(profile) = fallback_profile {
+            add_profile_stages(&mut self.profile, profile);
+        }
+        retried?;
         Ok(result)
     }
+}
+
+fn add_profile_stages(total: &mut ExecutionProfile, child: ExecutionProfile) {
+    total.arguments += child.arguments;
+    total.scalar_masters += child.scalar_masters;
+    total.reduction += child.reduction;
 }
 fn dimension_error() -> ReductionError {
     ReductionError::InvalidInput("six-point Hybrid batch dimensions overflow".into())
@@ -484,6 +527,37 @@ mod tests {
             preparation_attempts: 1,
             preparation_error: None,
         }
+    }
+
+    #[test]
+    fn hybrid_profile_sums_primary_and_fallback_stages_without_nested_wall_time() {
+        use std::time::Duration;
+
+        let primary = ExecutionProfile {
+            arguments: Duration::from_nanos(2),
+            scalar_masters: Duration::from_nanos(3),
+            reduction: Duration::from_nanos(5),
+            total: Duration::from_nanos(20),
+        };
+        let fallback = ExecutionProfile {
+            arguments: Duration::from_nanos(7),
+            scalar_masters: Duration::from_nanos(11),
+            reduction: Duration::from_nanos(13),
+            total: Duration::from_nanos(50),
+        };
+        let mut combined = ExecutionProfile {
+            total: Duration::from_nanos(100),
+            ..Default::default()
+        };
+        add_profile_stages(&mut combined, primary);
+        assert_eq!(combined.scalar_masters, primary.scalar_masters);
+        assert_eq!(combined.total, Duration::from_nanos(100));
+        add_profile_stages(&mut combined, fallback);
+        assert_eq!(combined.arguments, Duration::from_nanos(9));
+        assert_eq!(combined.scalar_masters, Duration::from_nanos(14));
+        assert_eq!(combined.reduction, Duration::from_nanos(18));
+        assert_eq!(combined.total, Duration::from_nanos(100));
+        assert!(combined.arguments + combined.scalar_masters + combined.reduction <= combined.total);
     }
 
     #[test]
@@ -796,7 +870,14 @@ mod tests {
         )
         .unwrap();
         hybrid.set_accuracy_precision(53).unwrap();
+        assert!(hybrid.last_profile().is_none());
+        hybrid.set_profiling(true).unwrap();
+        assert_eq!(hybrid.engine_kind(), TensorEngineKind::SixPointHybrid);
+        assert!(hybrid.last_profile().is_some());
         let actual = hybrid.reduce_batch(&input).unwrap();
+        let profile = hybrid.last_profile().unwrap();
+        assert!(profile.scalar_masters > std::time::Duration::ZERO);
+        assert!(profile.arguments + profile.scalar_masters + profile.reduction <= profile.total);
         let mut pv = SixPointWorkspace::new(&primary, zero).unwrap();
         pv.set_accuracy_precision(53).unwrap();
         let direct = pv.reduce_batch(&input).unwrap();
@@ -836,6 +917,8 @@ mod tests {
             _ => unreachable!(),
         }
         assert!(plan.generic.get().is_none());
+        hybrid.set_profiling(false).unwrap();
+        assert!(hybrid.last_profile().is_none());
         let snap = |z: &Complex<Float>| {
             serde_json::json!({
                 "real":z.re.exact_rational().map(|x|x.to_string()),

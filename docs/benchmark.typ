@@ -107,8 +107,7 @@
 #let checked-G-unit = data.rank6_checked_supplied_G_unit_manifest.snapshot
 #let current-physical = data.current_cli_physical_integration_qualification.snapshot
 #let current-wheel004 = data.python_current_facade_wheel004_replay.snapshot
-#let opening-examples = data.at("opening_tensor_timing_examples", default: none)
-#let opening-collier = data.at("opening_collier_timing_examples", default: none)
+#let opening-examples = data.at("opening_double_precision_examples", default: none)
 #let collier-cell(r) = table.cell(
   fill: if not r.correctness_passed or r.gate in ("inconclusive-noise", "inconclusive-short-block") {
     amber
@@ -189,8 +188,8 @@
   ]
 }
 
-// Fresh opening examples are appended to the archival evidence, never inferred
-// from correctness-witness wall times. The guard keeps absent measurements absent.
+// Optimistic binary64 opening examples are a new additive cohort. Historical
+// mixed-precision/strict-admission snapshots remain unchanged in results.json.
 #let example-phase-colors = (rgb("#dbe8f5"), rgb("#dcefdc"), rgb("#c7d9ed"))
 #let example-duration(us) = {
   if us == none { (value: "Unmeasured", unit: "", divisor: 1) }
@@ -199,48 +198,99 @@
   else if us < 1000000 { (value: fixed(us / 1000, digits: 2), unit: "ms / point", divisor: 1000) }
   else { (value: fixed(us / 1000000, digits: 2), unit: "s / point", divisor: 1000000) }
 }
-#let example-composition(parts) = {
-  let total = parts.at(0) + parts.at(1)
-  if total > 0 {
-    box(width: 1.2cm, height: 3pt)[
-      #stack(dir: ltr, spacing: 0pt,
-        rect(width: 1.2cm * parts.at(0) / total, height: 3pt, fill: rgb("#4c78a8"), stroke: none),
-        rect(width: 1.2cm * parts.at(1) / total, height: 3pt, fill: rgb("#59a14f"), stroke: none))
-    ]
+#let example-error(error) = {
+  if not is-num(error) { "unavailable" }
+  else if error < 0 { "invalid" }
+  else if error == 0 { "0" }
+  else if error >= 1e300 { str(error) }
+  else {
+    let exponent = calc.floor(calc.log(error, base: 10))
+    fixed(error / calc.pow(10, exponent), digits: 1) + "e" + str(exponent)
   }
 }
-#let example-timing-cell(stats, phase: 0, status: "unmeasured", parts: none) = {
+#let example-accuracy(record) = {
+  let accuracy = if record == none { none } else { record.at("accuracy", default: none) }
+  if accuracy == none { [accuracy unavailable] }
+  else {
+    let error = accuracy.at("relative_error", default: none)
+    let nonfinite = accuracy.at("nonfinite_complex_fields", default: 0)
+    if accuracy.at("measured", default: false) and is-num(error) {
+      if nonfinite > 0 { [finite $delta_"rel"$ = #example-error(error)] }
+      else { [$delta_"rel"$ = #example-error(error)] }
+    } else { [accuracy unavailable] }
+    if nonfinite > 0 { [ · #nonfinite nonfinite] }
+  }
+}
+#let example-warning(record) = {
+  let accuracy = if record == none { none } else { record.at("accuracy", default: none) }
+  if accuracy == none { false } else {
+    let error = accuracy.at("relative_error", default: none)
+    (accuracy.at("nonfinite_complex_fields", default: 0) > 0 or
+      (is-num(error) and error > 0.001))
+  }
+}
+#let example-refused(record) = {
+  record != none and record.at("successful_finite_full_array", default: none) == false
+}
+#let example-failure(record) = {
+  if record == none { "No capture" } else {
+    let direct = record.at("failure_label", default: none)
+    if direct != none { direct }
+    else if record.at("status", default: "unmeasured") != "unmeasured" {
+      record.status.replace("_", " ")
+    } else {
+      let attempted = record.at("attempts", default: ()).find(
+        item => item.at("status", default: "unmeasured") != "unmeasured")
+      if attempted == none { "No warm timing" }
+      else { attempted.status.replace("_", " ") }
+    }
+  }
+}
+#let example-timing-cell(stats, phase: 0, record: none, show-accuracy: false) = {
   let measured = stats != none
   let shown = example-duration(if measured { stats.mean } else { none })
-  table.cell(fill: if measured { example-phase-colors.at(phase) }
-    else if status == "unmeasured" { pending } else { amber }, {
-    set par(justify: false, leading: 0.15em)
+  table.cell(fill: if not measured { pending }
+    else if example-warning(record) or example-refused(record) { amber }
+    else if phase == 3 { rgb("#fbe7ce") }
+    else { example-phase-colors.at(phase) }, {
+    set par(justify: false, leading: 0.13em)
     align(center)[
-      #text(size: if measured { 13pt } else { 9pt }, weight: "bold", fill: navy)[
-        #if measured { shown.value } else if status == "unmeasured" { "Unmeasured" } else { "Not timed" }
+      #text(size: if measured { 12.5pt } else { 9pt }, weight: "bold", fill: navy)[
+        #if measured { shown.value } else { "Unmeasured" }
       ]
       #linebreak()
-      #text(size: 7pt, fill: luma(65))[
-        #if measured { shown.unit } else { status.replace("_", " ") }
-        #if parts != none { h(2pt); example-composition(parts) }
+      #text(size: 6.6pt, fill: luma(65))[
+        #if measured { shown.unit } else { example-failure(record) }
+        #if measured and stats.at("standard_error", default: none) != none {
+          let error = stats.standard_error / shown.divisor
+          [ · SE #fixed(error, digits: if error < 0.01 { 3 } else { 2 })]
+        }
       ]
-      #if measured and stats.at("standard_error", default: none) != none {
-        let error = stats.standard_error / shown.divisor
-        [#linebreak() #text(size: 6.5pt, fill: luma(80))[SE ±#fixed(error, digits: if error < 0.01 { 3 } else { 2 })]]
+      #if show-accuracy {
+        [#linebreak() #text(size: 6.4pt, fill: luma(65))[
+          #example-accuracy(record)
+          #if phase == 3 and record != none and record.at("mode", default: none) != none { [ · #record.mode] }
+        ]]
+      }
+      #if measured and show-accuracy and example-refused(record) {
+        [#linebreak() #text(size: 6.2pt, fill: luma(70))[Refused output · diagnostic timing]]
+      } else if measured and show-accuracy and example-warning(record) {
+        [#linebreak() #text(size: 6.2pt, fill: luma(70))[Diagnostic output]]
       }
     ]
   })
 }
 #let example-input-cell(row) = table.cell(fill: pale, {
+  assert(row.numeric_type == "f64", message: "Opening TIRust timings must use f64")
+  assert(row.working_bits == 53, message: "Opening TIRust timings must use binary64")
   set par(justify: false, leading: 0.15em)
   text(size: 9.5pt, weight: "bold", fill: navy, row.label)
   linebreak()
-  let precision = if row.numeric_type == "float" { "Float " + str(row.working_bits) + "b" }
-    else if row.numeric_type == "f64" { "f64" } else { row.numeric_type }
-  text(size: 7pt, fill: luma(65))[#precision · #row.moments #if row.moments == 1 { "moment" } else { "moments" }]
-  if row.at("engine", default: none) == "AffinePower" {
+  text(size: 7pt, fill: luma(65))[f64 · #row.moments #if row.moments == 1 { "moment" } else { "moments" }]
+  let engine = row.at("engine", default: none)
+  if engine != none {
     linebreak()
-    text(size: 6.5pt, fill: navy)[AffinePower]
+    text(size: 6.2pt, fill: navy, engine)
   }
 })
 #let example-powers-cell(row) = table.cell({
@@ -251,47 +301,16 @@
   linebreak()
   text(size: 7pt, fill: luma(80))[$h=#row.dimension_shift$]
 })
-// Qualified and rejected COLLIER captures are deliberately distinct: a
-// diagnostic duration for an invalid array is never an admitted timing result.
-#let example-collier-cell(row) = {
-  let captures = if opening-collier == none { () } else { opening-collier.snapshot.rows }
-  let capture = captures.find(item => item.id == row.id)
-  let stats = if capture == none { none } else { capture.at("timing_us", default: none) }
-  let measured = stats != none
-  let qualified = capture != none and capture.at("timing_qualified", default: false)
-  let shown = example-duration(if measured { stats.mean } else { none })
-  table.cell(fill: if not measured { pending }
-    else if qualified { rgb("#fbe7ce") } else { amber }, {
-    set par(justify: false, leading: 0.15em)
-    align(center)[
-      #text(size: if measured { 13pt } else { 9pt }, weight: "bold", fill: navy)[
-        #if not measured { "Unmeasured" } else if qualified { shown.value } else { "Rejected" }
-      ]
-      #linebreak()
-      #text(size: 7pt, fill: luma(65))[
-        #if not measured { "No admitted observation" } else if qualified {
-          shown.unit
-        } else { [observed #shown.value #shown.unit] }
-      ]
-      #if qualified and stats.at("standard_error", default: none) != none {
-        let error = stats.standard_error / shown.divisor
-        [#linebreak() #text(size: 6.5pt, fill: luma(80))[SE ±#fixed(error, digits: if error < 0.01 { 3 } else { 2 })]]
-      } else if measured and not qualified {
-        [#linebreak() #text(size: 6.5pt, fill: luma(80))[#capture.at("failure_label", default: "Invalid numerical result")]]
-      }
-    ]
-  })
-}
 #let example-timing-table(rows, extended: false) = report-table(table(
   columns: if extended { (2.6cm, 2.0cm, 3.0cm, 3.4cm, 3.4cm, 3.4cm) }
     else { (2.7cm, 1.25cm, 3.4cm, 3.4cm, 3.5cm, 3.55cm) },
-  inset: (x: 6pt, y: 5pt),
+  inset: (x: 5pt, y: 4pt),
   stroke: (x, y) => if y == 0 { none } else { 0.6pt + white },
   fill: (x, y) => if y == 0 { navy } else { white },
   table.header(
     [Input integral], [Powers / shift],
     ..if extended { ([Outside direct API],) } else { () },
-    [TIRust excl. masters], [Scalar masters], [Total reduction call],
+    [TIRust excl. masters], [Scalar masters], [TIRust total],
     ..if not extended { ([COLLIER · f64],) } else { () },
   ),
   ..for row in rows {
@@ -299,6 +318,11 @@
     let total = timing.at("outer_total_us", default: none)
     let exclusive = timing.at("tirust_exclusive_us", default: none)
     let masters = timing.at("scalar_masters_us", default: none)
+    let reference = row.at("collier", default: none)
+    if reference != none {
+      assert(reference.numeric_type in ("f64", "binary64"), message: "Opening COLLIER timings must use binary64")
+      assert(reference.working_bits == 53, message: "Opening COLLIER timings must use 53-bit mantissas")
+    }
     (
       example-input-cell(row), example-powers-cell(row),
       ..if extended { (table.cell(fill: rgb("#f1e9f6"), {
@@ -306,114 +330,119 @@
         if row.powers.any(power => power > 1) { [Dotted propagator powers] }
         else { [Independent dimension shift] }
       }),) } else { () },
-      example-timing-cell(exclusive, phase: 0, status: row.status),
-      example-timing-cell(masters, phase: 1, status: row.status),
-      example-timing-cell(total, phase: 2, status: row.status,
-        parts: if exclusive != none and masters != none { (exclusive.mean, masters.mean) } else { none }),
-      ..if not extended { (example-collier-cell(row),) } else { () },
+      example-timing-cell(exclusive, phase: 0, record: row),
+      example-timing-cell(masters, phase: 1, record: row),
+      example-timing-cell(total, phase: 2, record: row, show-accuracy: true),
+      ..if not extended { (example-timing-cell(
+        if reference == none { none } else { reference.at("timing_us", default: none) },
+        phase: 3, record: reference, show-accuracy: true),) } else { () },
     )
   },
 ))
 #let opening-timing-pages(examples) = {
   pagebreak()
-  heading(level: 1)[Example tensor integrals: reduction time]
+  heading(level: 1)[Example tensor integrals: double-precision timing]
   text(size: 8.8pt)[Representative $N <= 6$, cumulative rank $R <= 6$ inputs.
-  Every call requests all Cartesian moments $q^alpha$ with $|alpha| <= R$ and
-  all four native Laurent slots. These are *absolute singleton times*;
-  colors identify components, not a relative speed. Precision is explicit.]
+  *Every timing in these two opening tables uses binary64 (f64).* Each call
+  requests all Cartesian moments $q^alpha$ with $|alpha| <= R$ and all four
+  native Laurent slots. Colors identify timing components, not relative speed.]
   v(3pt)
   block(fill: pale, inset: 6pt, radius: 3pt, width: 100%)[
-    #set text(size: 7.8pt)
+    #set text(size: 7.6pt)
     *Exact inputs:* metric $(+,-,-,-)$; use the first $N$ shifts from
     $(0,e_x,e_y,e_z,e_t/2,e_x+e_y)$ and squared masses $(1,2,3,4,2,3)$;
     scale $mu=3$. Denominators are $(q+p_i)^2-m_i^2+i 0$, powers $nu_i$;
     $D=4+2h-2epsilon$. Numerator components stay four-dimensional.
-    Ordinary rows use Hybrid; generalized rows use IBP. Accuracy parameter 53
-    is requested; this is not achieved-bit certification.
+    *Requested accuracy:* for ordinary N5/R5, N5/R6 and N6/R6, TIRust targets
+    $2^(-20) approx 9.54 times 10^(-7)$ and COLLIER targets $10^(-6)$.
+    Other rows use TIRust's $2^(-34)$ target and COLLIER's $10^(-10)$ target.
+    These are requests, not achieved precision; no working-precision promotion is used.
   ]
   v(4pt)
   example-timing-table(examples.rows.filter(row => row.table == "ordinary"))
   v(3pt)
-  text(size: 7.4pt)[*Protocol:* arithmetic means of the same timed calls;
-  blue + green = total before display rounding. SE uses the cell's time unit
-  and is descriptive standard error across blocks, not a
-  controlled-host confidence guarantee. Low-point inputs use 11 blocks targeting
-  100 ms; $N >= 5$ uses five single-call blocks fixed before measurement.
-  TIRust excl. masters = outer call wall time − nested scalar-master wall time;
-  it includes arguments, conversion, dispatch, stability checks and assembly.]
+  text(size: 7.3pt)[*Optimistic selection:* fastest arithmetic mean among the
+  fixed measured candidates returning a complete finite array with
+  $delta_"rel" <= 10^(-3)$. If none qualifies, any observed duration remains
+  visible as diagnostic. A missed $10^(-6)$ request or an internal accuracy
+  flag alone does not suppress the timing. All candidate attempts are retained.]
   v(2pt)
-  text(size: 7.4pt)[*Cold work excluded:* structural plan, workspace construction,
-  first-call specialization/reduction, warm-up, output checks, result destruction and I/O.
-  Separate per-row #raw("plan_ns/workspace_ns/first_call_ns") are retained in
-  the raw data. Warm calls reuse plans and recompute numerical results.]
+  text(size: 7.3pt)[*Phase split:* TIRust excl. masters = total call wall time −
+  nested scalar-master wall time. Means of the same timed calls add before
+  rounding. SE is descriptive standard error across blocks, not a
+  controlled-host confidence guarantee. Conversion, dispatch, stability checks
+  and tensor assembly are included; cold preparation, first call, warm-up,
+  result checks and I/O are excluded. Plans are reused; numerical results are recomputed.]
   v(2pt)
-  text(size: 7.4pt)[*COLLIER:* version 1.2.10, mode 1 (COLI), binary64,
-  masters included; separate capture on CPU 18, 11 blocks targeting 100 ms.
-  Its finite/status scans are timed, unlike TIRust's output checks.
-  TIRust uses Float128 for $N >= 5$: no equal-precision or paired speed ratio
-  is inferred. Amber *Rejected* cells show diagnostic durations only, not
-  accepted benchmark results: the full returned arrays failed validation.
-  Exact status, nonfinite/mismatch counts and raw calls are retained in
-  #raw("validation/benchmark/opening-collier-20261026/").]
-
+  text(size: 7.3pt)[*COLLIER:* 1.2.10, binary64, scalar masters included.
+  Its selected public mode and all raw flags are recorded with each row.
+  *DD* denotes the Denner–Dittmaier algorithm, still in binary64; it does not
+  mean DoubleFloat or double-double arithmetic.
+  Both tools' total cells show measured output error where available, defined on
+  the next page. Amber denotes error above $10^(-3)$, nonfinite or refused output,
+  rather than failure to reach a stricter accuracy request.]
 
   pagebreak()
   heading(level: 1)[Generalized requests outside COLLIER's direct API]
-  text(size: 8.8pt)[Only requests outside COLLIER 1.2.10's direct public integral
-  interface appear below. Each exclusion is explicit. The same input family,
-  full tensor outputs, phase definitions and measurement protocol apply.]
+  text(size: 8.8pt)[Dotted and independently shifted requests, all in *binary64*.
+  The same exact input family, full cumulative tensor outputs, optimistic
+  selection and component timing definitions apply.]
   v(4pt)
   example-timing-table(examples.rows.filter(row => row.table == "extended"), extended: true)
   v(5pt)
-  text(size: 8pt)[*Dots* mean $nu_i > 1$; *independent shifts* mean a direct
-  $D=4+2h-2epsilon$ request with $h != 0$. COLLIER's public tensor routines
-  accept momenta, masses and rank, without propagator-power or general dimension-shift
-  inputs. Internally used higher-dimensional objects are a different interface.
-  Equivalent coincident-denominator or derivative constructions were not benchmarked.
-  See the #link("https://arxiv.org/abs/1604.06792")[COLLIER manual], tensor-integral definition and public tensor-routine arguments.]
+  text(size: 8pt)[*Direct-API exclusion:* dots mean $nu_i > 1$; independent
+  shifts request $D=4+2h-2epsilon$ with $h != 0$. COLLIER 1.2.10's public tensor
+  routines accept momenta, masses and rank, without propagator-power or general
+  dimension-shift inputs. Internally used higher-dimensional objects and
+  equivalent derivative/coincident-denominator constructions are different
+  interfaces and were not benchmarked here. See the
+  #link("https://arxiv.org/abs/1604.06792")[COLLIER manual].]
   v(4pt)
   block(fill: pale, inset: 7pt, radius: 3pt, width: 100%)[
     #set text(size: 8pt)
-    *Measured scope:* public #raw("TensorReductionPlan / TensorWorkspace") with
-    profiling and explicit Symbolica scalar masters. Profiling selects the existing
-    #raw("AffinePower") workspace for eligible high-point requests; these are not
-    unprofiled thin-workspace timings. Actual per-row engines and precision are saved.
-    Complete finite arrays, equal represented coefficients on repeats and input preservation are checked
-    outside timed regions. This repetition check is separate from independent
-    numerical validation. Failed or unavailable rows stay visible.
+    *Measured relative error:* $delta_"rel" = E/A$, with
+    $E = max_j (|x_j-x_j^"ref"| / w_j)$,
+    $A = max_j (|x_j^"ref"| / w_j)$ and
+    $w_j = mu^(d_j+4+2h-2 sum_i nu_i)$, where $d_j$ is the numerator degree.
+    The maxima cover all cumulative moments and all four complex Laurent slots.
+    This is a dimensionally rescaled array-relative discrepancy against the
+    qualified saved finite-precision tensors, not an exact-integral error bound.
+    The older componentwise mixed metric remains in the raw audit.
+    Withheld or unavailable arrays have *accuracy unavailable*, never a zero error;
+    nonfinite counts are shown separately. A cell marked “finite” compares only
+    its available finite fields and cannot certify the incomplete array.
   ]
   v(4pt)
-  text(size: 8pt)[*Saved-reference validation:* all 18 full arrays, containing
-    8968 complex native Laurent coefficients, pass the $10^(-10)$ comparison.
-    This is agreement with the qualified saved references, not achieved-bit certification.]
-  let cold-n6 = examples.rows.find(row => row.id == "ordinary-n6-r6")
-  if cold-n6 != none and cold-n6.at("first_call_ns", default: none) != none {
-    v(4pt)
-    text(size: 8pt)[*Cold six-point/rank-six example:* plan
-      #fixed(cold-n6.plan_ns / 1000000000, digits: 2) s;
-      workspace #fixed(cold-n6.workspace_ns / 1000000000, digits: 2) s;
-      first call #fixed(cold-n6.first_call_ns / 1000000000, digits: 2) s.
-      The first call includes lazy specialization and its full reduction.
-      These are separate from the warm timings above.]
-  }
+  text(size: 8pt)[*Measured path:* public #raw("TensorReductionPlan / TensorWorkspace"),
+  selected from 38 initial algorithm/master-policy candidates and four PV
+  trials added after dotted IBP refusals. The latter only permute denominator
+  triples; the integral, loop variable and accuracy request stay unchanged.
+  Engine names, candidate IDs and profiling scope are saved. These paths are not a formal
+  default-path or equal-accuracy speed comparison. No automatic higher-precision
+  rescue is permitted in this cohort.]
   v(4pt)
-  text(size: 7.5pt)[*Environment:* 2026-10-26, AMD EPYC 9754, pinned logical CPU 18,
-    one thread; Rust 1.99.0 release build. Core source #raw("d2762f5") is unchanged;
-    profiled binary #raw("0d3c5c37"). Mixed precisions are not a fixed-precision
-    topology-scaling comparison.]
+  text(size: 8pt)[*TIRust protocol:* singleton input lanes. For $N <= 4$, three warm-ups
+  and 11 blocks target 30 ms, capped at 10,000 calls per block; for $N >= 5$,
+  one warm-up and five one-call blocks. Plan/workspace construction and first-call
+  specialization are recorded separately from warm calls. Complete finite arrays,
+  repeated-output consistency and unchanged inputs are checked outside the timer.]
   v(4pt)
-  text(size: 7.5pt)[*Capture workflow (use a fresh output copy; see the suite README):*
+  text(size: 7.5pt)[*Environment and provenance:* 2026-10-26, AMD EPYC 9754,
+  pinned logical CPU 18, one thread; Rust 1.99.0 release build.
+  Exact build/binary hashes, all candidates, requested tolerances, numerical
+  flags, raw calls and selection decisions are retained in
+  #raw("validation/benchmark/opening-double-20261026/").
+  Prior mixed-precision opening captures remain archived unchanged.]
+  v(4pt)
+  text(size: 7.5pt)[*Reproduction (fresh output copy; see suite README):*
     #linebreak()
-    #raw("python3 validation/benchmark/opening-rank6-20261026/run.py build")
+    #raw("python3 validation/benchmark/opening-double-20261026/run.py build")
     #linebreak()
-    #raw("python3 validation/benchmark/opening-rank6-20261026/run.py run")
+    #raw("python3 validation/benchmark/opening-double-20261026/run.py run")
     #linebreak()
-    #raw("python3 validation/benchmark/opening-rank6-20261026/run.py summarize")
+    #raw("python3 validation/benchmark/opening-double-20261026/run.py summarize")
     #linebreak()
-    *Exact inputs, calls, spread and source/build context:*
-    #raw("validation/benchmark/opening-rank6-20261026/")
-    #linebreak()
-    *No IREGI/COLLIER speed ratio is inferred from these absolute times.*
+    *No cross-session IREGI/COLLIER speed ratio is inferred from these absolute times.*
   ]
   pagebreak()
 }
@@ -427,7 +456,7 @@
   #text(9.5pt, fill: luma(110))[#report-date · Archival comparisons: #data.host]
   #if opening-examples != none {
     linebreak()
-    text(9pt, fill: luma(110))[Opening examples: AMD EPYC 9754 · CPU 18 · TIRust profiled / COLLIER COLI]
+    text(9pt, fill: luma(110))[Opening examples: AMD EPYC 9754 · CPU 18 · binary64 · selected measured paths]
   }
 ]
 #v(0.6em)

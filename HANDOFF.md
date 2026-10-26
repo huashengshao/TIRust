@@ -1,5 +1,126 @@
 # TIRust / iregi-rust: exhaustive session handoff
 
+## Binary64 opening tables: 26 October 2026 follow-up
+
+The current opening display supersedes the previous mixed-precision tables.
+Both tables now use a separate all-binary64 campaign under
+`validation/benchmark/opening-double-20261026/`. All 18 mathematical inputs
+are unchanged from `opening-rank6-20261026`; every TIRust candidate uses Rust
+`f64` (53 significant bits), with no higher-precision rescue. The three ordinary
+N5R5/N5R6/N6R6 requests use accuracy parameter39: the existing 19-bit margin
+corresponds to `2^-20 ≈ 9.54e-7`, not `2^-39`. All other TIRust rows retain53
+(`2^-34` target). COLLIER requests `1e-6` for those three and `1e-10` otherwise;
+every COLLIER configuration uses binary64, with critical accuracy `1e-3`.
+COLLIER's DD label denotes the Denner–Dittmaier algorithm, not double-double.
+
+The user explicitly prioritizes optimistic observed timings in these two
+tables. Select the fastest mean within a fixed public-option portfolio that
+returns a complete finite tensor with measured array-relative error <=`1e-3`.
+Missing an older `1e-10` gate, a current `1e-6` request, or an internal accuracy
+flag alone does not reject a timing. If no candidate produces a usable array,
+retain the observed duration as diagnostic with the nonfinite/refusal status.
+Do not present a quick refusal as a successful reduction. Do not change the
+earlier raw records or historical strict admission decisions to implement this.
+
+Accuracy is a true dimensionally rescaled whole-array max-norm discrepancy:
+`E/A`, where `E=max_j |new_j-ref_j|/w_j`,
+`A=max_j |ref_j|/w_j`, and
+`w_j=mu^(degree_j+4+2h-2sum(powers))`. Every cumulative Cartesian moment and all
+four complex Laurent slots participate. This avoids dividing by individual
+symmetry-zero entries. The reference is the prior saved finite-precision tensor
+corpus, independently admitted against original IREGI in all8,968 complex fields;
+it is not an exact-integral oracle. The old componentwise mixed metric remains
+in raw audits. If coefficients are nonfinite, any displayed finite-subset
+discrepancy cannot certify the incomplete array. Withheld TIRust coefficients
+remain null and have accuracy unavailable.
+
+The new TIRust harness is `crates/iregi-rust/examples/opening_double.rs`.
+Its38 predeclared candidates compare explicit NativeF64Abc and Symbolica master
+policies for each row, plus existing thin Hybrid/PV for N6R6. The native policy
+only specializes its qualified A/B/C families; other masters retain their
+existing supported implementation. No scalar/reduction arithmetic, accuracy
+guard or input convention is changed. The minimal core change exposes existing
+thin six-point profiling after construction, preserving the selected engine.
+Hybrid stage counters sum primary and actual fallback work once, with a single
+outer wall timer; lazy fallback workspaces inherit the profiler setting. This
+allows the measured split to include the actual thin engine rather than forcing
+a different constructor path. Static independent source review checked all
+three profiler files.
+
+TIRust release binary SHA256 is
+`6e07608750416c0a2efae25f04166c416569fd41239c84f8cc0a54ab86cb7c1f`.
+The feature-enabled Cargo build took654.379s, exited0 with clean process-group
+cleanup, and preserved all215 selected source hashes. This is selected build
+context, not a claim of a complete hermetic closure. Raw build logs/receipts
+are retained; no numerical binaries are committed.
+
+The COLLIER wrapper was linked with strict `-O3`, no fast-math, against the same
+unmodified COLLIER1.2.10 archive and28 module hashes used previously. New wrapper
+SHA256 is `0c1cc996fdbbb2a21ad33eda9a84172f27639802cc35cbf53f0c049b009c76d0`.
+Thirty-two fixed public configurations explore COLI/DD where supported,
+argument permutation for high-point rows, and N6 direct-tensor thresholds6/7.
+N5R6 DD is excluded because unsupported. Argument permutation disables local
+cache use through the public API; all other candidates reset local memoization
+with InitEvent for every root and disable event-result caches. Timing includes
+the public call, invariants, masters, normalization and Cartesian gathering;
+diagnostic/finite scans and pole probes are outside timing.
+
+All32 COLLIER candidates completed timing. Capture took16.652s on CPU18,
+exited0 and passed every binary/library/module/source guard. Its saved-data
+independent Decimal100 replay passed20,991 checks. Eleven selected rows return
+complete finite arrays within three relative digits. N5R5 is293.291µs with
+error1.10084e-11; N5R6 is1051.821µs with error4.26744e-11. These are ordinary
+timing rows, with no rejection based on native flags. N6R6 remains incomplete
+under all eight tested configurations: the fastest observed diagnostic is
+2819.232µs, with195 nonfinite complex fields and finite-subset discrepancy
+about1.70509. Its time stays visible with a warning; this is not a usable result.
+Other failed/partial configurations remain fully archived. No comparative speed
+gate or hardware-isolation claim follows from selecting optimistic means.
+
+Reproduction and publication scripts live with the new campaign. `run.py`
+builds/freezes/supervises TIRust; `collier/run.py` takes an explicitly frozen
+binary; independent checkers evaluate saved data only. `combine.py` joins the
+retained `tirust-summary.json` with the audited COLLIER summary for the report.
+`publish.py bind` appends new records while preserving all469 previous raw JSON
+values exactly; `seal` keeps the entire previous78193d6 proof/history, checks
+the manifest and distinct byte-identical PDF rebuild, and refreshes report
+bindings. Finish all campaign files before binding its manifest. Root PDF review
+belongs in `docs/data/`, outside the sealed campaign inventory. The prior
+sections below are historical and retain their original precision and stricter
+classifications; they do not describe the current opening display.
+
+Final new TIRust capture takes1031.750s and all38 initial children exit0 with
+all215 source/binary guards unchanged. The initial saved-data audit checks
+32,512 complex fields across68 successful first/final arrays, plus eight honest
+null refusal payloads from four candidate attempts. Sixteen of18 selected input
+rows return complete finite tensors; maximum selected relative discrepancy is
+2.45939e-11 (N5R6). N6R6 selects the measured Symbolica/AffinePower path at
+419.120ms with error1.23023e-11. The actual thin Hybrid/PV profiles are retained
+as alternatives; they were slower on this input. No numerical path is forced
+solely by a native/interpreted distinction.
+
+The two N4R6 generalized dot2/dot3 inputs hit an operand-dependent recurrence
+cancellation estimate at request53. This is an internal admission estimate,
+not independently measured output error. Failed lanes expose no coefficients.
+Four additional public PV trials permute complete denominator triples by
+`[1,0,2,3]`, leaving the loop variable, numerator and integral exactly unchanged.
+They use the same frozen binary, working f64 and request53. Their separate
+179.061s capture also exits0 with all guards intact, but all four still refuse.
+This post-hoc supplement is explicit and independently checked, not retroactively
+declared part of the fixed initial38 portfolio. The report selects the fastest
+observed diagnostic for each of these two rows: about26.117ms and25.511ms,
+respectively. They are labelled “Refused output · diagnostic timing” with
+accuracy unavailable. Do not treat those durations as successful reductions or
+substitute the old Float128 values in these binary64 cells. Higher-precision
+functional qualification remains the separate earlier evidence.
+
+`tirust-summary.json` and `qualification.json` retain the initial38 scope.
+`supplemental/` owns its four raw trials, protocol, summary and independent
+review. `summary.json` is the combined report view, and
+`joined-qualification.json` binds both scopes plus the COLLIER review. All42
+TIRust candidate attempts remain visible; no guard, requested tolerance or
+mathematical recurrence was weakened to produce the opening timing cells.
+
 ## COLLIER opening-column follow-up: 26 October 2026
 
 The next reporting request adds a right-most COLLIER column to the first
