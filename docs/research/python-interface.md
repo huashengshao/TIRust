@@ -81,25 +81,40 @@ packed batching, sparse contraction, invalid-lane isolation, empty/reset state,
 immutable result diagnostics and recovery. Its high-point samples reuse the
 retained six-point and seventh-time-quarter fixtures. These are installed-wheel
 interface checks, not new high-point reference or performance qualification.
-The current fresh standalone development wheel passes 64 installed API cases
-on Linux with CPython 3.13: 29 numerical/interoperability cases, ten facade
+The current fresh standalone development wheel passes 65 installed API cases
+on Linux with CPython 3.13: 29 numerical/interoperability cases, eleven facade
 cases, six upstream ComplexFloat native-operand precision regressions and 19
 upstream Float/ComplexFloat cases. Seven actual marimo runtime cases also pass.
 Installed consumer typing reports zero errors and warnings, including the new
 checked-input option and tagged affine execution types. The
-[saved qualification](../../validation/python-interface/facade-wheel-003/README.md)
-retains 147 selected source files, exact wheel/native hashes and every stage
-receipt. Source/runtime/compiler closure limits are explicit.
+[saved qualification](../../validation/python-interface/facade-wheel-004/README.md)
+retains 201 selected source files, including all 158 coherent build bodies,
+exact wheel/native hashes and every stage receipt. All seventeen current owned
+process groups completed with empty cleanup errors. Source/runtime/compiler
+closure limits are explicit. The new Legacy no-op scalar test verifies
+rejected-only input never prepares a child, two accepted lanes execute together,
+caller containers remain unchanged, and empty/rejected reuse and recovery keep
+owned result snapshots. Requested enum forwarding is checked separately in the
+core; Python has no direct requested-algorithm/policy getters.
 
-The original eight-case dispatch phase reached its fixed aggregate deadline
-after seven cases had passed. Only its unfinished final checked-Dual case was
-completed with a full per-case budget; no assertion or tolerance changed. The
-external removal of Nix toolchain paths and an offline marimo cache miss are
-also preserved. The exact prior Rust/Cargo 1.99 closure was restored and rooted
-before the successful build. The
+The current dotted bubble identity exercises the MassTaylor route without
+changing numerical assertions. The installed consumer checks its component
+counters and the recursive optional Legacy child union using ordinary
+assignability, strict tag/leaf assertions and recursive calls, without casts or
+`Any`. Two earlier exact-type identity observers printed identical recursive
+unions yet failed basedpyright's identity check; their source/diagnostics remain
+preserved. The saved replay's initial assumption that `cfg(test)` immediately
+preceded a module declaration was corrected to include the actual path
+attribute. That record is a saved-observer correction, not a native test
+failure.
+
+The [historical wheel003](../../validation/python-interface/facade-wheel-003/README.md)
+retains its aggregate dispatch deadline, external toolchain removal and offline
+marimo cache miss unchanged. Current cold-constructor cases use separate
+budgets; no successful case was repeated to repair an aggregate timeout. The
 [earlier 60-case qualification](../../validation/python-interface/facade-wheel-002/README.md)
-retains its two historical trait-surface observer failures and narrow exclusions
-for Rust-only `real_classify` and mutating `set_precision`.
+retains its historical trait-surface observer failures and narrow exclusions for
+Rust-only `real_classify` and mutating `set_precision`.
 
 An actual installed-wheel reproduction exposed precision loss when native
 integer operands were converted at the smaller of a complex value's component

@@ -86,17 +86,28 @@ fn affine_rows(
     shifts: &[[Atom; 4]],
     masses: &[Atom],
     budget: AffineDescentBudget,
+    distances: Option<&[Vec<Atom>]>,
 ) -> Result<Vec<Vec<Atom>>, String> {
     if shifts.len() < 2 || shifts.len() != masses.len() || shifts.len() > budget.max_propagators {
         return Err("affine descent needs matching N>=2 shifts/masses within its explicit propagator budget".into());
+    }
+    if distances
+        .is_some_and(|d| d.len() != shifts.len() || d.iter().any(|r| r.len() != shifts.len()))
+    {
+        return Err("affine supplied distances must have the complete square layout".into());
     }
     let active: Vec<_> = (0..shifts.len()).collect();
     let mut rows = coordinate_rows(shifts, &active);
     rows.push(
         (1..shifts.len())
             .map(|i| {
-                let relative = std::array::from_fn(|mu| &shifts[i][mu] - &shifts[0][mu]);
-                dot(&relative, &relative) - &masses[i] + &masses[0]
+                let distance = if let Some(distances) = distances {
+                    distances[0][i].clone()
+                } else {
+                    let relative = std::array::from_fn(|mu| &shifts[i][mu] - &shifts[0][mu]);
+                    dot(&relative, &relative)
+                };
+                distance - &masses[i] + &masses[0]
             })
             .collect(),
     );
@@ -150,7 +161,29 @@ pub(crate) fn affine_descent_polynomials(
     coordinate_rank: usize,
     budget: AffineDescentBudget,
 ) -> Result<AffineDescentPolynomials, String> {
-    let rows = affine_rows(shifts, masses, budget)?;
+    affine_descent_polynomials_impl(shifts, masses, coordinate_rank, budget, None)
+}
+
+/// Existing exact chart/cofactor construction with authoritative distances.
+/// Only the checked supplied-G owner may authorize Cartesian identities.
+pub(crate) fn affine_descent_polynomials_with_distances(
+    shifts: &[[Atom; 4]],
+    masses: &[Atom],
+    distances: &[Vec<Atom>],
+    coordinate_rank: usize,
+    budget: AffineDescentBudget,
+) -> Result<AffineDescentPolynomials, String> {
+    affine_descent_polynomials_impl(shifts, masses, coordinate_rank, budget, Some(distances))
+}
+
+fn affine_descent_polynomials_impl(
+    shifts: &[[Atom; 4]],
+    masses: &[Atom],
+    coordinate_rank: usize,
+    budget: AffineDescentBudget,
+    distances: Option<&[Vec<Atom>]>,
+) -> Result<AffineDescentPolynomials, String> {
+    let rows = affine_rows(shifts, masses, budget, distances)?;
     let columns = shifts.len() - 1;
     if coordinate_rank > 4 || coordinate_rank + 1 > columns {
         return Err("affine coordinate rank must be <=min(4,N-2)".into());
@@ -265,7 +298,28 @@ pub(crate) fn affine_descent_chart(
     key: &AffineChartKey,
     budget: AffineDescentBudget,
 ) -> Result<Option<AffineDescentChart>, String> {
-    let rows = affine_rows(shifts, masses, budget)?;
+    affine_descent_chart_impl(shifts, masses, key, budget, None)
+}
+
+/// Reuse Symbolica's existing matrix solve with the supplied R row retained.
+pub(crate) fn affine_descent_chart_with_distances(
+    shifts: &[[Atom; 4]],
+    masses: &[Atom],
+    distances: &[Vec<Atom>],
+    key: &AffineChartKey,
+    budget: AffineDescentBudget,
+) -> Result<Option<AffineDescentChart>, String> {
+    affine_descent_chart_impl(shifts, masses, key, budget, Some(distances))
+}
+
+fn affine_descent_chart_impl(
+    shifts: &[[Atom; 4]],
+    masses: &[Atom],
+    key: &AffineChartKey,
+    budget: AffineDescentBudget,
+    distances: Option<&[Vec<Atom>]>,
+) -> Result<Option<AffineDescentChart>, String> {
+    let rows = affine_rows(shifts, masses, budget, distances)?;
     let matrix = affine_chart_matrix(&rows, key)?;
     let determinant = matrix
         .det()
@@ -372,3 +426,72 @@ impl PvCompiler {
 #[cfg(test)]
 #[path = "affine_descent_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod supplied_distance_tests {
+    use super::*;
+    #[test]
+    fn supplied_affine_chart_reuses_existing_solve_and_preserves_authoritative_distances() {
+        let shifts: Vec<[Atom; 4]> = [[0, 0, 0, 0], [0, 1, 0, 0], [0, 2, 0, 0]]
+            .into_iter()
+            .map(|row| row.map(Atom::num))
+            .collect();
+        let masses = [1, 2, 3].map(Atom::num);
+        let mut distances: Vec<Vec<Atom>> = [[0, -1, -4], [-1, 0, -1], [-4, -1, 0]]
+            .into_iter()
+            .map(|row| row.map(Atom::num).to_vec())
+            .collect();
+        let key = AffineChartKey {
+            coordinate_rows: vec![1],
+            relative_columns: vec![0, 1],
+        };
+        let budget = AffineDescentBudget::default();
+        let cartesian = affine_descent_chart(&shifts, &masses, &key, budget)
+            .unwrap()
+            .unwrap();
+        let supplied =
+            affine_descent_chart_with_distances(&shifts, &masses, &distances, &key, budget)
+                .unwrap()
+                .unwrap();
+        assert!(
+            (&cartesian.determinant - &supplied.determinant)
+                .together()
+                .is_zero()
+        );
+        for (a, b) in cartesian.coefficients.iter().zip(&supplied.coefficients) {
+            assert!((a - b).together().is_zero());
+        }
+        let old = affine_descent_polynomials(&shifts, &masses, 1, budget).unwrap();
+        let new =
+            affine_descent_polynomials_with_distances(&shifts, &masses, &distances, 1, budget)
+                .unwrap();
+        assert_eq!(old.rank_constraints, new.rank_constraints);
+        assert_eq!(old.charts.len(), new.charts.len());
+        assert_eq!(old.cofactors, new.cofactors);
+        let changed = symbolica::symbol!("iregi_affine_test::authoritative_distance02");
+        distances[0][2] = Atom::var(changed);
+        distances[2][0] = Atom::var(changed);
+        let formal =
+            affine_descent_chart_with_distances(&shifts, &masses, &distances, &key, budget)
+                .unwrap()
+                .unwrap();
+        assert!(formal.determinant.contains_symbol(changed));
+        assert!(
+            formal
+                .coefficients
+                .iter()
+                .any(|a| a.contains_symbol(changed))
+        );
+        // This helper retains supplied algebra, never certifies its physical
+        // compatibility. The owning full-Taylor guard rejects changed G.
+        distances.pop();
+        assert!(
+            affine_descent_chart_with_distances(&shifts, &masses, &distances, &key, budget)
+                .is_err()
+        );
+        assert!(
+            affine_descent_polynomials_with_distances(&shifts, &masses, &distances, 1, budget)
+                .is_err()
+        );
+    }
+}

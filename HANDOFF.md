@@ -2,6 +2,106 @@
 
 ## Current state, 26 October 2026 — supersedes older status below
 
+### Latest continuation after published `6fb7d3f`
+
+The next coherent feature checkpoint is prepared against `6fb7d3f`; root owns
+its commit and push. The report adds three compact coverage pages while retaining
+all 408 earlier raw result values and timings. The new checkpoint is
+`docs/data/rank6-feature-boundary-20261026.json` with a readable companion under
+`docs/checkpoints/`. **The full goal is not complete.** Each capsule qualifies
+its own actual source context; working-tree similarity does not promote it.
+
+The publication's source boundary is the central capsule
+`validation/checked-g-generalized-core-tests`, manifest `ee4bc172…`: 158 canonical
+bodies, nine additional source versions and four compile contexts. All 120
+strict distinct normal tests pass as 95+25 across a test-only bridge. Six initial
+compiler errors and the stale Legacy engine-tag observer failure remain failed.
+The staged production prefix matches the frozen CLI003/wheel004 context; root
+may place a future candidate in the worktree without including it in this commit.
+
+New sealed positive and negative evidence:
+
+- `validation/public-n6-affine-mixed-dual`, manifest `f025d7d4…`: public N6
+  rank-six mixed-Dual PV Float128/256 passes 30,240 quad comparisons and 75,600
+  parent/child precision pairs below `2^-80`, including 60,480 child pairs.
+  Per precision there are 15 complete contexts and 12 actual N5 children,
+  explicitly KnownNoQuadrature. Six Taylor components cover first squared mass
+  and simultaneous dilation; requested accuracy remains53. The older private
+  ThinSix allocation failures remain failed.
+- `validation/public-n6-hybrid-typed-dual`, manifest `39d2f234…`: unchanged
+  default Hybrid independently passes the same full counts. Typed DoubleFloat
+  adds 15,120 quad, 15,120 Float128-control and 5,040 scale checks. Corrected
+  f64 hits the real pv_node_12/Taylor2 cancellation guard, returns null arrays
+  and has zero numeric comparisons. Its initial input-size refusal is a
+  separate retained pre-reduction failure. This is repacking existing Symbolica
+  Dual values, not a new typed convenience API or a hidden-context export.
+- `validation/public-n6-rank6-mass-fd`, manifest `2cf715c8…`: five ordinary
+  Float384 samples form two three-point central stencils sharing the center,
+  at 2^-12 and 2^-18. All 3,360 fine-step accuracy gates pass1e-10; 6,720
+  records include coarse diagnostics. There are 420 resolved transitions and
+  1,260 explicit floor/unresolved transitions. The floor classifies convergence
+  without relaxing accuracy. The original Symbolica0^0 weight-preparation
+  failure and literal-one constant-row repair are retained.
+- `validation/low-n-generalized-rank6-memo-dot-pair`, manifest `fe04df1f…`:
+  actual N5 rank-six first-dot Float128/256 passes19,740 gates (5,040 quad,
+  5,040 mass-Taylor, 2,520 precision, 7,140 pole/duplicate/scale). Its actual
+  119-source memo context remains separate from later G/Mass sources. Two
+  original short timeouts and three older unrun states are retained. No N5
+  triple-power qualification follows.
+- `validation/legacy-noop-rank6`, manifest `f3f4a469…`: 26 focused tests,
+  N5 rank-six PV/unit/h0 Float128/256, 1,680 quad slots and840 strict pairs
+  pass. Its separate151-source context and old OOM/compile/pre-launch failures
+  remain explicit. This is neither full Legacy nor dots/h/Dual/N6/rescue closure.
+- `validation/python-interface/facade-wheel-004`, manifest `44b4552b…`:65
+  installed API cases, seven marimo runtime cases and clean consumer typing
+  pass. All158 declared current core bodies match within201 selected files;
+  portable replay passes1,575 checks. This is a selected source context, not
+  the entire dependency closure. Historical wheel004 gallery/C0D0 evidence is
+  a different older context and must not be conflated with this facade wheel.
+- `validation/checked-g-generalized-numeric`, manifest `2a32b5aa…` with
+  qualification `fec2dab0…`: current N6 rank-six default-Hybrid unit and
+  first-dot h0 Float128/256 all pass3,360 original-quad slots and1,680 strict
+  precision pairs. Worst reference error≈9.11420e-16; pair≈6.86405e-30.
+  The supplied data remain authoritative. The complete auxiliary×user proof
+  guard is source-enforced and covered by13 focused normal tests. The frozen
+  CLI observes three dotted compound-acceptance messages per precision but
+  does NOT export inner numeric proof counters. Do not invent those counts or
+  infer public G Dual/full-domain qualification.
+
+Important open outcomes at this cutoff:
+
+- Current Cartesian N6 first-dot Float128 passes all840 reference slots, but
+  Float256 fails E6NonConvergent at leaf30/order128/reportederror2.3794e-4,
+  with no parent tensor array or precision pair. Root/owner retained receipt
+  `3671d809…`; no retry or tolerance/limit change was authorized. A partial
+  capsule is being prepared separately; the report records only the terminal
+  observation and does not bind an unsealed target path as a pass.
+- Current D6/unit Float128 reports native success and returns an array, but
+  independent reference validation fails all210 finite slots (maximum
+  normalized error≈1.4213). The420 IR,126 lower-rank UV and84 rank-six UV
+  controls pass. Float256 is UNRUN because the required128 gate failed. Root
+  retains receipt `c7df7491…`; owner is diagnosing, with no promotion or retry.
+  Earlier sealed810-second preparation failure remains failed. Do not claim
+  a D6 precision pair or84 nonzero UV coefficients:84 counts exact-degree-six
+  tensor slots, whereas the reference has20 macroscopic all-even UV entries
+  and64 tiny odd residuals.
+- Default Cartesian/formal-G and ordinary Cartesian affine children keep
+  direct recurrence. `new_mass_taylor` is explicit with a nonzero differentiated-
+  mass domain. The private checked-G regular hook still lacks a same-requested-
+  domain fallback when its mass differentiation would reject zero mass.
+- Imported full-Dual propagated-quadrature remains guarded in the publication.
+  A proposed extension is TARGET-only/future worktree context under separate
+  review; root keeps it outside the current commit. Do not promote its source
+  proposal or focused future tests into completed numerical coverage.
+- Broader positive powers/dimension shifts, accepted Legacy/rescue, exceptional
+  cases and remaining numeric/method/physical closure stay open. No new rank-seven
+  or performance campaign is needed. Consistency below2^-80 is not a certificate
+  of achieved working precision.
+
+The following sections retain the prior session history and may describe jobs
+that were pending at those earlier checkpoints. The latest status above takes
+precedence. No report-owner native integral or benchmark run was added.
+
 The unbudgeted goal is active. The user prioritizes feature-complete, validated
 generic rank-six reduction, including dots; further performance optimization is
 not a completion requirement. There is no mathematical point-count ceiling in

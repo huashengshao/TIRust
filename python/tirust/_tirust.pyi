@@ -12,7 +12,7 @@ Number: TypeAlias = int | float | complex | str | Expression | Float | ComplexFl
 NumericInput: TypeAlias = Number | "Dual"
 DType: TypeAlias = Literal["f64", "double-double", "float"]
 Algorithm: TypeAlias = Literal["hybrid", "pv", "ibp"]
-Engine: TypeAlias = Literal["generic", "six_point", "six_point_hybrid", "certified_tensor", "affine_power", "seven_point"]
+Engine: TypeAlias = Literal["mass_taylor", "legacy_noop", "generic", "six_point", "six_point_hybrid", "certified_tensor", "affine_power", "seven_point"]
 Convention: TypeAlias = Literal["iregi", "oneloop", "madloop"]
 Shape: TypeAlias = Sequence[Sequence[int]]
 Monomial: TypeAlias = tuple[int, int, int, int]
@@ -71,7 +71,22 @@ AffinePowerEngineExecution = TypedDict("AffinePowerEngineExecution", {
     "parent_execution": dict[str, int], "child_methods": list[AffineChildMethod],
 })
 
-EngineExecution: TypeAlias = GenericEngineExecution | PackedEngineExecution | HybridEngineExecution | CertifiedEngineExecution | AffinePowerEngineExecution
+MassTaylorEngineExecution = TypedDict("MassTaylorEngineExecution", {
+    "engine": Literal["mass_taylor"], "input_rows": int,
+    "certificate_execution": dict[str, int],
+    "user_components": int, "internal_components": int,
+    "unit_execution": dict[str, int], "projection_execution": dict[str, int],
+    "unit_algorithm_used": Algorithm, "requested_algorithm": Algorithm,
+})
+
+LegacyNoOpEngineExecution = TypedDict("LegacyNoOpEngineExecution", {
+    "engine": Literal["legacy_noop"], "input_rows": int,
+    "accepted_rows": int, "rejected_rows": int, "query_count": int,
+    "certificate_execution": dict[str, int], "child": "EngineExecution | None",
+    "child_preparation_attempts": int, "child_preparation_error": str | None,
+})
+
+EngineExecution: TypeAlias = MassTaylorEngineExecution | LegacyNoOpEngineExecution | GenericEngineExecution | PackedEngineExecution | HybridEngineExecution | CertifiedEngineExecution | AffinePowerEngineExecution
 
 class ReductionError(RuntimeError): ...
 class LaneError(ReductionError): ...

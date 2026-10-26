@@ -1103,9 +1103,11 @@ fn stats(stats: ExecutionStats, py: Python<'_>) -> PyResult<Py<PyDict>> {
 fn engine_name(kind: TensorEngineKind) -> &'static str {
     match kind {
         TensorEngineKind::Generic => "generic",
+        TensorEngineKind::LegacyNoOp => "legacy_noop",
         TensorEngineKind::SixPoint => "six_point",
         TensorEngineKind::SixPointHybrid => "six_point_hybrid",
         TensorEngineKind::CertifiedTensor => "certified_tensor",
+        TensorEngineKind::MassTaylor => "mass_taylor",
         TensorEngineKind::AffinePower => "affine_power",
         TensorEngineKind::SevenPoint => "seven_point",
     }
@@ -1164,7 +1166,36 @@ fn engine_execution(execution: &TensorEngineExecution, py: Python<'_>) -> PyResu
                 certificate_stats(*certificate_execution, py)?,
             )?;
         }
+        TensorEngineExecution::LegacyNoOp {
+            input_rows, accepted_rows, rejected_rows, query_count,
+            certificate_execution, child, child_preparation_attempts, child_preparation_error,
+        } => {
+            output.set_item("engine", engine_name(TensorEngineKind::LegacyNoOp))?;
+            output.set_item("input_rows", input_rows)?;
+            output.set_item("accepted_rows", accepted_rows)?;
+            output.set_item("rejected_rows", rejected_rows)?;
+            output.set_item("query_count", query_count)?;
+            output.set_item("certificate_execution", certificate_stats(*certificate_execution, py)?)?;
+            if let Some(child) = child {
+                output.set_item("child", engine_execution(child, py)?)?;
+            } else {
+                output.set_item("child", py.None())?;
+            }
+            output.set_item("child_preparation_attempts", child_preparation_attempts)?;
+            output.set_item("child_preparation_error", child_preparation_error)?;
+        }
         TensorEngineExecution::SixPoint(value) => packed!(TensorEngineKind::SixPoint, value),
+        TensorEngineExecution::MassTaylor(value) => {
+            output.set_item("engine", engine_name(TensorEngineKind::MassTaylor))?;
+            output.set_item("certificate_execution", certificate_stats(value.certificate_execution, py)?)?;
+            output.set_item("input_rows", value.input_rows)?;
+            output.set_item("user_components", value.user_components)?;
+            output.set_item("internal_components", value.internal_components)?;
+            output.set_item("unit_execution", stats(value.unit_execution, py)?)?;
+            output.set_item("projection_execution", stats(value.projection_execution, py)?)?;
+            output.set_item("unit_algorithm_used", algorithm_name(value.unit_algorithm_used))?;
+            output.set_item("requested_algorithm", algorithm_name(value.requested_algorithm))?;
+        }
         TensorEngineExecution::AffinePower(value) => {
             output.set_item("engine", engine_name(TensorEngineKind::AffinePower))?;
             output.set_item("input_rows", value.input_rows)?;

@@ -192,6 +192,12 @@ where
     pub fn last_packed_execution(&self)->&[crate::SixPointExecutionStats] {
         self.inner.packed_execution()
     }
+    /// Actual generalized/default-Hybrid denominator-descent work per accepted
+    /// chart batch. Its certificates and child methods remain separate from
+    /// the outer Cartesian and rank-four Gram certificates.
+    pub fn last_affine_execution(&self) -> &[crate::AffinePowerExecutionStats] {
+        self.inner.affine_execution()
+    }
     pub fn last_certificate_execution(&self) -> TensorCertificateExecutionStats {
         TensorCertificateExecutionStats {
             cartesian: self.inner.compatibility_execution(),

@@ -7,10 +7,10 @@
 //! No shifted geometry, derivative projection or alternate metric is invented.
 
 use super::*;
-use crate::snapping::{SnapTarget, CartesianConstraintKind};
+use crate::snapping::{CartesianConstraintKind, SnapTarget};
 
 #[derive(Clone)]
-pub(super) struct PreparedLegacyCompatibility {
+pub(crate) struct PreparedLegacyCompatibility {
     selectors: ExpressionEvaluator<Complex<Rational>>,
     certificate: ExactZeroConstraintPlan,
     labels: Vec<String>,
@@ -29,12 +29,35 @@ impl PreparedLegacyCompatibility {
         if queries.is_empty() {
             return Ok(None);
         }
-        let mut parameters = plan.parameters.clone();
+        Self::prepare_from_queries(
+            &plan.parameters,
+            plan.layout.masses.clone(),
+            queries,
+            stability.snapping_aliases(),
+            dual,
+        )
+        .map(Some)
+    }
+
+    /// The same selected-zero/real-mass proof, independent of a reduction
+    /// graph. A conservative pre-recurrence caller can pass explicit query
+    /// outputs with activation one, without compiling highpoint integrals.
+    pub(crate) fn prepare_from_queries<D: DualNumberStructure>(
+        original_parameters: &[Atom],
+        masses: std::ops::Range<usize>,
+        queries: &[(crate::snapping::SnapCompatibilityQuery, Atom)],
+        aliases: &[(Atom, Atom)],
+        dual: Option<&D>,
+    ) -> Result<Self, ReductionError> {
+        if masses.start > masses.end || masses.end > original_parameters.len() {
+            return Err(ReductionError::InvalidInput(
+                "legacy no-op original mass layout differs".into(),
+            ));
+        }
+        let mut parameters = original_parameters.to_vec();
         // Real mass jets are packed exactly from the original input. CONJ is
         // never smuggled into a polynomial certificate as an opaque variable.
-        let real_masses: Vec<_> = plan
-            .layout
-            .masses
+        let real_masses: Vec<_> = masses
             .clone()
             .map(|index| {
                 Atom::var(symbolica::symbol!(format!(
@@ -64,25 +87,20 @@ impl PreparedLegacyCompatibility {
         }?;
         // Predicates use only primal branch semantics. Their selected residuals
         // are subsequently checked with the complete unchanged Dual layout.
-        let selectors = compile_exact::<D>(
-            &selectors,
-            &plan.parameters,
-            stability.snapping_aliases(),
-            None,
-        )?;
-        Ok(Some(Self {
+        let selectors = compile_exact::<D>(&selectors, original_parameters, aliases, None)?;
+        Ok(Self {
             selectors,
             certificate,
             labels,
             kinds,
-            parameters: plan.parameters.len(),
-            masses: plan.layout.masses.clone(),
-        }))
+            parameters: original_parameters.len(),
+            masses,
+        })
     }
 }
 
 #[derive(Clone)]
-pub(super) struct LegacyCompatibilityWorkspace<T: NativeFloat> {
+pub(crate) struct LegacyCompatibilityWorkspace<T: NativeFloat> {
     selectors: BatchExpressionEvaluator<Complex<T>>,
     certificate: ExactZeroConstraintWorkspace,
     labels: Vec<String>,
@@ -94,13 +112,14 @@ pub(super) struct LegacyCompatibilityWorkspace<T: NativeFloat> {
     exact_inputs: Vec<Complex<Rational>>,
     selected: Vec<Vec<(usize, usize)>>,
     lanes: Vec<usize>,
+    certificate_execution: CertificateExecutionStats,
 }
 
 impl<T: NativeFloat> LegacyCompatibilityWorkspace<T>
 where
     Complex<T>: EvaluationDomain,
 {
-    pub(super) fn instantiate(prepared: &PreparedLegacyCompatibility, prototype: &T) -> Self {
+    pub(crate) fn instantiate(prepared: &PreparedLegacyCompatibility, prototype: &T) -> Self {
         Self {
             selectors: map_exact(&prepared.selectors, prototype),
             certificate: prepared.certificate.instantiate(),
@@ -113,16 +132,25 @@ where
             exact_inputs: Vec::new(),
             selected: Vec::new(),
             lanes: Vec::new(),
+            certificate_execution: CertificateExecutionStats::default(),
         }
     }
 
-    pub(super) fn failures(
+    pub(crate) fn last_certificate_execution(&self) -> CertificateExecutionStats {
+        self.certificate_execution
+    }
+
+    pub(crate) fn failures(
         &mut self,
         input: &[Complex<T>],
         rows: usize,
         components: usize,
         prototype: &T,
     ) -> Result<Vec<(usize, LaneStatus)>, ReductionError> {
+        self.certificate_execution = CertificateExecutionStats {
+            input_rows: rows,
+            ..Default::default()
+        };
         self.primal_inputs.clear();
         self.exact_inputs.clear();
         self.selected.clear();
@@ -195,7 +223,8 @@ where
                 failures.push((
                     lane,
                     LaneStatus::Unstable(
-                        "selected Cartesian compatibility cannot represent input jets exactly".into(),
+                        "selected Cartesian compatibility cannot represent input jets exactly"
+                            .into(),
                     ),
                 ));
             } else {
@@ -210,7 +239,10 @@ where
             &self.exact_inputs,
             self.lanes.len(),
             &self.selected,
-        )?;
+        );
+        self.certificate_execution.evaluated_rows = self.certificate.evaluated_rows();
+        self.certificate_execution.passes = self.certificate.passes();
+        let certificates = certificates?;
         for (lane, certificate) in self.lanes.iter().copied().zip(certificates) {
             match certificate {
                 ExactZeroCertificate::Zero => {}
@@ -219,8 +251,12 @@ where
                     component,
                 } => {
                     let reason = match self.kinds[constraint] {
-                        CartesianConstraintKind::LegacySnap => "legacy on-shell snap changes highpoint Cartesian geometry",
-                        CartesianConstraintKind::CoordinateIdentity => "selected Cartesian coordinate identity is incompatible with the full Taylor geometry",
+                        CartesianConstraintKind::LegacySnap => {
+                            "legacy on-shell snap changes highpoint Cartesian geometry"
+                        }
+                        CartesianConstraintKind::CoordinateIdentity => {
+                            "selected Cartesian coordinate identity is incompatible with the full Taylor geometry"
+                        }
                     };
                     failures.push((lane, LaneStatus::InvalidInput(format!(
                         "{reason}: {}; Taylor component {component}; input preserved, no projection",
@@ -430,23 +466,28 @@ mod tests {
         let stability = StabilityPlan::prepare(&plan).unwrap();
         assert!(stability.snapping_threshold().is_none());
         assert_eq!(stability.snapping_compatibility().len(), 1);
-        let shape = HyperDual::<u8>::new(vec![vec![0,0],vec![0,1],vec![1,0],vec![1,1]]);
-        let prepared = PreparedLegacyCompatibility::prepare(&plan, &stability, Some(&shape)).unwrap().unwrap();
+        let shape = HyperDual::<u8>::new(vec![vec![0, 0], vec![0, 1], vec![1, 0], vec![1, 1]]);
+        let prepared = PreparedLegacyCompatibility::prepare(&plan, &stability, Some(&shape))
+            .unwrap()
+            .unwrap();
         let mut workspace = LegacyCompatibilityWorkspace::instantiate(&prepared, &0.0);
-        let mut tangent = vec![c(0.,0.); 24];
-        for (component, value) in [1.,1.,2.,3.].into_iter().enumerate() {
-            tangent[component] = c(value,0.);
-            tangent[4+component] = c(value,0.);
+        let mut tangent = vec![c(0., 0.); 24];
+        for (component, value) in [1., 1., 2., 3.].into_iter().enumerate() {
+            tangent[component] = c(value, 0.);
+            tangent[4 + component] = c(value, 0.);
         }
-        tangent[16] = c(4.,0.); tangent[20] = c(3.,0.);
-        let mut transverse = tangent.clone();transverse[7].re += 1.;
-        let rows = [tangent.clone(),transverse,tangent.clone()].concat();
-        let failures = workspace.failures(&rows,3,4,&0.).unwrap();
-        assert_eq!(failures.len(),1);assert_eq!(failures[0].0,1);
+        tangent[16] = c(4., 0.);
+        tangent[20] = c(3., 0.);
+        let mut transverse = tangent.clone();
+        transverse[7].re += 1.;
+        let rows = [tangent.clone(), transverse, tangent.clone()].concat();
+        let failures = workspace.failures(&rows, 3, 4, &0.).unwrap();
+        assert_eq!(failures.len(), 1);
+        assert_eq!(failures[0].0, 1);
         assert!(matches!(&failures[0].1,LaneStatus::InvalidInput(reason)
             if reason.contains("coordinate identity") && reason.contains("component 3")
                 && !reason.contains("legacy on-shell")));
-        assert!(workspace.failures(&tangent,1,4,&0.).unwrap().is_empty());
+        assert!(workspace.failures(&tangent, 1, 4, &0.).unwrap().is_empty());
     }
 
     #[test]

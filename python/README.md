@@ -1,11 +1,12 @@
 # TIRust for Python
 
 Status: a fresh local development wheel is qualified on Linux with CPython 3.13.
-All 64 focused numerical, precision, native interoperability and facade cases
+All 65 focused numerical, precision, native interoperability and facade cases
 pass, together with seven actual marimo notebook runtime cases. Installed-wheel
 consumer typing passes with zero errors or warnings.
-The [qualification evidence](../validation/python-interface/facade-wheel-003/README.md)
-records the exact wheel, 147 selected source files, tested coverage and preserved
+The [qualification evidence](../validation/python-interface/facade-wheel-004/README.md)
+records the exact wheel, 201 selected source files including all 158 coherent
+build bodies, tested coverage and preserved
 failed attempts. These are frontend checks on specified fixtures; full-array
 integral validation is reported separately.
 Release wheels, full Symbolica Community host integration, and other Python or
@@ -70,7 +71,7 @@ that position. Failed or unsupported results never become successful zeros.
 
 The source bindings use the shared Rust `TensorReductionPlan` and
 `TensorWorkspace` facade. It selects eligible ordinary PV high-point paths;
-eligible positive-power high-point inputs use affine-power descent for explicit
+eligible ordinary high-point inputs use affine-power descent for explicit
 Dual layouts and `profiling=True`. Lower-point inputs retain generic execution.
 The requested
 algorithm and compiled default scalar-master policy are preserved. Inspect
@@ -86,6 +87,19 @@ propagator powers and dimension shifts, with propagator-count reduction kept
 separate. Six-point coverage is a concrete validation checkpoint; supported and
 tested point counts remain explicit. Historical rank-seven cases remain
 separate challenge coverage.
+
+Dotted inputs may select the `mass_taylor` engine. Its tagged execution details
+keep user components distinct from internal Taylor components and retain the
+requested algorithm alongside the actual unit-integral procedure. The existing
+dotted-bubble/mass-Dual identity passes in the current wheel.
+
+For eligible high-point `input_policy="legacy_on_shell"` requests, the
+`legacy_noop` engine proves that a conservative superset of snapping queries
+leaves each admitted input unchanged before executing its Preserve child. A
+changed neighbor is rejected before child execution. Nested metadata reports
+the actual child and admitted/rejected rows. The current N5 scalar frontend
+regression covers mixed-lane isolation, unchanged input containers, empty calls
+and recovery; broader numerical coverage is reported separately.
 
 The source API also offers
 `ReductionPlan(6, rank, invariants="scalar_products", check_scalar_products=True)`

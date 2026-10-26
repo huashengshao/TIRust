@@ -12,6 +12,7 @@ use crate::{
     Algorithm, BatchResult, CertificateExecutionStats, ExecutionProfile, ExecutionStats,
     InputLayout, InputPolicy, InvariantInput, KinematicsBatch, LaneStatus, ReductionError,
     ReductionPlan, ReductionSettings, ResultMetadata, Workspace,
+    MassTaylorReductionPlan, MassTaylorWorkspace,
     affine_descent_guard::{
         AffineDescentGuardPlan, AffineDescentGuardWorkspace, AffineDescentSelection,
     },
@@ -99,6 +100,7 @@ struct PreparedProfile {
 #[derive(Clone)]
 enum ChildPlan {
     LowPoint(ReductionPlan),
+    MassTaylor(Box<MassTaylorReductionPlan>),
     Affine(Box<AffinePowerReductionPlan>),
 }
 
@@ -108,6 +110,8 @@ enum ChildPlan {
 #[derive(Clone)]
 pub struct AffinePowerReductionPlan {
     settings: ReductionSettings,
+    /// Private supplied-G mode is admitted only behind fresh exact p/G checks.
+    checked_supplied: bool,
     budget: AffinePowerBudget,
     basis: Vec<Monomial>,
     layout: InputLayout,
@@ -131,15 +135,31 @@ impl AffinePowerReductionPlan {
         settings: ReductionSettings,
         budget: AffinePowerBudget,
     ) -> Result<Self, ReductionError> {
+        Self::prepare_plan(settings, budget, false)
+    }
+    pub(crate) fn new_checked_supplied(settings: ReductionSettings) -> Result<Self, ReductionError> {
+        if settings.propagators != 6 {
+            return Err(invalid("checked supplied-G affine entry currently requires N6"));
+        }
+        Self::new_checked_internal(settings, AffinePowerBudget::default())
+    }
+    fn new_checked_internal(settings: ReductionSettings, budget: AffinePowerBudget) -> Result<Self, ReductionError> {
+        if !(2..=6).contains(&settings.propagators) {
+            return Err(invalid("private checked affine recursion requires N2..6"));
+        }
+        Self::prepare_plan(settings, budget, true)
+    }
+    fn prepare_plan(settings: ReductionSettings, budget: AffinePowerBudget, checked_supplied: bool) -> Result<Self, ReductionError> {
         let n = settings.propagators;
+        let expected_invariants = if checked_supplied { InvariantInput::SuppliedScalarProducts } else { InvariantInput::FromShifts };
         if n < 2
             || settings.powers.len() != n
             || settings.powers.contains(&0)
-            || settings.invariants != InvariantInput::FromShifts
+            || settings.invariants != expected_invariants
             || settings.input_policy != InputPolicy::Preserve
         {
             return Err(invalid(
-                "affine power descent requires N>=2, N positive powers and preserved Cartesian routing",
+                "affine power descent requires N>=2, positive powers and the selected preserved Cartesian invariant layout",
             ));
         }
         if settings.rank > 6 {
@@ -147,7 +167,8 @@ impl AffinePowerReductionPlan {
                 "affine power descent currently qualifies tensor rank through six".into(),
             ));
         }
-        let geometry = parameters(n)?;
+        let layout = if checked_supplied { checked_layout(n)? } else { InputLayout { shifts: 0..mul(n,4)?, scalar_products:None, masses:mul(n,4)?..mul(n,5)?, scale:mul(n,5)? } };
+        let geometry = add(layout.scale,1)?;
         if [
             budget.max_charts,
             budget.max_constraints,
@@ -170,14 +191,9 @@ impl AffinePowerReductionPlan {
             ));
         }
         let basis = tensor_basis(settings.rank);
-        let layout = InputLayout {
-            shifts: 0..mul(n, 4)?,
-            scalar_products: None,
-            masses: mul(n, 4)?..mul(n, 5)?,
-            scale: mul(n, 5)?,
-        };
         Ok(Self {
             settings,
+            checked_supplied,
             budget,
             basis,
             layout,
@@ -228,14 +244,11 @@ impl AffinePowerReductionPlan {
             ),
         );
         let rank = 4usize.min(n - 2);
-        let guard = Arc::new(match shape {
-            None => AffineDescentGuardPlan::new(n, rank, self.budget.chart()),
-            Some(s) => AffineDescentGuardPlan::new_dual(
-                n,
-                rank,
-                self.budget.chart(),
-                &HyperDual::<u8>::new(s.clone()),
-            ),
+        let guard = Arc::new(match (self.checked_supplied, shape) {
+            (false,None) => AffineDescentGuardPlan::new(n, rank, self.budget.chart()),
+            (false,Some(s)) => AffineDescentGuardPlan::new_dual(n, rank, self.budget.chart(), &HyperDual::<u8>::new(s.clone())),
+            (true,None) => AffineDescentGuardPlan::new_checked_supplied(n, rank, self.budget.chart()),
+            (true,Some(s)) => AffineDescentGuardPlan::new_checked_supplied_dual(n, rank, self.budget.chart(), &HyperDual::<u8>::new(s.clone())),
         }?);
         let mut cache = self
             .guards
@@ -268,7 +281,7 @@ impl AffinePowerReductionPlan {
         );
         let dag = AffinePowerDag::new(self.settings.powers.clone(), &key.1, self.budget.dag())
             .map_err(prep)?;
-        let packing = PowerBatchLayout::new(&self.settings, &dag.terminals)?;
+        let packing = if self.checked_supplied { PowerBatchLayout::new_checked_supplied(&self.settings, &dag.terminals)? } else { PowerBatchLayout::new(&self.settings, &dag.terminals)? };
         let chart = guard
             .charts()
             .get(key.0)
@@ -305,7 +318,13 @@ impl AffinePowerReductionPlan {
             return Ok(p);
         }
         // Point descent happens BEFORE any inner fixed planner resource guard.
-        let child = if settings.propagators <= 5 {
+        let child = if self.checked_supplied && settings.propagators == 5 {
+            // No generic N5 graph is constructed until its own fresh full-G
+            // certificate proves the regular-primal subgroup.
+            ChildPlan::Affine(Box::new(Self::new_checked_internal(settings.clone(), self.budget)?))
+        } else if settings.propagators <= 5 {
+            // Direct recurrences also cover dimensionally regulated zero-mass
+            // dots, outside auxiliary mass differentiation's analytic domain.
             ChildPlan::LowPoint(ReductionPlan::new(settings.clone())?)
         } else {
             ChildPlan::Affine(Box::new(Self::with_budget(settings.clone(), self.budget)?))
@@ -326,7 +345,7 @@ pub struct AffinePowerChildMethod {
     pub propagators: usize,
     pub powers: Vec<u16>,
     pub requested: Algorithm,
-    /// None denotes another affine composite; see its retained nested notes.
+    /// None denotes an affine or mass-Taylor composition; inspect its notes.
     pub actual: Option<Algorithm>,
     pub rows: usize,
     pub notes: Vec<String>,
@@ -389,6 +408,7 @@ enum ChildWorkspace<T: NativeFloat> {
         notes: Vec<String>,
     },
     Affine(Box<AffinePowerWorkspace<T>>),
+    MassTaylor(Box<MassTaylorWorkspace<T>>),
 }
 #[derive(Clone)]
 struct ProfileWorkspace<T: NativeFloat> {
@@ -503,6 +523,7 @@ where
                     workspace.set_accuracy_precision(bits)?
                 }
                 ChildWorkspace::Affine(w) => w.set_accuracy_precision(bits)?,
+                ChildWorkspace::MassTaylor(w) => w.set_accuracy_precision(bits)?,
             }
         }
         for p in self.profiles.values_mut() {
@@ -517,6 +538,7 @@ where
             match c {
                 ChildWorkspace::LowPoint { workspace, .. } => workspace.set_profiling(enabled),
                 ChildWorkspace::Affine(w) => w.set_profiling(enabled),
+                ChildWorkspace::MassTaylor(w) => w.set_profiling(enabled),
             }
         }
         for p in self.profiles.values_mut() {
@@ -664,6 +686,7 @@ where
                     notes,
                 }
             }
+            ChildPlan::MassTaylor(plan) => self.make_mass_child(&plan)?,
             ChildPlan::Affine(plan) => {
                 let mut child = Self::prepare(
                     &plan,
@@ -677,6 +700,123 @@ where
             }
         })
     }
+    fn make_mass_child(&self, plan: &MassTaylorReductionPlan) -> Result<ChildWorkspace<T>, ReductionError> {
+        let mut child = match &self.shape {
+            Some(shape) => MassTaylorWorkspace::new_dual_with_master_policy(
+                plan, self.prototype.clone(), HyperDual::<u8>::new(shape.clone()), self.masters)?,
+            None => MassTaylorWorkspace::new_with_master_policy(
+                plan, self.prototype.clone(), self.masters)?,
+        };
+        child.set_accuracy_precision(self.accuracy_bits)?;
+        child.set_profiling(self.profiling);
+        Ok(ChildWorkspace::MassTaylor(Box::new(child)))
+    }
+    /// Evaluate only a freshly certified regular-primal low-point subgroup.
+    /// The packed G matrix, every ordered component and same-h request remain
+    /// untouched. The returned actual-route error owner is scattered together
+    /// with values; a missing error context cannot become successful zero.
+    fn reduce_checked_regular(
+        &mut self, input: &KinematicsBatch<T>, lanes: &[usize],
+        result: &mut BatchResult<T>, context: &mut QuadratureErrorContext<T>,
+    ) -> Result<(), ReductionError> {
+        if lanes.is_empty() { return Ok(()); }
+        if !self.plan.checked_supplied || self.plan.settings.propagators > 5 {
+            return Err(prep("regular checked subgroup is outside private low-point domain"));
+        }
+        let key=self.plan.settings.powers.clone();
+        if !self.children.contains_key(&key) {
+            // The own-N key cannot collide with an (N-1)-line DAG profile.
+            let prepared=(|| -> Result<ChildWorkspace<T>,ReductionError> {
+                let plan={
+                    let mut cache=self.plan.children.lock().map_err(|_|prep("checked regular plan cache poisoned"))?;
+                    if let Some(existing)=cache.get(&key) { match existing {
+                        ChildPlan::LowPoint(_) | ChildPlan::MassTaylor(_) => existing.clone(),
+                        ChildPlan::Affine(_)=>return Err(prep("checked regular cache domain differs")),
+                    }} else {
+                        let plan = if crate::mass_taylor::settings_supported(&self.plan.settings) {
+                            {
+                                // This subgroup's original user jets were proved regular
+                                // above. Auxiliary mass jets are added later, so their
+                                // complete p/G + rank proof must be repeated inside the
+                                // MassTaylor actor before its unit numerical execution.
+                                let mut unit_settings = self.plan.settings.clone();
+                                unit_settings.powers.fill(1);
+                                let unit = Arc::new(ReductionPlan::new(unit_settings)?);
+                                ChildPlan::MassTaylor(Box::new(
+                                    MassTaylorReductionPlan::with_shared_checked_regular_unit(
+                                        self.plan.settings.clone(), unit,
+                                        crate::MassTaylorBudget::default(),
+                                    )?,
+                                ))
+                            }
+                        } else { ChildPlan::LowPoint(ReductionPlan::new(self.plan.settings.clone())?) };
+                        cache.insert(key.clone(), plan.clone()); plan
+                    }
+                };
+                match plan {
+                    ChildPlan::MassTaylor(plan) => self.make_mass_child(&plan),
+                    ChildPlan::LowPoint(plan) => {
+                        let actual=plan.algorithm_used();let notes=plan.preparation_notes().to_vec();
+                        let mut child=workspace(&plan,&self.prototype,&self.shape,WorkspacePolicy::AFFINE_QUADRATURE_CHILD,self.masters)?;
+                        child.set_accuracy_precision(self.accuracy_bits)?;child.set_profiling(self.profiling);
+                        Ok(ChildWorkspace::LowPoint{workspace:Box::new(child),actual,notes})
+                    },
+                    ChildPlan::Affine(_) => Err(prep("checked regular cache domain differs")),
+                }
+            })();
+            match prepared { Ok(child)=>{self.children.insert(key.clone(),child);}, Err(error)=>{
+                for &lane in lanes { result.statuses[lane]=LaneStatus::MasterFailure(format!("checked regular low-point preparation failed: {error}")); }
+                return Ok(());
+            }}
+        }
+        let width=mul(self.plan.parameter_count(),self.components)?;
+        let mut packed=KinematicsBatch{rows:lanes.len(),components:self.components,values:Vec::with_capacity(mul(lanes.len(),width)?)};
+        for &lane in lanes { packed.values.extend_from_slice(&input.values[lane*width..(lane+1)*width]); }
+        self.stats.packed_child_rows=add(self.stats.packed_child_rows,lanes.len())?;
+        self.stats.child_batch_calls=add(self.stats.child_batch_calls,1)?;
+        let (evaluated,work,profile,diagnostics,actual,notes)=match self.children.get_mut(&key).expect("prepared regular checked child") {
+            ChildWorkspace::LowPoint{workspace,actual,notes}=>{
+                let value=workspace.reduce_batch_with_quadrature_context(&packed);
+                (value,workspace.last_execution(),workspace.last_profile(),workspace.last_diagnostics().to_vec(),Some(*actual),notes.clone())
+            },
+            ChildWorkspace::MassTaylor(workspace) => {
+                let value = workspace.reduce_batch_with_quadrature_context(&packed);
+                (value, workspace.execution_summary()?, workspace.last_profile(), workspace.last_diagnostics().to_vec(), None,
+                    workspace.preparation_notes().to_vec())
+            },
+            ChildWorkspace::Affine(_)=>return Err(prep("checked regular workspace domain differs")),
+        };
+        sum_work(&mut self.stats.child_execution,&work)?;if let Some(p)=profile {sum_profile(&mut self.profile,p);}
+        self.stats.child_methods.push(AffinePowerChildMethod{propagators:self.plan.settings.propagators,powers:key,requested:self.plan.settings.algorithm,actual,rows:lanes.len(),notes});
+        let returned=match evaluated { Ok(v)=>v,Err(error)=>{
+            for &lane in lanes { result.statuses[lane]=LaneStatus::MasterFailure(format!("checked regular low-point batch failed: {error}")); } return Ok(());
+        }};
+        validate_layout(returned.result(),&self.plan.basis,&self.metadata,self.components,lanes.len())?;
+        let output_width=mul(mul(self.plan.basis.len(),4)?,self.components)?;
+        for (row,&lane) in lanes.iter().enumerate() {
+            if let Some(notes)=diagnostics.get(row) {self.diagnostics[lane].extend_from_slice(notes);}
+            self.diagnostics[lane].push(format!("fresh full-Taylor supplied-G proof and regular primal coordinate chart; unchanged low-point request completed with actual scalar method {actual:?}; None denotes an explicitly reported composition"));
+            result.statuses[lane]=returned.result().statuses[row].clone();
+            let Ok(values)=returned.result().lane(row) else {continue;};
+            let errors=match returned.errors(row,self.prototype.get_precision(),self.accuracy_bits) {Ok(v)=>v,Err(error)=>{
+                result.statuses[lane]=LaneStatus::Unstable(format!("checked regular actual-route quadrature context unavailable: {error}"));continue;
+            }};
+            let origin=match returned.origin(row,self.prototype.get_precision(),self.accuracy_bits) {Ok(v)=>v,Err(error)=>{
+                result.statuses[lane]=LaneStatus::Unstable(format!("checked regular actual-route quadrature origin unavailable: {error}"));continue;
+            }};
+            result.values[lane*output_width..(lane+1)*output_width].clone_from_slice(values);
+            result.fallback_used[lane]=returned.result().fallback_used[row];result.analytic_used[lane]=returned.result().analytic_used[row];
+            result.inherit_primal_envelope(lane,returned.result(),row,PrimalEnvelopeRoute::CertifiedTensor);
+            if let Err(error)=result.validated_primal_envelope(lane,self.prototype.get_precision(),self.accuracy_bits) {
+                result.statuses[lane]=LaneStatus::Unstable(error);continue;
+            }
+            if let Err(error)=context.install_dense(result,lane,self.prototype.get_precision(),self.accuracy_bits,errors,origin) {
+                result.statuses[lane]=LaneStatus::Unstable(error);
+            }
+        }
+        Ok(())
+    }
+
     fn reduce_impl(
         &mut self,
         input: &KinematicsBatch<T>,
@@ -710,10 +850,19 @@ where
             ..Default::default()
         };
         let mut groups = BTreeMap::<ProfileKey, Vec<usize>>::new();
+        let mut regular=Vec::new();
         for (lane, selected) in selections.into_iter().enumerate() {
             match selected {
                 AffineDescentSelection::Chart { index, inactive } => {
                     groups.entry((index, inactive)).or_default().push(lane);
+                }
+                AffineDescentSelection::OffAffineFamily{component:0,..}
+                    if self.plan.checked_supplied && self.plan.settings.propagators <= 5 => {
+                    // The checked guard has already proved p/G compatibility.
+                    // For N5/r3 this is its single 4x4 coordinate minor with
+                    // nonzero primal. Higher-component-only rank changes never
+                    // select this branch.
+                    regular.push(lane);
                 }
                 AffineDescentSelection::InvalidInput(reason) => {
                     result.statuses[lane] = LaneStatus::InvalidInput(reason)
@@ -728,6 +877,7 @@ where
         if let Some(started) = started {
             self.profile.arguments += started.elapsed();
         }
+        self.reduce_checked_regular(input,&regular,&mut result,&mut context)?;
         for (key, lanes) in groups {
             if !self.profiles.contains_key(&key) {
                 match self.make_profile(&key) {
@@ -796,6 +946,10 @@ where
                     .children
                     .get_mut(&settings.powers)
                     .expect("prepared affine child");
+                let composition_notes = match &*child {
+                    ChildWorkspace::MassTaylor(workspace) => workspace.preparation_notes().to_vec(),
+                    _ => vec!["nested constant-one affine power descent; inspect nested lane diagnostics".into()],
+                };
                 let (evaluated, work, profile, notes, actual) = match child {
                     ChildWorkspace::LowPoint {
                         workspace,
@@ -811,6 +965,11 @@ where
                             workspace.last_diagnostics().to_vec(),
                             Some((*actual, notes.clone())),
                         )
+                    }
+                    ChildWorkspace::MassTaylor(workspace) => {
+                        let value = workspace.reduce_batch_with_quadrature_context(&packed_group.input);
+                        (value, workspace.execution_summary()?, workspace.last_profile(),
+                            workspace.last_diagnostics().to_vec(), None)
                     }
                     ChildWorkspace::Affine(workspace) => {
                         let value = workspace
@@ -832,7 +991,7 @@ where
                     sum_profile(&mut self.profile, profile);
                 }
                 self.stats.child_methods.push(AffinePowerChildMethod{propagators:settings.propagators,powers:settings.powers.clone(),requested:settings.algorithm,
-                    actual:actual.as_ref().map(|(a,_)|*a),rows:packed_group.input.rows,notes:actual.map_or_else(||vec!["nested constant-one affine power descent; inspect nested lane diagnostics".into()],|(_,n)|n)});
+                    actual:actual.as_ref().map(|(a,_)|*a),rows:packed_group.input.rows,notes:actual.map_or(composition_notes, |(_,n)|n)});
                 for (row, origin) in packed_group.origins.iter().enumerate() {
                     if let Some(notes) = notes.get(row) {
                         self.diagnostics[lanes[origin.parent_row]].extend(notes.iter().map(|n| {
@@ -1193,6 +1352,10 @@ fn add(a: usize, b: usize) -> Result<usize, ReductionError> {
     a.checked_add(b)
         .ok_or_else(|| invalid("affine counter overflow"))
 }
+fn checked_layout(n:usize)->Result<InputLayout,ReductionError> {
+    let shifts=mul(n,4)?;let gram=mul(n,add(n,1)?)?/2;let masses=add(shifts,gram)?;
+    Ok(InputLayout{shifts:0..shifts,scalar_products:Some(shifts..masses),masses:masses..add(masses,n)?,scale:add(masses,n)?})
+}
 fn parameters(n: usize) -> Result<usize, ReductionError> {
     mul(n, 5)?
         .checked_add(1)
@@ -1302,3 +1465,6 @@ mod tests;
 #[cfg(test)]
 #[path = "affine_power/numeric_probe.rs"]
 mod numeric_probe;
+
+#[cfg(test)]
+mod checked_tests;

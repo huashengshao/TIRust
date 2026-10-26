@@ -105,7 +105,13 @@ impl CertifiedScalarReductionPlan {
             cartesian_tensor: true, compatibilities: Arc::default() };
         // No chart is numerically accepted by construction. Other structural
         // charts share this immutable plan's once-only cache, as for scalars.
-        plan.chart([1, 2, 3, 4])?;
+        if crate::certified_tensor::packed_settings_supported(&plan.settings) {
+            plan.chart([1, 2, 3, 4])?;
+        } else {
+            // Validate the private checked-product composition without eagerly
+            // building the old, fully inlined high-point IBP tensor graph.
+            crate::AffinePowerReductionPlan::new_checked_supplied(plan.settings.clone())?;
+        }
         Ok(plan)
     }
 
@@ -213,29 +219,43 @@ pub struct CertificateExecutionStats {
 enum ChartWorkspace<T:NativeFloat> {
     Generic(Workspace<T>),
     Packed(crate::thin_n6::ThinSixWorkspace<T>),
+    AffinePower(Box<crate::AffinePowerWorkspace<T>>),
 }
 impl<T:NativeFloat> ChartWorkspace<T> where Complex<T>:EvaluationDomain {
     fn set_accuracy_precision(&mut self,bits:u32)->Result<(),ReductionError> {
-        match self {Self::Generic(workspace)=>workspace.set_accuracy_precision(bits),Self::Packed(workspace)=>workspace.set_accuracy_precision(bits)}
+        match self {Self::Generic(workspace)=>workspace.set_accuracy_precision(bits),Self::Packed(workspace)=>workspace.set_accuracy_precision(bits),Self::AffinePower(workspace)=>workspace.set_accuracy_precision(bits)}
     }
     fn set_profiling(&mut self,enabled:bool) {
-        match self {Self::Generic(workspace)=>workspace.set_profiling(enabled),Self::Packed(workspace)=>workspace.set_profiling(enabled)}
+        match self {Self::Generic(workspace)=>workspace.set_profiling(enabled),Self::Packed(workspace)=>workspace.set_profiling(enabled),Self::AffinePower(workspace)=>workspace.set_profiling(enabled)}
     }
     fn last_profile(&self)->Option<ExecutionProfile> {
-        match self {Self::Generic(workspace)=>workspace.last_profile(),Self::Packed(workspace)=>workspace.last_profile()}
+        match self {Self::Generic(workspace)=>workspace.last_profile(),Self::Packed(workspace)=>workspace.last_profile(),Self::AffinePower(workspace)=>workspace.last_profile()}
     }
     fn last_diagnostics(&self)->&[Vec<String>] {
-        match self {Self::Generic(workspace)=>workspace.last_diagnostics(),Self::Packed(workspace)=>workspace.last_diagnostics()}
+        match self {Self::Generic(workspace)=>workspace.last_diagnostics(),Self::Packed(workspace)=>workspace.last_diagnostics(),Self::AffinePower(workspace)=>workspace.last_diagnostics()}
     }
     fn reduce_batch(&mut self,input:&KinematicsBatch<T>)->Result<BatchResult<T>,ReductionError> {
-        match self {Self::Generic(workspace)=>workspace.reduce_batch(input),Self::Packed(workspace)=>workspace.reduce_batch(input)}
+        match self {Self::Generic(workspace)=>workspace.reduce_batch(input),Self::Packed(workspace)=>workspace.reduce_batch(input),Self::AffinePower(workspace)=>workspace.reduce_batch(input)}
     }
     fn packed_execution(&self)->Option<&crate::SixPointExecutionStats> {
-        match self {Self::Generic(_)=>None,Self::Packed(workspace)=>Some(workspace.last_execution())}
+        match self {Self::Generic(_)|Self::AffinePower(_)=>None,Self::Packed(workspace)=>Some(workspace.last_execution())}
+    }
+    fn affine_execution(&self) -> Option<&crate::AffinePowerExecutionStats> {
+        match self {
+            Self::AffinePower(workspace) => Some(workspace.last_execution()),
+            Self::Generic(_) | Self::Packed(_) => None,
+        }
     }
     fn execution(&self)->Result<ExecutionStats,ReductionError> {
         match self {
             Self::Generic(workspace)=>Ok(workspace.last_execution()),
+            Self::AffinePower(workspace) => {
+                let nested = workspace.last_execution();
+                let mut total = ExecutionStats { input_rows: nested.input_rows, ..Default::default() };
+                add_stats(&mut total, nested.child_execution)?;
+                add_stats(&mut total, nested.parent_execution)?;
+                Ok(total)
+            }
             Self::Packed(workspace)=>{
                 let nested=workspace.last_execution();
                 let mut total=ExecutionStats{input_rows:nested.parent_input_rows,..Default::default()};
@@ -259,6 +279,7 @@ pub struct CertifiedScalarWorkspace<T: NativeFloat + ExactInvariantScalar> {
     compatibility: Option<ExactZeroConstraintWorkspace>,
     charts: HashMap<[usize; 4], ChartWorkspace<T>>,
     packed_execution:Vec<crate::SixPointExecutionStats>,
+    affine_execution:Vec<crate::AffinePowerExecutionStats>,
     accuracy_bits: u32,
     profiling: bool,
     stats: ExecutionStats,
@@ -308,6 +329,7 @@ where
             shape,
             charts: HashMap::new(),
             packed_execution:Vec::new(),
+            affine_execution:Vec::new(),
             accuracy_bits,
             profiling: false,
             stats: ExecutionStats::default(),
@@ -394,6 +416,8 @@ where
     pub(crate) fn compatibility_execution(&self) -> CertificateExecutionStats { self.compatibility_stats }
     pub(crate) fn packed_execution(&self)->&[crate::SixPointExecutionStats] { &self.packed_execution }
 
+    pub(crate) fn affine_execution(&self) -> &[crate::AffinePowerExecutionStats] { &self.affine_execution }
+
     fn reduce_values(&mut self, rows: usize, components: usize, values: &[Complex<T>]) -> Result<BatchResult<T>, ReductionError> {
         let start = self.profiling.then(Instant::now);
         self.stats = ExecutionStats {
@@ -408,6 +432,7 @@ where
         self.profile = ExecutionProfile::default();
         self.diagnostics.clear();
         self.packed_execution.clear();
+        self.affine_execution.clear();
         if components != self.components {
             return Err(ReductionError::InvalidInput(
                 (if self.plan.cartesian_tensor { "tensor input Taylor layout does not match workspace" } else { "scalar input Taylor layout does not match workspace" }).into(),
@@ -570,7 +595,7 @@ where
                 packed.values[index * packed_width + padding..(index + 1) * packed_width]
                     .clone_from_slice(&values[lane * width..(lane + 1) * width]);
             }
-            if self.plan.cartesian_tensor {
+            if self.plan.cartesian_tensor && crate::certified_tensor::packed_settings_supported(self.plan.settings()) {
                 let chart = self.plan.chart(basis)?;
                 let selection = format!(
                     "checked Cartesian supplied-G chart {basis:?}: requested {:?}; actual {:?}",
@@ -586,8 +611,21 @@ where
             let reduced = workspace.reduce_batch(&packed);
             add_stats(&mut self.stats, workspace.execution()?)?;
             if let Some(nested)=workspace.packed_execution() {self.packed_execution.push(nested.clone());}
+            if let Some(nested) = workspace.affine_execution() {
+                self.affine_execution.push(nested.clone());
+                let notes: Vec<_> = nested.child_methods.iter().flat_map(|method| {
+                    std::iter::once(format!(
+                        "checked supplied-G affine child N{}, powers {:?}: requested {:?}; actual {:?}",
+                        method.propagators, method.powers, method.requested, method.actual,
+                    )).chain(method.notes.iter().cloned())
+                }).collect();
+                for &lane in &lanes { self.diagnostics[lane].extend(notes.iter().cloned()); }
+            }
             let reduced=reduced?;
-            if reduced.basis != result.basis || reduced.components != self.components {
+            if reduced.basis != result.basis || reduced.components != self.components
+                || reduced.metadata() != result.metadata() || reduced.rows() != lanes.len()
+                || reduced.values.len() != product(output_width, lanes.len())?
+                || reduced.fallback_used.len() != lanes.len() || reduced.analytic_used.len() != lanes.len() {
                 return Err(ReductionError::Evaluation("checked chart returned incompatible tensor layout".into()));
             }
             if let Some(profile) = workspace.last_profile() {
@@ -618,6 +656,21 @@ where
     }
 
     fn prepare_chart(&self, basis: [usize; 4]) -> Result<ChartWorkspace<T>, ReductionError> {
+        if self.plan.cartesian_tensor && !crate::certified_tensor::packed_settings_supported(self.plan.settings()) {
+            let plan = crate::AffinePowerReductionPlan::new_checked_supplied(self.plan.settings().clone())?;
+            let mut workspace = match &self.shape {
+                None => crate::AffinePowerWorkspace::new_with_master_policy(
+                    &plan, self.prototype.clone(), crate::MasterExecutionPolicy::Symbolica,
+                ),
+                Some(shape) => crate::AffinePowerWorkspace::new_dual_with_master_policy(
+                    &plan, self.prototype.clone(), HyperDual::<Complex<Rational>>::new(shape.clone()),
+                    crate::MasterExecutionPolicy::Symbolica,
+                ),
+            }?;
+            workspace.set_accuracy_precision(self.accuracy_bits)?;
+            workspace.set_profiling(self.profiling);
+            return Ok(ChartWorkspace::AffinePower(Box::new(workspace)));
+        }
         let plan = self.plan.chart(basis)?;
         if self.plan.cartesian_tensor && crate::certified_tensor::packed_settings_supported(self.plan.settings()) {
             let packed=crate::thin_n6::ThinSixReductionPlan::from_parent(plan.as_ref().clone())?;
@@ -915,4 +968,23 @@ mod tests {
             workspace.last_diagnostics()
         );
     }
+    #[test]
+    fn generalized_checked_tensor_constructor_does_not_inline_the_highpoint_graph() {
+        for algorithm in [Algorithm::Ibp, Algorithm::PassarinoVeltman, Algorithm::Hybrid] {
+            let mut settings = ReductionSettings::new(6, 6);
+            settings.algorithm = algorithm;
+            settings.invariants = InvariantInput::SuppliedScalarProducts;
+            settings.powers[0] = 2;
+            settings.dimension_shift = 1;
+            let plan = CertifiedScalarReductionPlan::new_tensor(settings.clone()).unwrap();
+            assert!(plan.charts.lock().unwrap().is_empty());
+            assert_eq!(plan.settings().algorithm, algorithm);
+            assert_eq!(plan.settings().powers, settings.powers);
+            assert_eq!(plan.settings().dimension_shift, 1);
+            assert_eq!(plan.settings().invariants, InvariantInput::SuppliedScalarProducts);
+            assert_eq!(plan.basis().len(), 210);
+            assert!(plan.cartesian_tensor);
+        }
+    }
+
 }

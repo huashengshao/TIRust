@@ -52,7 +52,7 @@ use crate::{
 };
 
 #[path = "execution/legacy_compatibility.rs"]
-mod legacy_compatibility;
+pub(crate) mod legacy_compatibility;
 use legacy_compatibility::{PreparedLegacyCompatibility, LegacyCompatibilityWorkspace};
 
 pub(crate) mod quadrature_context;

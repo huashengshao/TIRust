@@ -53,7 +53,7 @@ identities, positive powers, dimension shifts, selected Gram/Cayley charts and
 full-Taylor constraints still need validation. Publish implemented and tested
 point counts explicitly; do not turn the existing N≤6 evidence into an
 unqualified arbitrary-N claim. Reuse Symbolica/FeynKit facilities for generic
-propagator descent, including the zero-Gram triangle identity currently missing.
+propagator descent and the denominator identities needed at singular Gram matrices.
 The earlier instruction against higher-point work does not prohibit such a
 generic denominator stage needed for rank-six support. No new rank-seven
 qualification or performance optimization is required.

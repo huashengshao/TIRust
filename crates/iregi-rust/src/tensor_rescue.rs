@@ -75,8 +75,8 @@ where
     ) -> Result<Self, ReductionError> {
         let accuracy_bits = validate_rescue_settings(prototype.get_precision(), settings)?;
         if !specialized_rescue_eligible(plan.engine_kind())
-            && !crate::dispatch::affine_power_eligible(plan.settings()) {
-
+            && !crate::dispatch::affine_power_eligible(plan.settings())
+        {
             let generic = plan.generic_plan()?;
             let mut notes = vec![
                 "Facade precision rescue: existing generic engine; compiled default master policy retained.".into(),
@@ -136,9 +136,11 @@ where
         dual: D,
     ) -> Result<Self, ReductionError> {
         validate_rescue_settings(prototype.get_precision(), settings)?;
-        if crate::dispatch::affine_power_eligible(plan.settings()) {
+        if crate::dispatch::affine_power_eligible(plan.settings())
+            || plan.engine_kind() == TensorEngineKind::MassTaylor
+        {
             return Err(ReductionError::Unsupported(
-                "affine-power precision rescue with an explicit Dual layout requires qualified joint-context precision transport".into()));
+                "composite tensor precision rescue with an explicit Dual layout requires qualified joint-context precision transport".into()));
         }
         let generic = plan.generic_plan()?;
         let mut notes =
@@ -265,9 +267,14 @@ where
 }
 
 fn specialized_rescue_eligible(kind: TensorEngineKind) -> bool {
-    kind == TensorEngineKind::AffinePower || (matches!(
+    matches!(
         kind,
-        TensorEngineKind::SixPoint | TensorEngineKind::SixPointHybrid | TensorEngineKind::SevenPoint
+        TensorEngineKind::AffinePower | TensorEngineKind::MassTaylor
+    ) || (matches!(
+        kind,
+        TensorEngineKind::SixPoint
+            | TensorEngineKind::SixPointHybrid
+            | TensorEngineKind::SevenPoint
     ) && iregi_masters::default_master_backend() == MasterBackend::SymbolicaBatch)
 }
 
@@ -479,7 +486,9 @@ mod tests {
             .is_err()
         );
         assert!(!specialized_rescue_eligible(TensorEngineKind::Generic));
-        assert!(!specialized_rescue_eligible(TensorEngineKind::CertifiedTensor));
+        assert!(!specialized_rescue_eligible(
+            TensorEngineKind::CertifiedTensor
+        ));
         assert!(specialized_rescue_eligible(TensorEngineKind::AffinePower));
         for kind in [
             TensorEngineKind::SixPoint,

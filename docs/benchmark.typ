@@ -106,6 +106,7 @@
 #let low-N-generalized = data.rank6_low_N_generalized_current_manifest.snapshot
 #let checked-G-unit = data.rank6_checked_supplied_G_unit_manifest.snapshot
 #let current-physical = data.current_cli_physical_integration_qualification.snapshot
+#let current-wheel004 = data.python_current_facade_wheel004_replay.snapshot
 #let collier-cell(r) = table.cell(
   fill: if not r.correctness_passed or r.gate in ("inconclusive-noise", "inconclusive-short-block") {
     amber
@@ -216,21 +217,20 @@
   )
 ]
 = Current coverage
-#text(size: 9.5pt)[The latest standalone shared Python facade passes 64 installed API cases,
-seven marimo runtime cases and clean consumer typing. The earlier wheel004 gallery retains its separately
-executed qualification. Scoped derivative, dotted-reference, Hybrid/rescue,
-threshold, complex and collinear results appear below. Complete mathematical acceptance remains open. Low-rank
-COLLIER speed is not a completion gate under the latest user priority;
-all historical measurements below retain their original source snapshots.]
+#text(size: 9.5pt)[The latest standalone Python facade passes 65 installed API cases,
+seven marimo runtime cases and clean consumer typing. New complete public N6 mixed-Dual,
+finite-difference, N5 dotted and Legacy checks appear below with the current source/test checkpoint.
+Complete mathematical acceptance remains open. Performance optimization is deferred;
+all historical results and timings retain their original source snapshots.]
 #report-table(table(
   columns: (1.05fr, 3.6fr, 0.8fr), inset: (x: 6pt, y: 8pt), stroke: table-stroke,
   fill: (x, y) => if y == 0 { navy } else if y <= 3 { rgb("#d9f0d3") } else { amber },
   table.header([Interface / domain], [Executed scope or remaining gate], [Status]),
-  [Local PyO3 facade], [64 installed API cases: upstream numeric classes, existing interoperability/numerical checks, shared facade and specified N6/N7 frontends. Consumer typing has zero errors/warnings.], [Passed],
-  [Dotted propagators], [N1/N4 rank-six first-dot/triple Float128/256 arrays pass saved reference and mass-Taylor checks. N5 first-dot times out; N6 generalized closure remains open.], [Scoped],
-  [Example gallery], [Current wheel003: seven actual marimo runtime cases. Earlier wheel004 separately retains three HTML exports and six Chromium views; the current wheel does not rerun those browser checks.], [Passed],
-  [Tensor coverage], [Ordinary N6 rank-six arrays and lifecycle retain earlier qualification. Checked supplied-G explicit PV now passes all 840 slots at Float128/256; generalized and mixed Dual closure remains open.], [Scoped],
-  [Rank-six numeric], [N1–N5 fixed-family cohort: 21 complete captures, three preserved precision guards and 446,880 saved component comparisons. A newer collinear N3 core passes full arrays and a selected dilation Dual.], [Scoped],
+  [Local PyO3 facade], [65 installed API cases, seven marimo cases and clean typing. The fresh wheel captures 201 selected files and all 158 declared current core bodies; no full dependency closure is claimed.], [Passed],
+  [Dotted propagators], [N1/N4 first-dot/triple checks are retained. A later N5 rank-six first-dot Float128/256 pair passes 19740 saved gates; its earlier short timeouts remain failed.], [Scoped],
+  [Example gallery], [Seven runtime cases use the current installed facade. Earlier browser evidence retains three HTML exports and six Chromium views; no new browser-export qualification is added.], [Passed],
+  [Tensor / API coverage], [120 exact current core tests and the supplied-G/Legacy admission paths are source-bound. New array cohorts retain their own captured sources, conventions and numerical domains.], [Scoped],
+  [Public rank-six Dual], [Explicit PV and unchanged-default Hybrid each pass complete Float128/256 mixed arrays; typed DoubleFloat and independent mass finite differences pass. Typed f64 remains guarded.], [Scoped],
   [Performance], [Historical private selected TIRust/COLLIER: seven slower families and one short inconclusive family. The fresh scheduler cohort is ineligible because of host contention; no default adoption.], [Measured],
 ))
 #text(size: 8.5pt)[Evidence is local Linux/Python3.13 and source-specific.
@@ -238,7 +238,127 @@ Other platforms, separate Community-host loading and broader tensor numeric/exce
 domains remain unqualified. Earlier C0/D0 identities retain their wheel004 context.]
 
 #pagebreak()
-= Current standalone Python facade
+= Current feature boundary: source, dots and Legacy
+The current implementation checkpoint remains incomplete. Rank-six numerical
+coverage has advanced through named public derivative and positive-power
+paths; arbitrary point counts and the full generalized domain are not implied.
+No performance measurement is added, and every preceding raw result remains
+unchanged. Failed requests keep their original outcomes and source contexts.
+
+#report-table(table(
+  columns: (1.2fr, 3.5fr, 0.8fr), inset: (x: 7pt, y: 13pt), stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else if y == 6 { amber } else { rgb("#d9f0d3") },
+  table.header([Executed domain], [Evidence and precise boundary], [Outcome]),
+  [Current core], [158 canonical source bodies, nine additional versions and four compile contexts. All 120 distinct focused tests pass across a test-only bridge: 95 completed first, then the remaining 25. Six compiler errors and the stale Legacy engine-tag observer failure remain retained.], [Pass],
+  [Fresh Python facade], [65 installed API cases, seven marimo runtime cases and clean consumer typing. All 158 declared core bodies match the wheel input context within 201 selected files; 1575 portable saved checks pass.], [Pass],
+  [N5 first dot], [Rank-six Float128/256: 5040 original-quad, 5040 mass-Taylor, 2520 precision pairs and 7140 pole/duplicate/scale checks, totaling 19740. Maximum reference error ≈2.77 × 10⁻¹⁶, precision difference ≈3.55 × 10⁻²⁹.], [Scoped],
+  [LegacyNoOp N5], [PV/unit/h=0: 26 focused tests, 1680 complete quad slots and 840 strict 2⁻⁸⁰ pairs. Maximum reference error ≈1.09627 × 10⁻¹⁶; pair difference ≈2.65877 × 10⁻³². Legacy admits only a proved no-op snapping profile here.], [Scoped],
+  [Checked supplied G], [Current default-Hybrid N6 rank-six unit/first-dot, h=0: 3360 original-quad slots and 1680 strict 2⁻⁸⁰ pairs pass. Maximum errors ≈9.11420 × 10⁻¹⁶ and 6.86405 × 10⁻³⁰. Exported acceptance diagnostics remain distinct from source-only inner proof guarantees.], [Scoped],
+  [Remaining gates], [Cartesian generalized rank-six closure, D6/dimension shifts, broader positive powers, numerical Dual with imported quadrature budgets, accepted Legacy/rescue domains and remaining exceptional cases stay open.], [Open],
+))
+
+The N5 dotted pair uses the earlier memo CLI and its 119-source context.
+Its two short preparation timeouts and three older unrun cases remain in the
+archive. Passing first-dot arrays do not qualify N5 triple powers or later
+G/MassTaylor sources. The Legacy pair likewise has a separate 151-source
+context; its old memory abort, compile error and pre-launch refusal remain.
+Neither pair establishes achieved working-precision bits or performance.
+
+Mass differentiation is an explicit strategy with a nonzero differentiated-mass
+domain. Default Cartesian/formal-G reduction retains direct recurrence, so
+valid dimensionally regulated zero-mass dots are not silently removed from
+its domain. The private checked-G hook still lacks a same-domain zero-differentiated-mass
+fallback; the massive checks above do not close that gap. A current Cartesian
+N6 first-dot Float128 run passes all 840 reference slots, but Float256 fails
+its E6 convergence check at order128 and returns no parent array or precision
+pair. D6/unit Float128 returns an array but fails all 210 finite reference
+slots (maximum error ≈1.4213); its 420 IR and 126 lower-rank/84 rank-six UV
+controls pass. Float256 remains unrun after that required gate fails.
+The current guard on unsupported imported full-Dual quadrature remains active;
+the proposed extension is not included in this publication.
+
+#text(size: 8pt)[Sources: #raw("validation/checked-g-generalized-core-tests"),
+#raw("validation/python-interface/facade-wheel-004"),
+#raw("validation/low-n-generalized-rank6-memo-dot-pair"),
+#raw("validation/legacy-noop-rank6"),
+#raw("validation/checked-g-generalized-numeric"). Source binding is per cohort; no
+unexecuted equivalence to later edits is asserted.]
+
+#pagebreak()
+= Public six-point rank-six mixed Duals
+The public AffinePower facade now has complete fixed-family mixed-Dual results
+for explicit PV and the unchanged Hybrid default. Each parent contains all
+210 moments, four native Laurent slots and six ordered Taylor components for
+the first squared mass and a simultaneous dilation. Sample lanes are separate
+from Taylor components; every component is checked before contraction.
+
+#report-table(table(
+  columns: (1.2fr, 3.5fr, 0.8fr), inset: (x: 7pt, y: 14pt), stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else if y == 5 { amber } else { rgb("#d9f0d3") },
+  table.header([Public path], [Complete saved numerical checks], [Outcome]),
+  [Explicit PV], [Float128/256: 30240 original-quad parent comparisons and 75600 parent/child precision pairs, including 60480 child pairs. Maximum errors ≈3.07559 × 10⁻¹⁵ and 5.47562 × 10⁻³⁰.], [Pass],
+  [Default Hybrid], [The same full counts and numerical gates pass independently. Both captures explicitly record #raw("public_default") origin. Actual child methods, notes, batching and counters remain visible; requested Hybrid is not a pure-IBP claim.], [Pass],
+  [Coupled contexts], [Per precision and method: 15 complete parent/child contexts, 12 actual N5 child rows, repeated valid inputs around an invalid-mu lane, empty reset and singleton recovery. Every child explicitly reports KnownNoQuadrature with complete error arrays.], [Pass],
+  [Typed DoubleFloat], [106-bit metadata: 15120 quad, 15120 qualified Float128 controls and 5040 scale checks pass. Maximum normalized errors ≈3.07559 × 10⁻¹⁵, 1.96691 × 10⁻²⁵ and 8.03765 × 10⁻²⁶. Static/dynamic base outputs match exactly.], [Scoped],
+  [Typed f64], [Three valid rows hit the real #raw("pv_node_12"), Taylor-component-two cancellation guard and return null arrays. Saved metadata passes, with zero numerical comparisons. The initial input-size helper refusal remains a separate pre-reduction failure.], [Guarded],
+))
+
+All cases use real massive unit powers, h=0 and requested accuracy53. The
+reference/scale tolerance remains 10⁻¹⁰, precision/control pairs 2⁻⁸⁰.
+The six ordered components are (0,0), (1,0), (0,1), (2,0), (1,1), (0,2).
+Original unit/dot/triple arrays supply the mass/dilation responses; their
+finite coefficients retain their scoped empirical admission. Agreement
+between precision outputs is not a rigorous eighty-bit accuracy certificate.
+
+The typed example repacks existing Symbolica static/dynamic Dual values into
+the public component interface. It does not claim a new typed convenience
+constructor, and it exports no hidden sensitivity context. The frozen observer
+does export and validate full contexts. Zero quadrature arrays never establish
+an origin by themselves: unsupported propagated origins remain failed.
+Both earlier private ThinSix mixed128 allocation failures remain failed.
+
+#text(size: 8pt)[Sources: #raw("validation/public-n6-affine-mixed-dual"),
+#raw("validation/public-n6-hybrid-typed-dual"). No arbitrary-direction,
+all-kinematic, rigorous-error, full-feature or speed claim follows.]
+
+#pagebreak()
+= Independent first and second mass finite differences
+Five ordinary Float384 samples, requested accuracy160, provide an independent
+check of the specified squared-mass derivatives. They form two three-point
+central stencils sharing the center, at h=2⁻¹² and h=2⁻¹⁸. This is not a
+fourth-order five-point stencil. Existing Symbolica Matrix.solve produces the
+exact weights, including the second Taylor coefficient's factorial convention.
+
+#report-table(table(
+  columns: (1.2fr, 3.5fr, 0.8fr), inset: (x: 7pt, y: 15pt), stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else if y in (3, 5) { amber } else { rgb("#d9f0d3") },
+  table.header([Check], [Complete fixed-family evidence], [Outcome]),
+  [Fine-step accuracy], [6720 comparison records include coarse diagnostics; all 3360 fine-step target gates pass 10⁻¹⁰ against qualified Float256 AD and original-quad dot/triple anchors. Maximum original-reference errors: first ≈4.63100 × 10⁻¹², second ≈5.76765 × 10⁻¹².], [Pass],
+  [Resolved convergence], [420 transitions improve by at least factor16; the fixed nonpolynomial scalar finite first-mass witness resolves. Coarse errors reach roughly 2 × 10⁻⁸ and are not tested against the final fine-step accuracy threshold.], [Pass],
+  [Explicit floor cases], [1260 transitions remain floor/unresolved. The floor is max(32 × AD256/quad gap, 32 × AD128/256 gap, 2⁻⁸⁰). It classifies convergence and never relaxes the final 10⁻¹⁰ accuracy requirement.], [Retained],
+  [Actual ordinary data], [All 4200 parent complex slots, five parent rows, twenty N5 child rows and 25 full native contexts are observed. Input preservation, child origins, same-rank subsets and explicit KnownNoQuadrature status are checked.], [Pass],
+  [Preparation history], [The first Symbolica weight construction fails on a 0⁰ matrix input and produces no weights. The reviewed repair uses literal one for the constant row, with the same Matrix solver and exact residual checks. The original failure remains unchanged.], [Retained],
+))
+
+The stdlib replay reproduces the complete original comparison, observer and
+convergence report from immutable supplied bytes. It executes no solver,
+compiler, native module or integral. The PV parent supplies the already
+qualified AD/reference/source context; separate Hybrid and typed capsules are
+unchanged. Native identities and process cleanup are historical metadata.
+
+Finite differences and AD share integral software; the original IREGI anchors
+retain their separate independent admission. This real massive N6/rank-six,
+unit-power, h=0 PV family validates first/second derivatives in one mass
+direction. It does not certify arbitrary higher/mixed directions, branches,
+imported quadrature budgets or rigorous error bounds. No performance
+measurement or complete-goal claim is added.
+
+#text(size: 8pt)[Source: #raw("validation/public-n6-rank6-mass-fd").
+All following sections retain earlier source checkpoints and their original
+failures; later scoped successes above do not rewrite those outcomes.]
+
+#pagebreak()
+= Earlier standalone Python facade (wheel003)
 A newly built standalone wheel uses one native host for the shared Symbolica,
 Numerica, FeynKit and Spenso PyO3 classes. Its installed tests exercise the
 public shared tensor facade, ordered Dual layouts and the explicit checked

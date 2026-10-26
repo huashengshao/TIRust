@@ -22,7 +22,7 @@ mod thin_seven;
 pub(crate) use thin_seven::{ThinSevenChart, ThinSevenGeometry, ThinSixGeometry};
 
 mod affine_descent;
-pub(crate) use affine_descent::{AffineChartKey,AffineDescentBudget,AffineDescentChart,AffineDescentPolynomials,affine_descent_chart,affine_descent_polynomials};
+pub(crate) use affine_descent::{AffineChartKey,AffineDescentBudget,AffineDescentChart,AffineDescentPolynomials,affine_descent_chart,affine_descent_polynomials,affine_descent_chart_with_distances,affine_descent_polynomials_with_distances};
 
 use crate::ibp::{MasterLeaf, ScalarCompiler, ScalarRequest};
 
@@ -1271,7 +1271,7 @@ fn field() -> AtomField {
     }
 }
 
-fn dot(p: &[Atom; 4], q: &[Atom; 4]) -> Atom {
+pub(crate) fn dot(p: &[Atom; 4], q: &[Atom; 4]) -> Atom {
     &p[0] * &q[0] - &p[1] * &q[1] - &p[2] * &q[2] - &p[3] * &q[3]
 }
 

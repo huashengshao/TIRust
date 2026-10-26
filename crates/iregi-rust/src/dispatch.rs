@@ -20,17 +20,21 @@ use symbolica::{
 };
 
 use crate::{
-    AffinePowerExecutionStats, AffinePowerReductionPlan, AffinePowerWorkspace,
-    BatchResult, CertificateExecutionStats, CertifiedTensorReductionPlan, CertifiedTensorWorkspace,
+    AffinePowerExecutionStats, AffinePowerReductionPlan, AffinePowerWorkspace, BatchResult,
+    CertificateExecutionStats, CertifiedTensorReductionPlan, CertifiedTensorWorkspace,
     ContractionPlan, ExecutionProfile, ExecutionStats, InputLayout, KinematicsBatch,
-    ReductionError, ReductionPlan, ReductionSettings, RescueScalar, RescueSettings,
-    SevenPointExecutionStats, SevenPointReductionPlan, SevenPointWorkspace, SixPointExecutionStats,
-    SixPointReductionPlan, SixPointWorkspace, TensorCertificateExecutionStats,
-    TensorRescueWorkspace, Workspace, basis::Monomial,
+    MassTaylorExecutionStats, MassTaylorReductionPlan, MassTaylorWorkspace, ReductionError,
+    ReductionPlan, ReductionSettings, RescueScalar, RescueSettings, SevenPointExecutionStats,
+    SevenPointReductionPlan, SevenPointWorkspace, SixPointExecutionStats, SixPointReductionPlan,
+    SixPointWorkspace, TensorCertificateExecutionStats, TensorRescueWorkspace, Workspace,
+    basis::Monomial,
 };
 
 mod six_hybrid;
 use six_hybrid::{SixHybridPlan, SixHybridWorkspace};
+
+mod legacy_noop;
+use legacy_noop::{LegacyNoOpPlan, LegacyNoOpWorkspace, highpoint_legacy_domain};
 
 /// The actual reduction implementation, distinct from its requested algorithm.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,6 +45,8 @@ pub enum TensorEngineKind {
     CertifiedTensor,
     SevenPoint,
     AffinePower,
+    MassTaylor,
+    LegacyNoOp,
 }
 
 #[derive(Clone, Debug)]
@@ -51,6 +57,8 @@ enum OrdinaryPlan {
     CertifiedTensor(Arc<CertifiedTensorReductionPlan>),
     SevenPoint(Arc<SevenPointReductionPlan>),
     AffinePower(Arc<AffinePowerReductionPlan>),
+    MassTaylor(Arc<MassTaylorReductionPlan>),
+    LegacyNoOp(Arc<LegacyNoOpPlan>),
 }
 
 /// Immutable ordinary dispatch with a separately cached generic structural plan.
@@ -70,7 +78,10 @@ pub struct TensorReductionPlan {
 }
 
 fn ordinary_kind(settings: &ReductionSettings) -> TensorEngineKind {
-    if crate::six_point::validate_settings(settings).is_ok() {
+    // This proof-only front stage must precede generic recurrence preparation.
+    if highpoint_legacy_domain(settings) {
+        TensorEngineKind::LegacyNoOp
+    } else if crate::six_point::validate_settings(settings).is_ok() {
         TensorEngineKind::SixPoint
     } else if settings.algorithm == crate::Algorithm::Hybrid && {
         let mut primary = settings.clone();
@@ -90,8 +101,10 @@ fn ordinary_kind(settings: &ReductionSettings) -> TensorEngineKind {
 /// Facade selection domain; actual charts and resource bounds are checked by
 /// the affine plan/guard. There is no mathematical maximum point count here.
 pub(crate) fn affine_power_eligible(settings: &ReductionSettings) -> bool {
-    settings.propagators >= 6 && settings.rank <= 6
-        && settings.powers.len() == settings.propagators && !settings.powers.contains(&0)
+    settings.propagators >= 6
+        && settings.rank <= 6
+        && settings.powers.len() == settings.propagators
+        && !settings.powers.contains(&0)
         && settings.invariants == crate::InvariantInput::FromShifts
         && settings.input_policy == crate::InputPolicy::Preserve
 }
@@ -106,9 +119,28 @@ fn clone_error(error: &ReductionError) -> ReductionError {
 }
 
 impl TensorReductionPlan {
+    /// Explicit auxiliary mass-Taylor strategy for N5, h=0 positive powers.
+    ///
+    /// Differentiated squared masses must be nonzero on admitted lanes. This
+    /// analytic-domain restriction belongs to this explicit strategy; default
+    /// dispatch retains direct recurrences for dimensionally regulated dots.
+    pub fn new_mass_taylor(settings: ReductionSettings) -> Result<Self, ReductionError> {
+        let plan = Arc::new(MassTaylorReductionPlan::new(settings)?);
+        Ok(Self {
+            requested_settings: plan.settings().clone(),
+            notes: plan.preparation_notes().to_vec(),
+            ordinary: OrdinaryPlan::MassTaylor(plan),
+            generic: Arc::new(OnceLock::new()),
+            affine: Arc::new(OnceLock::new()),
+        })
+    }
+
     pub fn new(settings: ReductionSettings) -> Result<Self, ReductionError> {
         let requested_settings = settings.clone();
         let ordinary = match ordinary_kind(&settings) {
+            TensorEngineKind::MassTaylor => {
+                OrdinaryPlan::MassTaylor(Arc::new(MassTaylorReductionPlan::new(settings)?))
+            }
             TensorEngineKind::Generic => {
                 OrdinaryPlan::Generic(Arc::new(ReductionPlan::new(settings)?))
             }
@@ -127,6 +159,9 @@ impl TensorReductionPlan {
             TensorEngineKind::AffinePower => {
                 OrdinaryPlan::AffinePower(Arc::new(AffinePowerReductionPlan::new(settings)?))
             }
+            TensorEngineKind::LegacyNoOp => {
+                OrdinaryPlan::LegacyNoOp(Arc::new(LegacyNoOpPlan::new(settings)?))
+            }
         };
         let generic = match &ordinary {
             OrdinaryPlan::Generic(plan) => Arc::new(OnceLock::from(Ok(plan.clone()))),
@@ -137,7 +172,9 @@ impl TensorReductionPlan {
             _ => Arc::new(OnceLock::new()),
         };
         let notes = match &ordinary {
+            OrdinaryPlan::MassTaylor(plan) => plan.preparation_notes().to_vec(),
             OrdinaryPlan::Generic(plan) => plan.preparation_notes().to_vec(),
+            OrdinaryPlan::LegacyNoOp(plan) => plan.preparation_notes().to_vec(),
             OrdinaryPlan::SixPoint(_) => vec!["Facade ordinary selection: SixPointReductionPlan; specialized preparation logs are not exposed by that wrapper.".into()],
             OrdinaryPlan::SixPointHybrid(_) => vec!["Facade ordinary selection: specialized six-point PV primary with lazy genuine batched IBP fallback; requested Hybrid settings retained.".into()],
             OrdinaryPlan::CertifiedTensor(_) => unreachable!("ordinary constructor never selects checked input"),
@@ -184,11 +221,13 @@ impl TensorReductionPlan {
     pub fn engine_kind(&self) -> TensorEngineKind {
         match &self.ordinary {
             OrdinaryPlan::Generic(_) => TensorEngineKind::Generic,
+            OrdinaryPlan::MassTaylor(_) => TensorEngineKind::MassTaylor,
             OrdinaryPlan::SixPoint(_) => TensorEngineKind::SixPoint,
             OrdinaryPlan::SixPointHybrid(_) => TensorEngineKind::SixPointHybrid,
             OrdinaryPlan::CertifiedTensor(_) => TensorEngineKind::CertifiedTensor,
             OrdinaryPlan::SevenPoint(_) => TensorEngineKind::SevenPoint,
             OrdinaryPlan::AffinePower(_) => TensorEngineKind::AffinePower,
+            OrdinaryPlan::LegacyNoOp(_) => TensorEngineKind::LegacyNoOp,
         }
     }
 
@@ -200,6 +239,8 @@ impl TensorReductionPlan {
             OrdinaryPlan::CertifiedTensor(plan) => plan.basis(),
             OrdinaryPlan::SevenPoint(plan) => plan.basis(),
             OrdinaryPlan::AffinePower(plan) => plan.basis(),
+            OrdinaryPlan::MassTaylor(plan) => plan.basis(),
+            OrdinaryPlan::LegacyNoOp(plan) => plan.basis(),
         }
     }
 
@@ -211,6 +252,8 @@ impl TensorReductionPlan {
             OrdinaryPlan::CertifiedTensor(plan) => plan.input_layout(),
             OrdinaryPlan::SevenPoint(plan) => plan.input_layout(),
             OrdinaryPlan::AffinePower(plan) => plan.input_layout(),
+            OrdinaryPlan::MassTaylor(plan) => plan.input_layout(),
+            OrdinaryPlan::LegacyNoOp(plan) => plan.input_layout(),
         }
     }
 
@@ -222,6 +265,8 @@ impl TensorReductionPlan {
             OrdinaryPlan::CertifiedTensor(plan) => plan.parameter_count(),
             OrdinaryPlan::SevenPoint(plan) => plan.parameter_count(),
             OrdinaryPlan::AffinePower(plan) => plan.parameter_count(),
+            OrdinaryPlan::MassTaylor(plan) => plan.parameter_count(),
+            OrdinaryPlan::LegacyNoOp(plan) => plan.parameter_count(),
         }
     }
 
@@ -241,10 +286,14 @@ impl TensorReductionPlan {
             OrdinaryPlan::CertifiedTensor(plan) => plan.contraction_plan(monomials),
             OrdinaryPlan::SevenPoint(plan) => plan.contraction_plan(monomials),
             OrdinaryPlan::AffinePower(plan) => plan.contraction_plan(monomials),
+            OrdinaryPlan::MassTaylor(plan) => plan.contraction_plan(monomials),
+            OrdinaryPlan::LegacyNoOp(plan) => plan.contraction_plan(monomials),
         }
     }
 
     /// Reuse only immutable generic preparation, preserving error variants.
+    /// For LegacyNoOp this explicitly requests the original Legacy settings;
+    /// it never bypasses the no-op certificate by requesting a Preserve graph.
     pub fn generic_plan(&self) -> Result<Arc<ReductionPlan>, ReductionError> {
         if matches!(&self.ordinary, OrdinaryPlan::CertifiedTensor(_)) {
             return Err(ReductionError::Unsupported(
@@ -263,10 +312,16 @@ impl TensorReductionPlan {
     fn affine_plan(&self) -> Result<Arc<AffinePowerReductionPlan>, ReductionError> {
         if !affine_power_eligible(&self.requested_settings) {
             return Err(ReductionError::Unsupported(
-                "settings are outside the affine-power facade domain".into()));
+                "settings are outside the affine-power facade domain".into(),
+            ));
         }
-        self.affine.get_or_init(|| AffinePowerReductionPlan::new(self.requested_settings.clone()).map(Arc::new))
-            .as_ref().map(Arc::clone).map_err(clone_error)
+        self.affine
+            .get_or_init(|| {
+                AffinePowerReductionPlan::new(self.requested_settings.clone()).map(Arc::new)
+            })
+            .as_ref()
+            .map(Arc::clone)
+            .map_err(clone_error)
     }
 
     /// Precision rescue through the same selected ordinary engine. Specialized
@@ -349,6 +404,8 @@ enum WorkspaceEngine<T: NativeFloat> {
     },
     SevenPoint(SevenPointWorkspace<T>),
     AffinePower(AffinePowerWorkspace<T>),
+    MassTaylor(MassTaylorWorkspace<T>),
+    LegacyNoOp(Box<LegacyNoOpWorkspace<T>>),
 }
 
 /// Exact tagged execution detail, including actual nested certificate work.
@@ -376,6 +433,20 @@ pub enum TensorEngineExecution {
     SevenPoint(SevenPointExecutionStats),
     /// Composite counters retain actual child methods, powers and notes.
     AffinePower(AffinePowerExecutionStats),
+    /// Mass-Taylor extraction followed by a fresh dotted-dimension guard.
+    MassTaylor(MassTaylorExecutionStats),
+    /// Conservative no-op proof for requested Legacy snapping. Certificate
+    /// work is separate from the actual, lazily prepared Preserve child.
+    LegacyNoOp {
+        input_rows: usize,
+        accepted_rows: usize,
+        rejected_rows: usize,
+        query_count: usize,
+        certificate_execution: CertificateExecutionStats,
+        child: Option<Box<TensorEngineExecution>>,
+        child_preparation_attempts: usize,
+        child_preparation_error: Option<String>,
+    },
 }
 
 impl TensorEngineExecution {
@@ -423,8 +494,25 @@ impl TensorEngineExecution {
                 stats.parent_execution,
             ),
             Self::AffinePower(stats) => summarize(
-                stats.input_rows, stats.child_execution, stats.parent_execution,
+                stats.input_rows,
+                stats.child_execution,
+                stats.parent_execution,
             ),
+            Self::MassTaylor(stats) => summarize(
+                stats.input_rows,
+                stats.unit_execution,
+                stats.projection_execution,
+            ),
+            Self::LegacyNoOp {
+                input_rows, child, ..
+            } => {
+                let mut result = match child {
+                    Some(child) => child.summary()?,
+                    None => ExecutionStats::default(),
+                };
+                result.input_rows = *input_rows;
+                Ok(result)
+            }
         }
     }
 }
@@ -477,6 +565,14 @@ where
         prototype: T,
         options: TensorWorkspaceOptions,
     ) -> Result<Self, ReductionError> {
+        if let OrdinaryPlan::LegacyNoOp(legacy) = &plan.ordinary {
+            let workspace = LegacyNoOpWorkspace::new(legacy.clone(), prototype, options)?;
+            return Ok(Self {
+                engine: WorkspaceEngine::LegacyNoOp(Box::new(workspace)),
+                requested_master_policy: options.master_policy,
+                notes: plan.preparation_notes().to_vec(),
+            });
+        }
         if let OrdinaryPlan::CertifiedTensor(checked) = &plan.ordinary {
             options.validate_checked()?;
             let binary_precision = prototype.get_precision();
@@ -495,6 +591,19 @@ where
             .master_policy
             .validate_available()
             .map_err(|e| ReductionError::Preparation(e.to_string()))?;
+        if let OrdinaryPlan::MassTaylor(mass) = &plan.ordinary {
+            let mut workspace = MassTaylorWorkspace::new_with_master_policy(
+                mass,
+                prototype,
+                options.master_policy,
+            )?;
+            workspace.set_profiling(options.profiling);
+            return Ok(Self {
+                engine: WorkspaceEngine::MassTaylor(workspace),
+                requested_master_policy: options.master_policy,
+                notes: mass.preparation_notes().to_vec(),
+            });
+        }
         if matches!(&plan.ordinary, OrdinaryPlan::AffinePower(_)) {
             return Self::affine(plan, prototype, options);
         }
@@ -505,6 +614,9 @@ where
             return Self::generic(plan, prototype, options);
         }
         let engine = match &plan.ordinary {
+            OrdinaryPlan::MassTaylor(_) => {
+                unreachable!("mass-Taylor workspace returns before thin dispatch")
+            }
             OrdinaryPlan::Generic(generic) => WorkspaceEngine::Generic(
                 Workspace::new_with_master_policy(generic, prototype, options.master_policy)?,
             ),
@@ -519,6 +631,9 @@ where
             }
             OrdinaryPlan::AffinePower(_) => {
                 unreachable!("affine workspace returns before thin policy dispatch")
+            }
+            OrdinaryPlan::LegacyNoOp(_) => {
+                unreachable!("Legacy no-op workspace returns before generic policy dispatch")
             }
             OrdinaryPlan::SevenPoint(seven) => {
                 WorkspaceEngine::SevenPoint(SevenPointWorkspace::new(seven, prototype)?)
@@ -545,6 +660,15 @@ where
         dual: D,
         options: TensorWorkspaceOptions,
     ) -> Result<Self, ReductionError> {
+        if let OrdinaryPlan::LegacyNoOp(legacy) = &plan.ordinary {
+            let workspace =
+                LegacyNoOpWorkspace::new_dual(legacy.clone(), prototype, dual, options)?;
+            return Ok(Self {
+                engine: WorkspaceEngine::LegacyNoOp(Box::new(workspace)),
+                requested_master_policy: options.master_policy,
+                notes: plan.preparation_notes().to_vec(),
+            });
+        }
         if let OrdinaryPlan::CertifiedTensor(checked) = &plan.ordinary {
             options.validate_checked()?;
             let binary_precision = prototype.get_precision();
@@ -565,10 +689,28 @@ where
             .master_policy
             .validate_available()
             .map_err(|e| ReductionError::Preparation(e.to_string()))?;
+        if let OrdinaryPlan::MassTaylor(mass) = &plan.ordinary {
+            let mut workspace = MassTaylorWorkspace::new_dual_with_master_policy(
+                mass,
+                prototype,
+                dual,
+                options.master_policy,
+            )?;
+            workspace.set_profiling(options.profiling);
+            return Ok(Self {
+                engine: WorkspaceEngine::MassTaylor(workspace),
+                requested_master_policy: options.master_policy,
+                notes: mass.preparation_notes().to_vec(),
+            });
+        }
         if affine_power_eligible(plan.settings()) {
             let affine = plan.affine_plan()?;
             let mut workspace = AffinePowerWorkspace::new_dual_with_master_policy(
-                &affine, prototype, dual, options.master_policy)?;
+                &affine,
+                prototype,
+                dual,
+                options.master_policy,
+            )?;
             workspace.set_profiling(options.profiling);
             let mut notes = vec!["Facade actual workspace: AffinePower; supplied ordered Dual layout and selected master policy retained; propagated-quadrature joint-Dual acceptance remains explicitly guarded.".into()];
             notes.extend_from_slice(plan.preparation_notes());
@@ -602,7 +744,10 @@ where
     ) -> Result<Self, ReductionError> {
         let affine = plan.affine_plan()?;
         let mut workspace = AffinePowerWorkspace::new_with_master_policy(
-            &affine, prototype, options.master_policy)?;
+            &affine,
+            prototype,
+            options.master_policy,
+        )?;
         workspace.set_profiling(options.profiling);
         let mut notes = vec![format!(
             "Facade actual workspace: AffinePower; profiling={}, requested master policy={:?}.",
@@ -640,11 +785,13 @@ where
     pub fn engine_kind(&self) -> TensorEngineKind {
         match &self.engine {
             WorkspaceEngine::Generic(_) => TensorEngineKind::Generic,
+            WorkspaceEngine::MassTaylor(_) => TensorEngineKind::MassTaylor,
             WorkspaceEngine::SixPoint(_) => TensorEngineKind::SixPoint,
             WorkspaceEngine::SixPointHybrid(_) => TensorEngineKind::SixPointHybrid,
             WorkspaceEngine::CertifiedTensor { .. } => TensorEngineKind::CertifiedTensor,
             WorkspaceEngine::SevenPoint(_) => TensorEngineKind::SevenPoint,
             WorkspaceEngine::AffinePower(_) => TensorEngineKind::AffinePower,
+            WorkspaceEngine::LegacyNoOp(_) => TensorEngineKind::LegacyNoOp,
         }
     }
 
@@ -668,6 +815,8 @@ where
             }
             WorkspaceEngine::SevenPoint(workspace) => workspace.set_accuracy_precision(bits),
             WorkspaceEngine::AffinePower(workspace) => workspace.set_accuracy_precision(bits),
+            WorkspaceEngine::MassTaylor(workspace) => workspace.set_accuracy_precision(bits),
+            WorkspaceEngine::LegacyNoOp(workspace) => workspace.set_accuracy_precision(bits),
         }
     }
 
@@ -702,10 +851,15 @@ where
                 workspace.set_profiling(enabled);
                 Ok(())
             }
+            WorkspaceEngine::MassTaylor(workspace) => {
+                workspace.set_profiling(enabled);
+                Ok(())
+            }
             WorkspaceEngine::AffinePower(workspace) => {
                 workspace.set_profiling(enabled);
                 Ok(())
             }
+            WorkspaceEngine::LegacyNoOp(workspace) => workspace.set_profiling(enabled),
             _ if !enabled => Ok(()),
             _ => Err(ReductionError::Unsupported(
                 "construct TensorWorkspace with profiling enabled to use the generic profiler"
@@ -722,6 +876,8 @@ where
             WorkspaceEngine::CertifiedTensor { workspace, .. } => workspace.component_count(),
             WorkspaceEngine::SevenPoint(workspace) => workspace.component_count(),
             WorkspaceEngine::AffinePower(workspace) => workspace.component_count(),
+            WorkspaceEngine::MassTaylor(workspace) => workspace.component_count(),
+            WorkspaceEngine::LegacyNoOp(workspace) => workspace.component_count(),
         }
     }
 
@@ -732,8 +888,11 @@ where
             WorkspaceEngine::Generic(workspace) => workspace.dual_shape(),
             WorkspaceEngine::CertifiedTensor { workspace, .. } => workspace.dual_shape(),
             WorkspaceEngine::AffinePower(workspace) => workspace.dual_shape(),
-            WorkspaceEngine::SixPoint(_) | WorkspaceEngine::SixPointHybrid(_)
-                | WorkspaceEngine::SevenPoint(_) => None,
+            WorkspaceEngine::MassTaylor(workspace) => workspace.dual_shape(),
+            WorkspaceEngine::LegacyNoOp(workspace) => workspace.dual_shape(),
+            WorkspaceEngine::SixPoint(_)
+            | WorkspaceEngine::SixPointHybrid(_)
+            | WorkspaceEngine::SevenPoint(_) => None,
         }
     }
 
@@ -747,6 +906,8 @@ where
             } => *binary_precision,
             WorkspaceEngine::SevenPoint(workspace) => workspace.binary_precision(),
             WorkspaceEngine::AffinePower(workspace) => workspace.binary_precision(),
+            WorkspaceEngine::MassTaylor(workspace) => workspace.binary_precision(),
+            WorkspaceEngine::LegacyNoOp(workspace) => workspace.binary_precision(),
         }
     }
 
@@ -758,6 +919,8 @@ where
             WorkspaceEngine::CertifiedTensor { workspace, .. } => workspace.last_diagnostics(),
             WorkspaceEngine::SevenPoint(workspace) => workspace.last_diagnostics(),
             WorkspaceEngine::AffinePower(workspace) => workspace.last_diagnostics(),
+            WorkspaceEngine::MassTaylor(workspace) => workspace.last_diagnostics(),
+            WorkspaceEngine::LegacyNoOp(workspace) => workspace.last_diagnostics(),
         }
     }
 
@@ -783,6 +946,10 @@ where
             WorkspaceEngine::AffinePower(workspace) => {
                 TensorEngineExecution::AffinePower(workspace.last_execution().clone())
             }
+            WorkspaceEngine::MassTaylor(workspace) => {
+                TensorEngineExecution::MassTaylor(workspace.last_execution().clone())
+            }
+            WorkspaceEngine::LegacyNoOp(workspace) => workspace.engine_execution(),
         }
     }
 
@@ -790,7 +957,8 @@ where
     /// by default. It retains complete real child inputs/results when enabled.
     #[cfg(test)]
     pub(crate) fn enable_affine_power_child_observer(
-        &mut self, enabled: bool,
+        &mut self,
+        enabled: bool,
     ) -> Result<(), ReductionError> {
         match &mut self.engine {
             WorkspaceEngine::AffinePower(workspace) => {
@@ -798,7 +966,8 @@ where
                 Ok(())
             }
             _ => Err(ReductionError::Unsupported(
-                "child observations require an actual affine-power workspace".into())),
+                "child observations require an actual affine-power workspace".into(),
+            )),
         }
     }
 
@@ -821,6 +990,8 @@ where
             WorkspaceEngine::Generic(workspace) => workspace.last_profile(),
             WorkspaceEngine::CertifiedTensor { workspace, .. } => workspace.last_profile(),
             WorkspaceEngine::AffinePower(workspace) => workspace.last_profile(),
+            WorkspaceEngine::MassTaylor(workspace) => workspace.last_profile(),
+            WorkspaceEngine::LegacyNoOp(workspace) => workspace.last_profile(),
             _ => None,
         }
     }
@@ -836,6 +1007,8 @@ where
             WorkspaceEngine::CertifiedTensor { workspace, .. } => workspace.reduce_batch(batch),
             WorkspaceEngine::SevenPoint(workspace) => workspace.reduce_batch(batch),
             WorkspaceEngine::AffinePower(workspace) => workspace.reduce_batch(batch),
+            WorkspaceEngine::MassTaylor(workspace) => workspace.reduce_batch(batch),
+            WorkspaceEngine::LegacyNoOp(workspace) => workspace.reduce_batch(batch),
         }
     }
 }
@@ -885,7 +1058,14 @@ mod tests {
             variants.push((s, TensorEngineKind::Generic));
             let mut s = settings.clone();
             s.input_policy = InputPolicy::legacy_onshell();
-            variants.push((s, TensorEngineKind::Generic));
+            variants.push((
+                s,
+                if n == 6 {
+                    TensorEngineKind::LegacyNoOp
+                } else {
+                    TensorEngineKind::Generic
+                },
+            ));
             let mut s = settings.clone();
             s.powers[0] = 2;
             variants.push((s, TensorEngineKind::AffinePower));
@@ -900,7 +1080,14 @@ mod tests {
             variants.push((s, TensorEngineKind::AffinePower));
             let mut s = settings.clone();
             s.rank = if n == 6 { 8 } else { 1 };
-            variants.push((s, if n == 6 { TensorEngineKind::Generic } else { TensorEngineKind::AffinePower }));
+            variants.push((
+                s,
+                if n == 6 {
+                    TensorEngineKind::Generic
+                } else {
+                    TensorEngineKind::AffinePower
+                },
+            ));
             for (variant, expected) in variants {
                 let before = serde_json::to_value(&variant).unwrap();
                 assert_eq!(ordinary_kind(&variant), expected);
@@ -923,6 +1110,58 @@ mod tests {
         let before = serde_json::to_value(&requested).unwrap();
         assert_eq!(ordinary_kind(&requested), TensorEngineKind::SixPointHybrid);
         assert_eq!(serde_json::to_value(&requested).unwrap(), before);
+    }
+
+    #[test]
+    fn legacy_noop_selection_precedes_highpoint_generic_preparation() {
+        for n in [5, 6] {
+            for algorithm in [
+                Algorithm::Ibp,
+                Algorithm::PassarinoVeltman,
+                Algorithm::Hybrid,
+            ] {
+                for rank in [0, 6] {
+                    let mut requested = ReductionSettings::new(n, rank);
+                    requested.input_policy = InputPolicy::legacy_onshell();
+                    requested.algorithm = algorithm;
+                    requested.powers[0] = 2;
+                    let before = serde_json::to_value(&requested).unwrap();
+                    assert_eq!(ordinary_kind(&requested), TensorEngineKind::LegacyNoOp);
+                    assert_eq!(serde_json::to_value(&requested).unwrap(), before);
+                }
+            }
+        }
+        let mut seven = ReductionSettings::new(7, 6);
+        seven.input_policy = InputPolicy::legacy_onshell();
+        assert_eq!(ordinary_kind(&seven), TensorEngineKind::Generic);
+        let mut supplied = ReductionSettings::new(6, 6);
+        supplied.input_policy = InputPolicy::legacy_onshell();
+        supplied.invariants = InvariantInput::SuppliedScalarProducts;
+        assert_eq!(ordinary_kind(&supplied), TensorEngineKind::Generic);
+        let mut zero_power = ReductionSettings::new(5, 0);
+        zero_power.input_policy = InputPolicy::legacy_onshell();
+        zero_power.powers[0] = 0;
+        assert_eq!(ordinary_kind(&zero_power), TensorEngineKind::Generic);
+    }
+
+    #[test]
+    fn legacy_noop_constructor_retains_requested_settings_without_generic_graph() {
+        for n in [5, 6] {
+            let mut settings = ReductionSettings::new(n, 6);
+            settings.input_policy = InputPolicy::legacy_onshell();
+            settings.powers[0] = 2;
+            settings.algorithm = Algorithm::Ibp;
+            let before = serde_json::to_value(&settings).unwrap();
+            let plan = TensorReductionPlan::new(settings).unwrap();
+            assert_eq!(plan.engine_kind(), TensorEngineKind::LegacyNoOp);
+            assert_eq!(serde_json::to_value(plan.settings()).unwrap(), before);
+            assert!(plan.generic.get().is_none());
+            assert!(plan.affine.get().is_none());
+            assert_eq!(plan.parameter_count(), 5 * n + 1);
+            assert_eq!(plan.basis().len(), 210);
+            assert!(plan.contraction_plan(&[Monomial([0, 0, 0, 0])]).is_ok());
+            assert!(plan.generic.get().is_none());
+        }
     }
 
     #[test]
@@ -1006,8 +1245,12 @@ mod tests {
         assert_eq!(six.summary().unwrap(), expected);
         assert_eq!(seven.summary().unwrap(), expected);
         let affine = TensorEngineExecution::AffinePower(AffinePowerExecutionStats {
-            input_rows: 3, packed_child_rows: 3000, quadrature_work_rows: 840,
-            child_execution: child, parent_execution: parent, ..Default::default()
+            input_rows: 3,
+            packed_child_rows: 3000,
+            quadrature_work_rows: 840,
+            child_execution: child,
+            parent_execution: parent,
+            ..Default::default()
         });
         assert_eq!(affine.summary().unwrap(), expected);
         let mut enormous = child;
@@ -1016,10 +1259,68 @@ mod tests {
             summarize(3, enormous, parent),
             Err(ReductionError::Evaluation(_))
         ));
-        assert!(TensorEngineExecution::AffinePower(AffinePowerExecutionStats {
-            input_rows: 3, child_execution: enormous, parent_execution: parent,
-            ..Default::default()
-        }).summary().is_err());
+        assert!(
+            TensorEngineExecution::AffinePower(AffinePowerExecutionStats {
+                input_rows: 3,
+                child_execution: enormous,
+                parent_execution: parent,
+                ..Default::default()
+            })
+            .summary()
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn legacy_noop_summary_retains_outer_rows_and_counts_child_once() {
+        let child_execution = ExecutionStats {
+            input_rows: 2,
+            argument_rows: 17,
+            master_family_batches: 3,
+            master_rows: 11,
+            pentagon_box_rows: 5,
+            reduction_rows: 23,
+            fallback_rows: 7,
+            fallback_successes: 6,
+            analytic_rows: 29,
+        };
+        let execution = TensorEngineExecution::LegacyNoOp {
+            input_rows: 5,
+            accepted_rows: 2,
+            rejected_rows: 3,
+            query_count: 101,
+            certificate_execution: CertificateExecutionStats::default(),
+            child: Some(Box::new(TensorEngineExecution::Generic {
+                execution: child_execution,
+                certificate_execution: CertificateExecutionStats::default(),
+            })),
+            child_preparation_attempts: 1,
+            child_preparation_error: None,
+        };
+        assert_eq!(
+            execution.summary().unwrap(),
+            ExecutionStats {
+                input_rows: 5,
+                ..child_execution
+            }
+        );
+        let rejected = TensorEngineExecution::LegacyNoOp {
+            input_rows: 5,
+            accepted_rows: 0,
+            rejected_rows: 5,
+            query_count: 101,
+            certificate_execution: CertificateExecutionStats::default(),
+            child: None,
+            child_preparation_attempts: 0,
+            child_preparation_error: None,
+        };
+        assert_eq!(
+            rejected.summary().unwrap(),
+            ExecutionStats {
+                input_rows: 5,
+                ..Default::default()
+            }
+        );
     }
 
     fn tadpole_batch() -> KinematicsBatch<f64> {
@@ -1291,6 +1592,9 @@ mod tests {
 #[cfg(test)]
 mod checked_tests;
 
-
 #[cfg(test)]
 mod affine_power_tests;
+
+#[cfg(test)]
+#[path = "dispatch/mass_taylor_tests.rs"]
+mod mass_taylor_tests;

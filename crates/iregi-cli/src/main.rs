@@ -329,6 +329,18 @@ fn engine_execution_json(detail: TensorEngineExecution) -> Value {
             "engine":"Generic","execution":execution_json(execution),
             "certificate_execution":certificate_execution_json(certificate_execution)
         }),
+        TensorEngineExecution::LegacyNoOp {
+            input_rows, accepted_rows, rejected_rows, query_count,
+            certificate_execution, child, child_preparation_attempts, child_preparation_error,
+        } => json!({
+            "engine":"LegacyNoOp", "input_rows":input_rows,
+            "accepted_rows":accepted_rows,"rejected_rows":rejected_rows,
+            "query_count":query_count,
+            "certificate_execution":certificate_execution_json(certificate_execution),
+            "child":child.map(|value|engine_execution_json(*value)),
+            "child_preparation_attempts":child_preparation_attempts,
+            "child_preparation_error":child_preparation_error
+        }),
         TensorEngineExecution::SixPoint(stats) => json!({
             "engine":"SixPoint","parent_input_rows":stats.parent_input_rows,
             "child_batch_calls":stats.child_batch_calls,"packed_child_rows":stats.packed_child_rows,
@@ -337,6 +349,16 @@ fn engine_execution_json(detail: TensorEngineExecution) -> Value {
             "parent_execution":execution_json(stats.parent_execution),
             "child_certificate_execution":certificate_execution_json(stats.child_certificate_execution),
             "parent_certificate_execution":certificate_execution_json(stats.parent_certificate_execution)
+        }),
+        TensorEngineExecution::MassTaylor(stats) => json!({
+            "engine":"MassTaylor", "input_rows":stats.input_rows,
+            "certificate_execution":certificate_execution_json(stats.certificate_execution),
+            "user_components":stats.user_components,
+            "internal_components":stats.internal_components,
+            "unit_execution":execution_json(stats.unit_execution),
+            "projection_execution":execution_json(stats.projection_execution),
+            "unit_algorithm_used":format!("{:?}",stats.unit_algorithm_used),
+            "requested_algorithm":format!("{:?}",stats.requested_algorithm)
         }),
         TensorEngineExecution::AffinePower(stats) => json!({
             "engine":"AffinePower", "input_rows":stats.input_rows,

@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use iregi_masters::NativeFloat;
 
 use super::dag::Terminal;
-use crate::{InputPolicy, InvariantInput, KinematicsBatch, ReductionError, ReductionSettings};
+use crate::{InputLayout, InputPolicy, InvariantInput, KinematicsBatch, ReductionError, ReductionSettings};
 
 fn invalid(message: &str) -> ReductionError {
     ReductionError::InvalidInput(message.into())
@@ -28,6 +28,63 @@ fn parameters(n: usize) -> Result<usize, ReductionError> {
         .ok_or_else(|| invalid("affine-power parameter count overflows"))
 }
 
+fn input_layout(n: usize, invariants: InvariantInput) -> Result<InputLayout, ReductionError> {
+    let shifts = 0..product(n, 4)?;
+    let products = if invariants == InvariantInput::SuppliedScalarProducts {
+        let next = n.checked_add(1)
+            .ok_or_else(|| invalid("affine-power triangular parameter count overflows"))?;
+        let count = product(n, next)? / 2;
+        let end = shifts.end.checked_add(count)
+            .ok_or_else(|| invalid("affine-power scalar-product layout overflows"))?;
+        Some(shifts.end..end)
+    } else { None };
+    let mass_start = products.as_ref().map_or(shifts.end, |range| range.end);
+    let scale = mass_start.checked_add(n)
+        .ok_or_else(|| invalid("affine-power mass layout overflows"))?;
+    // Retain the original Cartesian parameter-count overflow check.
+    if products.is_none() { parameters(n)?; }
+    Ok(InputLayout { shifts, scalar_products: products, masses: mass_start..scale, scale })
+}
+
+/// Argument positions only. The canonical child upper triangle can reverse
+/// original line order, so deletion alone is not a valid G gathering map.
+fn product_arguments(
+    layout: &InputLayout,
+    n: usize,
+    original_lines: &[usize],
+) -> Result<Vec<usize>, ReductionError> {
+    let Some(products) = &layout.scalar_products else { return Ok(Vec::new()); };
+    let mut row_starts = Vec::new();
+    reserve(&mut row_starts, n)?;
+    let mut argument = products.start;
+    for row in 0..n {
+        row_starts.push(argument);
+        argument = argument.checked_add(n - row)
+            .ok_or_else(|| invalid("affine-power scalar-product row offset overflows"))?;
+    }
+    if argument != products.end {
+        return Err(invalid("affine-power scalar-product triangle differs from layout"));
+    }
+    let mut arguments = Vec::new();
+    let next = original_lines.len().checked_add(1)
+        .ok_or_else(|| invalid("affine-power canonical product count overflows"))?;
+    reserve(&mut arguments, product(original_lines.len(), next)? / 2)?;
+    for (position, &left) in original_lines.iter().enumerate() {
+        for &right in &original_lines[position..] {
+            let first = left.min(right);
+            let second = left.max(right);
+            let start = *row_starts.get(first)
+                .ok_or_else(|| invalid("affine-power canonical product line is out of range"))?;
+            if second >= n {
+                return Err(invalid("affine-power canonical product line is out of range"));
+            }
+            arguments.push(start.checked_add(second - first)
+                .ok_or_else(|| invalid("affine-power canonical product argument overflows"))?);
+        }
+    }
+    Ok(arguments)
+}
+
 fn reserve<T>(values: &mut Vec<T>, additional: usize) -> Result<(), ReductionError> {
     values
         .try_reserve_exact(additional)
@@ -39,14 +96,17 @@ struct TerminalLayout {
     group: usize,
     /// Original parent denominator indices in canonical child order.
     original_lines: Vec<usize>,
+    /// Original parent G arguments in the canonical child's upper-triangle order.
+    product_arguments: Vec<usize>,
 }
 
 /// Structural child groups. No point-count, rank or h restriction is imposed
-/// by this transport helper. The initial interface requires Preserve and
-/// FromShifts so a denominator permutation never changes an input policy.
+/// by this transport helper. Ordinary construction requires Preserve and
+/// FromShifts. The separately named private supplied-G transport is usable only
+/// behind a fresh runtime certificate; structural construction is not a proof.
 #[derive(Clone, Debug)]
 pub(super) struct PowerBatchLayout {
-    propagators: usize,
+    parent_layout: InputLayout,
     parent_parameters: usize,
     child_parameters: usize,
     child_settings: Vec<ReductionSettings>,
@@ -58,19 +118,43 @@ impl PowerBatchLayout {
         settings: &ReductionSettings,
         terminals: &[Terminal],
     ) -> Result<Self, ReductionError> {
+        Self::prepare(settings, terminals, InvariantInput::FromShifts)
+    }
+
+    /// Private gathering policy for the checked supplied-G runtime. This only
+    /// validates transport metadata: it neither certifies G/p compatibility nor
+    /// admits an unchecked public reduction domain. The caller must establish
+    /// every required full-jet identity before any gathered row is evaluated.
+    pub(super) fn new_checked_supplied(
+        settings: &ReductionSettings,
+        terminals: &[Terminal],
+    ) -> Result<Self, ReductionError> {
+        Self::prepare(settings, terminals, InvariantInput::SuppliedScalarProducts)
+    }
+
+    fn prepare(
+        settings: &ReductionSettings,
+        terminals: &[Terminal],
+        invariants: InvariantInput,
+    ) -> Result<Self, ReductionError> {
         let n = settings.propagators;
         if n < 2
             || settings.powers.len() != n
             || settings.powers.contains(&0)
-            || settings.invariants != InvariantInput::FromShifts
+            || settings.invariants != invariants
             || settings.input_policy != InputPolicy::Preserve
         {
-            return Err(invalid(
-                "affine-power child packing requires N>=2, N positive powers, FromShifts and Preserve",
-            ));
+            return Err(invalid(if invariants == InvariantInput::FromShifts {
+                "affine-power child packing requires N>=2, N positive powers, FromShifts and Preserve"
+            } else {
+                "checked affine-power supplied-G packing requires N>=2, N positive powers, SuppliedScalarProducts and Preserve; construction provides no compatibility proof"
+            }));
         }
-        let parent_parameters = parameters(n)?;
-        let child_parameters = parameters(n - 1)?;
+        let parent_layout = input_layout(n, invariants)?;
+        let parent_parameters = parent_layout.scale.checked_add(1)
+            .ok_or_else(|| invalid("affine-power parent parameter count overflows"))?;
+        let child_parameters = input_layout(n - 1, invariants)?.scale.checked_add(1)
+            .ok_or_else(|| invalid("affine-power child parameter count overflows"))?;
         let mut groups = BTreeMap::<Vec<u16>, usize>::new();
         let mut child_settings = Vec::new();
         let mut layouts = Vec::new();
@@ -104,6 +188,7 @@ impl PowerBatchLayout {
             }
             let powers = terminal.canonical_powers();
             let original_lines = terminal.canonical_original_lines();
+            let product_arguments = product_arguments(&parent_layout, n, &original_lines)?;
             let group = if let Some(&group) = groups.get(&powers) {
                 group
             } else {
@@ -120,10 +205,11 @@ impl PowerBatchLayout {
             layouts.push(TerminalLayout {
                 group,
                 original_lines,
+                product_arguments,
             });
         }
         Ok(Self {
-            propagators: n,
+            parent_layout,
             parent_parameters,
             child_parameters,
             child_settings,
@@ -246,10 +332,13 @@ impl PowerBatchLayout {
                         copy(4 * line + coordinate);
                     }
                 }
-                for &line in &terminal.original_lines {
-                    copy(4 * self.propagators + line);
+                for &argument in &terminal.product_arguments {
+                    copy(argument);
                 }
-                copy(5 * self.propagators);
+                for &line in &terminal.original_lines {
+                    copy(self.parent_layout.masses.start + line);
+                }
+                copy(self.parent_layout.scale);
             }
         }
         for group in &groups {
@@ -645,6 +734,160 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    fn supplied_input(n: usize, rows: usize, components: usize) -> KinematicsBatch<f64> {
+        let width = input_layout(n, InvariantInput::SuppliedScalarProducts).unwrap().scale + 1;
+        KinematicsBatch {
+            rows,
+            components,
+            // Deliberately independent complex sentinels in every G slot:
+            // copying them cannot be replaced by recomputing products from p.
+            values: (0..rows * width * components)
+                .map(|index| Complex::new(index as f64 + 7., -(index as f64) - 11.))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn checked_supplied_constructor_preserves_settings_without_admitting_cartesian_new() {
+        for (n, h) in [(2, -2), (6, 1), (17, 4)] {
+            for algorithm in [Algorithm::Ibp, Algorithm::PassarinoVeltman, Algorithm::Hybrid] {
+                for convention in [Convention::IregiNative, Convention::OneLoop, Convention::MadLoop] {
+                    let mut settings = ReductionSettings::new(n, 6);
+                    settings.powers = vec![3; n];
+                    settings.dimension_shift = h;
+                    settings.algorithm = algorithm;
+                    settings.convention = convention;
+                    settings.tensor_weights = TensorWeights::Multinomial;
+                    settings.invariants = InvariantInput::SuppliedScalarProducts;
+                    let remaining = vec![2; n - 1];
+                    let permutation = (0..n - 1).collect::<Vec<_>>();
+                    let terminals = [terminal(n - 1, &remaining, &permutation)];
+                    assert!(PowerBatchLayout::new(&settings, &terminals).is_err());
+                    let before = serde_json::to_value(&settings).unwrap();
+                    let layout = PowerBatchLayout::new_checked_supplied(&settings, &terminals).unwrap();
+                    assert_eq!(serde_json::to_value(&settings).unwrap(), before);
+                    let child = &layout.child_settings()[0];
+                    assert_eq!(child.propagators, n - 1);
+                    assert_eq!(child.powers, remaining);
+                    assert_eq!(child.rank, settings.rank);
+                    assert_eq!(child.dimension_shift, h);
+                    assert_eq!(child.algorithm, algorithm);
+                    assert_eq!(child.convention, convention);
+                    assert_eq!(child.tensor_weights, settings.tensor_weights);
+                    assert_eq!(child.invariants, InvariantInput::SuppliedScalarProducts);
+                    assert_eq!(child.input_policy, InputPolicy::Preserve);
+                    assert_eq!(layout.parent_layout.shifts, 0..4 * n);
+                    assert_eq!(layout.parent_layout.scalar_products, Some(4 * n..4 * n + n * (n + 1) / 2));
+                    assert_eq!(layout.parent_layout.masses.len(), n);
+                    assert_eq!(layout.parent_parameters, layout.parent_layout.scale + 1);
+                    let packed = layout.pack(&supplied_input(n, 1, 1), &[vec![0]], 1).unwrap();
+                    assert_eq!(packed.groups[0].input.values.len(), layout.child_parameters);
+                }
+            }
+        }
+        let mut settings = ReductionSettings::new(3, 2);
+        let terminals = [terminal(0, &[1, 1], &[0, 1])];
+        assert!(PowerBatchLayout::new_checked_supplied(&settings, &terminals).is_err());
+        assert!(PowerBatchLayout::new(&settings, &terminals).is_ok());
+        settings.invariants = InvariantInput::SuppliedScalarProducts;
+        settings.input_policy = InputPolicy::legacy_onshell();
+        assert!(PowerBatchLayout::new_checked_supplied(&settings, &terminals).is_err());
+        settings.input_policy = InputPolicy::Preserve;
+        settings.powers[1] = 0;
+        assert!(PowerBatchLayout::new_checked_supplied(&settings, &terminals).is_err());
+        settings.powers = vec![1];
+        assert!(PowerBatchLayout::new_checked_supplied(&settings, &terminals).is_err());
+        assert!(input_layout(usize::MAX, InvariantInput::SuppliedScalarProducts).is_err());
+    }
+
+    #[test]
+    fn supplied_upper_triangle_follows_canonical_permutations_all_complex_components_and_lanes() {
+        let mut settings = ReductionSettings::new(4, 6);
+        settings.powers = vec![3; 4];
+        settings.invariants = InvariantInput::SuppliedScalarProducts;
+        let terminals = [
+            terminal(0, &[1, 3, 2], &[1, 2, 0]),
+            terminal(2, &[3, 2, 1], &[0, 1, 2]),
+            terminal(1, &[1, 1, 1], &[0, 1, 2]),
+        ];
+        let layout = PowerBatchLayout::new_checked_supplied(&settings, &terminals).unwrap();
+        assert_eq!(layout.parent_parameters, 31);
+        assert_eq!(layout.child_parameters, 22);
+        let source = supplied_input(4, 3, 4);
+        let original = source.values.clone();
+        let demands = [vec![2, 1], vec![0], vec![1, 0]];
+        let packed = layout.pack(&source, &demands, 5).unwrap();
+        assert_eq!(source.values, original);
+        assert_eq!(packed.total_rows, 5);
+        assert_eq!(packed.groups[0].input.rows, 4);
+        assert_eq!(packed.groups[1].input.rows, 1);
+        let canonical_lines = [vec![2, 3, 1], vec![0, 1, 3], vec![0, 2, 3]];
+        // Independently listed parent-G positions for each canonical triangle.
+        // In the first map G(2,1) and G(3,1) reverse original index order.
+        let canonical_products = [[7, 8, 5, 9, 6, 4], [0, 1, 3, 4, 6, 9], [0, 2, 3, 7, 8, 9]];
+        for (group_index, group) in packed.groups.iter().enumerate() {
+            assert_eq!(group.input.components, 4);
+            for (child_row, origin) in group.origins.iter().enumerate() {
+                let lines = &canonical_lines[origin.terminal_index];
+                let parameters = lines.iter().flat_map(|&line| 4 * line..4 * line + 4)
+                    .chain(canonical_products[origin.terminal_index].into_iter().map(|index| 16 + index))
+                    .chain(lines.iter().map(|&line| 26 + line)).chain([30]).collect::<Vec<_>>();
+                assert_eq!(parameters.len(), 22);
+                assert_eq!(packed.require_location(origin.parent_row, origin.terminal_index).unwrap(),
+                    PackedChildRow { group: group_index, child_row });
+                for (argument, parameter) in parameters.into_iter().enumerate() {
+                    assert_eq!(
+                        &group.input.values[(child_row * 22 + argument) * 4..(child_row * 22 + argument + 1) * 4],
+                        &source.values[(origin.parent_row * 31 + parameter) * 4..(origin.parent_row * 31 + parameter + 1) * 4],
+                    );
+                }
+            }
+        }
+        assert!(packed.location(0, 0).is_none());
+        assert!(packed.location(1, 1).is_none());
+        assert!(packed.require_location(1, 2).is_err());
+        let reordered_demands = [vec![1, 2], vec![0], vec![0, 1]];
+        let reordered = layout.pack(&source, &reordered_demands, 5).unwrap();
+        for (actual, expected) in reordered.groups.iter().zip(&packed.groups) {
+            assert_eq!(actual.input.values, expected.input.values);
+            assert_eq!(actual.origins, expected.origins);
+        }
+        let lane_order = [2, 0, 1];
+        let reordered_source = KinematicsBatch {
+            rows: 3,
+            components: 4,
+            values: lane_order.iter().flat_map(|&lane|
+                source.values[lane * 31 * 4..(lane + 1) * 31 * 4].iter().cloned()).collect(),
+        };
+        let reordered_profiles = lane_order.iter().map(|&lane| demands[lane].clone()).collect::<Vec<_>>();
+        let reordered_rows = layout.pack(&reordered_source, &reordered_profiles, 5).unwrap();
+        for group in &reordered_rows.groups {
+            for (child_row, origin) in group.origins.iter().enumerate() {
+                for (argument, product) in canonical_products[origin.terminal_index].into_iter().enumerate() {
+                    let original_lane = lane_order[origin.parent_row];
+                    assert_eq!(
+                        &group.input.values[(child_row * 22 + 12 + argument) * 4..(child_row * 22 + 13 + argument) * 4],
+                        &source.values[(original_lane * 31 + 16 + product) * 4..(original_lane * 31 + 17 + product) * 4],
+                    );
+                }
+            }
+        }
+        for malformed in [vec![vec![0, 0], vec![], vec![]], vec![vec![3], vec![], vec![]]] {
+            assert!(layout.pack(&source, &malformed, 5).is_err());
+        }
+        assert!(layout.pack(&source, &demands, 4).is_err());
+        let cartesian_width_only = input(4, 3, 4);
+        assert!(layout.pack(&cartesian_width_only, &demands, 5).is_err());
+        for (source, demands) in [
+            (supplied_input(4, 0, 4), vec![]),
+            (supplied_input(4, 3, 4), vec![vec![], vec![], vec![]]),
+        ] {
+            let empty = layout.pack(&source, &demands, 0).unwrap();
+            assert_eq!(empty.total_rows, 0);
+            assert!(empty.groups.iter().all(|group| group.input.values.is_empty() && group.origins.is_empty()));
         }
     }
 }

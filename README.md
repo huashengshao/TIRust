@@ -47,8 +47,8 @@ Dual components. Numerator and graph preparation accept the upstream Symbolica,
 FeynKit and Spenso types registered in the same native host. See the
 [extension architecture](docs/research/python-interface.md) for source revisions
 and the separate Community-host integration boundary.
-The current development wheel passes 64 installed API cases, seven notebook
-runtime cases and consumer typing. Its [source and artifact record](validation/python-interface/facade-wheel-003/README.md)
+The current development wheel passes 65 installed API cases, seven notebook
+runtime cases and consumer typing. Its [source and artifact record](validation/python-interface/facade-wheel-004/README.md)
 defines the tested subset; it does not establish full six-point coverage.
 
 The [marimo gallery](examples/notebooks/README.md) covers graph-to-integral
