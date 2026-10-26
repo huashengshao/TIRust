@@ -108,6 +108,7 @@
 #let current-physical = data.current_cli_physical_integration_qualification.snapshot
 #let current-wheel004 = data.python_current_facade_wheel004_replay.snapshot
 #let opening-examples = data.at("opening_tensor_timing_examples", default: none)
+#let opening-collier = data.at("opening_collier_timing_examples", default: none)
 #let collier-cell(r) = table.cell(
   fill: if not r.correctness_passed or r.gate in ("inconclusive-noise", "inconclusive-short-block") {
     amber
@@ -250,9 +251,40 @@
   linebreak()
   text(size: 7pt, fill: luma(80))[$h=#row.dimension_shift$]
 })
+// Qualified and rejected COLLIER captures are deliberately distinct: a
+// diagnostic duration for an invalid array is never an admitted timing result.
+#let example-collier-cell(row) = {
+  let captures = if opening-collier == none { () } else { opening-collier.snapshot.rows }
+  let capture = captures.find(item => item.id == row.id)
+  let stats = if capture == none { none } else { capture.at("timing_us", default: none) }
+  let measured = stats != none
+  let qualified = capture != none and capture.at("timing_qualified", default: false)
+  let shown = example-duration(if measured { stats.mean } else { none })
+  table.cell(fill: if not measured { pending }
+    else if qualified { rgb("#fbe7ce") } else { amber }, {
+    set par(justify: false, leading: 0.15em)
+    align(center)[
+      #text(size: if measured { 13pt } else { 9pt }, weight: "bold", fill: navy)[
+        #if not measured { "Unmeasured" } else if qualified { shown.value } else { "Rejected" }
+      ]
+      #linebreak()
+      #text(size: 7pt, fill: luma(65))[
+        #if not measured { "No admitted observation" } else if qualified {
+          shown.unit
+        } else { [observed #shown.value #shown.unit] }
+      ]
+      #if qualified and stats.at("standard_error", default: none) != none {
+        let error = stats.standard_error / shown.divisor
+        [#linebreak() #text(size: 6.5pt, fill: luma(80))[SE ±#fixed(error, digits: if error < 0.01 { 3 } else { 2 })]]
+      } else if measured and not qualified {
+        [#linebreak() #text(size: 6.5pt, fill: luma(80))[#capture.at("failure_label", default: "Invalid numerical result")]]
+      }
+    ]
+  })
+}
 #let example-timing-table(rows, extended: false) = report-table(table(
   columns: if extended { (2.6cm, 2.0cm, 3.0cm, 3.4cm, 3.4cm, 3.4cm) }
-    else { (3.25cm, 1.5cm, 4.35cm, 4.35cm, 4.35cm) },
+    else { (2.7cm, 1.25cm, 3.4cm, 3.4cm, 3.5cm, 3.55cm) },
   inset: (x: 6pt, y: 5pt),
   stroke: (x, y) => if y == 0 { none } else { 0.6pt + white },
   fill: (x, y) => if y == 0 { navy } else { white },
@@ -260,6 +292,7 @@
     [Input integral], [Powers / shift],
     ..if extended { ([Outside direct API],) } else { () },
     [TIRust excl. masters], [Scalar masters], [Total reduction call],
+    ..if not extended { ([COLLIER · f64],) } else { () },
   ),
   ..for row in rows {
     let timing = row.at("timing", default: (:))
@@ -277,6 +310,7 @@
       example-timing-cell(masters, phase: 1, status: row.status),
       example-timing-cell(total, phase: 2, status: row.status,
         parts: if exclusive != none and masters != none { (exclusive.mean, masters.mean) } else { none }),
+      ..if not extended { (example-collier-cell(row),) } else { () },
     )
   },
 ))
@@ -312,6 +346,16 @@
   first-call specialization/reduction, warm-up, output checks, result destruction and I/O.
   Separate per-row #raw("plan_ns/workspace_ns/first_call_ns") are retained in
   the raw data. Warm calls reuse plans and recompute numerical results.]
+  v(2pt)
+  text(size: 7.4pt)[*COLLIER:* version 1.2.10, mode 1 (COLI), binary64,
+  masters included; separate capture on CPU 18, 11 blocks targeting 100 ms.
+  Its finite/status scans are timed, unlike TIRust's output checks.
+  TIRust uses Float128 for $N >= 5$: no equal-precision or paired speed ratio
+  is inferred. Amber *Rejected* cells show diagnostic durations only, not
+  accepted benchmark results: the full returned arrays failed validation.
+  Exact status, nonfinite/mismatch counts and raw calls are retained in
+  #raw("validation/benchmark/opening-collier-20261026/").]
+
 
   pagebreak()
   heading(level: 1)[Generalized requests outside COLLIER's direct API]
@@ -383,7 +427,7 @@
   #text(9.5pt, fill: luma(110))[#report-date · Archival comparisons: #data.host]
   #if opening-examples != none {
     linebreak()
-    text(9pt, fill: luma(110))[Opening examples: AMD EPYC 9754 · CPU 18 · profiled public API]
+    text(9pt, fill: luma(110))[Opening examples: AMD EPYC 9754 · CPU 18 · TIRust profiled / COLLIER COLI]
   }
 ]
 #v(0.6em)

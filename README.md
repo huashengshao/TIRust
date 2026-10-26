@@ -15,6 +15,9 @@ direct integral API. Large coloured cells separate TIRust time from nested
 scalar-master evaluation. Exact inputs, raw calls, preparation costs, precision
 and reproduction commands are in the
 [opening timing suite](validation/benchmark/opening-rank6-20261026/README.md).
+The ordinary table also includes a right-most COLLIER binary64 column: nine
+rows pass validation, while three higher-point failures are explicitly marked.
+See the [COLLIER capture and audit](validation/benchmark/opening-collier-20261026/RESULTS.md).
 
 The [final checkpoint](docs/checkpoints/rank6-functional-completion-20261026.md)
 records ordinary dotted/shifted tensors and the completed six-point, rank-six

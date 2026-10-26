@@ -1,5 +1,62 @@
 # TIRust / iregi-rust: exhaustive session handoff
 
+## COLLIER opening-column follow-up: 26 October 2026
+
+The next reporting request adds a right-most COLLIER column to the first
+opening table. TIRust's prior18-row capture, all464 report records at91ce2a5,
+and the generalized second table remain unchanged. No core/master/dependency
+or Cargo implementation change was made.
+
+`validation/benchmark/opening-collier-20261026/` owns the new external-reference
+corpus. `driver.f90` derives from the frozen candidate004 wrapper, adding the
+public Aten interface forN1 and per-block snapshots. It initializes supported
+capacities Nmax=max(N,2) and Rmax=max(R,1,N-max(N-2,4)); requestedN/rank/output
+remain exact. This avoids upstream zero-rank/N1 initialization defects through
+public arguments, with no library patch. All12 ordinary rows use COLI mode1,
+binary64, scalar masters included. N5R6 is not a DD-mode claim.
+
+`build.json` links the already qualified, unmodified COLLIER1.2.10 static
+archive4f1e6dc1… with strict -O3/no-fast-math gfortran15.2.0. All28module files
+are pinned. Frozen wrapper binary SHA is
+`bc0f57ba74c6af69042fc05047aa45a8e75daecbb2374025154d2d9c46441b5c`.
+CPU18 capture is17.315s total, with3warmups, one single-call pilot, then11fixed
+blocks targeting100ms (cap1e6calls/block) and pre/post UV/IR probes. Every root
+resets local memoization via InitEvent; event caches are disabled. Timing
+includes invariants, public tensor API, masters, native normalization/gather
+and inherited status/finite scans. TIRust's post-call full scans are outside
+its timer; the difference is explicit. No paired ratio or equal-precision
+claim follows: TIRustN5/N6 useFloat128 and their observations stay frozen.
+
+All12 native child processes exit0; the campaign intentionally exits1 to
+expose3 retained numerical failures. The outer process group is gone and all
+library/module/source/binary guards pass. `capture001/` archives169 raw files
+(14,970,177bytes) byte-identically; original target paths are retained and the
+portable checker maps them to the committed archive. No native jobs remain.
+
+NineN1..N4 rows qualify, including all3864 distinct complex Laurent fields.
+N5R5 has accuracyflag-1 and11finite mismatches (max≈3.88327e-10); N5R6 has
+flag-1 and62mismatches (max≈1.50522e-9). N6R6 has flag-2,195nonfinite finite-slot
+values at degrees3..6, one additional finite mismatch, and failed pole probes.
+The producer comparison stops at the first null; the independent audit counts
+all fields instead of relabeling missing comparisons aszero. Total6048fields
+=5853finite+195nonfinite, with74finite mismatches. All216saved arrays and48wire
+requests are checked;132timed blocks contain2,047,397calls.
+
+The column shows accepted means/SE in orange and rejected rows in amber.
+Subordinate observed rejected durations (0.597/2.097/3.293ms) are diagnostics,
+not successful reduction benchmark times. No mode retuning, retry, tolerance
+change or speed aggregate was introduced. These failures concern this exact
+input family/precision/policy, not mathematical absence ofCOLLIER APIs.
+
+`independent_check.py` audits saved JSON without evaluating integrals; its
+default output is a target replay receipt, preserving the sealed review.
+`summary.json`, `qualification.json` and `RESULTS.md` separate accepted and
+rejected outcomes. See the suite README for frozen-build capture commands.
+New report records are additive and retain all prior raw evidence and proof
+history. Future benchmark work must preserve these rejected cases and source
+scopes rather than quietly substituting another backend or precision.
+
+
 ## Opening benchmark tables: 26 October 2026 follow-up
 
 The functional goal below remains complete. The user's subsequent reporting
