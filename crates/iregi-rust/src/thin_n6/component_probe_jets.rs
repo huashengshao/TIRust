@@ -113,6 +113,11 @@ pub fn points(
 /// Columns multiply ordinary unit/dot0/triple0 arrays respectively.
 /// Taylor normalization is the existing physical_derivatives.rs convention.
 pub fn response(n: usize, rank: usize) -> Result<Vec<Vec<Rational>>, String> {
+    response_in_dimension(n, rank, 0)
+}
+
+/// Same Symbolica derivative construction with the denominator dimension shift.
+pub fn response_in_dimension(n: usize, rank: usize, dimension_shift: i16) -> Result<Vec<Vec<Rational>>, String> {
     let a_symbol = symbolica::symbol!("iregi_validation::rank7_mass_seed");
     let b_symbol = symbolica::symbol!("iregi_validation::rank7_dilation_seed");
     let a = Atom::var(a_symbol);
@@ -123,7 +128,7 @@ pub fn response(n: usize, rank: usize) -> Result<Vec<Vec<Rational>>, String> {
         "iregi_validation::rank7_triple_response"
     ));
     let lambda = Atom::num(1) + &b;
-    let d = rank as i64 + 4 - 2 * n as i64;
+    let d = rank as i64 + 4 + 2 * i64::from(dimension_shift) - 2 * n as i64;
     let response = &unit * lambda.pow(d)
         + &a * &dotted * lambda.pow(d - 2)
         + a.pow(2) * &tripled * lambda.pow(d - 4);
@@ -267,6 +272,24 @@ mod tests {
                 }
                 assert_eq!(values[0][i], expected);
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod shifted_response_tests {
+    use super::*;
+    #[test]
+    fn shifted_response_keeps_mass_taylor_normalization_and_exact_d6_dilation() {
+        for degree in 0..=6 {
+            let response=response_in_dimension(6,degree,1).unwrap();
+            let d=degree as i64-6;
+            assert_eq!(response[0],vec![Rational::from(1),Rational::from(0),Rational::from(0)]);
+            assert_eq!(response[1],vec![Rational::from(0),Rational::from(1),Rational::from(0)]);
+            assert_eq!(response[3],vec![Rational::from(0),Rational::from(0),Rational::from(1)]);
+            assert_eq!(response[2][0],Rational::from(d));
+            assert_eq!(response[4][1],Rational::from(d-2));
+            assert_eq!(response[5][0],Rational::from(d*(d-1)/2));
         }
     }
 }

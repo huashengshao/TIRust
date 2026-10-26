@@ -429,12 +429,16 @@ pub struct AffinePowerWorkspace<T: NativeFloat> {
     guard: AffineDescentGuardWorkspace,
     profiles: HashMap<ProfileKey, ProfileWorkspace<T>>,
     children: HashMap<Vec<u16>, ChildWorkspace<T>>,
+    // Separate original-request scratch; never collide with the MassTaylor powers-only cache.
+    checked_zero_mass_child: Option<ChildWorkspace<T>>,
     stats: AffinePowerExecutionStats,
     diagnostics: Vec<Vec<String>>,
     profiling: bool,
     profile: ExecutionProfile,
     #[cfg(test)]
     component_probe_children: Option<Vec<AffinePowerChildObservation<T>>>,
+    #[cfg(test)]
+    component_probe_parent: Option<CoupledQuadratureBatch<T>>,
 }
 
 impl<T: NativeFloat> AffinePowerWorkspace<T>
@@ -503,12 +507,15 @@ where
             guard,
             profiles: HashMap::new(),
             children: HashMap::new(),
+            checked_zero_mass_child: None,
             stats: Default::default(),
             diagnostics: Vec::new(),
             profiling: false,
             profile: Default::default(),
             #[cfg(test)]
             component_probe_children: None,
+            #[cfg(test)]
+            component_probe_parent: None,
         })
     }
     pub fn set_accuracy_precision(&mut self, bits: u32) -> Result<(), ReductionError> {
@@ -517,7 +524,7 @@ where
                 "accuracy precision must be within working precision",
             ));
         }
-        for child in self.children.values_mut() {
+        for child in self.children.values_mut().chain(self.checked_zero_mass_child.iter_mut()) {
             match child {
                 ChildWorkspace::LowPoint { workspace, .. } => {
                     workspace.set_accuracy_precision(bits)?
@@ -534,7 +541,7 @@ where
     }
     pub fn set_profiling(&mut self, enabled: bool) {
         self.profiling = enabled;
-        for c in self.children.values_mut() {
+        for c in self.children.values_mut().chain(self.checked_zero_mass_child.iter_mut()) {
             match c {
                 ChildWorkspace::LowPoint { workspace, .. } => workspace.set_profiling(enabled),
                 ChildWorkspace::Affine(w) => w.set_profiling(enabled),
@@ -560,10 +567,15 @@ where
     #[cfg(test)]
     pub(crate) fn enable_component_child_observer(&mut self, enabled: bool) {
         self.component_probe_children = enabled.then(Vec::new);
+        self.component_probe_parent = None;
     }
     #[cfg(test)]
     pub(crate) fn component_child_observations(&self) -> Option<&[AffinePowerChildObservation<T>]> {
         self.component_probe_children.as_deref()
+    }
+    #[cfg(test)]
+    pub(crate) fn component_parent_observation(&self) -> Option<&CoupledQuadratureBatch<T>> {
+        self.component_probe_parent.as_ref()
     }
     pub fn last_diagnostics(&self) -> &[Vec<String>] {
         &self.diagnostics
@@ -578,6 +590,8 @@ where
         };
         self.diagnostics.clear();
         self.profile = Default::default();
+        #[cfg(test)]
+        { self.component_probe_parent = None; }
         #[cfg(test)]
         if let Some(children) = &mut self.component_probe_children {
             children.clear();
@@ -598,6 +612,12 @@ where
         let result = self.reduce_impl(input);
         if let Some(started) = started {
             self.profile.total = started.elapsed();
+        }
+        #[cfg(test)]
+        if self.component_probe_children.is_some() {
+            // Test observation owns the exact returned result/error context;
+            // neither zeros nor a previous successful call can fill a failure.
+            self.component_probe_parent = result.as_ref().ok().cloned();
         }
         result.map(|owned| AffinePowerResult {
             owned,
@@ -716,15 +736,73 @@ where
     /// untouched. The returned actual-route error owner is scattered together
     /// with values; a missing error context cannot become successful zero.
     fn reduce_checked_regular(
+        &mut self,
+        input: &KinematicsBatch<T>,
+        lanes: &[usize],
+        result: &mut BatchResult<T>,
+        context: &mut QuadratureErrorContext<T>,
+    ) -> Result<(), ReductionError> {
+        // reduce_impl supplies only rows that have already passed the complete
+        // p/G and regular-primal proofs. This selector changes no geometry and
+        // proves no identity itself. Each strategy evaluates one compact batch.
+        let (auxiliary, direct) =
+            checked_regular_mass_groups(&self.plan.settings, &self.plan.layout, input, lanes)?;
+        for &lane in &direct {
+            self.diagnostics[lane].push(
+                "auxiliary mass differentiation is ineligible at an exactly zero dotted mass; retaining the original dimensionally regulated direct recurrence and its user-Dual branch guards".into(),
+            );
+        }
+        self.reduce_checked_regular_group(input, &auxiliary, result, context, false)?;
+        self.reduce_checked_regular_group(input, &direct, result, context, true)
+    }
+
+    fn reduce_checked_regular_group(
         &mut self, input: &KinematicsBatch<T>, lanes: &[usize],
         result: &mut BatchResult<T>, context: &mut QuadratureErrorContext<T>,
+        direct_zero_mass: bool,
     ) -> Result<(), ReductionError> {
         if lanes.is_empty() { return Ok(()); }
         if !self.plan.checked_supplied || self.plan.settings.propagators > 5 {
             return Err(prep("regular checked subgroup is outside private low-point domain"));
         }
         let key=self.plan.settings.powers.clone();
-        if !self.children.contains_key(&key) {
+        if direct_zero_mass && self.checked_zero_mass_child.is_none() {
+            // Preserve the requested method. Its existing generalized scalar
+            // dispatcher selects and reports genuine IBP/PV completion, without
+            // introducing any auxiliary mass direction or changing powers/h.
+            let prepared = (|| -> Result<ChildWorkspace<T>, ReductionError> {
+                let plan = ReductionPlan::new(self.plan.settings.clone())?;
+                let actual = plan.algorithm_used();
+                let mut notes = plan.preparation_notes().to_vec();
+                notes.push("direct original positive-power recurrence selected for the zero auxiliary-mass boundary; requested settings and scalar-master branch policy retained".into());
+                let mut child = workspace(
+                    &plan,
+                    &self.prototype,
+                    &self.shape,
+                    WorkspacePolicy::AFFINE_QUADRATURE_CHILD,
+                    self.masters,
+                )?;
+                child.set_accuracy_precision(self.accuracy_bits)?;
+                child.set_profiling(self.profiling);
+                Ok(ChildWorkspace::LowPoint {
+                    workspace: Box::new(child),
+                    actual,
+                    notes,
+                })
+            })();
+            match prepared {
+                Ok(child) => self.checked_zero_mass_child = Some(child),
+                Err(error) => {
+                    for &lane in lanes {
+                        result.statuses[lane] = LaneStatus::MasterFailure(format!(
+                            "checked zero-mass direct recurrence preparation failed: {error}",
+                        ));
+                    }
+                    return Ok(());
+                }
+            }
+        }
+        if !direct_zero_mass && !self.children.contains_key(&key) {
             // The own-N key cannot collide with an (N-1)-line DAG profile.
             let prepared=(|| -> Result<ChildWorkspace<T>,ReductionError> {
                 let plan={
@@ -774,7 +852,16 @@ where
         for &lane in lanes { packed.values.extend_from_slice(&input.values[lane*width..(lane+1)*width]); }
         self.stats.packed_child_rows=add(self.stats.packed_child_rows,lanes.len())?;
         self.stats.child_batch_calls=add(self.stats.child_batch_calls,1)?;
-        let (evaluated,work,profile,diagnostics,actual,notes)=match self.children.get_mut(&key).expect("prepared regular checked child") {
+        let child = if direct_zero_mass {
+            self.checked_zero_mass_child
+                .as_mut()
+                .expect("prepared zero-mass direct child")
+        } else {
+            self.children
+                .get_mut(&key)
+                .expect("prepared regular checked child")
+        };
+        let (evaluated,work,profile,diagnostics,actual,notes)=match child {
             ChildWorkspace::LowPoint{workspace,actual,notes}=>{
                 let value=workspace.reduce_batch_with_quadrature_context(&packed);
                 (value,workspace.last_execution(),workspace.last_profile(),workspace.last_diagnostics().to_vec(),Some(*actual),notes.clone())
@@ -1152,9 +1239,8 @@ where
                         origin,
                     ));
                 }
-                if reason.is_none() && self.components > 1 && has_quadrature {
-                    reason=Some("full-Dual imported quadrature and roundoff joint budget is not yet qualified".into());
-                }
+                // Full imported jets are admitted only after the actual-route
+                // parent inspector combines their errors and dense roundoff.
                 if let Some(reason) = reason {
                     self.diagnostics[lane].push(reason.clone());
                     result.statuses[lane] = LaneStatus::Unstable(reason);
@@ -1336,6 +1422,58 @@ where
         }
         CoupledQuadratureBatch::new(result, context)
     }
+}
+
+/// Select strategies only AFTER the owning caller's complete geometry proof.
+/// This reuses the MassTaylor actor's represented-exact primal boundary rule;
+/// no higher user coefficient is removed or used as a structural zero proof.
+fn checked_regular_mass_groups<T: NativeFloat>(
+    settings: &ReductionSettings,
+    layout: &InputLayout,
+    input: &KinematicsBatch<T>,
+    lanes: &[usize],
+) -> Result<(Vec<usize>, Vec<usize>), ReductionError> {
+    if input.components == 0 {
+        return Err(invalid(
+            "checked regular strategy requires positive components",
+        ));
+    }
+    let parameters = add(layout.scale, 1)?;
+    let width = mul(parameters, input.components)?;
+    if input.values.len() != mul(input.rows, width)?
+        || layout.masses.len() != settings.powers.len()
+        || lanes.iter().any(|&lane| lane >= input.rows)
+    {
+        return Err(invalid(
+            "checked regular strategy layout or source row differs",
+        ));
+    }
+    if !crate::mass_taylor::settings_supported(settings) {
+        return Ok((lanes.to_vec(), Vec::new()));
+    }
+    let mut auxiliary = Vec::with_capacity(lanes.len());
+    let mut direct = Vec::new();
+    for &lane in lanes {
+        let physical = &input.values[lane * width..(lane + 1) * width];
+        let dotted = settings
+            .powers
+            .iter()
+            .enumerate()
+            .filter_map(|(line, &power)| (power > 1).then_some(line));
+        let zero = crate::mass_taylor::zero_auxiliary_mass_line(
+            physical,
+            layout,
+            input.components,
+            dotted,
+        )
+        .map_err(invalid)?;
+        if zero.is_some() {
+            direct.push(lane);
+        } else {
+            auxiliary.push(lane);
+        }
+    }
+    Ok((auxiliary, direct))
 }
 
 fn invalid(message: impl Into<String>) -> ReductionError {

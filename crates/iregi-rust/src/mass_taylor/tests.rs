@@ -70,7 +70,7 @@ fn selector_rejects_stale_selected_or_unselected_context_and_preserves_good_neig
 }
 
 #[test]
-fn propagated_zero_retains_origin_and_higher_user_quadrature_is_explicitly_unavailable(){
+fn propagated_zero_retains_origin_for_ordinary_and_higher_user_selection(){
     let ordinary=layout(None);let source=joint_fixture(&ordinary,1,QuadratureErrorOrigin::PropagatedEuclidean);
     let selected=select_coefficients(&source,0,&ordinary,&0.,53).unwrap();
     assert_eq!(selected.origin,QuadratureErrorOrigin::PropagatedEuclidean);
@@ -85,7 +85,12 @@ fn propagated_zero_retains_origin_and_higher_user_quadrature_is_explicitly_unava
     let(result,mut context)=source.into_parts();let errors=vec![c(0.);result.values.len()];
     context.install_dense(&result,0,53,53,&errors,QuadratureErrorOrigin::PropagatedEuclidean).unwrap();
     let zero_estimate=CoupledQuadratureBatch::new(result,context).unwrap();
-    assert!(select_coefficients(&zero_estimate,0,&higher,&0.,53).unwrap_err().contains("higher-component"));
+    let selected=select_coefficients(&zero_estimate,0,&higher,&0.,53).unwrap();
+    assert_eq!(selected.origin,QuadratureErrorOrigin::PropagatedEuclidean);
+    assert_eq!(selected.errors,[c(0.);8]);
+    assert_eq!(selected.amplitudes.len(),8);
+    // Selection is not acceptance: the owning dotted identity's imported
+    // all-component inspector is still required before values are returned.
 }
 
 #[test]

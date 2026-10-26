@@ -219,3 +219,54 @@ fn actual_typed_shape_rejection_clears_previous_dual_context_and_profiling_is_ob
     assert_eq!(actual.errors(0,53,53).unwrap(),[c(0.);8]);
     assert!(child.last_profile().is_some());
 }
+
+
+#[test]
+fn imported_dual_joint_inspector_requires_actual_full_component_owner_after_fallback() {
+    // new_dual otherwise rebuilds a default-order plan and discards this
+    // synthetic primary pole. Match the requested second-order shape first.
+    let ordinary=plan().with_analytic_jet_order(2).unwrap();
+    let mut primary=(*plan().with_analytic_jet_order(2).unwrap()).clone();
+    primary.moments[0][3]=Atom::num(1)/&primary.parameters[0];
+    let shape=vec![vec![0,0],vec![1,0],vec![0,1],vec![2,0],vec![1,1],vec![0,2]];
+    let make=|plan:&ReductionPlan|Workspace::new_dual_with_policies(plan,0.,
+        HyperDual::<Complex<Rational>>::new(shape.clone()),WorkspacePolicy::AFFINE_QUADRATURE_CHILD,
+        MasterExecutionPolicy::Symbolica).unwrap();
+    let mut child=make(&primary);child.zero_profile_offset=None;child.fallback=Some(Box::new(make(&ordinary)));
+    let mut input=vec![c(0.);36];input[24]=c(2.);input[25]=c(1.);input[30]=c(1.);
+    let batch=KinematicsBatch{rows:1,components:6,values:input.clone()};
+    let actual=child.reduce_batch_with_quadrature_context(&batch).unwrap();
+    assert_eq!(actual.result().statuses,[LaneStatus::Success]);
+    assert_eq!(actual.result().fallback_used,[true]);assert_eq!(child.last_execution().fallback_rows,1);
+    let result=actual.result();let checks=QuadratureStabilityPlan::imported_dense_checks(&ordinary).unwrap();
+    let errors=vec![c(0.);24];
+    assert!(child.inspect_imported_quadrature_output(&checks,result,0,&input,&errors).unwrap().is_none());
+    for mutation in 0..5 {
+        let mut changed=result.clone();
+        match mutation {
+            0=>changed.primal_envelopes[0].as_mut().unwrap().component_amplitudes=None,
+            1=>changed.values[19].re+=1.,
+            2=>{ assert!(changed.values[1].im == 0.); changed.values[1].im=if changed.values[1].im.is_sign_negative(){0.}else{-0.}; },
+            3=>changed.primal_envelopes[0].as_mut().unwrap().accuracy_bits=32,
+            _=>changed.primal_envelopes[0].as_mut().unwrap().output_components.as_mut().unwrap().swap(19,20),
+        }
+        assert!(child.inspect_imported_quadrature_output(&checks,&changed,0,&input,&errors).is_err(),"mutation {mutation}");
+    }
+    let mut errors=errors;errors[22]=c(1.);
+    assert!(child.inspect_imported_quadrature_output(&checks,result,0,&input,&errors).unwrap().unwrap().contains("Taylor component 4"));
+    assert_eq!(actual.origin(0,53,53).unwrap(),QuadratureErrorOrigin::KnownNoQuadrature);
+}
+
+#[test]
+fn ordinary_e6_dual_constructor_instantiates_joint_sensitivity_without_export_policy() {
+    let mut settings=ReductionSettings::new(5,0);
+    settings.algorithm=Algorithm::Ibp;settings.dimension_shift=1;
+    let plan=ReductionPlan::new(settings).unwrap();
+    let dual=HyperDual::<Complex<Rational>>::new(vec![vec![0],vec![1],vec![2]]);
+    let workspace=Workspace::new_dual_with_policies(&plan,0.,dual,
+        WorkspacePolicy::ORDINARY,MasterExecutionPolicy::Symbolica).unwrap();
+    assert!(workspace.quadrature.is_some());assert!(workspace.component_sensitivity.is_some());
+    assert!(!workspace.policy.retain_primal_envelopes);
+    assert_eq!(workspace.last_execution(),ExecutionStats::default());
+    assert!(workspace.last_quadrature_context.is_empty());
+}

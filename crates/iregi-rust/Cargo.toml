@@ -21,3 +21,4 @@ serde.workspace = true
 [dev-dependencies]
 serde_json.workspace = true
 oneloop.workspace = true
+sha2 = "=0.10.9"

@@ -230,6 +230,21 @@ impl Engine {
             "result":describe_result(&child.result,bits,accuracy)?
         }))).collect::<Fallible<Vec<Value>>>()?))
     }
+    fn parent_context(&self, bits: u32, accuracy: u32) -> Fallible<Value> {
+        let Some(parent) = self.0.affine_power_parent_observation() else {
+            return Ok(json!({"status":"unavailable_no_returned_coupled_parent"}));
+        };
+        Ok(json!({"status":"actual_owned_parent_context",
+            "result":describe_result(parent.result(),bits,accuracy)?,
+            "quadrature_origins":(0..parent.result().rows()).map(|row|match parent.origin(row,bits,accuracy){
+                Ok(origin)=>json!({"status":"validated_actual_route","origin":format!("{origin:?}")}),
+                Err(error)=>json!({"status":"unavailable","error":error})
+            }).collect::<Vec<_>>(),
+            "quadrature_errors":(0..parent.result().rows()).map(|row|match parent.errors(row,bits,accuracy){
+                Ok(values)=>json!({"status":"validated_actual_route","values":represented(values)}),
+                Err(error)=>json!({"status":"unavailable","error":error})
+            }).collect::<Vec<_>>() }))
+    }
     fn stats(&self) -> Value {
         let summary = self.0.execution_summary();
         let nested = match self.0.engine_execution() {
@@ -271,7 +286,8 @@ fn call(
     let after = represented(&input.values);
     let mut record = json!({"input_before":before,"input_after":after,"input_preserved":before==after,
         "execution":engine.stats(),"diagnostics":engine.diagnostics(),"expected_lane_statuses":expected,
-        "actual_packed_children":engine.children(bits,accuracy)?});
+        "actual_packed_children":engine.children(bits,accuracy)?,
+        "actual_parent_quadrature_context":engine.parent_context(bits,accuracy)?});
     match result {
         Err(error) => {
             record["status"] = json!("batch_error");
@@ -335,6 +351,8 @@ fn run() -> Fallible<u8> {
     let rank: u16 = std::env::var("IREGI_AFFINE_POWER_DUAL_RANK")?.parse()?;
     let bits: u32 = std::env::var("IREGI_AFFINE_POWER_DUAL_WORKING_BITS")?.parse()?;
     let accuracy: u32 = std::env::var("IREGI_AFFINE_POWER_DUAL_REQUESTED_BITS")?.parse()?;
+    let dimension_shift: i16 = std::env::var("IREGI_AFFINE_POWER_DUAL_DIMENSION_SHIFT")
+        .unwrap_or_else(|_| "0".into()).parse()?;
     let profile = std::env::var("IREGI_AFFINE_POWER_DUAL_PROFILE")?;
     let output = std::env::var("IREGI_AFFINE_POWER_DUAL_OUTPUT")?;
     if n != 6
@@ -342,9 +360,11 @@ fn run() -> Fallible<u8> {
         || ![128, 256, 384].contains(&bits)
         || accuracy < 53
         || accuracy > bits
+        || ![0, 1].contains(&dimension_shift)
+        || (dimension_shift == 1 && !matches!(profile.as_str(), "plain" | "mass" | "mass-second" | "fd-mass"))
         || !matches!(
             profile.as_str(),
-            "plain" | "mass" | "dilation" | "rectangular" | "mixed" | "fd-mass"
+            "plain" | "mass" | "mass-second" | "dilation" | "rectangular" | "mixed" | "fd-mass"
         )
     {
         return Err("unsupported private finite probe selection".into());
@@ -354,6 +374,7 @@ fn run() -> Fallible<u8> {
         return Err("preserve existing attempt; no overwrite".into());
     }
     let mut settings = ReductionSettings::new(n, rank);
+    settings.dimension_shift = dimension_shift;
     // The Hybrid case intentionally keeps the public ReductionSettings default.
     let algorithm_request_origin = match std::env::var("IREGI_AFFINE_POWER_DUAL_ALGORITHM") {
         Err(std::env::VarError::NotPresent) => {
@@ -369,6 +390,7 @@ fn run() -> Fallible<u8> {
     };
     let shape = match profile.as_str() {
         "mass" => Some(jets::FIRST.map(Vec::from).to_vec()),
+        "mass-second" => Some(vec![vec![0, 0], vec![1, 0], vec![2, 0]]),
         "dilation" => Some(vec![vec![0, 0], vec![0, 1], vec![0, 2]]),
         "rectangular" => Some(vec![vec![0, 0], vec![1, 0], vec![0, 1], vec![1, 1]]),
         "mixed" => Some(jets::MIXED.map(Vec::from).to_vec()),
@@ -380,7 +402,7 @@ fn run() -> Fallible<u8> {
         "interface":"Public TensorReductionPlan/TensorWorkspace constructors; actual AffinePower route required. Child context observation is cfg(test) only.",
         "native_slots":["uv1","ir1","ir2","finite"],"algorithm_request_origin":algorithm_request_origin,"sample_lanes_distinct_from_taylor_components":true,
         "public_Dual_qualified":false,"numerically_qualified":false,"performance_qualified":false,
-        "limits":"Public AffinePower real unit-power h0 PV/Hybrid N6R6 probe only. Full-component operands remain heuristic estimates. FD ordinary reductions are independent of AD but not independent integration; external original-quad or defining-integral anchors are required. Unsupported E6 error transport remains failure. No silent algorithm or input projection."});
+        "limits":"Public AffinePower real unit-power h0/h1 PV/Hybrid N6R6 finite probe; h1 only plain, first/second mass and FD5. Full-component operands remain heuristic estimates. FD ordinary reductions are independent of AD but not independent integration; external original-quad or defining-integral anchors are required. Unsupported E6 error transport remains failure. No silent algorithm or input projection."});
     write(output, &record)?;
     let outcome = (|| -> Fallible<()> {
         let prototype = Float::new(bits);
@@ -414,13 +436,13 @@ fn run() -> Fallible<u8> {
         record["independent_response_contract"] = json!({
             "ordered_shape":jets::MIXED,"columns":["unit","dot0","triple0"],
             "profile_rows":match profile.as_str() {
-                "mass"=>vec![0usize,1],"dilation"=>vec![0usize,2,5],
+                "mass"=>vec![0usize,1],"mass-second"=>vec![0usize,1,3],"dilation"=>vec![0usize,2,5],
                 "rectangular"=>vec![0usize,1,2,4],"mixed"=>vec![0usize,1,2,3,4,5],
                 _=>vec![0usize]
             },"degree_index":"total degree of the returned tensor monomial"});
         record["independent_response_columns"] = json!(
             (0..=rank as usize)
-                .map(|r| jets::response(n, r))
+                .map(|r| jets::response_in_dimension(n, r, dimension_shift))
                 .collect::<Result<Vec<_>, _>>()?
                 .iter()
                 .map(|rows| rows

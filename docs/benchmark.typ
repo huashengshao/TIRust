@@ -229,7 +229,7 @@ all historical results and timings retain their original source snapshots.]
   [Local PyO3 facade], [65 installed API cases, seven marimo cases and clean typing. The fresh wheel captures 201 selected files and all 158 declared current core bodies; no full dependency closure is claimed.], [Passed],
   [Dotted propagators], [N1/N4 first-dot/triple checks are retained. A later N5 rank-six first-dot Float128/256 pair passes 19740 saved gates; its earlier short timeouts remain failed.], [Scoped],
   [Example gallery], [Seven runtime cases use the current installed facade. Earlier browser evidence retains three HTML exports and six Chromium views; no new browser-export qualification is added.], [Passed],
-  [Tensor / API coverage], [120 exact current core tests and the supplied-G/Legacy admission paths are source-bound. New array cohorts retain their own captured sources, conventions and numerical domains.], [Scoped],
+  [Tensor / API coverage], [A later current 22-test source cohort follows the archived 120-test checkpoint; counts overlap. Complete D6 defining-integral checks resolve the earlier finite reference contradiction. Every array retains its own source context.], [Scoped],
   [Public rank-six Dual], [Explicit PV and unchanged-default Hybrid each pass complete Float128/256 mixed arrays; typed DoubleFloat and independent mass finite differences pass. Typed f64 remains guarded.], [Scoped],
   [Performance], [Historical private selected TIRust/COLLIER: seven slower families and one short inconclusive family. The fresh scheduler cohort is ineligible because of host contention; no default adoption.], [Measured],
 ))
@@ -238,7 +238,80 @@ Other platforms, separate Community-host loading and broader tensor numeric/exce
 domains remain unqualified. Earlier C0/D0 identities retain their wheel004 context.]
 
 #pagebreak()
-= Current feature boundary: source, dots and Legacy
+= Current rank-six follow-up: domains and retained failures
+This follow-up preserves all 425 earlier raw result values and timings. Each
+new test or numerical result is tied to its actual source epoch. The generic
+rank-six goal remains open; independent D6 adjudication is on the next page.
+No performance measurement or fresh Python-wheel qualification is added.
+
+#report-table(table(
+  columns: (1.25fr, 3.5fr, 0.8fr), inset: (x: 7pt, y: 13pt), stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else if y <= 3 { rgb("#d9f0d3") } else { amber },
+  table.header([Executed scope], [Saved evidence and precise boundary], [Outcome]),
+  [Current core], [22 exact focused tests pass: 15 joint quadrature-budget, five zero-mass strategy and two existing MassTaylor ownership/projection guards. The emitted Cargo artifact was fresh; its 128 selected source bodies include the current scalar-master repair.], [Tests pass],
+  [Joint-budget source], [The separate earlier source capsule preserves 15 tests and three contexts, including the failed synthetic fixture and Arc compile stage. Higher Taylor components combine their own propagated quadrature and operand-roundoff estimates; no actual propagated-quadrature Dual integral is qualified.], [Scoped],
+  [Zero-mass supplied G], [Private N5/rank0 first-dot h=0 ordinary and scale-only Dual witnesses pass 102 exact gates (34+68), including mixed invalid lanes and empty/reset/recovery. Only μ=3+3t has nonzero jets; all kinematic jets vanish.], [Scoped],
+  [Earlier Cartesian dot], [Pre-repair CLI003 N6/rank6 first-dot Float128 passes 840 quad slots and 630 pole controls. Float256 fails E6 convergence at order128, error≈2.3794×10⁻⁴, with no parent array or precision pair.], [Partial],
+  [Earlier D2 shift], [The same pre-repair epoch at h=−1 passes 840 Float128 quad slots and 630 pole controls. Float256 fails E6 terminal1 at order128, error≈2.499×10⁻⁴; its 840 reference and 840 pair comparisons remain unrun.], [Partial],
+  [Still open], [Repaired Cartesian dot/D2 and D6 parent precision pairs, a genuine quadrature-bearing Dual with independent anchor, and the final current release remain the completion gates.], [Open],
+))
+
+The private zero-mass fallback preserves the authoritative supplied products
+and fresh complete geometry proof. The failed derivative in another positive
+mass remains an unsupported existing massless C0/D0 derivative chart. It does
+not establish mathematical nonanalyticity. This rank-zero ordinary/scale
+witness does not qualify zero-mass rank-six or general kinematic Duals.
+
+The source-test counts overlap: the later 22-test cohort reuses the 15 earlier
+joint-budget tests. Neither count is added to the historical 120 as a claimed
+unique total. The installed 65-case facade retains its prior wheel context.
+Broader powers/shifts, Legacy/rescue and exceptional domains retain scoped
+qualification limits; no new broad grids are required here. Original failures
+and unavailable arrays remain unchanged. Source-test
+success does not imply numerical array agreement, achieved working precision,
+rigorous integration error or speed.
+
+#text(size: 8pt)[Sources: #raw("validation/rank6-current-focused-core-tests"),
+#raw("validation/propagated-dual-joint-budget-core-tests"),
+#raw("validation/checked-g-zero-mass-fallback"),
+#raw("validation/affine-power-generalized-memo-dot-rank6"),
+#raw("validation/public-n6-rank6-d2-partial-evidence").]
+
+#pagebreak()
+= Independent D6 adjudication and scalar-master repair
+A defining Feynman-parameter calculation now resolves the original D6 finite
+reference contradiction at the fixed N6/rank-six point. Separately, a shared
+coefficient repair fixes a scalar-box precision loss and restores one failed
+E6 evaluation. These are distinct numerical claims with distinct source
+contexts; parent precision-pair runs remain outside this checkpoint.
+
+#report-table(table(
+  columns: (1.25fr, 3.5fr, 0.8fr), inset: (x: 7pt, y: 11pt), stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else if y == 2 or y == 6 { amber } else { rgb("#d9f0d3") },
+  table.header([Independent check], [Executed numerical evidence], [Outcome]),
+  [Complete D6 array], [Two fixed rules each check all 210 tensor moments / 840 Laurent slots against TIRust Float128 at 10⁻¹⁰. Maximum errors: order12≈1.13558×10⁻¹¹, order16≈6.67806×10⁻¹⁵. All 840 rule differences pass, maximum≈1.13491×10⁻¹¹.], [Pass],
+  [Original finite values], [All 210 earlier finite disagreements remain archived. The original scalar/time coefficients also violate an exact positive-F mean bound. The independent parameter calculation agrees with TIRust; the earlier raw reference mismatch is not silently rewritten or counted as a Rust accuracy failure.], [Rejected reference],
+  [Ordinary D0 repair], [Existing Symbolica coefficient_sum preserves the exact shared line coefficient. Ten regressions and exact chart identities pass. One copied Float256 D0 value agrees with independent order20/32 rules: maximum≈3.5524×10⁻¹⁵ at 10⁻¹⁰; rule comparisons pass 10⁻¹².], [Scoped pass],
+  [Actual E6 recovery], [The old failed trace is retained. The repaired ordinary scalar path converges at order64 with 600 box rows and estimate≈7.39054×10⁻²⁷. This is actual convergence, not an independent E6 value or parent-tensor accuracy certificate.], [Scoped pass],
+  [Common-node identity], [All 600 common nodes preserve exact inputs; 13200 component checks replay. Of their D0 values, 480 are unchanged and 120 at the isolated pinch change. Failed compiler, preflight and broad-observer preparation stages remain saved.], [Pass],
+  [Precision limits], [The D6 oracle uses 106-bit DoubleFloat with exactly saved binary64 rule data. No rigorous remainder, Float256 parent pair, full Dual branch, native/generated parity, arbitrary-kinematics or performance claim is added.], [Limits],
+))
+
+D6 replay checks 40 windows, 5068 acknowledgements and exact limb/digest/pole
+data. Its 84 degree-six UV slots include 20 macroscopic all-even values. The
+missing-NumPy launch, MPFR stop and finite-reference failure remain saved.
+Rule agreement is numerical convergence evidence.
+
+The ordinary-only D0 repair preserves the complete prior seeded-Dual helper.
+Its existing Dual regressions retain their own scope. The full imported-error
+Dual path still needs actual numerical qualification. All following sections
+retain their earlier immutable checkpoints and original outcomes.
+
+#text(size: 8pt)[Sources: #raw("validation/ordinary-complex-box-correlation")
+and #raw("validation/affine-power-generalized-current-d6-rank6").]
+
+#pagebreak()
+= Earlier feature boundary (6a826a0)
 The current implementation checkpoint remains incomplete. Rank-six numerical
 coverage has advanced through named public derivative and positive-power
 paths; arbitrary point counts and the full generalized domain are not implied.

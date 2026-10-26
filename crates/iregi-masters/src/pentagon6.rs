@@ -332,6 +332,21 @@ where
         options: &Pentagon6Options<T>,
     ) -> Result<Pentagon6Batch<T>, MasterError> {
         let c = self.components;
+        #[cfg(test)]
+        if precision_trace::enabled() {
+            precision_trace::record("e6_begin", &[
+                ("rows", rows.to_string()),
+                ("components", c.to_string()),
+                ("prototype_precision", self.prototype.get_precision().to_string()),
+                ("observed_box_backend", precision_trace::string(&format!("{:?}", self.boxes.backend()))),
+                ("initial_order", options.initial_order.to_string()),
+                ("maximum_order", options.maximum_order.to_string()),
+                ("relative_tolerance", precision_trace::real(&options.relative_tolerance)),
+                ("absolute_tolerance", precision_trace::real(&options.absolute_tolerance)),
+                ("contour_slope", precision_trace::real(&options.contour_slope)),
+                ("inputs", precision_trace::complexes(input)),
+            ]);
+        }
         let expected = rows
             .checked_mul(INPUTS)
             .and_then(|n| n.checked_mul(c))
@@ -378,11 +393,27 @@ where
         self.geometry
             .evaluate_batch(input, &mut self.geometry_workspace, rows)
             .map_err(|e| MasterError::Evaluation(e.to_string()))?;
+        #[cfg(test)]
+        if precision_trace::enabled() {
+            for lane in 0..rows {
+                precision_trace::record("geometry", &[
+                    ("lane", lane.to_string()),
+                    ("values", precision_trace::complexes(&self.geometry_workspace[lane * GEOMETRY * c..(lane + 1) * GEOMETRY * c])),
+                ]);
+            }
+        }
         let mut active = Vec::new();
         let mut scales = vec![self.prototype.zero(); rows];
         for lane in 0..rows {
             let point = &input[lane * INPUTS * c..(lane + 1) * INPUTS * c];
             if let Some(error) = validate(point, c) {
+                #[cfg(test)]
+                if precision_trace::enabled() {
+                    precision_trace::record("endpoint_rejected", &[
+                        ("lane", lane.to_string()),
+                        ("error", precision_trace::string(&format!("{error:?}"))),
+                    ]);
+                }
                 result.diagnostics[lane].error = Some(error);
                 continue;
             }
@@ -401,6 +432,13 @@ where
                     scales[lane] = magnitude;
                 }
             }
+            #[cfg(test)]
+            if precision_trace::enabled() {
+                precision_trace::record("endpoint_accepted", &[
+                    ("lane", lane.to_string()),
+                    ("scale", precision_trace::real(&scales[lane])),
+                ]);
+            }
             active.push(lane);
         }
         let mut previous = vec![zero.clone(); rows * c];
@@ -408,6 +446,17 @@ where
         let mut order = options.initial_order;
         while !active.is_empty() && order <= options.maximum_order {
             let rule = self.rule(order)?;
+            #[cfg(test)]
+            if precision_trace::enabled() {
+                for (node, (x, w)) in rule.iter().enumerate() {
+                    precision_trace::record("exact_gauss_node", &[
+                        ("order", order.to_string()),
+                        ("node", node.to_string()),
+                        ("x", precision_trace::string(&x.to_string())),
+                        ("weight", precision_trace::string(&w.to_string())),
+                    ]);
+                }
+            }
             let rule: Vec<_> = rule
                 .iter()
                 .map(|(x, w)| {
@@ -451,6 +500,19 @@ where
                         &ray * Complex::new(w.clone() / one_minus.pow(2), self.prototype.zero());
                     weights.push(weight);
                     let index = prepared * order + node;
+                    #[cfg(test)]
+                    if precision_trace::enabled() {
+                        precision_trace::record("contour_node", &[
+                            ("order", order.to_string()),
+                            ("lane", lane.to_string()),
+                            ("node", node.to_string()),
+                            ("x", precision_trace::real(x)),
+                            ("gauss_weight", precision_trace::real(w)),
+                            ("ray", precision_trace::complex(&ray)),
+                            ("t", precision_trace::complex(&t)),
+                            ("weight", precision_trace::complex(&weights[index])),
+                        ]);
+                    }
                     let contraction = &mut self.contraction_workspace
                         [index * CONTRACTION * c..(index + 1) * CONTRACTION * c];
                     contraction[..GEOMETRY * c].clone_from_slice(geometry);
@@ -472,7 +534,58 @@ where
                     }
                 }
             }
+            #[cfg(test)]
+            if precision_trace::enabled() {
+                for (prepared, &lane) in active.iter().enumerate() {
+                    for node in 0..order {
+                        for pinch in 0..5 {
+                            let index = (prepared * order + node) * 5 + pinch;
+                            precision_trace::record("box_input", &[
+                                ("order", order.to_string()),
+                                ("lane", lane.to_string()),
+                                ("node", node.to_string()),
+                                ("pinch", pinch.to_string()),
+                                ("packed_box_row", index.to_string()),
+                                ("values", precision_trace::complexes(&self.box_workspace[index * 11 * c..(index + 1) * 11 * c])),
+                            ]);
+                        }
+                    }
+                }
+            }
             let boxes = self.boxes.evaluate_batch(&self.box_workspace, box_rows)?;
+            #[cfg(test)]
+            if precision_trace::enabled() {
+                for (prepared, &lane) in active.iter().enumerate() {
+                    for node in 0..order {
+                        for pinch in 0..5 {
+                            let index = (prepared * order + node) * 5 + pinch;
+                            match boxes.lane(index) {
+                                Ok(value) => precision_trace::record("box_result", &[
+                                    ("order", order.to_string()),
+                                    ("lane", lane.to_string()),
+                                    ("node", node.to_string()),
+                                    ("pinch", pinch.to_string()),
+                                    ("packed_box_row", index.to_string()),
+                                    ("error", "null".into()),
+                                    ("finite", precision_trace::complexes(value.finite)),
+                                    ("uv", precision_trace::complexes(value.uv)),
+                                    ("ir", precision_trace::complexes(value.ir)),
+                                    ("ir2", precision_trace::complexes(value.ir2)),
+                                    ("total_single", precision_trace::complexes(value.total_single)),
+                                ]),
+                                Err(error) => precision_trace::record("box_result", &[
+                                    ("order", order.to_string()),
+                                    ("lane", lane.to_string()),
+                                    ("node", node.to_string()),
+                                    ("pinch", pinch.to_string()),
+                                    ("packed_box_row", index.to_string()),
+                                    ("error", precision_trace::string(&format!("{error:?}"))),
+                                ]),
+                            }
+                        }
+                    }
+                }
+            }
             for (prepared, &lane) in active.iter().enumerate() {
                 result.diagnostics[lane].order = order;
                 result.diagnostics[lane].box_rows += order * 5;
@@ -514,6 +627,26 @@ where
                     node_rows,
                 )
                 .map_err(|e| MasterError::Evaluation(e.to_string()))?;
+            #[cfg(test)]
+            if precision_trace::enabled() {
+                for (prepared, &lane) in active.iter().enumerate() {
+                    for node in 0..order {
+                        let index = prepared * order + node;
+                        // Observation only: the production accumulator below is unchanged.
+                        let weighted: Vec<_> = self.contraction_output[index * c..(index + 1) * c]
+                            .iter().map(|value| &weights[index] * value).collect();
+                        precision_trace::record("node_contraction", &[
+                            ("order", order.to_string()),
+                            ("lane", lane.to_string()),
+                            ("node", node.to_string()),
+                            ("inputs", precision_trace::complexes(&self.contraction_workspace[index * CONTRACTION * c..(index + 1) * CONTRACTION * c])),
+                            ("values", precision_trace::complexes(&self.contraction_output[index * c..(index + 1) * c])),
+                            ("weight", precision_trace::complex(&weights[index])),
+                            ("weighted_values", precision_trace::complexes(&weighted)),
+                        ]);
+                    }
+                }
+            }
             let mut next = Vec::new();
             for (prepared, &lane) in active.iter().enumerate() {
                 if result.diagnostics[lane].error.is_some() {
@@ -526,6 +659,16 @@ where
                         current[component] +=
                             &weights[index] * &self.contraction_output[index * c + component];
                     }
+                }
+                #[cfg(test)]
+                if precision_trace::enabled() {
+                    precision_trace::record("rule_sum_diagnostic_only", &[
+                        ("order", order.to_string()),
+                        ("lane", lane.to_string()),
+                        ("current", precision_trace::complexes(&current)),
+                        ("previous", precision_trace::complexes(&previous[lane * c..(lane + 1) * c])),
+                        ("success_streak_before", successes[lane].to_string()),
+                    ]);
                 }
                 if current.iter().any(|v| !finite(v)) {
                     result.diagnostics[lane].error = Some(Pentagon6LaneError::NonFinite);
@@ -550,6 +693,18 @@ where
                 } else {
                     successes[lane] = 0;
                 }
+                #[cfg(test)]
+                if precision_trace::enabled() {
+                    precision_trace::record("assessment", &[
+                        ("order", order.to_string()),
+                        ("lane", lane.to_string()),
+                        ("within_tolerance", within_tolerance.to_string()),
+                        ("converged_comparison", converged.to_string()),
+                        ("success_streak_after", successes[lane].to_string()),
+                        ("error_estimate", precision_trace::real(&result.diagnostics[lane].error_estimate)),
+                        ("component_error_estimates", precision_trace::reals(&result.diagnostics[lane].component_error_estimates)),
+                    ]);
+                }
                 previous[lane * c..(lane + 1) * c].clone_from_slice(&current);
                 if successes[lane] >= 2 {
                     result.values[lane * c..(lane + 1) * c].clone_from_slice(&current);
@@ -562,6 +717,27 @@ where
         }
         for lane in active {
             result.diagnostics[lane].error = Some(Pentagon6LaneError::NonConvergent);
+        }
+        #[cfg(test)]
+        if precision_trace::enabled() {
+            for lane in 0..rows {
+                let diagnostic = &result.diagnostics[lane];
+                let error = diagnostic.error.as_ref().map_or_else(|| "null".into(), |error| precision_trace::string(&format!("{error:?}")));
+                let public_values = match result.lane(lane) {
+                    Ok(values) => precision_trace::complexes(values),
+                    Err(_) => "null".into(),
+                };
+                precision_trace::record("e6_lane_final", &[
+                    ("lane", lane.to_string()),
+                    ("order", diagnostic.order.to_string()),
+                    ("box_rows", diagnostic.box_rows.to_string()),
+                    ("error", error),
+                    ("error_estimate", precision_trace::real(&diagnostic.error_estimate)),
+                    ("component_error_estimates", precision_trace::reals(&diagnostic.component_error_estimates)),
+                    ("public_values", public_values),
+                    ("last_approximant_diagnostic_only", precision_trace::complexes(&previous[lane * c..(lane + 1) * c])),
+                ]);
+            }
         }
         Ok(result)
     }
@@ -739,6 +915,20 @@ fn assess_convergence<T: NativeFloat>(
         let norm = max_norm(current);
         let threshold =
             options.absolute_tolerance.clone() + options.relative_tolerance.clone() * &norm;
+        #[cfg(test)]
+        if precision_trace::enabled() {
+            // In the trace this immediately follows rule_sum_diagnostic_only,
+            // which supplies the unchanged caller's order and lane context.
+            precision_trace::record("convergence_component", &[
+                ("component", component_errors.len().to_string()),
+                ("current", precision_trace::complex(current)),
+                ("previous", precision_trace::complex(previous)),
+                ("difference", precision_trace::complex(&difference)),
+                ("magnitude", precision_trace::real(&magnitude)),
+                ("current_norm", precision_trace::real(&norm)),
+                ("threshold", precision_trace::real(&threshold)),
+            ]);
+        }
         if !magnitude.is_finite() || !norm.is_finite() || !threshold.is_finite() {
             return Err(Pentagon6LaneError::NonFinite);
         }
@@ -820,10 +1010,100 @@ impl<D: DualNumberStructure> DualNumberStructure for BorrowedDual<'_, D> {
     }
 }
 
+
+// This observer is compiled only in tests and is activated only by the ignored
+// probe below. It records existing kernel buffers without changing acceptance.
+#[cfg(test)]
+mod precision_trace {
+    use super::*;
+    use std::{cell::RefCell, fs::OpenOptions, io::{BufWriter, Write}};
+    use symbolica::domains::float::Real;
+
+    thread_local! {
+        static SINK: RefCell<Option<BufWriter<std::fs::File>>> = const { RefCell::new(None) };
+    }
+
+    pub(super) const OUTPUT_ENV: &str = "TIRUST_E6_TERMINAL0_TRACE_JSONL";
+
+    pub(super) fn begin() {
+        let path = std::env::var_os(OUTPUT_ENV).expect("set the explicit diagnostic JSONL output path");
+        let file = OpenOptions::new().write(true).create_new(true).open(path)
+            .expect("create a fresh diagnostic output file without overwriting evidence");
+        SINK.with(|sink| {
+            assert!(sink.borrow().is_none(), "one diagnostic observer per thread");
+            *sink.borrow_mut() = Some(BufWriter::new(file));
+        });
+    }
+
+    pub(super) fn finish() {
+        SINK.with(|sink| {
+            if let Some(mut writer) = sink.borrow_mut().take() {
+                writer.flush().expect("flush diagnostic evidence");
+            }
+        });
+    }
+
+    pub(super) fn enabled() -> bool { SINK.with(|sink| sink.borrow().is_some()) }
+
+    pub(super) fn string(value: &str) -> String {
+        let mut output = String::from("\"");
+        for character in value.chars() {
+            match character {
+                '"' => output.push_str("\\\""),
+                '\\' => output.push_str("\\\\"),
+                '\n' => output.push_str("\\n"),
+                '\r' => output.push_str("\\r"),
+                '\t' => output.push_str("\\t"),
+                c if c < '\u{20}' => {
+                    use std::fmt::Write as _;
+                    write!(output, "\\u{:04x}", c as u32).unwrap();
+                }
+                c => output.push(c),
+            }
+        }
+        output.push('"');
+        output
+    }
+
+    pub(super) fn real<T: NativeFloat>(value: &T) -> String {
+        let rational = value.exact_rational().map_or_else(|| "null".into(), |value| string(&value.to_string()));
+        format!("{{\"exact_rational\":{rational},\"precision\":{},\"negative_sign\":{},\"finite\":{},\"display\":{}}}",
+            value.get_precision(), value.negative_sign(), value.is_finite(), string(&format!("{value}")))
+    }
+
+    pub(super) fn complex<T: NativeFloat>(value: &Complex<T>) -> String {
+        format!("{{\"re\":{},\"im\":{}}}", real(&value.re), real(&value.im))
+    }
+
+    pub(super) fn complexes<T: NativeFloat>(values: &[Complex<T>]) -> String {
+        format!("[{}]", values.iter().map(complex).collect::<Vec<_>>().join(","))
+    }
+
+    pub(super) fn reals<T: NativeFloat>(values: &[T]) -> String {
+        format!("[{}]", values.iter().map(real).collect::<Vec<_>>().join(","))
+    }
+
+    pub(super) fn record(event: &str, fields: &[(&str, String)]) {
+        SINK.with(|sink| {
+            let mut sink = sink.borrow_mut();
+            let Some(writer) = sink.as_mut() else { return; };
+            write!(writer, "{{\"event\":{}", string(event)).expect("write diagnostic event");
+            for (key, value) in fields {
+                write!(writer, ",{}:{}", string(key), value).expect("write diagnostic field");
+            }
+            writeln!(writer, "}}").expect("write diagnostic line");
+            // A native child may hit its explicit time limit. Keep every
+            // completed observation on disk instead of retaining a final buffer.
+            writer.flush().expect("flush diagnostic line");
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{DoubleFloat, Float};
+    use symbolica::domains::float::FloatLike;
     #[test]
     fn explicit_policy_keeps_pentagon_boxes_symbolica() {
         let mut policies = vec![MasterExecutionPolicy::Symbolica];
@@ -837,6 +1117,72 @@ mod tests {
             assert_eq!(plan.instantiate(0.).unwrap().boxes.backend(), MasterBackend::SymbolicaBatch);
         }
     }
+
+    /// Capture only: success of this test means the one observation completed,
+    /// not that the scalar or any parent tensor was numerically validated.
+    #[test]
+    #[ignore = "bounded explicit diagnostic; requires a fresh TIRUST_E6_TERMINAL0_TRACE_JSONL path"]
+    fn trace_terminal0_float256_diagnostic_only() {
+        precision_trace::begin();
+        precision_trace::record("probe_metadata", &[
+            ("purpose", precision_trace::string("one reconstructed terminal-0 scalar E6 observation; no numerical acceptance claim")),
+            ("numeric_agreement_claimed", "false".into()),
+            ("working_bits", "256".into()),
+            ("requested_accuracy_bits", "53".into()),
+            ("input_construction", precision_trace::string("exact endpoint rationals mapped directly into Float256; original core master-argument tracked precisions were not captured")),
+            ("limitation", precision_trace::string("nonreproduction at this ideal reconstructed input does not qualify or fix the original six-point tensor failure; no captured input precision is padded")),
+            ("endpoint_source", precision_trace::string("original lines [0,2,3,4,5], edge order (01,02,03,04,12,13,14,23,24,34)")),
+            ("maximum_d0_rows", "1240".into()),
+        ]);
+        let prototype = Float::new(256);
+        let endpoints: [(i64, i64); INPUTS] = [
+            (-1, 1), (-1, 1), (1, 4), (-2, 1), (-2, 1),
+            (-3, 4), (-1, 1), (-3, 4), (-3, 1), (-7, 4),
+            (1, 1), (3, 1), (4, 1), (2, 1), (3, 1), (9, 1),
+        ];
+        let input: Vec<_> = endpoints.into_iter().map(|fraction| {
+            Complex::new(prototype.from_rational(&Rational::from(fraction)), prototype.zero())
+        }).collect();
+        let plan = Pentagon6Plan::new().expect("prepare the unchanged default scalar plan");
+        assert_eq!(plan.master_policy, MasterExecutionPolicy::Default);
+        assert_eq!(plan.component_count(), 1);
+        let mut evaluator = plan.instantiate(prototype.clone()).expect("instantiate Float256");
+        assert_eq!(evaluator.boxes.backend(), MasterBackend::SymbolicaBatch);
+        let mut options = Pentagon6Options::new(&prototype);
+        // The original tensor caller requests 53 accuracy bits and applies
+        // 2^(17-53). Preserve that target rather than the Float256 default.
+        options.relative_tolerance = prototype.from_i64(2).pow(36).inv();
+        options.absolute_tolerance = prototype.zero();
+        options.contour_slope = prototype.one();
+        options.initial_order = 8;
+        options.maximum_order = 128;
+        match evaluator.evaluate_batch(&input, 1, &options) {
+            Ok(batch) => {
+                let diagnostic = &batch.diagnostics()[0];
+                assert!(diagnostic.box_rows <= 1240, "the fixed single-point row cap");
+                let status = match batch.lane(0) {
+                    Ok(_) => "API_success_diagnostic_only",
+                    Err(_) => "API_failure_retained",
+                };
+                precision_trace::record("probe_complete", &[
+                    ("status", precision_trace::string(status)),
+                    ("numeric_agreement_claimed", "false".into()),
+                    ("observed_rows", batch.row_count().to_string()),
+                    ("observed_components", batch.component_count().to_string()),
+                    ("observed_box_rows", diagnostic.box_rows.to_string()),
+                ]);
+            }
+            Err(error) => {
+                precision_trace::record("probe_complete", &[
+                    ("status", precision_trace::string("outer_master_error_retained")),
+                    ("error", precision_trace::string(&format!("{error:?}"))),
+                    ("numeric_agreement_claimed", "false".into()),
+                ]);
+            }
+        }
+        precision_trace::finish();
+    }
+
     const SAMPLE: [i64; 16] = [1, -1, -1, -1, 0, 0, 0, -2, -2, -2, 10, 12, 15, 18, 22, 1];
     fn sample() -> Vec<Complex<f64>> {
         SAMPLE.map(|re| Complex::new(re as f64, 0.)).to_vec()

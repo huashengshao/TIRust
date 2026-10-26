@@ -1,5 +1,139 @@
 # TIRust / iregi-rust: exhaustive session handoff
 
+## Post-publication continuation after `6a826a0`
+
+`6a826a0621229da0c8234a488a5a79f4af844dce` is pushed to `origin/main`.
+Its 59-page report is byte-reproducible and preserves all 408 prior raw records.
+The working tree has a subsequent, uncommitted full-component quadrature-budget
+change: all 15 focused tests pass after two recorded test-fixture corrections.
+Its actual D6 Dual qualification is held until the ordinary D6 and scalar-master
+issues are resolved. The original reference violates a positive-parameter
+rank-one/scalar bound. Two independent parameter rules now agree with all210
+TIRust moments/all840 native Laurent slots, including20 nonzero UV residues
+(saved replay `c113bfee…`). Source inspection identifies an unsafe genuine-D6-to-4D PV
+metric-coefficient bridge as a leading explanation for the reference failure.
+The scalar-only E6 trace reproduces the separate Cartesian first-dot Float256
+failure and localizes lost precision to one box pinch. An ordinary-only,
+factor-preserving OneLOop repair passes exact tests, an independent copied-box
+value comparison and actual scalar E6 convergence; its
+deliberately unchanged Dual program still needs actual qualification.
+
+The private checked-G zero-mass dotted direct fallback is now applied and passes
+ordinary mixed/lifecycle and independent reference/IR checks. An attempted jet
+in another positive mass is explicitly rejected by the existing conservative
+massless C0/D0 derivative chart; that is an unsupported chart, not proof that the
+mathematical direction is nonanalytic. The scale-only Dual witness now passes
+the full mixed/invalid/empty/recovery schedule and 68 saved exact-reference/
+Laurent-scale checks (receipt `4753a710…`), alongside the 34 ordinary gates.
+  Its compact durable capsule is sealed. The negative dimension-shift N6
+rank-six Float128 case passes all 840 coefficients;
+its repaired current Float256 partner now passes all840 reference coefficients and840 strict cross-source old128/new256 pairs (`c5cee76a…`, independent replay `a41c895d…`). The full goal remains open. Generic rank six
+is the target, with no fixed point-count ceiling in the denominator-descent
+architecture; N<=6 is the finite qualification checkpoint. Performance
+optimization and new rank-seven work stay deferred.
+
+Latest continuation receipts (all uncommitted after the published checkpoint):
+
+- `validation/propagated-dual-joint-budget-core-tests`, manifest `c2254d90…`:
+  all 15 focused source tests pass. Actual full-Dual imported quadrature is
+  still a separate open gate.
+- `validation/checked-g-zero-mass-fallback`, manifest `547c78cd…`: sealed
+  ordinary and scale-only Dual evidence, 102 exact saved gates. The failed
+  other-positive-mass derivative is retained as an unsupported scalar chart.
+- `validation/affine-power-generalized-memo-dot-rank6`, manifest `82e48ff8…`:
+  old CLI003 first-dot128 passes;256 returns no array after E6 failure.
+- `validation/public-n6-rank6-d2-partial-evidence`, manifest `0b23b67e…`:
+  old CLI003 D2/128 passes all840 coefficients;256 fails at the same N5 E6
+  endpoint `[0,2,3,4,5]` as the first-dot case. Both256 pairs remain unrun.
+- `validation/rank6-current-focused-core-tests`, manifest `61d24bf0…`,
+  passes all22 focused normal tests in the current core build (`fff28b06…`).
+  Its selected128 source bodies and actual emitted Cargo artifact are bound;
+  it is not a new complete dependency closure or a numerical D6 witness.
+- The ordinary OneLOop repair passes ten exact/existing regressions. Minimal
+  copied-row receipt `dcb3feff…` reproduces the legacy8/6-bit output exactly,
+  while the repaired output retains254/251 tracked bits. Independent20/32-rule
+  value comparison passes at1e-10 (maximum3.55e-15), and the patched scalar E6
+  converges at order64/600 D0 rows, estimated error7.39e-27. The sealed capsule
+  is `validation/ordinary-complex-box-correlation`, manifest `aec68425…`;
+  its separate independent-copy companion is `2f09b8e4…`. Current CLI7005b096
+  and masters007c4e33 are frozen by build receipt `faa4ea0e…`. Current256
+  first-dot parent remains active on CPU16. D2 current256 completed in1126.854s, all840 reference checks pass (max2.672e-17), all840 strict2^-80 cross-source precision pairs pass (max2.636e-27), and all630 pole controls are exactzero. Its source/date-scoped capsule is being prepared separately.
+- The full210 D6 Float128 parameter oracle builds and passes its two exact tests
+  (receipt `4fa0077d…`). Actual inventory is945 Gaussian instructions,210
+  dynamic outputs and304640 complex slots for256 rows. Its numerical run
+  stopped cleanly at the approved first-window cost gate:32768points/63.252s,
+  receipt `02da4d7c…`; both final arrays are UNRUN for that attempt. The uniform
+  Symbolica DoubleFloat specialization builds and passes both source tests,
+  with identical kernels/map/J/slots. Its complete1,297,408-point run takes
+  451.053s (`dc2b6d6f…`). Independent saved replay `c113bfee…` verifies all40
+  windows/5068 ACKs/exact limb witnesses and all840 native slots per rule:
+  maximum1.13558e-11 at order12 and6.67806e-15 at order16. This is numerical
+  defining-integral evidence, not a rigorous enclosure or106 achieved bits.
+  The durable capsule is sealed as `validation/affine-power-generalized-current-d6-rank6`, manifest `1b2c3b50…`. The current256 D6 partner is now active
+  on CPU14 under `target/ordinary-gh-d6-parent-requalification`, protocol
+  `686534c7…`, same2580/120/2400 bounds/noAS cap; both canonical rules and all840
+  old128/new256 cross-source pairs are required. Original finite remains
+  excluded from pass gates and retained diagnostically.
+- The SAMPLE-geometry N6/rank6/h1 mass-second Dual witness uses five shifts
+  `[0,e_time,e_x,e_y,e_z]` plus a duplicate origin with mass squared26,
+  masses `[10,12,15,18,22,26]` andmu3. It needs two regular N5 children and
+  avoids adding a new scalar Dual chart. Its32GiB attempt failed during
+  reduction-evaluator preparation, after quadrature-evaluator preparation,
+  before master evaluation: receipt `561167f1…`, requested allocation
+  `10,565,729,856`bytes after about20GiB RSS. The additive64GiB attempt is
+  explicitly released at `target/n6-sample-d6-mass-second-witness-64g`,
+  protocol `44bfb5cc…`, CPU28, same2580/120/2400 time bounds and frozen core
+  artifact `2d3c077b…`. It completed primary preparation, then failed during
+  eager independent Hybrid IBP fallback preparation: receipt `fe45802d…`,
+  native1774.309s/total1782.089s, malloc48672bytes, last AS62.43GiB/RSS42.01GiB.
+  No tensor array or master result was returned; both Hybrid attempts remain
+  resource-unqualified. A separately labeled explicit-PV witness now uses the
+  identical successful primary calculation and existing public policy to omit
+  the eager independent fallback. No source/guard/tolerance changes: protocol
+  `0975c4f1…`, root-release.json, same64GiB/2580/120/2400, CPU28, session58827,
+  process group1394216. Float256 and independent anchor execution remain held
+  until actual128 review. Exact N5 Gaussian/partial-fraction anchor sources
+  are prepared, with no numerical qualification yet. The final wheel owner
+  has the exclusive Cargo lease for one current wheel build and exact10-case
+  isolated smoke; other native jobs consume frozen artifacts only.
+
+Do not promote a completed capture, tracked precision, source proof, cost-stop,
+or memory failure into independent numerical agreement. No new rank-seven or
+performance-parity campaign is required for the user's functional checkpoint.
+
+## Report checkpoint after published `6a826a0`
+
+The next report increment is prepared in `docs/data/rank6-generalized-followup-20261026.json`
+and its companion under `docs/checkpoints/`. It preserves all 425 earlier raw
+records/timings. Root owns the top continuation above, source staging, final
+independent report review and publication. No new performance or fresh wheel
+qualification is included; the full goal remains active.
+
+Seven scoped capsule families now supplement the publication: current22 focused
+core tests, the overlapping15-test joint-budget source history, zero-mass
+checked-G rank zero ordinary/scale-only Dual 102 gates, old-CLI partial Cartesian-dot
+and D2 outcomes, ordinary D0/E6 correlation repair, and independent complete D6
+parameter-oracle adjudication. Current source tests do not qualify full numerical
+Dual or unfinished parent precision pairs. The old dot/D2 Float256 convergence failures
+remain failed; newer repaired runs remain separate until their own gates pass.
+
+The defining-integral D6 oracle agrees with all 210 moments/840 Laurent slots at
+both fixed rules (order12 max≈1.13558e-11; order16 max≈6.67806e-15). All840
+rule differences pass1e-10. The original 210finite mismatches remain archived,
+but positive-F bounds and the independent oracle reject those reference finite
+values, rather than establish a Rust defining-integral failure. MPFR cost-stop,
+finite mismatch and all pole/UV controls remain preserved. No D6 Float256 pair,
+rigorous enclosure, actual full-Dual integral or performance claim follows.
+Completion gates are the repaired parent precision pairs, a genuine quadrature-
+bearing Dual with independent anchor, and final coherent current release.
+Broader domains remain scoped limits rather than blanket new-grid requirements.
+
+The ordinary-only box repair has 10 regressions, one independent20/32 D0 value
+anchor and actual E6 convergence recovery at order 64/600 rows. Its old failed
+trace remains saved, and the full seeded-Dual helper stays selected. Do not
+infer independent E6 accuracy or parent-tensor qualification from convergence.
+The report owner ran saved replay and document builds only.
+
 ## Current state, 26 October 2026 — supersedes older status below
 
 ### Latest continuation after published `6fb7d3f`

@@ -1254,7 +1254,9 @@ where
                 )
             })
             .transpose()?;
-        let component_sensitivity = if policy.retain_primal_envelopes {
+        // E6 Dual estimates need one combined quadrature/roundoff budget even
+        // when the caller does not retain a sidecar. Reuse the existing recipe.
+        let component_sensitivity = if policy.retain_primal_envelopes || exact.quadrature.is_some() {
             exact.component_sensitivity.as_ref().map(|recipe|recipe.instantiate(
                 exact.shape.as_ref().expect("component sensitivity requires a Dual shape"), &prototype)).transpose()?
         } else { None };
@@ -1554,8 +1556,8 @@ where
 
     /// Reuse the existing uncached inspector with the amplitudes that describe
     /// these returned values, including actual fallback/scatter routes. The
-    /// established combined budget includes roundoff only for component zero;
-    /// joint higher-Dual quadrature acceptance requires a separate policy gate.
+    /// returned full-component amplitudes share the propagated-error target.
+    /// Missing or stale Dual sidecars remain an error, including zero estimates.
     pub(crate) fn inspect_imported_quadrature_output(
         &self, checks: &QuadratureStabilityPlan, result: &BatchResult<T>, lane: usize,
         input: &[Complex<T>], dense_errors: &[Complex<T>],
@@ -1572,8 +1574,15 @@ where
             .map_err(|status| format!("imported quadrature requires success: {status:?}"))?;
         let actual_amplitudes: Vec<_> = envelope.operands.iter()
             .map(|operand| operand.amplitude.clone()).collect();
-        Ok(self.stability.inspect_quadrature_lane(checks, dense_errors, output, input,
-            self.components, &self.prototype, self.accuracy_bits, Some(&actual_amplitudes)))
+        if self.components > 1 {
+            let components = result.validated_component_amplitudes(lane,
+                self.prototype.get_precision(), self.accuracy_bits)?;
+            Ok(self.stability.inspect_quadrature_lane_components(checks, dense_errors, output, input,
+                self.components, &self.prototype, self.accuracy_bits, Some(&actual_amplitudes), components))
+        } else {
+            Ok(self.stability.inspect_quadrature_lane(checks, dense_errors, output, input,
+                self.components, &self.prototype, self.accuracy_bits, Some(&actual_amplitudes)))
+        }
     }
 
     fn reduce_batch_impl(
@@ -2319,6 +2328,17 @@ where
             }) {
                 result.statuses[lane] = LaneStatus::Unstable(reason);
             } else if let Some(reason) = self.quadrature.as_ref().and_then(|quadrature| {
+                if self.components > 1 {
+                    let Some(sensitivity) = &self.component_sensitivity else {
+                        return Some("missing full-component amplitudes for propagated quadrature errors".into());
+                    };
+                    self.stability.inspect_quadrature_lane_components_context(
+                        &quadrature.plan, quadrature.lane(compact, self.components),
+                        output, input_row, self.components, &self.prototype,
+                        self.accuracy_bits, primal_values,
+                        sensitivity.lane(compact, self.components), &mut self.guard_context,
+                    )
+                } else {
                 self.stability.inspect_quadrature_lane_context(
                     &quadrature.plan,
                     quadrature.lane(compact, self.components),
@@ -2330,6 +2350,7 @@ where
                     primal_values,
                     &mut self.guard_context,
                 )
+                }
             }) {
                 result.statuses[lane] = LaneStatus::Unstable(reason);
             } else {

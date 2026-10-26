@@ -9,6 +9,8 @@
 pub(crate) mod imported_affine;
 #[cfg(test)]
 mod quadrature_patch_tests;
+#[cfg(test)]
+mod dual_joint_budget_tests;
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -265,8 +267,9 @@ impl QuadratureStabilityPlan {
 impl StabilityPlan {
     /// Check propagated quadrature estimates for every requested output jet.
     /// The estimates are successive-rule differences, not interval bounds.
-    /// For primals, include the existing working-ULP master-sensitivity estimate
-    /// in the same budget rather than granting quadrature an additional budget.
+    /// The legacy scalar entry uses its existing primal amplitude. Composed
+    /// Dual callers use the dense entry below so quadrature and each ordered
+    /// component's roundoff share one dimensional target.
     pub(crate) fn inspect_quadrature_lane<T: NativeFloat>(
         &self,
         quadrature: &QuadratureStabilityPlan,
@@ -287,6 +290,7 @@ impl StabilityPlan {
             prototype,
             accuracy_bits,
             primal,
+            None,
             None,
         )
     }
@@ -312,8 +316,34 @@ impl StabilityPlan {
             prototype,
             accuracy_bits,
             primal,
+            None,
             Some(context),
         )
+    }
+
+    /// Full output-indexed amplitudes, not sparse quadrature-check indices.
+    /// Each Taylor entry already comes from Symbolica's positive contraction.
+    /// The caller must validate the actual owning returned-value context.
+    pub(crate) fn inspect_quadrature_lane_components<T: NativeFloat>(
+        &self, quadrature: &QuadratureStabilityPlan, errors: &[Complex<T>],
+        moments: &[Complex<T>], input: &[Complex<T>], components: usize,
+        prototype: &T, accuracy_bits: u32, primal: Option<&[Complex<T>]>,
+        component_amplitudes: &[Complex<T>],
+    ) -> Option<String> {
+        self.inspect_quadrature_lane_impl::<T, false>(quadrature, errors, moments,
+            input, components, prototype, accuracy_bits, primal,
+            Some(component_amplitudes), None)
+    }
+
+    pub(crate) fn inspect_quadrature_lane_components_context<T: NativeFloat>(
+        &self, quadrature: &QuadratureStabilityPlan, errors: &[Complex<T>],
+        moments: &[Complex<T>], input: &[Complex<T>], components: usize,
+        prototype: &T, accuracy_bits: u32, primal: Option<&[Complex<T>]>,
+        component_amplitudes: &[Complex<T>], context: &mut GuardContext<T>,
+    ) -> Option<String> {
+        self.inspect_quadrature_lane_impl::<T, true>(quadrature, errors, moments,
+            input, components, prototype, accuracy_bits, primal,
+            Some(component_amplitudes), Some(context))
     }
 
     fn inspect_quadrature_lane_impl<T: NativeFloat, const CACHED: bool>(
@@ -326,11 +356,12 @@ impl StabilityPlan {
         prototype: &T,
         accuracy_bits: u32,
         primal: Option<&[Complex<T>]>,
+        component_amplitudes: Option<&[Complex<T>]>,
         mut context: Option<&mut GuardContext<T>>,
     ) -> Option<String> {
         if components == 0
-            || errors.len() != quadrature.checks.len() * components
-            || moments.len() != quadrature.moment_outputs * components
+            || quadrature.checks.len().checked_mul(components) != Some(errors.len())
+            || quadrature.moment_outputs.checked_mul(components) != Some(moments.len())
         {
             return Some("invalid propagated quadrature-error buffer".into());
         }
@@ -343,6 +374,13 @@ impl StabilityPlan {
         else {
             return Some("missing primal amplitudes for propagated quadrature errors".into());
         };
+        if let Some(amplitudes) = component_amplitudes {
+            if amplitudes.len() != moments.len()
+                || amplitudes.iter().any(|value| !super::components::valid_amplitude(value))
+            {
+                return Some("invalid full-component amplitudes for propagated quadrature errors".into());
+            }
+        }
         let precision = prototype.get_precision();
         let mut roundoff = if CACHED {
             OperandRoundoff::with_unit(
@@ -396,6 +434,7 @@ impl StabilityPlan {
                     ));
                 }
                 let mut estimate = error.re.clone();
+                let mut operand_error = None;
                 if component == 0 {
                     let amplitude = &primal[check.primal_amplitude];
                     if !amplitude.re.is_finite() || !amplitude.im.is_finite() {
@@ -404,11 +443,27 @@ impl StabilityPlan {
                             check.label
                         ));
                     }
-                    let primal_error = match roundoff.complex(amplitude) {
+                    operand_error = Some(match roundoff.complex(amplitude) {
                         Ok(value) => value,
                         Err(reason) => return Some(format!("{reason} for {}", check.label)),
+                    });
+                }
+                if let Some(amplitudes) = component_amplitudes {
+                    let amplitude = &amplitudes[check.output * components + component];
+                    let dense_error = match roundoff.complex(amplitude) {
+                        Ok(value) => value,
+                        Err(reason) => return Some(format!("{reason} for {}, Taylor component {component}", check.label)),
                     };
-                    estimate += primal_error;
+                    // The two heuristic programs need not have equal primal
+                    // amplitudes. Preserve the stronger existing primal budget,
+                    // while including the dense component exactly once.
+                    operand_error = Some(match operand_error {
+                        Some(primal_error) if primal_error > dense_error => primal_error,
+                        _ => dense_error,
+                    });
+                }
+                if let Some(operand_error) = operand_error {
+                    estimate += operand_error;
                 }
                 let magnitude = NativeFloat::hypot(&moment.re, &moment.im);
                 let reference = if magnitude > natural {

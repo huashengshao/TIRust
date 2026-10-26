@@ -32,7 +32,7 @@ struct Seed {
 }
 
 /// The recipe deliberately owns no ReductionPlan or execution-cache reference.
-/// Only retaining multi-component workspaces force its shared exact programs.
+/// Retaining workspaces and local-E6 Dual joint budgets force these shared exact programs.
 /// One recipe belongs to one PreparedExecution, whose existing cache key
 /// contains the complete ordered shape. The OnceLock must never cross shapes.
 pub(crate) struct ComponentSensitivityRecipe {

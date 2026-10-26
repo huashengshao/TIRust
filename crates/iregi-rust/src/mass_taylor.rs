@@ -524,19 +524,59 @@ fn scatter_admitted_joint<T:NativeFloat>(source:CoupledQuadratureBatch<T>,rows:u
 /// a primal zero-mass scalar branch does not define transverse mass derivatives.
 /// Each auxiliary seed is +1 by construction, so a dotted zero mass is transverse.
 /// Use represented exact zero only; no f64 conversion, threshold, or snapping.
-fn auxiliary_mass_boundary<T:NativeFloat>(physical:&[Complex<T>],input:&InputLayout,layout:&DottedLayout)->Option<String>{
-    let user=layout.user_components();
-    for &(line,_)in layout.mass_seeds(){
-        let Some(parameter)=input.masses.start.checked_add(line)else{return Some("MassTaylor auxiliary mass index overflow".into());};
-        if !input.masses.contains(&parameter){return Some("MassTaylor auxiliary mass is outside the authoritative layout".into());}
-        let Some(index)=parameter.checked_mul(user)else{return Some("MassTaylor auxiliary component index overflow".into());};
-        let Some(mass)=physical.get(index)else{return Some("MassTaylor auxiliary mass primal is missing".into());};
-        if mass.re.is_zero()&&mass.im.is_zero(){
-            return Some(format!("MassTaylor auxiliary mass direction on propagator {line} crosses an exact zero-mass branch: {}",
-                iregi_masters::LaneError::UnsupportedDerivativeDomain));
+fn auxiliary_mass_boundary<T: NativeFloat>(
+    physical: &[Complex<T>],
+    input: &InputLayout,
+    layout: &DottedLayout,
+) -> Option<String> {
+    match zero_auxiliary_mass_line(
+        physical,
+        input,
+        layout.user_components(),
+        layout.mass_seeds().iter().map(|&(line, _)| line),
+    ) {
+        Ok(Some(line)) => Some(format!(
+            "MassTaylor auxiliary mass direction on propagator {line} crosses an exact zero-mass branch: {}",
+            iregi_masters::LaneError::UnsupportedDerivativeDomain
+        )),
+        Ok(None) => None,
+        Err(reason) => Some(reason),
+    }
+}
+
+/// Shared exact-primal selector for an auxiliary mass direction. A caller may
+/// choose a direct original-request recurrence instead of using that auxiliary
+/// direction; original user-Dual branch validation is never bypassed here.
+/// This is a numerical branch predicate, not a polynomial/Taylor zero proof.
+pub(crate) fn zero_auxiliary_mass_line<T: NativeFloat>(
+    physical: &[Complex<T>],
+    input: &InputLayout,
+    user: usize,
+    lines: impl IntoIterator<Item = usize>,
+) -> Result<Option<usize>, String> {
+    if user == 0 {
+        return Err("MassTaylor user component count must be positive".into());
+    }
+    for line in lines {
+        let parameter = input
+            .masses
+            .start
+            .checked_add(line)
+            .ok_or("MassTaylor auxiliary mass index overflow")?;
+        if !input.masses.contains(&parameter) {
+            return Err("MassTaylor auxiliary mass is outside the authoritative layout".into());
+        }
+        let index = parameter
+            .checked_mul(user)
+            .ok_or("MassTaylor auxiliary component index overflow")?;
+        let mass = physical
+            .get(index)
+            .ok_or("MassTaylor auxiliary mass primal is missing")?;
+        if mass.re.is_zero() && mass.im.is_zero() {
+            return Ok(Some(line));
         }
     }
-    None
+    Ok(None)
 }
 
 #[derive(Clone,Debug)]
@@ -555,9 +595,8 @@ fn select_coefficients<T:NativeFloat>(joint:&CoupledQuadratureBatch<T>,row:usize
     let amplitudes=source.validated_component_amplitudes(row,prototype.get_precision(),accuracy)?;
     let errors=joint.errors(row,prototype.get_precision(),accuracy)?;
     let origin=joint.origin(row,prototype.get_precision(),accuracy)?;
-    if user>1&&origin==QuadratureErrorOrigin::PropagatedEuclidean {
-        return Err("mass-Taylor user higher-component combined quadrature/roundoff policy is not qualified".into());
-    }
+    // This is selection only. The fresh dotted projection below must pass the
+    // same all-component imported joint budget before publishing any values.
     let source_values=source.lane(row).map_err(|status|format!("mass-Taylor requires successful source: {status:?}"))?;
     let outputs=source.basis.len().checked_mul(4).ok_or("mass-Taylor projection dimensions overflow")?;
     let width=outputs.checked_mul(user).ok_or("mass-Taylor projection dimensions overflow")?;

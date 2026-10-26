@@ -981,6 +981,16 @@ where
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn affine_power_parent_observation(
+        &self,
+    ) -> Option<&crate::execution::quadrature_context::CoupledQuadratureBatch<T>> {
+        match &self.engine {
+            WorkspaceEngine::AffinePower(workspace) => workspace.component_parent_observation(),
+            _ => None,
+        }
+    }
+
     pub fn execution_summary(&self) -> Result<ExecutionStats, ReductionError> {
         self.engine_execution().summary()
     }
