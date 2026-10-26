@@ -220,7 +220,7 @@
 #text(size: 9.5pt)[The refreshed current wheel passes ten installed smoke cases; the earlier 65API,
 seven marimo cases and consumer typing retain separate source contexts. Ordinary N6/rank-six
 first-dot/D2/D6 precision pairs now pass. Full genuine-quadrature Dual arrays remain pending
-after a narrow optional-route fix. Complete feature acceptance remains open; performance is deferred.]
+after eight retained no-array attempts; two unchanged 96 GiB requests are active. Complete feature acceptance remains open; performance is deferred.]
 #report-table(table(
   columns: (1.05fr, 3.6fr, 0.8fr), inset: (x: 6pt, y: 8pt), stroke: table-stroke,
   fill: (x, y) => if y == 0 { navy } else if y <= 3 { rgb("#d9f0d3") } else { amber },
@@ -228,7 +228,7 @@ after a narrow optional-route fix. Complete feature acceptance remains open; per
   [Local PyO3 facade], [Current refresh: 10 installed smoke cases, 205 selected sources and 128 declared core bodies tied to the fresh 210-source build. Older 65API/7marimo/typing retain their historical context.], [Scoped],
   [Dotted propagators], [N1/N4 first-dot/triple and N5 rank-six first-dot results retain their scoped passes. Current N6 first-dot256/prior128 strict pairs now pass; failed pre-repair attempts remain visible.], [Scoped],
   [Example gallery], [Seven historical runtime cases and earlier three HTML exports/six browser views keep their own source contexts. No new gallery or typing run accompanies the current 10-case smoke.], [Historical],
-  [Tensor / API coverage], [The new 210-source route fix passes 24 focused tests with a retained timeout. Ordinary rank-six arrays pass; full N6/R6 quadrature-Dual arrays and independent core-anchor agreement remain pending.], [Scoped],
+  [Tensor / API coverage], [The new 210-source route fix passes 24 focused tests with a retained timeout. Ordinary rank-six arrays pass; full N6/R6 quadrature-Dual arrays and TIRust/DD agreement remain pending under the active 96 GiB attempts.], [Scoped],
   [Public rank-six Dual], [Explicit PV and default Hybrid h=0 unit-power mixed Float128/256 arrays pass, with scoped DoubleFloat/finite-difference controls. Typed f64 stays guarded; genuine quadrature-bearing shifted arrays remain pending.], [Scoped],
   [Performance], [Historical private selected TIRust/COLLIER: seven slower families and one short inconclusive family. The fresh scheduler cohort is ineligible because of host contention; no default adoption.], [Measured],
 ))
@@ -237,7 +237,59 @@ Other platforms, separate Community-host loading and broader tensor numeric/exce
 domains remain unqualified. Earlier C0/D0 identities retain their wheel004 context.]
 
 #pagebreak()
-= Ordinary rank-six closure and refreshed frontend
+= Full-Dual validation: resource boundaries remain open
+The original-SAMPLE N6/rank-six/h1 mass-second witness still has no admitted
+full tensor array. Four new post-fix attempts terminate without completing a
+call; the earlier four failures remain preserved. Two larger-budget attempts
+are active with the same source, inputs and mathematical settings. This
+checkpoint adds diagnostics, not numerical qualification, performance or goal
+completion. All 443 prior raw report values and timings remain unchanged.
+
+#report-table(table(
+  columns: (1.2fr, 3.6fr, 0.8fr), inset: (x: 7pt, y: 11pt), stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else { amber },
+  table.header([Frozen attempt / model], [Terminal evidence or precisely bounded interpretation], [Outcome]),
+  [Post-fix Float128/256], [Both earlier 2400-second attempts complete generic construction (about 1778s each), then hit the native execution deadline without a completed call or array. They retain the source 210/product 4f430732 context and requested accuracy 53; these are resource limits, not numerical disagreements.], [No array],
+  [Float128 /64 GiB], [The 4200-budget attempt aborts in numerical allocation after 3733.628 native seconds; GMP cannot allocate 16 bytes. The final receipt retains 250 unchanged guarded bindings, empty cleanup and an absent owned process group. No array is returned.], [No array],
+  [Float256 /64 GiB], [The 4200-budget attempt aborts after 2912.259 native seconds; GMP cannot reallocate 16→40 bytes. The same 250-binding terminal guard/cleanup checks pass. This does not establish the exact evaluator, slot or refinement active at failure.], [No array],
+  [Current 96 GiB attempts], [Separate 128/256 requests are active: 7200 native/7380 total/120 cleanup seconds each. Both keep explicitPV, source 210/product 4f430732, original fixture, shape and accuracy 53. No result is inferred from the larger ceiling or from its peer.], [Pending],
+  [Two-second /96-sample profile], [The sample concerns one numerical instant of the older Float128 /64 GiB run. It sees complex multiprecision arithmetic, copies and allocation. It does not identify the later Float256 failure stage, whole-run cost, peak memory, or 96 GiB sufficiency.], [Diagnostic],
+))
+
+The source model is finite but is not an exact peak bound. For master-batch capacity
+B>1, Symbolica reserves B×(root slots + shared-body slots), including inactive
+shared bodies, and retains the largest capacity. E6 with R active requests,
+order q and c components prepares 5Rq box rows, 11c input values and 6c allocated
+master outputs per box row. At c=3, that is 33 complex inputs and 18 allocated outputs per
+box row (including internal quantities), before other retained workspaces, graphs and allocator storage.
+
+One active request through default orders 8–128 accounts for 1240 cumulative
+box rows and a largest refinement of 640 rows. These are structural formulas,
+not observations of the failed stage. Initially one-bit Float zeroes can acquire
+larger limbs when touched at working precision. First-touch expansion and
+allocator retention are plausible explanations of growth, not a proven fault
+cause, leak or plateau. The saved artifacts lack the exact live slot inventory.
+
+#block(fill: rgb("#d9f0d3"), inset: 7pt, radius: 3pt, width: 100%)[
+  *Newly archived reference.* The already completed DD defining-integral stream
+  and all 2520 parent rule pairs pass (maximum≈2.44997×10⁻¹⁵). This archives
+  reference qualification; it adds no TIRust numerical success. TIRust/DD
+  comparisons remain pending.
+]
+
+The initial offline symbolization timeout remains failed; the later no-inline
+report is separate. Raw perf data is omitted by historical hash. Active 96 GiB
+results are not bound here. Ordinary/core/wheel counts stay inherited. Final
+completion waits for actual full-Dual arrays, strict pairs and independent
+comparisons; performance remains deferred.
+
+#text(size: 8pt)[Source: #raw("validation/e6-dual-postfix-resource-boundaries") and
+#raw("validation/e6-dual-rank6-mass-second-defining-integral").
+Memory formulas are source-based diagnostics, not a complete dependency closure
+or a certified byte/accuracy bound.]
+
+#pagebreak()
+= Earlier ordinary closure (dfcae98)
 The documented ordinary N6/rank-six first-dot, D2 and genuine-D6 families now
 have complete current Float256 results and strict cross-source precision comparisons.
 The full rank-six feature goal remains open while the quadrature-bearing Dual

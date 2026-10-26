@@ -1,5 +1,123 @@
 # TIRust / iregi-rust: exhaustive session handoff
 
+The ordinary six-point/rank-six dotted and dimension-shifted qualification is
+committed and pushed. The goal remains open because the full quadrature-bearing,
+second-mass-derivative Dual witness has not returned an array at either precision.
+Both 64 GiB attempts failed in numerical allocation; neither was a numerical
+comparison. Two independent, unchanged-code retries now run at 128 and 256 bits,
+each with a 96 GiB address-space cap and a 7,200-second native deadline. Do not
+duplicate them or modify their frozen compiled inputs. Their owner is
+`e6_precision_failure_research`; sessions are **44049** and **92862**. The
+independent defining-integral oracle is already complete and agrees between two
+rules; TIRust's complete output and error-context checks remain pending.
+
+Finish those actual gates, publish the final report and handoff, commit and push,
+mark the accepted rank-six objective complete, then stop. Optimization and further
+rank-seven work are deferred. All older pending-state prose below is historical
+when it conflicts with this live status.
+
+## Live continuation after pushed `dfcae98` — numerical memory boundary
+
+Previous ordinary-closure publication is
+`dfcae98b110fdd47647bb95dd82cf439db53c690`,63-pagePDF
+`95fc3559…`,443rawrecords;395bindings/364JSON and root byte-identical rebuild/
+visualreview passed. Narrowguard/source24+currentwheelccee and allordinary
+N6R6dots/D2/D6 are committed/pushed. No further source change is planned.
+
+The initial post-fix2400-native attempts are
+TERMINAL TIMEOUT, not math failures:128receipte0f1f2cc(total2414.769/native2408.176),
+2567b205d15(total2415.011/native2407.975). Both finished generic constructors
+(1777.993/1786.698s, numericmapping427.52/424.34s), then nofirstcallreturned by
+the fixed deadline. No allocation/kernel/assertionerror, all240bindingsunchanged,
+SIGTERM−15/cleanupempty/groupgone. AS62.24GiB remained below64. Preserve these
+new failures additively; do not mutate sourcecapsule403dfee6, which retains only
+the four earlier memory failures. Partial failure audits/summaries are retained.
+
+Root reviewed and explicitly released bound-only ADDITIVE4200-native/4380total/
+120cleanup captures, same64GiB/accuracy53/originalSAMPLE/artifact4f430732/source210:
+-128: `target/e6-dual-post-fix-full-sample-128-4200`, protocolfdf1b0f1,
+  CPU28,unifiedsession34440.
+-256: `target/e6-dual-post-fix-full-sample-256-4200`, protocol0984b306,
+  CPU30,unifiedsession41298.
+Both root-release.json verified248immutable inputs. `e6_precision_failure_research`
+owns both autonomous lifecycles. Both generic child constructors completed
+(128:1525.95s,256:1534.36s), with no second optional profile. Float256 then FAILED
+during the first numerical batch: receipt `d74f5a15…`, native2912.259s /
+total2920.615s, SIGABRT−6, GMP realloc16→40bytes, all250terminalbindings unchanged,
+cleanupempty/groupgone, ZERO calls/arrays. Exact later numerical substage is
+not exported. Float128 also FAILED at64GiB: receipt `cc0afb22…`, native3733.628s /
+total3741.261s, SIGABRT−6, GMPallocate16bytes, all250terminalbindings unchanged,
+cleanupempty/groupgone, ZERO calls/arrays. Both4200sessions are terminal.
+
+Root checked actual host/cgroup headroom (MemAvailable~254–284GiB; actual user/
+session memory.max andmemory.high=max). Root independently verified262bindings
+and released ONE additive Float25696GiB/7200native/7380total/120cleanup packet:
+`target/e6-dual-post-fix-full-sample-256-96g-7200`, protocol
+`640c0afd61a9901f72a21931235468968811eba7cc7e826e38abd8a43338060a`, CPU30.
+`root-release.json` written; launched CPU30/unifiedsession92862.
+After128 actualfailure, root verified262bindings/released matching12896GiB packet:
+`target/e6-dual-post-fix-full-sample-128-96g-7200`, protocol
+`74f304c7fe9c3587fbfa089242298a328a7fce7a400ce7f82a664e81d5ce353a`,
+CPU28/unifiedsession44049. BOTH96GiB jobs ACTIVE, owned byE6researchagent.
+Latest08:31UTC:256elapsed1746s/firstnumericalbatch/RSS35.3GiB/AS62.22GiB,
+genericchildconstructor1460.57s;128elapsed1120s/exactrecurrenceevalprep/
+RSS30.3GiB/AS46.3GiB, clean identities/noerrors/noarrays. Same frozen4f430732 /source210/
+originalfixture/requested53/allguards, no build/source/math change or automaticretry.
+Preserve the numerical-stage failure additively; do not mutate source403 capsule.
+Immediate each-precision full2520×bothDDrules comparisons must
+follow actualarray+mechanismgates; allsix complete2520gates, exact input/odd-invalid/
+empty/recovery/owningQ contexts and strictsame-source2^-80 remain required.
+No accuracy/branch/domain/error guard or core source changed for the longer run.
+
+New saved-only packaging is SEALED/PASS. IndependentDDanchor is
+`validation/e6-dual-rank6-mass-second-defining-integral`, manifestdd499b4a,
+3.01MB/36ownobjects/465aliases/210compiledsources208borrowed; defaultandminimal
+11-file replay pass. Resource capsule
+`validation/e6-dual-postfix-resource-boundaries`, manifest78fb3bc3,173130B/
+49owntextobjects/296aliases, directlyborrows403source andanchor'seightoraclefiles;
+fouractualfailedmechanismaudits/976nonbinaryguards reproduce, minimal22filePASS.
+Neither capsule duplicates source/DD bodies or archivesactive96capturedata.
+Root independentlyreplayedBOTHcapsules. Finalfullpasscapsule shouldinheritboth.
+
+The resource checkpoint adds one report page:64-pagePDF5e011ac9,Typst6911e474,
+446rawrecords/398bindings/367JSON; all443priorrawvalues and54historicalproof
+fields exact. Rootrebuildbyteidentical/visualpages1–2/payloadscan19files85archive
+members18.22MBPASS. Rootreview
+`docs/data/rank6-dual-resource-boundaries-root-review-20261026.json`,bb18300a.
+No newTIRustarray/integral/performancequalification; goalfalse. The independent
+reference is newlyARCHIVED, notnewlyevaluated. Sourceandallmath unchanged.
+Use gitlogforcurrentpublicationcommit; finalconditionaltemplates mustrebase
+afterthisresourcecheckpointispushed, preservingall446records/nestedhistory.
+Read-only memory model note `target/rank6-numeric-memory-layout-review-20261026.md`
+SHA0fdce80b: batch scratch scales B*(root+allsharedfunctionslots), E6boxes5*R*order,
+Floatslots initialized1bitthenfirsttouchprecisionexpandslimbs; boundedstorage,
+NOTa96GiBceilingproofor exactfaultattribution. FixedD0requestwindows futureoption
+onlyiflargerfrozencapturesalsofail; no patch/extraevaluationdone.
+
+Owner prepared ONE bounded read-only2s perf sample at actual numerical stage
+(~2000s), to avoid another blind budget change if needed. Existing perf:
+`/nix/store/wizn21b9virxqcnm4n89b09pgqkaxfn3-perf-linux-7.2.5/bin/perf`,
+SHAf97ebe85, kernel6.18.45/perf_event_paranoid2. PID/start/exe guard,49Hzusercpu-clock,
+DWARF4096stack; noenvreads/sourceedits/install/escalation, no activejobsignal.
+One actualFloat1282s attachment at numerical stage PASSED:96userCPUsamples,
+0lost, nativeidentityunchanged; Float256unsampled. Initialofflineaddr2line
+report hit25s cap; additive --no-inline offline report PASSED1.223s,06a27a0c,
+under target/post-fix-e6-read-only-sampling/Float128-sample-001. Stack shows
+SymbolicaBatchExpressionEvaluator andcomplexMPFRmultiply/clone/allocation plus
+complexlog/polylognumericwork.4096Bytestacksstopatbatchevaluator: no whole-run
+dominance or ordinaryD0-vs-E6D0 attribution. No native signal/change; allprofiler
+groupscleaned. Rawperftrace f762da96 isTARGETONLY, omitfrompubliccapsule.
+
+Finalconditional report templates rebased todfcae98/all443raw with exact current
+publicationproofhistory preserved; current_rank6_report is idle until finalcaps
+pass. READMEfinaldraft target/rank6-final-feature-report-20261026/README.final.draft.md
+remains unapplied. Finalcheckpointname rank6-functional-completion-20261026.
+The ready DDanchor(replay461859d5,2520rulepairmax2.45e-15) is unchanged. All leases
+are free; only the two frozen native captures run. Goal remains OPEN; existing
+goaltoolstatusBLOCKED is stale after userresume and cannot be manually setactive.
+Do not markcompleteuntilactualremaininggates pass, reportupdated/committed/pushed,
+then stop as requested. No rank7/performancegrid additions.
+
 ## Current milestone: ordinary rank-six closure and Dual route repair
 
 This checkpoint extends pushed `fccffab` and publishes a63-page benchmark PDF,

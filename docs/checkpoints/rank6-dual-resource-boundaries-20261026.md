@@ -1,0 +1,17 @@
+# Full-Dual resource boundaries, 26 October 2026
+
+This intermediate diagnostic checkpoint preserves all 443 earlier raw report values, timing objects and nested history. The full feature goal remains open. No new TIRust array, numerical qualification or performance measurement is added.
+
+Four post-fix attempts terminate without completing a call: both 2400-second runs finish generic construction (about 1778 seconds each), then hit the native execution deadline; the 128/256 4200-budget runs abort at 64 GiB in numerical GMP allocation. Native failure times are 3733.628 and 2912.259 seconds, respectively. The 128 failure allocates 16 bytes; the 256 failure reallocates 16→40bytes. Both 4200 terminal receipts preserve 250 unchanged guarded bindings, empty cleanup and an absent owned process group. These are resource failures, not observed numerical disagreements. The original four Hybrid/PV failures remain inherited from 403, for eight retained no-array attempts total.
+
+Two 96 GiB attempts are active with 7200 native/7380total/120cleanup seconds each, the same 4f430732/source210/originalfixture/explicitPV/accuracy53 and no source/formula/input/schedule change. No success is inferred from extra resources or the peer run; mutable active captures are not report bindings.
+
+The source model reserves B*(root slots+shared-body slots) for master batch capacity B>1, including inactive shared bodies, and retains the largest capacity. For R active E6 requests, order q and c components, it constructs 5Rq box rows with 11c packed input values and 6c allocated master outputs per row; at c=3 this is 33 inputs/18 outputs before other workspaces, graphs and allocator storage. A request still active at all default 8–128 orders evaluates 1240 cumulative box rows and 640 in its largest refinement. These finite structural formulas are not an exact peak byte bound. First-touch expansion from one-bit Float zeroes and allocator retention are plausible source-based explanations, not proof of the failed slot, exact stage, leak, plateau or 96 GiB sufficiency.
+
+The two-second/96-sample profile concerns one numerical instant of the original Float128/64 GiB run. It is not a 96 GiB memory sample, exact 256 failure-stage trace or whole-run performance measurement. The initial offline-symbolization timeout and later no-inline report remain separate outcomes; raw perf data is omitted by historical hash.
+
+The independent DD reference is newly archived, not newly evaluated: both 5880-field rule streams and all 2520 parent rule pairs have their existing pass (max≈2.44997e-15). This reference qualification does not establish TIRust/DD agreement or full owned propagated-context admission. Ordinary/core 24/current wheel 10 counts remain inherited rather than duplicated.
+
+Actual full 128/256 arrays, strict same-source pairs, owned full-component error/context admission, independent mass-derivative comparisons and final coherent publication remain pending. Performance stays deferred. The API has no fixed point-count ceiling, while numerical qualification remains the documented N≤6/rank≤6 families; arbitrary-N/every-chart acceptance is not inferred. High-point checked supplied-G compatibility proofs do not impose a blanket certificate on authoritative lower-point supplied-G inputs.
+
+The adjacent machine-readable checkpoint binds only the two immutable capsules and excludes active capture inputs.
