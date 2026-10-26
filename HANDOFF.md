@@ -1,20 +1,204 @@
 # TIRust / iregi-rust: exhaustive session handoff
 
+## Live status after restoring the exact-zero route — 26 October 2026
+
+Current source execution4f673f8c/testd4bc4ae0 has a successful optimized build
+and ALL24 focused tests PASS. Actual buildb0695760d975d4c0f789400699861f3b4581f7fae5677d682748f2cf0e075da2,
+artifact749b2ae3489eb0096267421b120fa3586f2243c7eaf78fc9c02b0f9f30895906,
+focused65bc99d85aa08e9b07c704f818691212b4a8ec2d578184c06d7dec6e7089581f
+(26.859s) at `target/e6-dual-restored-zero-profile-test-correction`. Root verified
+actual opt3/test=true/source210. Compiler debug assertions and overflow checks
+are false; mandatory numerical admission guards are unchanged. No source edits
+while captures run.
+
+One FULL Float128 witness is ACTIVE, ownerE6 agent, session15282CPU28:
+`target/e6-dual-restored-zero-profile-opt3-128-192g`, protocol
+ff2a9ef1f0e2b6219773a11bb1f01f4224a0886e6d959886ab3b340477598e7f.
+All235bindings root+audit checked;192GiBAS/7200native/7380total120cleanup,
+originalSAMPLE/masssecond/h1/rank6/requested53/all2520/fullQ/lifecycle guards
+unchanged. No actual arrays yet. FIRST128 ONLY;256 HELD until actual128 review
+and separately released protocol. Available host memory~337GiB was observed,
+not a proof of required peak. No automatic retry or source edits.
+
+Fresh Python wheel BUILD PASS118.851s/source205 current-context5dfe8459:
+build86e16fbff76c819be2ee50fb9bac5ba493e3313bb64ef4b8dd8ac43c6ddac3df,
+wheel03184baf6a36fa03fe66ddb1af0ba51e53bb2ffac6caea4ce29aaee50b5fc84b,
+native8978f06fb3653502ce4de7a918a5c48faa6ad3b0ded4d2ca34ad4cf34d0c2de9.
+Actual compiled/logged native differs from bypass-era2220aa0b and is byte-identical
+to older pre-bypass8978, as expected from restoring production code. Install/
+import/exactsame10smokes ALLPASSED; session96323 terminal, all7ownedgroupsgone.
+Sealed capsule `validation/python-interface/restored-zero-profile-wheel-refresh-smoke`,
+manifestc65b3e603706219f5562711c2d28f2190ebef46baa56fb879c80651c5cc329b3;
+root2709savedchecks+independent17fileminimalPASS/proof3190e97c. No65/sevennotebook/
+typing rerun; N6smoke rank1. No externalCommunityhost/fullrank6/perf promotion.
+Cached wheel build used explicit target+target/cargo-build CPU20/21, unbound by
+nativecapture; no code changes. All wheel phases and saved replays are terminal.
+
+Source24 capsule `validation/e6-dual-restored-zero-profile-core-tests` is SEALED,
+manifest1f1a41fdbc30ca1b3d5a18ce59db9f23fa0bb774950dba464aadfd05aabc5d04;
+rootdefault+independent30fileminimalPASS/proofe4262f96. Four210-source contexts,
+2161nonbinaryguards/56outputs/54groups replay, only3newsourcebodies owned; old
+canonical sourcealiases stay historical. 792nonfinite capsule also sealed/
+rootportablePASS. Intermediate report target separatefromfinalconditionals
+has materialized truthful pending-fullDual publication after root cutoff.
+The65-page PDF is a5a17216bf8f8d9cb25385e79bfc490799a710310c85bb3135c077f1253f8e14;
+Typst a55083a376e149fc7fea1c7959e3b3c9e1538fdce6e6c2c187318f2fe9555232.
+Root rebuilt byte-identically/viewed pages1–3. Data has451records/403bindings/
+372JSONsnapshots, all446c112rawvalues and56earlierproof-fields exact. Three new
+manifest records +saved-root-replay packet +checkpoint add archival records,
+notnewtensorpasses. Bothfailed96capture files remain lossless in792payload;
+per-attempt statuses/times/nullarrays/sourcepins are also in the checkpoint.
+Root report proof d19352568c84a96b2d3546026f3d4e4a09146cb497d6da44f29ad43621964229
+records rebuilt/visual state. Root owns finalpayloadreview/commitpush;
+do not markgoalcomplete yet.
+Restoration publication extends c112865; gitlog identifies the exact publication
+commit. All446baseline records must remain byte-exact.
+
+Latest active128 observation10:12:47UTC:995s elapsed, first exact-zero profile
+preparing, stability/quadrature evaluators completed95.79/85.60s; AS79.8GiB /
+RSS54.4GiB, identityclean/noerror/noarray. GenericN5constructor612.58s, numeric
+mapping126.26s. These are engineering observations, not performance benchmarks.
+
+## Earlier restoration and resource history
+
 The ordinary six-point/rank-six dotted and dimension-shifted qualification is
-committed and pushed. The goal remains open because the full quadrature-bearing,
-second-mass-derivative Dual witness has not returned an array at either precision.
-Both 64 GiB attempts failed in numerical allocation; neither was a numerical
-comparison. Two independent, unchanged-code retries now run at 128 and 256 bits,
-each with a 96 GiB address-space cap and a 7,200-second native deadline. Do not
-duplicate them or modify their frozen compiled inputs. Their owner is
-`e6_precision_failure_research`; sessions are **44049** and **92862**. The
-independent defining-integral oracle is already complete and agrees between two
-rules; TIRust's complete output and error-context checks remain pending.
+committed and pushed. The goal remains open: both full quadrature-bearing,
+second-mass-derivative Dual witnesses now finished with a numerical guard failure.
+The96GiB128/256 attempts are TERMINAL, not active. Their E6 scalar masters
+converged at order64, but all four packed N5/h1/rank6 tensor rows failed the
+nonfinite-output guard; both valid parents were Unstable, invalidmu remained
+isolated, and no failed tensor arrays or contexts were exposed. The independent
+defining-integral oracle is complete; core comparisons are still impossible.
+
+Float128 receipt d1e22aa773293ae57b2af35a3dedb2317ea04d0423cdacf556d7646bbbe6758e,
+3978.668total/3967.944native; Float256 receipt
+7c2b9078f2c0ca852764b303c6df8e17774ca343b3f205eab62056b8d9a1a3c1,
+4427.056total/4419.194native. Bothrc101/no timeout, all immutable pins unchanged,
+cleanupempty/groupgone; sessions44049/92862 terminal and CPU28/30free. Saved
+diagnoses f05302a0 (128) andaa8e15fe (256) preserve exact inputs/seeds/statuses.
+RequestedPV→actualIbp is EXPECTED generalizedN5h1 dispatch (610IBP/0PV), not a
+runtime Hybrid fallback. Future mechanism checks must record this actual route.
+
+Read-only independent source reviews localize a likely mechanism: skipping the
+fullDual exact-zero specialization retains generic bubble descendants with
+numerically zero B=1^T R^-1 1, so dimension recurrences can divide by zero. A
+certified structural zero profile exposes the existing exact pinch shortcut.
+The actual first bad node/component was not exported; do not claim it observed.
+Restore/qualify the correct existing route with safe resources before new full
+captures; no unchanged-source full optimized retry is planned. The old-source
+opt3 build was explicitly cancelled before restoring source as recorded below.
 
 Finish those actual gates, publish the final report and handoff, commit and push,
 mark the accepted rank-six objective complete, then stop. Optimization and further
 rank-seven work are deferred. All older pending-state prose below is historical
 when it conflicts with this live status.
+
+## Optimized test-build check after `c112865`
+
+The resource/reference checkpoint is pushed as
+`c112865e2dd3c6eab5dfe47cc6244f71e54b2d21`; the tree was clean after pushing.
+Final target templates now preserve all446 records and the current publication
+proof `9a0f26c9…`. Actual full-Dual arrays remain pending.
+
+The recorded Cargo event proves current frozen4f430732 is an opt0 libtest
+(debug assertions/overflow checks true). Root and finish-audit approved a NEW
+compiler-profile-only build of the same210 canonical source bodies: ordinary
+release opt3/testtrue/debugassertionsfalse/overflowchecksfalse. Numerical,
+domain, precision and owned-error admission guards are unconditional source
+checks; no formula or source changes are authorized by this build choice.
+
+Initial build: `target/e6-dual-release-qualification`, source-freeze
+`53d447e2754d10f5c58dd3ea31a171824eaf3cb6598418728902b99cdfb1039d`,
+build.py4713eab7, CPU18/19, unifiedsession29328,900total/90cleanup/780cargo.
+BOTH CARGO_TARGET_DIR and CARGO_BUILD_BUILD_DIR explicitly use
+`target/optimized-build`; neither active96GiB producer binds those paths.
+Old proposal7ce31c24/build1a3acc7d was corrected BEFORE launch and is preserved-v1.
+E6researchagent owns the source/Cargo lease until build terminal; no edits.
+Only if the build/event/freeze passes, root already authorized the SAME24
+focused tests on CPU24 (600total/60cleanup, ordinary60s/newrealE6test240s).
+No new full optimized capture, old producer cancellation or automatic retry is
+authorized yet. Both96GiB debug producers continue unchanged on CPU28/30.
+
+The initial780-second build ended at781.010s with an owned SIGTERM timeout,
+no compiler errors, all210source guards unchanged, cleanupempty/groupgone and no
+executable product. Receipt956f2005de48b528389bc1476e5b311233968f8077900ce8d94bbfd4148c94ea
+is preserved. Root verified210sources+11inputs and released one additive bound-only
+build under `target/e6-dual-release-qualification-2400`, source-freeze
+67dd0587db9bfaaf2784c339048b99e45d83978665de7e5a9fecf83b5053c6ce,
+same source/profile/isolated caches/CPU18,19/2jobs. New bounds2520total/90cleanup/
+2400Cargo, then SAME focused24 only on actual successful artifact. No native
+capture replacement or debug-job cancellation follows automatically. E6 agent
+owned this build/source lease; existing debug96GiB pair was unchanged.
+
+After both96GiB attempts returned the same mathematical guard failure, root
+authorized restoration of the existing full-Taylor-certified exact-zero dispatch.
+The old-skip optimized build was explicitly stopped through its owned controller
+before edits: receipt3ddb5ffab22164f2351466e0deb790cf217fa26ddea149b42e1614612812b24a,
+387.255s, SIGTERM, cleanupempty/groupgone and all210guards unchanged before edits.
+E6 agent now owns only execution.rs/quadrature_context_tests.rs for removing the
+skip and replacing its old implementation-specific regression with restored
+profile/context assertions, including a null-primal/nonzero-tangent neighbor.
+No new algebra or numerical guard changes. A fresh optimized artifact and focused
+tests must pass before reviewed full captures; real regression cap may be600s /
+focused1200total60cleanup because restoring specialization adds preparation.
+
+Restoration is now applied/source-reviewed, not yet numerically qualified:
+execution.rs4f673f8c89f46445ce62998eedd86729185c69f74c139d4dbdb172e2e716051b
+removes only the15-line skip. Regression source1bfa6b75dfeb934d389fe746cbe5ff6713cc61115510d2e01597228780de9a43
+requires actual full-Taylor profile lane plus generic nonnull and primal-null/
+nonzero-tangent neighbors, complete arrays/metadata, owned contexts and anchors.
+Root and independent finish audit cleared source. New210freeze
+`target/e6-dual-restored-zero-profile-release-qualification/source-freeze.json`,
+SHA2f16ec6572f4e0b58bc67843cdae80496b472da5f902b8fea3b4206cc2336e28,
+all210sources+11inputs verified. Build ACTIVE session49946 CPU18/19, sameopt3/
+isolatedcaches/2520-90-2400. Only on actual build pass run24 focused tests,
+1200total/60cleanup/60ordinary/600restoredtest CPU24. Source/Cargo lease remains
+with E6 owner. No full capture released. Future captures must correctly pin
+requestedPV→actualIBP610 and legitimate profile/analytic rows rather than the
+obsolete old actualPV/zeroanalytic/skip-note requirements; all2520array/DD/
+strictpair/owningcontext/lifecycle gates are unchanged.
+
+The restored opt3 build PASSED490.007s: receipt4dc4f4d12abb7c4dbef376e5e6e9f66792638824c73e8482e3f40cd1ab8fca24,
+artifactbf65001714cc6504ec8cc076352dbcb4930eea5b4373600f75df4cf9145635f1;
+root rehashed actual product/event (opt3/testtrue; compiler debug/overflow checks
+false, mandatory numerical admission guards unchanged). Focused23passed,
+but new regression initially FAILED17.81s, receiptb804684b44b9329e891f7220eb493135dee05bcd4406b0ff1f4ef5831f5ac73b:
+the added third external-time-shift jet was refused by E6 NonConvergent/order128/
+error6.24594e-9. This is a numerical refusal of an analytic positive-F germ, not
+a mathematical nonanalyticity. First two ordinary scalar lanes succeeded. Preserve
+the failed expectation and old1bfa source; no guard/tolerance was relaxed.
+
+Root/audit approved TEST-ONLY correctiond4bc4ae0: retain firsttwo complete success
+arrays/contexts/anchors; third must match ordinary NonConvergent diagnostic and
+have Err output/context/envelope, analyticfalse/noextra zero profile. Production
+execution4f673 unchanged. New210freeze
+`target/e6-dual-restored-zero-profile-test-correction/source-freeze.json`,
+SHA4aee3b7450b73ebff558b2aaa821f83226a64a039c0fbd8f5b2dd83306551fe5;
+root verified210+15inputs/onlytestdiff. BUILD ACTIVE session23526CPU18/19,
+2520-90-2400, then same24/1200-60/600realtest onactualpass. E6 owner holds lease.
+Python refresh agent prepares same10installedsmokes in isolated cache onCPU20/21,
+waiting matching actualcore receipt; no Python build/release yet.
+
+New nonfinite capsule SEALED/rootdefault+independent26fileminimalPASS:
+`validation/e6-dual-postfix-nonfinite-boundaries/manifest.json`,792765c1ca3b22cf20db81fd1a5d4eb6a25c4e3d37c9fc09bd1fef154b7d8ead.
+Own103983B/26objects/311aliases, inherited78fb→403/DD/no source duplication;
+526nonbinaryguards/2originalfailedaudits replay. Rootportableproof3bde0ce9.
+Final conditional templates preserve all446c112 records and add exactlytwo
+archived failedfirstcall snapshots (ten no-array attempts total, not ten zero-call
+attempts); no productionreport change yet. Current capsule is uncommitted.
+
+Final mechanism gate b2a3fbe923a7407476e85f348c23f90d830654928c554271b4e41bc08b478f7a
+and firstcallwrappera1da5b65 independently reviewed: exactgood-parent×terminal
+origins, all9emptyruntimecounterszero, trueAnalyticownroute/fullQcontexts, all2520/
+DD/strictpair unchanged. Proposal skeleton208f973b is INCOMPLETE with noartifact/
+focused hash and no release. First128 sequential192GiB/7200 is only a proposed
+engineering bound; requires actual24/headroom/rootreview, sufficiency unproved.
+
+Source-hashed algorithm-scope notes under finaltarget (md3b476497/json53f9c0fc)
+explain why observedPV-only h1 capture exercises the same successful numerical
+recipe as Hybrid: AffinePower→N5generalized0PV/610IBP→actualIbp, no Hybrid
+numericfallback foractualIbp. Keep unrun defaultHybrid invocation flag false;
+do not invent a new Hybrid capture. Existing separate Hybrid/h0 cells remain.
 
 ## Live continuation after pushed `dfcae98` — numerical memory boundary
 

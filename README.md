@@ -10,9 +10,13 @@ qualified. Performance optimization follows functional completion.
 known reference defects, and outstanding work without treating missing results
 as successful cases.
 
-Development resumed on 25 October 2026 from the committed
-[handoff](HANDOFF.md). The [current checkpoint](docs/checkpoints/resume-20261025.md)
-tracks subsequent validation and integration. The current target is generic
+The [current checkpoint](docs/checkpoints/rank6-exact-zero-restoration-20261026.md)
+records the restored exact-zero kinematics route, 24 focused checks and the
+refreshed Python interface. Ordinary six-point/rank-six dotted and
+dimension-shifted cases have passed independent checks. The complete
+quadrature-bearing second-derivative Dual comparison remains pending; earlier
+resource failures and rejected tensor results are retained. See the
+[handoff](HANDOFF.md) for active work and reproduction details. The target is generic
 rank-six support, including dots, with propagator-count reduction kept separate
 from the tensor-rank limit. Full six-point/rank-six qualification remains a
 concrete checkpoint; arbitrary point counts require their own reduction proof
@@ -33,7 +37,7 @@ and a complete retained rank-seven IBP bubble comparison.
 | `iregi-prepare` | FeynKit DOT/model import, Feynman rules, Idenso/Spenso contractions and Symbolica polynomial extraction |
 | `iregi-cli` | The standalone `iregi-rust` binary |
 | `iregi-python` | Optional typed `tirust` bindings using the same Rust APIs and upstream shared Python classes |
-| `feynkit-integrals` | Graph-independent affine partial fractions extracted from the pinned FeynKit source; planner integration is pending |
+| `feynkit-integrals` | Pinned FeynKit affine partial-fraction facilities; planner integration remains separate |
 
 The reduction library does not depend on graph preparation, Python, MadGraph or
 Fortran. Reference builds and generated physical-process code stay under
@@ -47,9 +51,12 @@ Dual components. Numerator and graph preparation accept the upstream Symbolica,
 FeynKit and Spenso types registered in the same native host. See the
 [extension architecture](docs/research/python-interface.md) for source revisions
 and the separate Community-host integration boundary.
-The current development wheel passes 65 installed API cases, seven notebook
-runtime cases and consumer typing. Its [source and artifact record](validation/python-interface/facade-wheel-004/README.md)
-defines the tested subset; it does not establish full six-point coverage.
+The [current restored-source wheel](validation/python-interface/restored-zero-profile-wheel-refresh-smoke/README.md)
+passes ten installed API smoke cases, including precision/Dual transport,
+checked rejection and a six-point rank-one workspace lifecycle. The earlier
+[65 API cases, seven notebook runs and consumer typing](validation/python-interface/facade-wheel-004/README.md)
+remain historical evidence. The standalone native host is qualified; loading
+the extension in an external Symbolica Community host remains separate work.
 
 The [marimo gallery](examples/notebooks/README.md) covers graph-to-integral
 preparation, dots and derivatives, and an interactive benchmark explorer. Its
@@ -157,7 +164,9 @@ reuses cached roundoff factors.
 `InvariantInput::SuppliedScalarProducts` accepts the packed upper triangle of
 `G_ij = p_i·p_j`, including the diagonal, between shifts and squared masses.
 `ReductionPlan::input_layout()` describes the exact argument ranges. Supplied
-invariants are authoritative; Cartesian shifts still specify tensor components.
+invariants are authoritative for ordinary lower-point plans; Cartesian shifts
+still specify tensor components. Checked high-point tensor routes additionally
+require fresh full-Taylor compatibility with the four-dimensional routing.
 
 Generalized PV and Hybrid plans select the reduction method for each scalar
 term in the tensor expansion, as in original IREGI. With `e = sum(powers)-N`,

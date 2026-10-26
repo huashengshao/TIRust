@@ -217,18 +217,19 @@
   )
 ]
 = Current coverage
-#text(size: 9.5pt)[The refreshed current wheel passes ten installed smoke cases; the earlier 65API,
-seven marimo cases and consumer typing retain separate source contexts. Ordinary N6/rank-six
-first-dot/D2/D6 precision pairs now pass. Full genuine-quadrature Dual arrays remain pending
-after eight retained no-array attempts; two unchanged 96 GiB requests are active. Complete feature acceptance remains open; performance is deferred.]
+#text(size: 9.5pt)[The restored exact-zero route passes 24 focused checks and its fresh wheel passes
+10 installed smoke cases. Both earlier 96 GiB full-Dual attempts return nonfinite tensor
+failures with null arrays; they remain preserved beside eight older resource/time failures.
+Ordinary N6/rank-six first-dot/D2/D6 pairs retain their passes. Restored full128 is preparing,
+256 is held, and complete genuine-quadrature Dual validation remains open. Performance is deferred.]
 #report-table(table(
-  columns: (1.05fr, 3.6fr, 0.8fr), inset: (x: 6pt, y: 8pt), stroke: table-stroke,
+  columns: (1.05fr, 3.6fr, 0.8fr), inset: (x: 6pt, y: 6pt), stroke: table-stroke,
   fill: (x, y) => if y == 0 { navy } else if y <= 3 { rgb("#d9f0d3") } else { amber },
   table.header([Interface / domain], [Executed scope or remaining gate], [Status]),
-  [Local PyO3 facade], [Current refresh: 10 installed smoke cases, 205 selected sources and 128 declared core bodies tied to the fresh 210-source build. Older 65API/7marimo/typing retain their historical context.], [Scoped],
+  [Local PyO3 facade], [Restored-source c65b wheel: 10 installed smoke cases / 2709 saved checks, 205 selected bodies / 128 declared coherent of the actual 210-source build. Its N6 smoke is rank one; older 65API/7marimo/typing stay historical.], [Scoped],
   [Dotted propagators], [N1/N4 first-dot/triple and N5 rank-six first-dot results retain their scoped passes. Current N6 first-dot256/prior128 strict pairs now pass; failed pre-repair attempts remain visible.], [Scoped],
   [Example gallery], [Seven historical runtime cases and earlier three HTML exports/six browser views keep their own source contexts. No new gallery or typing run accompanies the current 10-case smoke.], [Historical],
-  [Tensor / API coverage], [The new 210-source route fix passes 24 focused tests with a retained timeout. Ordinary rank-six arrays pass; full N6/R6 quadrature-Dual arrays and TIRust/DD agreement remain pending under the active 96 GiB attempts.], [Scoped],
+  [Tensor / API coverage], [Restored source 1f1a passes 24 focused checks, including finite R0 contexts and an honestly refused transverse lane. Historical bypass source 403 and its full-array failures remain separate. Actual full rank-six Dual arrays and TIRust/DD agreement remain pending.], [Scoped],
   [Public rank-six Dual], [Explicit PV and default Hybrid h=0 unit-power mixed Float128/256 arrays pass, with scoped DoubleFloat/finite-difference controls. Typed f64 stays guarded; genuine quadrature-bearing shifted arrays remain pending.], [Scoped],
   [Performance], [Historical private selected TIRust/COLLIER: seven slower families and one short inconclusive family. The fresh scheduler cohort is ineligible because of host contention; no default adoption.], [Measured],
 ))
@@ -236,14 +237,53 @@ after eight retained no-array attempts; two unchanged 96 GiB requests are active
 Other platforms, separate Community-host loading and broader tensor numeric/exceptional
 domains remain unqualified. Earlier C0/D0 identities retain their wheel004 context.]
 
+// Sealed intermediate checkpoint; full rank-six Dual numerical gates remain pending.
 #pagebreak()
-= Full-Dual validation: resource boundaries remain open
-The original-SAMPLE N6/rank-six/h1 mass-second witness still has no admitted
-full tensor array. Four new post-fix attempts terminate without completing a
-call; the earlier four failures remain preserved. Two larger-budget attempts
-are active with the same source, inputs and mathematical settings. This
-checkpoint adds diagnostics, not numerical qualification, performance or goal
-completion. All 443 prior raw report values and timings remain unchanged.
+= Exact-zero restoration: source checks, full Dual pending
+#block(fill: amber, inset: 9pt, radius: 4pt, width: 100%)[
+  *Intermediate checkpoint — objective open.* The historical optional-profile
+  bypass did not produce a valid full rank-six tensor. Its failures are
+  retained; the restored route has a separate source and release epoch.
+]
+
+#report-table(table(
+  columns: (1.2fr, 3.5fr, 0.8fr), inset: (x: 7pt, y: 11pt), stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else if y in (2, 3) { rgb("#d9f0d3") } else { amber },
+  table.header([Evidence], [Sealed evidence; objective remains open], [State]),
+  [Two 96 GiB failures], [Both original-SAMPLE runs return 101 with a failed first-call record. Four N5 rows fail the nonfinite-output guard; valid parents are Unstable, failed arrays null and the invalid neighbor isolated. No 2520 tensor comparison or owned error context passes. Capsule 792765c1 preserves 526 nonbinary guards.], [Retained],
+  [Restored source], [Sealed 1f1a source capsule removes the 15-line bypass: 24 focused checks pass in 26.8588 s from build b069 / product 749b. The first-order Dual regression accepts finite R0 rows and retains the transverse E6NonConvergent refusal. Earlier 23-pass / failed-expectation invocation b804 and compiler boundaries remain intact. Compiler opt3 disables debug assertions and integer overflow checks; old debug403 enables them. Numerical precision/branch/error guards remain unchanged; no compiler-equivalence claim.], [Sealed pass],
+  [Installed frontend], [Sealed c65b wheel passes the same 10 installed cases / 2709 saved checks: 205 selected, 128 coherent of 210. Actual build 118.851 s and fresh install/import bind the restored source. Native 8978 matches historical safe 5ef byte-for-byte. N6 smoke is rank one; old typing/gallery remain separate.], [Sealed pass],
+  [Retained generic route], [The failed captures record requested PV selecting actual IBP: 0 PV / 610 IBP scalar requests, runtime fallback 0. Finite-master admission and converged E6 endpoints did not establish finite tensors. Actual profile/analytic rows must remain visible; old PV-only / zero-analytic expectations are obsolete.], [Scoped],
+  [Full Dual witness], [Restored original SAMPLE 128 is root-released with 192 GiB / 7200 native seconds; 256 is held. Full 2520 fields, same-source pair, DD/core agreement, owning error contexts and lifecycle remain pending. Active capture files are not bindings.], [Pending],
+  [Coverage and timings], [Ordinary dot/D2/D6 and DD reference are inherited without duplicate counts. No fixed N ceiling is added to the API; independently documented families remain N≤6 / rank≤6. No new performance measurements; TIRust remains the timing-ratio numerator.], [Unchanged],
+))
+
+Ten unsuccessful full-witness attempts remain visible: eight earlier resource/time cases and
+these two returned failed-call records. Empty and singleton recovery remain
+unrun in the latter. The first nonfinite evaluator node is unknown; exact-null
+geometry as its cause remains a hypothesis. Saved guard checks are archival
+integrity evidence, not independent tensor comparisons. Separate focused-test
+and compiler-boundary failures remain in the source history; they are not
+counted among these ten full witnesses.
+
+This additive checkpoint preserves all 446 baseline raw values and nested
+publication history. It records restored-source checks and source epochs;
+it does not close the remaining numerical gates or promise a resource bound.
+
+#text(size: 8pt)[Sources: #raw("validation/e6-dual-postfix-nonfinite-boundaries"),
+#raw("validation/e6-dual-restored-zero-profile-core-tests") and
+#raw("validation/python-interface/restored-zero-profile-wheel-refresh-smoke").
+Root saved replays are archived in the adjacent restoration checkpoint; no new
+performance or full rank-six numerical qualification is inferred.]
+
+#pagebreak()
+= Earlier resource boundaries (c112865)
+At the c112865 cutoff, the original-SAMPLE N6/rank-six/h1 mass-second witness
+had no admitted full tensor array. Four post-fix attempts had ended without
+completing a call; four earlier failures were retained. Two larger-budget
+96 GiB attempts were then active. Both subsequently failed at the nonfinite
+tensor guards documented above. That diagnostic checkpoint preserved all 443
+prior raw values and added no TIRust numerical or performance qualification.
 
 #report-table(table(
   columns: (1.2fr, 3.6fr, 0.8fr), inset: (x: 7pt, y: 11pt), stroke: table-stroke,
@@ -252,7 +292,7 @@ completion. All 443 prior raw report values and timings remain unchanged.
   [Post-fix Float128/256], [Both earlier 2400-second attempts complete generic construction (about 1778s each), then hit the native execution deadline without a completed call or array. They retain the source 210/product 4f430732 context and requested accuracy 53; these are resource limits, not numerical disagreements.], [No array],
   [Float128 /64 GiB], [The 4200-budget attempt aborts in numerical allocation after 3733.628 native seconds; GMP cannot allocate 16 bytes. The final receipt retains 250 unchanged guarded bindings, empty cleanup and an absent owned process group. No array is returned.], [No array],
   [Float256 /64 GiB], [The 4200-budget attempt aborts after 2912.259 native seconds; GMP cannot reallocate 16→40 bytes. The same 250-binding terminal guard/cleanup checks pass. This does not establish the exact evaluator, slot or refinement active at failure.], [No array],
-  [Current 96 GiB attempts], [Separate 128/256 requests are active: 7200 native/7380 total/120 cleanup seconds each. Both keep explicitPV, source 210/product 4f430732, original fixture, shape and accuracy 53. No result is inferred from the larger ceiling or from its peer.], [Pending],
+  [Then-active 96 GiB attempts], [At this historical cutoff, separate 128/256 requests were active: 7200 native / 7380 total / 120 cleanup seconds each, explicit PV, source 210 / product 4f430732 and unchanged fixture/shape/accuracy 53. Their later failed-call records are separately bound by 7927 above.], [Historical],
   [Two-second /96-sample profile], [The sample concerns one numerical instant of the older Float128 /64 GiB run. It sees complex multiprecision arithmetic, copies and allocation. It does not identify the later Float256 failure stage, whole-run cost, peak memory, or 96 GiB sufficiency.], [Diagnostic],
 ))
 
@@ -278,8 +318,8 @@ cause, leak or plateau. The saved artifacts lack the exact live slot inventory.
 ]
 
 The initial offline symbolization timeout remains failed; the later no-inline
-report is separate. Raw perf data is omitted by historical hash. Active 96 GiB
-results are not bound here. Ordinary/core/wheel counts stay inherited. Final
+report is separate. Raw perf data is omitted by historical hash. At this cutoff,
+96 GiB terminal results were not yet bound. Ordinary/core/wheel counts stay inherited. Final
 completion waits for actual full-Dual arrays, strict pairs and independent
 comparisons; performance remains deferred.
 

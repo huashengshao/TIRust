@@ -1893,21 +1893,6 @@ where
                 }
             }
             for (profile, compact_lanes) in groups {
-                // This specialization is optional: preparation/evaluation
-                // failures below already rejoin the ordinary recipe. For a
-                // full-component quadrature call, retain that prepared recipe
-                // rather than preparing a second large sensitivity graph.
-                // All ordinary distance, master, roundoff and propagated-error
-                // checks still run on the unchanged input and Taylor shape.
-                if self.components > 1 && self.quadrature.is_some() {
-                    for &compact in &compact_lanes {
-                        self.diagnostics[self.valid_lanes[compact]].push(
-                            "exact-zero profile specialization skipped for full-component quadrature; ordinary reduction retained".into(),
-                        );
-                    }
-                    ordinary.extend(compact_lanes);
-                    continue;
-                }
                 if !self.zero_profiles.contains_key(&profile) {
                     let prepared =
                         self.zero_profile_plan

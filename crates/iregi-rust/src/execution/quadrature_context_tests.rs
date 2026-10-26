@@ -272,7 +272,7 @@ fn ordinary_e6_dual_constructor_instantiates_joint_sensitivity_without_export_po
 }
 
 #[test]
-fn e6_dual_zero_profiles_are_optional_and_generic_contexts_stay_coupled() {
+fn e6_dual_exact_zero_profiles_require_full_taylor_zeros_and_keep_owned_contexts() {
     let mut settings = ReductionSettings::new(5, 0);
     settings.algorithm = Algorithm::Ibp;
     settings.dimension_shift = 1;
@@ -292,31 +292,54 @@ fn e6_dual_zero_profiles_are_optional_and_generic_contexts_stay_coupled() {
 
     // The first lane is the first five shifts/masses of the full-rank SAMPLE
     // witness. Its time-to-spatial separations are exactly null, with every
-    // Taylor coefficient zero. Changing only the time shift in the neighbor
-    // removes those optional profiles without changing the positive-F domain.
+    // Taylor coefficient zero. Changing the time shift in the second lane
+    // removes the null separations. The third lane has the same null primals
+    // as the first, but nonzero time-shift jets: none of its three null
+    // distances is zero through the complete Taylor shape.
     let batch = KinematicsBatch {
-        rows: 2,
+        rows: 3,
         components: 2,
-        values: [1., 2.].into_iter().flat_map(|time| {
+        values: [(1., false), (2., false), (1., true)].into_iter().flat_map(|(time, moving)| {
             [0., 0., 0., 0., time, 0., 0., 0., 0., 1., 0., 0.,
                 0., 0., 1., 0., 0., 0., 0., 1., 10., 12., 15., 18., 22., 1.]
-                .into_iter().enumerate().flat_map(|(argument, value)| {
-                    [c(value), c(if (20..25).contains(&argument) { 1. } else { 0. })]
+                .into_iter().enumerate().flat_map(move |(argument, value)| {
+                    [c(value), c(if (20..25).contains(&argument) || (moving && argument == 4) { 1. } else { 0. })]
                 })
         }).collect(),
     };
+    let before = batch.values.clone();
     let expected = ordinary.reduce_batch_with_quadrature_context(&batch).unwrap();
     let actual = child.reduce_batch_with_quadrature_context(&batch).unwrap();
-    assert_eq!(actual.result().statuses, [LaneStatus::Success, LaneStatus::Success]);
-    assert_eq!(actual.result().values, expected.result().values);
+    assert_eq!(batch.values, before);
+    assert_eq!(&expected.result().statuses[..2], [LaneStatus::Success, LaneStatus::Success]);
+    // This transverse time-shift germ is not independently qualified. The
+    // existing E6 convergence guard rejects it; the routing test must retain
+    // that rejection rather than claim a successful derivative evaluation.
+    assert!(matches!(&expected.result().statuses[2], LaneStatus::Unstable(reason)
+        if reason.contains("E6 leaf 0: NonConvergent")
+            && reason.contains("quadrature order 128")));
+    assert_eq!(actual.result().statuses, expected.result().statuses);
+    for lane in 0..2 {
+        assert_eq!(actual.result().lane(lane).unwrap(), expected.result().lane(lane).unwrap());
+    }
+    assert!(actual.result().lane(2).is_err());
+    assert!(actual.origin(2, 53, 53).is_err());
+    assert!(actual.errors(2, 53, 53).is_err());
+    assert!(actual.result().validated_primal_envelope(2, 53, 53).is_err());
     assert_eq!(actual.result().metadata(), expected.result().metadata());
-    assert_eq!(child.last_execution(), ordinary.last_execution());
     assert!(child.last_execution().pentagon_box_rows > 0);
-    assert_eq!(child.last_execution().analytic_rows, 0);
-    assert!(child.zero_profiles.is_empty());
-    let skipped = "exact-zero profile specialization skipped for full-component quadrature; ordinary reduction retained";
-    assert!(child.last_diagnostics()[0].iter().any(|note| note == skipped));
-    assert!(!child.last_diagnostics()[1].iter().any(|note| note == skipped));
+    assert_eq!(child.last_execution().analytic_rows, 1);
+    assert_eq!(ordinary.last_execution().analytic_rows, 0);
+    assert_eq!(actual.result().analytic_used, [true, false, false]);
+    assert_eq!(child.zero_profiles.len(), 1);
+    let (profile, prepared) = child.zero_profiles.iter().next().unwrap();
+    assert_eq!(profile.masses, [false; 5]);
+    assert_eq!(profile.distances, [(1, 2), (1, 3), (1, 4)]);
+    assert!(prepared.is_ok());
+    assert!(child.last_diagnostics().iter().flatten().all(|note| {
+        !note.contains("exact-zero profile evaluation failed")
+            && !note.contains("exact-zero profile preparation failed")
+    }));
     for lane in 0..2 {
         assert_eq!(actual.origin(lane, 53, 53).unwrap(), QuadratureErrorOrigin::PropagatedEuclidean);
         assert_eq!(actual.errors(lane, 53, 53).unwrap(), expected.errors(lane, 53, 53).unwrap());
