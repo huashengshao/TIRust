@@ -211,16 +211,16 @@
   #set text(9pt)
   *Current priorities*
   #table(columns: (1fr, 2fr, auto), stroke: none, inset: (x: 4pt, y: 4pt),
-    [*Feature completion*], [Generic rank-six tensors, including dots; N≤6 is the current validation checkpoint. Higher-N denominator descent needs separate qualification.], [*Pending*],
-    [*Performance optimization*], [Separate later work; publish the tested version and stop once the feature gate passes], [*Deferred*],
+    [*Feature completion*], [The documented finite N≤6/rank≤6 numerical checkpoint, including dots, is validated. Higher-N qualification remains separate.], [*Validated*],
+    [*Performance optimization*], [Separate future work; no new speed or parity gate applies to this validated checkpoint], [*Deferred*],
     [*Physical validation*], [Current fixed-graph checks appear below; historical timing failures remain visible], [*Scoped*],
   )
 ]
 = Current coverage
-#text(size: 9.5pt)[The restored N6/rank-six Dual 128/256 runs pass complete DD, error-context and
-lifecycle checks. Their stricter same-source pair fails 628/2520 fields at unchanged 2⁻⁸⁰.
-A same-artifact 384-bit run is active; its data and future 256/384 convergence remain
-unqualified. Feature acceptance stays open; performance is deferred.]
+#text(size: 9.5pt)[The documented N≤6/rank≤6 finite numerical checkpoint now passes
+the agreed ordinary, dotted and shifted-array gates. The original quadrature-bearing
+Dual witness passes complete384 DD/context/lifecycle checks and SAME_SOURCE 256/384
+consistency at unchanged2⁻⁸⁰. FAILED 128/256 (628 fields) remains explicit. Performance is deferred.]
 #report-table(table(
   columns: (1.05fr, 3.6fr, 0.8fr), inset: (x: 6pt, y: 6pt), stroke: table-stroke,
   fill: (x, y) => if y == 0 { navy } else if y <= 3 { rgb("#d9f0d3") } else { amber },
@@ -228,18 +228,99 @@ unqualified. Feature acceptance stays open; performance is deferred.]
   [Local PyO3 facade], [Restored-source c65b wheel: 10 installed smoke cases / 2709 saved checks, 205 selected bodies / 128 declared coherent of the actual 210-source build. Its N6 smoke is rank one; older 65API/7marimo/typing stay historical.], [Scoped],
   [Dotted propagators], [N1/N4 first-dot/triple and N5 rank-six first-dot results retain their scoped passes. Current N6 first-dot256/prior128 strict pairs now pass; failed pre-repair attempts remain visible.], [Scoped],
   [Example gallery], [Seven historical runtime cases and earlier three HTML exports/six browser views keep their own source contexts. No new gallery or typing run accompanies the current 10-case smoke.], [Historical],
-  [Tensor / API coverage], [Source 1f retains 24 focused checks and wheel c65 retains 10 installed cases. Original-SAMPLE128/256 now pass full DD/context/lifecycle checks. The strict precision gate fails;384 convergence is pending. Earlier403 bypass/native failures stay visible.], [Scoped],
-  [Public rank-six Dual], [Historical h0 PV/Hybrid mixed jets retain their scope. Shifted PV-requested / IBP-selected128/256 arrays now pass DD/context/lifecycle checks; the strict precision gate fails and384 is active. No new default-Hybrid h1 invocation is inferred.], [Scoped],
+  [Tensor / API coverage], [Current1f source24/c65 wheel10 remain inherited. Original-SAMPLE128/256/384 pass complete DD/context/lifecycle checks; strict 256/384 passes, while FAILED 128/256 (628 fields) remains visible. API point count is dynamic; this qualification is finite N≤6/rank≤6.], [Scoped],
+  [Public rank-six Dual], [Historical h0 PV/Hybrid jets retain scope. The shifted requested-PV / selected-IBP original witness passes complete384 and strict 256/384 gates. Failed 128/256 and all earlier resource/math attempts remain archived. No new default-Hybrid h1 invocation is inferred.], [Scoped],
   [Performance], [Historical private selected TIRust/COLLIER: seven slower families and one short inconclusive family. The fresh scheduler cohort is ineligible because of host contention; no default adoption.], [Measured],
 ))
 #text(size: 8.5pt)[Evidence is local Linux/Python3.13 and source-specific.
 Other platforms, separate Community-host loading and broader tensor numeric/exceptional
 domains remain unqualified. Earlier C0/D0 identities retain their wheel004 context.]
 
-// Sealed intermediate checkpoint; full rank-six Dual numerical gates remain pending.
-// Sealed intermediate precision-boundary capsule; full convergence qualification remains open.
+// Historical intermediate outcomes are retained below the current validated checkpoint.
+// Final sealed numerical qualification; publication verification is recorded separately.
 #pagebreak()
-= Genuine rank-six Dual: agreement and a precision boundary
+= Rank-six feature checkpoint: validated
+#block(fill: rgb("#d9f0d3"), inset: 9pt, radius: 4pt, width: 100%)[
+  *Validated numerical checkpoint.* All named finite numerical gates
+  have sealed evidence. The documented scope is N≤6/rank≤6; performance is deferred.
+  All454 prior archival records and timings remain unchanged.
+]
+
+#report-table(table(
+  columns: (1.25fr, 3.5fr, 0.8fr), inset: (x: 7pt, y: 13pt), stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else if y in (1, 2, 3, 4) { rgb("#d9f0d3") } else { amber },
+  table.header([Feature gate], [Sealed evidence and qualified scope], [State]),
+  [Repaired parent arrays], [Current Cartesian N6/rank-six first-dot and D2 pass 3360 current/prior reference slots, 1680 strict prior128/current256 cross-source pairs and 2520 pole controls. Pair maxima≈4.47284×10⁻²⁸ /2.63578×10⁻²⁷; same-source convergence is not claimed.], [Sealed pass],
+  [Independent D6], [Current256 passes both complete 840-slot defining-integral rules (maxima≈1.13558×10⁻¹¹ /6.67806×10⁻¹⁵) and 840 strict cross-source pairs (max≈1.77715×10⁻²⁶). All 84 degree-six UV slots, including 20 macroscopic values, remain intact.], [Sealed pass],
+  [Quadrature-bearing Dual], [Complete384 passes both2520-field DD rules (max≈3.97433×10⁻¹⁵), raw poles,3parent/6child full contexts and lifecycle/terminal gates. SAME_SOURCE 256/384 passes2520 at unchanged2⁻⁸⁰, max≈3.89996×10⁻⁶⁰. FAILED 128/256 (628 fields) stays archived.], [Sealed pass],
+  [Release source join], [Current c65 wheel passes 10 installed cases / 2709 saved checks: 205 selected / 128 coherent of restored 210-source 1f build. Native 8978 equals historical safe 5ef. Its N6 smoke is rank one; ccee/2674 and older typing/gallery stay historical.], [Inherited pass],
+  [Feature domain], [Generic cumulative rank≤6 with positive powers and agreed numeric/batch/API mechanisms. The API has no fixed N ceiling. The documented N≤6/rank≤6 families are a finite checkpoint; arbitrary-N and every-chart qualification are not inferred.], [Scoped],
+  [Performance], [Optimization is deferred. Keep every historical timing record unchanged and every displayed ratio with TIRust in the numerator. No new speed or parity gate is inferred from validation durations.], [Deferred],
+))
+
+The ordinary parent capsules remain sealed. The earlier e37b bridge is
+historical. Historical403/ccee and its96 GiB tensor failures retain their own epoch.
+Current restored1f binds24 focused passes; currentc65 binds10 installed cases.
+The final capsule binds the actual 210-build-snapshot source aliases; historical
+canonical aliases are not substituted. Complete128/256/384 DD/context/lifecycle schedules pass. Full256/384 consistency passes at2⁻⁸⁰; the failed 128/256 gate remains separate.
+The failed 128/256 strict pair is inherited without duplicate capture/source
+bodies; full256/384 convergence and the additive final capsule are now sealed.
+
+The numerical gates are complete on this finite checkpoint. Preserve all wider numerical-domain limits on the next page.
+
+#pagebreak()
+= Retained failures and limits of the completed checkpoint
+This checkpoint records supported routes, their earlier failures and the
+precise limits of the accepted numerical evidence.
+The saved b2/de3c schema audit, root scratch-override failure and corrected final
+archive source-path assertion remain separate from the ten failed native witnesses. Strict128/256 is also a separate
+comparison failure; it remains visible beside the qualified256/384 pass.
+No missing coefficient, failed lane or unrun comparison may become a zero or a
+successful result.
+
+#report-table(table(
+  columns: (1.25fr, 3.5fr, 0.8fr), inset: (x: 7pt, y: 13pt), stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else { amber },
+  table.header([Retained domain], [Required qualification boundary], [Outcome]),
+  [Ten full witnesses], [Retain eight resource/time no-array attempts and two96 GiB nonfinite tensor failures. Focused/compiler and saved-checker histories remain separate; strict 128/256 (628 fields) remains failed. The latter each record one failed call; empty/recovery is unrun. A two-second/96-sample profile of the earlier12864 GiB run is not the exact256 failure stage.], [Retained],
+  [Earlier scalar/tensor failures], [Old Cartesian dot/D2256 E6 failures, rejected original D6 finite comparisons and earlier cost stops remain unchanged. New successful source epochs have separate manifests and actual comparisons.], [Retained],
+  [Scalar Dual charts], [Unsupported massless C0/D0 derivative neighborhoods remain explicit failure paths. A rejected implementation chart does not prove mathematical nonanalyticity, and no broader branch qualification is inferred from one passing anchor.], [Scoped limit],
+  [Independent accuracy], [The qualified256/384 precision consistency and two-rule agreement are numerical evidence. Retain FAILED 128/256 (628 fields) of2520 adjacent. No rigorous quadrature remainder or certificate of achieved working-bit accuracy follows. Cross-source pairs are labeled explicitly.], [Scoped limit],
+  [Point count and kinematics], [The tensor API has no fixed point-count ceiling. The independently tested finite envelope is N≤6/rank≤6; arbitrary-N, arbitrary-kinematics and broader derivative charts remain unqualified.], [Scoped limit],
+  [Completion boundary], [Broader powers/shifts, accepted Legacy/rescue and exceptional domains retain their existing mechanism-witness scope. They are not blanket new-grid requirements. Performance optimization remains separate future work.], [Scoped limit],
+))
+
+The historical optional-profile skip passed24 focused checks but failed both
+full96 GiB tensors. Restored1f source passes24 focused checks, including finite first-order R0
+contexts and an honestly refused transverse E6 lane; currentc65 passes10 installed
+cases. The unchanged original-fixture mass-second128/256/384 arrays pass actual
+DD/context/lifecycle checks. The stricter128/256 gate failed628 fields; full256/384
+consistency and its final capsule now pass without relabeling that failure. The observed requested-PV
+route selects genuine IBP (0PV/610IBP requests, runtime fallback0). Future
+qualification must retain actual profile/analytic rows rather than demand
+actual PV or zero analytic rows. In the retained nonfinite failures, accepted masters
+and converged E6 endpoints did not establish finite tensors; the first bad node remains unknown.
+
+Final source bindings must identify which current core, scalar dependencies and
+frontend release were actually exercised. Reuse unchanged source/archive data
+without implying a complete hermetic dependency closure. Historical old wheel
+and test-source contexts remain distinguishable from the final installed smoke.
+Physical comparisons retain their rank-four graph/CLI scope; no new rank-six
+physical or broad external Community-host qualification is implied.
+
+// Certificate prose: complete Gram/Cartesian/Taylor checks apply CHECKED high-point supplied-G routes; ordinary lower-point supplied-G remains authoritative.
+
+// FINAL MATERIALIZATION: relabel the da7 precision-boundary page explicitly HISTORICAL.
+// Its384-active/no-array statement is the old cutoff, never current final prose.
+
+#pagebreak()
+= Historical da7 precision boundary: retained128/256 failure
+#block(fill: amber, inset: 7pt, radius: 4pt, width: 100%)[
+  *HISTORICAL — da7 cutoff.* The following384-active/no-array and pending statements
+  describe the archived earlier milestone. The validated checkpoint above supersedes
+  those runtime states, preserving every original comparison, failure and raw value.
+]
+
 #block(fill: amber, inset: 9pt, radius: 4pt, width: 100%)[
   *Intermediate checkpoint — objective open.* The original restored fixture
   agrees with the independent defining integral, while the stronger

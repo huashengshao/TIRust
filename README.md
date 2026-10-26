@@ -3,34 +3,31 @@
 A Rust implementation of one-loop tensor reduction, using Symbolica for algebra
 and batched numerical evaluation, and oneloopmaster for scalar integrals.
 
-Development follows [PLAN.md](PLAN.md). The implementation is undergoing
-independent validation; the agreed functional coverage is not yet fully
-qualified. Performance optimization follows functional completion.
-[docs/benchmark.pdf](docs/benchmark.pdf) records measured evidence,
-known reference defects, and outstanding work without treating missing results
-as successful cases.
+Development follows [PLAN.md](PLAN.md). The documented one- through six-point,
+cumulative rank-six functional checkpoint is independently validated, including
+dotted propagators and dimension shifts. Performance optimization is deferred.
+The [benchmark report](docs/benchmark.pdf) retains measurements, failed attempts,
+reference defects and explicit qualification limits.
 
-The [current checkpoint](docs/checkpoints/rank6-dual-precision-boundary-20261026.md)
-records complete six-point/rank-six, dimension-shifted second-mass-derivative
-Dual arrays at 128 and 256 working bits. All 2,520 complex fields per array pass
-both independent defining-integral comparisons at `1e-10`; both complete batch
-lifecycles and owning error contexts pass. The stricter `2^-80` precision-pair
-check fails 628 fields and remains visible. A same-code 384-bit run is checking
-higher-precision convergence; full qualification remains open. Ordinary dotted
-and dimension-shifted six-point/rank-six cases have passed independent checks.
-Earlier resource failures, rejected tensor results and checking-script history
-are retained. See the
-[handoff](HANDOFF.md) for active work and reproduction details. The target is generic
-rank-six support, including dots, with propagator-count reduction kept separate
-from the tensor-rank limit. Full six-point/rank-six qualification remains a
-concrete checkpoint; arbitrary point counts require their own reduction proof
-and evidence. Further optimization is separate work. The explicit six-point API reaches rank seven with complete
-retained Float-array checks against higher-precision original IREGI; seven-point
-tensors and broader domains remain under validation. Historical scheduler
-experiments remain separate from the default reducer.
-The [shared CLI checkpoint](docs/checkpoints/rank7-cli-ibp-20261025.md) adds
-passing CLI checks through six-point rank three and seven-point scalar calls,
-and a complete retained rank-seven IBP bubble comparison.
+The [final checkpoint](docs/checkpoints/rank6-functional-completion-20261026.md)
+records ordinary dotted/shifted tensors and the completed six-point, rank-six
+second-mass-derivative Dual validation. For that witness, all 2,520 complex fields
+per unique array at 128, 256 and 384 working bits agree with both independent
+defining-integral
+rules at the unchanged `1e-10` tolerance. The strict 256/384 comparison passes all
+fields at `2^-80`; the earlier 128/256 failure in 628 fields remains archived.
+Complete batch lifecycles, owning higher-component error contexts, invalid isolation,
+empty reset and bit-identical recovery pass independent replay. See the
+[handoff](HANDOFF.md) for evidence, reproduction and future work.
+
+Tensor rank and propagator count remain separate. The API uses dynamically
+sized denominator descent with no fixed point-count ceiling; this finite
+qualification covers the documented N≤6/rank≤6 families. Arbitrary point counts,
+every exceptional chart and every derivative neighborhood need their own
+evidence. Historical rank-seven and higher-point checks remain in the report;
+additional rank-seven work is deferred. Physical comparisons retain their
+specified graph/rank-four scope, and the current Python smoke includes an N6
+rank-one lifecycle case. Each family's validated domain is documented separately.
 
 ## Workspace
 

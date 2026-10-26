@@ -1,5 +1,324 @@
 # TIRust / iregi-rust: exhaustive session handoff
 
+## Final functional checkpoint: rank six, with optimization deferred
+
+The user's revised numerical checkpoint is complete: documented rank-six
+families through six points, including dotted propagators. The final response
+records the pushed commit and objective closure. New sessions should start from
+that commit and treat further performance optimization or rank-seven work as a
+new task. No numerical producer or build remains active.
+
+Tensor rank and point count are separate. The public tensor facade uses
+dynamically sized denominator descent without a fixed mathematical upper point
+count. The concrete independent validation checkpoint is the documented
+one- through six-point families, through cumulative rank six. This does not
+qualify arbitrary point counts, all Gram/Cayley charts, or the Cartesian product
+of every type, power, shift and method. Four-dimensional numerator tensors have
+210 cumulative Cartesian moments through rank six; each has the four native
+Laurent slots `[UV single, IR single, IR double, finite]`.
+
+### What is implemented
+
+- A pure-Rust numerical reduction library with immutable plans and separate,
+  owned generic batch workspaces. Graph preparation, Python, physical models,
+  Fortran references and MadLoop are outside the reduction library.
+- IBP, PV and default Hybrid dispatch; positive propagator powers, dimension
+  shifts, real/complex squared masses, routing transformations, supplied
+  scalar products, checked high-point compatibility certificates, normalization adapters,
+  tensor multiplicities and separate numerator contraction.
+- `f64`, Symbolica `DoubleFloat`, arbitrary-precision `Float` and Symbolica
+  static/dynamic Dual layouts. Samples and Taylor components remain separate.
+  Recurrence nodes and scalar-master instructions process active sample lanes;
+  batching is not an outer loop around a scalar reducer.
+- Symbolica/FeynKit/Spenso/Idenso algebra and oneloopmaster scalar evaluation.
+  Reference dependencies and narrow local patches retain upstream provenance.
+- An independent graph/numerator preparation crate and standalone CLI, plus
+  typed PyO3 bindings and executable marimo examples. The current installed
+  wheel smoke and historical broader Python qualification are separate source
+  epochs; do not add their test counts together.
+- Lane-local invalid, master-failure and stability diagnostics, preserved
+  inputs by default, explicit Legacy snapping, and propagated full-component
+  quadrature/roundoff ownership checks. Unsupported charts do not return
+  successful zero tensors.
+
+### Completed evidence already in the preceding milestone
+
+The preceding precision-boundary milestone is
+`da7e9bc73752eda8eac31ac13905ba770ada775d`. Its independently rebuilt and
+reviewed 66-page report contains 454 raw records, preserving all 451 a7ccffb
+records and all 58 historical proof fields exactly. Its PDF SHA-256 is
+`f9b9ed9955e1d78f62ee332ccf46fac64fe8b8efe59b50842f7200a6f4f7181d`.
+The final publication preserves these exact 454 records and nested history,
+then adds the actually sealed final Dual continuation and its references.
+
+The immutable precision-boundary parent is
+`validation/e6-dual-rank6-precision-boundary`, manifest `cd656689…`.
+It owns both complete 128/256 captures, their passing reference/context/lifecycle
+checks, the strict 128/256 failure, independent saved arithmetic, diagnosis and
+source/schema history. The final capsule inherits this parent once rather than
+duplicating those captures or the DD/source payloads.
+
+### Completed shifted rank-six Dual convergence
+
+The original SAMPLE, N6/rank6/h1, second-mass-derivative witness now completes
+all three actual calls at 128, 256 and 384 working bits on the same frozen 749b
+artifact and selected 210-source build b069. Each unique parent array contains
+2,520 complex fields: 210 cumulative Cartesian moments × four Laurent slots ×
+three ordered Taylor components. All fields pass both independent DD rules at
+unchanged `1e-10` dimensionally normalized mixed tolerance; the largest normalized
+difference is 3.9743290309e-15.
+
+The final strict SAME_SOURCE 256/384 pair passes all 2,520 fields at unchanged
+2^-80, maximum normalized difference 3.8999626029e-60. Its complete joint report is
+04f64a71f25acaf9b3391bc8d7c5481a557fd5d851b7944d3cb47cf127fed31d.
+The older strict 128/256 comparison remains FAILED 628/2,520, maximum
+2.9216229277e-21; exact failed report
+2472628367171ba81589e18c949a3e2681489d76d2395693a7c23610b1be0b7a.
+Never relabel or omit that failed precision pair. The successful increasing-
+precision check does not establish a rigorous error enclosure or achieved bits.
+
+Every precision completes the fixed odd batch `[valid, invalid_mu_zero, same_valid]`,
+empty reset and singleton recovery. Each has three successful parent and six
+specialized child owning contexts, positive propagated quadrature estimates in
+all three Taylor components, exact valid duplicate/recovery equality, isolated
+invalid null outputs/context refusal, and actual empty-result/counter reset.
+The requested PV invocation selects the documented generalized IBP recipe:
+0 canonical PV / 610 IBP requests, runtime fallback 0. This is not a new
+numerical default-Hybrid h1 invocation; separate source-equivalence notes and
+other historical Hybrid tests retain their own scope.
+
+Actual 384 receipt 120f490a…, captureb848d205…, mechanismf3991137… and
+single-precision numeric d16309e4… are joined in its final capsule. Root rehashed
+all 262 receipt inputs and three outputs and independently observed the owned
+group gone. Root terminal review is 69504307… . All native groups are terminal;
+no numerical producer or build remains active. The 384 controller took
+5402.417764s, its receipt worker step 5400.472286s and libtest 5392.21s. These are
+separately scoped validation durations, not benchmark timings.
+
+The unchanged closed independent arithmetic/context/lifecycle reviewer a6e79
+and history/product wrapper 4ff7 passed the complete 256/384 packet, including
+six 2,520-field comparisons and four 1,806-control raw-pole sets. Live guards 248+262
+and three outputs per run were rehashed, identifying exact 749b. Independent
+base report 4180b1f0… and history supplement cd17c2c1… reproduce in a fresh
+13-file plain JSON/Python packet without native execution. Minimal proof 943a3fb7…
+labels omitted live guard observations honestly; the old failed 247262 pair is
+preserved. Raw UV/IR controls remain unprojected; 384's normalized residual
+maximum is 1.7331466256e-106.
+
+The requested accuracy parameter is 53; heuristic success thresholds `2^-34` and
+E6 relative `2^-36` do not guarantee 80-bit consistency. Source analysis finds all 630
+finite 128/256 differences consistent with combined saved heuristic estimates,
+meaningful imaginary tracked precision 94→222 bits and cancellation amplitude
+about 1.62e12. This is not a rigorous remainder bound, causal proof or achieved-bit
+certificate. No core formula, input, branch, tolerance or build changed for 384.
+
+The final immutable capsule is
+`validation/e6-dual-full-rank6-mass-second`, manifest
+`28c16b64347070b785ad25f5aba8b235afe8ba989e59d147672581b8549074ef`.
+Its payload is `7b8362e2a04cf6a7f50c90f5df1a49fc6b621eeeeef7fbfe61d10e493c953656`.
+It inherits the precision-boundary parent once, with no source, DD or128/256
+body duplication. The direct root saved replay is
+`docs/data/rank6-functional-completion-saved-replay-20261026.json`, SHA
+`910b6c54ee9fe91265bc618c4294cca1ab3a5ca2859a4f320717a45d541a2fb1`.
+Root's environment-cleared fresh42-file replay also passes; receipt24dab2cc… .
+Root copied the exact reviewed six-file packet to its validation path without
+recollection or manifest rewriting; sealing proof505b7b98… . These saved replays
+execute the unchanged numerical and independent comparator functions on captured
+data, not merely source-hash or summary checks. They do not reevaluate an integral.
+Their `full_objective_met=false` flags describe collection-time scope; final
+publication and objective closure are separate later steps.
+
+The first final-capsule replay failed a source-guard assertion before any
+mathematical replay: it looked for canonical source paths in a receipt that
+correctly pins210 build-snapshot paths. Original packetf9fa88dc/checker2fbef734,
+owner logs and root isolated42-file failuredf4f111a remain preserved in the
+outer provenance. The only fix uses the exact declared build-specific
+`current_source_aliases` mapping for each of210 source guards, with no canonical
+fallback. Corrected checker785afa95 is independently audited in67ebcc04:
+210 actual source bodies and receipt guards match;0 canonical/0 unmatched.
+All262 input guards and numerical results remain unchanged. The corrected
+root default and isolated replays pass. This checker failure, like the earlier
+schema and scratch-contract failures, is not an eleventh failed native witness.
+
+The final report has68 pages,457 archival records,409 bound sources and378
+exact JSON snapshots. All454 preceding raw values and60 historical proof fields
+remain exact. The current PDF SHA-256 is
+`75759f1935ebf095f3645b94ce7eff0cf1438ecdc842d75e26520f83ecf809c8`.
+Root independently rebuilt it byte for byte and viewed the current coverage,
+completed gates, limits and historical precision-boundary pages. The report
+retains IREGI/COLLIER measurements, TIRust/reference ratio direction and all
+slower/noisy/unsupported cases; no new performance claim is made. Final source,
+rebuild, visual and payload provenance lives in
+`docs/data/rank6-functional-completion-root-review-20261026.json` and the adjacent
+scan/replay records. The remaining action at publication is to push the final
+commit, mark the existing revised objective complete and stop.
+
+The ordinary N6/rank6 dotted and D2 capsule is
+`validation/ordinary-gh-n6-generalized-requalification` (`185b9372…`). Each
+family retains all 840 Laurent/component reference checks per precision array and 840 strict
+cross-source precision pairs. The ordinary D6 capsule is
+`validation/ordinary-gh-n6-d6-requalification` (`1386c4ce…`), including both
+defining-integral rules and 5,332 independent saved checks. These precision
+pairs compare current 256 with historical 128: label them CROSS_SOURCE.
+
+The historical bypass and its 24 scoped passes are owned by
+`validation/e6-dual-optional-zero-profile-core-tests` (`403dfee6…`). It did not
+qualify the full rank-six/null-kinematics route. The current restoration is
+`validation/e6-dual-restored-zero-profile-core-tests` (`1f1a41fd…`): all 24 focused
+tests pass on actual opt3 product749b/buildb069/source210. Its regression preserves
+two finite R0 lanes and one genuine transverse E6NonConvergent refusal with no
+failed output/context. Prior23pass/failed-expectation b804 is retained. Use the
+capsule's build-specific current_source_aliases; inherited canonical execution.rs
+still denotes historicalb4d, not current4f673. Only three new source bodies are
+owned, with older bodies borrowed rather than duplicated.
+
+The current wheel is
+`validation/python-interface/restored-zero-profile-wheel-refresh-smoke` (`c65b3e60…`):
+205 selected bodies, 128 declared coherent core bodies, ten installed API
+cases, and 2,709 saved checks. Its N6 frontend lifecycle smoke is rank one.
+Fresh compiled native8978 is byte-identical to the historical safe pre-bypass
+native, and differs from bypass-era2220; actual source/build guards are retained.
+Historical 65 API cases, seven marimo runtime cases and consumer typing retain
+their own wheel provenance; a complete separate Community-host loading path
+is not qualified by the standalone shared-host tests.
+
+The independent full mass-second reference is archived once in
+`validation/e6-dual-rank6-mass-second-defining-integral` (`dd499b4a…`). Its
+86,272 points, 337 batches and eleven windows produce two complete 5,880-field
+arrays, each including all 2,520 parent tensor/Laurent/Taylor fields. Saved
+stream and rule-pair reports reproduce exactly; the maximum normalized parent
+rule difference is about `2.45e-15`. It uses nominal 106-bit DoubleFloat
+arithmetic with the documented 53-bit quadrature nodes; this is neither an
+achieved-bit nor a rigorous error-interval claim.
+
+Four post-fix no-array attempts are archived in
+`validation/e6-dual-postfix-resource-boundaries` (`78fb3bc3…`), borrowing
+the earlier source context and independent reference rather than duplicating
+them. Its saved replay reproduces all four failed mechanism audits and 976
+nonbinary input guards. The four older failures remain in source capsule403.
+The two-second/96-sample profile and the finite batch-memory model are
+diagnostics; they do not establish the exact failure substage or whole-run
+dominance. Raw perf data is deliberately outside Git.
+
+Two later 96-GiB full-witness attempts are archived in
+`validation/e6-dual-postfix-nonfinite-boundaries` (`792765c1…`). Their E6 masters
+converged, but all four packed N5/h1/R6 tensor rows failed the nonfinite-output
+guard; valid parents were Unstable and the invalid neighbor stayed isolated.
+Both failed calls and all null output/context states remain lossless. No first
+bad instruction was exported. These make ten unsuccessful full-witness attempts,
+separate from compiler-boundary and focused-test failures.
+
+The independent physical evidence includes four FeynKit/HELAS graph pairs at
+three fixed loop momenta, documented graph factors and routing, and selected
+graph-isolated MadLoop integration checks. The later CLI physical record has
+14 CLI tests, 2,800 tensor checks, twelve merged MadLoop coefficients and 568
+strict precision-pair checks for fixed rank-four box/pentagon examples. These
+are not new rank-six physical checks. R2 and UV counterterm diagrams are
+excluded; bare poles and reduction-generated R1 are retained.
+
+### Important numerical and resource history
+
+The ordinary complex-box coefficient repair preserves an exact correlated
+combination before numerical rounding. It fixes a demonstrated cancellation
+failure and is independently checked against defining integrals. The seeded
+Dual expression remains on its separately qualified chart. Do not generalize
+an ordinary-source repair into a derivative-domain claim.
+
+The original IREGI D6 reference finite values failed an independent
+positive-F/scalar-mean identity; all rejected values remain archived. The Rust
+qualification instead uses two independent defining-integral rules with raw
+UV contact terms retained. Never silently reinstate those original finite
+coefficients as acceptance values.
+
+The full-Dual SAMPLE has three exact null time-space separations. A second
+12,318-alias preparation observed after the completed generic 12,441-alias
+constructor was runtime exact-zero specialization, not proven Hybrid
+constructor fallback. The temporary bypass avoided that preparation, but the
+generic tensor recurrence retained removable lightlike-bubble divisions by
+numerical B=0. Finite E6 masters therefore did not establish finite tensors.
+The restored source removes only that 15-line bypass, reusing the existing
+full-Taylor-certified structural zero chart and all admission/context guards.
+The exact first bad instruction remains unavailable in the failed captures.
+Actual requested PV selects generalized IBP (0PV/610IBP) for these N5/h1 children;
+legitimate profile/analytic rows must be retained in mechanism evidence. Old
+PV-only/zero-analytic expectations are obsolete, not numerical tolerances.
+
+Preserve all earlier OOM/timeouts: Hybrid32 primary preparation; Hybrid64 and
+PV128/PV256 optional-profile preparations; and the two post-fix 2,400-native
+deadline failures. The additive 4,200-native attempts change only the time
+allocation, retaining the same code, fixture, precision, requested accuracy
+and 64 GiB address-space bound. A timeout with no arrays is not a numerical
+pass. Both subsequent96GiB attempts ended in mathematical guard rejection.
+The restored-source trial is separately compiled opt3, with compiler debug
+assertions/overflow checks false and mandatory numerical guards unchanged.
+The sequential Float128/256/384 protocols use separate 192-GiB/256-GiB/256-GiB
+address-space budgets. Their actual terminal receipts and observations establish what ran;
+the selected limits themselves do not establish resource sufficiency or accuracy.
+
+### Limits and future work
+
+Genuine E6 quadrature requires the documented positive-F or complex-width
+domain. Seeded C0/D0 mass derivatives have conservative supported charts;
+refusal of a zero-mass tangent is not a proof of mathematical nonanalyticity.
+The retained massive positive-F R0 time-shift germ also reaches E6NonConvergent
+at order128; this is a numerical refusal of an analytic germ, not a nonexistent
+derivative. It is outside the accepted mass-only full-rank witness.
+Checked high-point supplied-product routes require the full documented
+Gram/Cartesian/Taylor certificates; lower-point supplied products retain
+their authoritative-input semantics.
+High-point Legacy snapping is accepted when certified to preserve the input;
+geometry-changing snaps remain unsupported. Composite explicit-Dual precision
+rescue has an explicit unsupported domain. Requested and actual methods can
+differ in documented high-point completion; preserve those diagnostics.
+
+Neither working precision nor a strict precision pair establishes achieved
+accuracy. Successive quadrature-rule differences and propagated error
+estimates are not rigorous intervals. Existing performance results include
+slower, noisy, failed and unmeasured cases; functional completion does not
+claim performance parity. Every implementation/reference timing ratio uses
+TIRust in the numerator. Reference-only IREGI/COLLIER timings remain absolute.
+
+If the user later requests more work, prioritize measured preparation and
+evaluation costs, structural reuse and certified exceptional charts. Rank
+seven increases expression/monitor size and resource pressure; arbitrary N
+needs its own denominator-reduction and stability qualification. Do not start
+those campaigns merely because the architecture can represent them.
+
+### Reproduction and repository rules
+
+All commands run from `/shared/external/iregi/iregi-rust`. Source the pinned
+toolchain roots and `scripts/env.sh`; source the local Symbolica license file
+silently when a native run needs it. Do not print or commit that environment
+file. Original reference checkouts are read-only, except the requested
+`../references/PLAN.md` copy. Keep generated builds and artifacts in `target/`.
+
+Saved capsule replay needs only the standard Python library and does not
+reevaluate any integral. Use each capsule's README and checker. For the final
+Dual witness and report:
+
+```sh
+source .local/tirust-current-toolchain-roots/env.sh
+source scripts/env.sh
+python3 -I -S -B validation/e6-dual-full-rank6-mass-second/check.py
+python3 scripts/check-benchmark-report.py --preserve-from da7e9bc
+typst compile --root . --creation-timestamp 1792972800 docs/benchmark.typ \
+  target/rank6-final-feature-report-20261026/rebuilt.pdf
+cmp docs/benchmark.pdf target/rank6-final-feature-report-20261026/rebuilt.pdf
+```
+
+The final checkpoint and report contain the final capsule paths, actual
+receipt hashes and exact arithmetic checks. Git contains source/evidence,
+not native executables or the license. Configure local author identity as
+`huashengshao <erdissshaw@gmail.com>` and push normally to `origin/main` without
+force. All owned numerical process groups are terminal and cleaned up. The goal is
+closed only after the actual final evidence/report checks and commit/push.
+
+All sections below are historical context, superseded by the final checkpoint
+when they describe an older pending state. Preserve their source epochs and
+failed attempts; do not reinterpret them as new successful results.
+
+---
+
 ## Current checkpoint: complete reference checks, convergence still open
 
 The accepted finish line is the documented one- through six-point families,
