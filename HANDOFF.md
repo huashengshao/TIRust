@@ -1,6 +1,135 @@
 # TIRust / iregi-rust: exhaustive session handoff
 
-## Post-publication continuation after `6a826a0`
+## Current milestone: ordinary rank-six closure and Dual route repair
+
+This checkpoint extends pushed `fccffab` and publishes a63-page benchmark PDF,
+SHA `95fc3559…`, with443total raw records and all437 prior values/timings and
+nested history preserved. Root rebuilt it byte-identically, visually inspected
+pages1–3, checked395bindings/364JSON snapshots and replayed the source24 capsule
+as well as the ordinary/current-wheel capsules. The report records complete
+ordinary six-point rank-six dots/D2/D6 checks, current wheel refresh, the narrow
+optional-zero-profile route fix, its24 focused passes and retained failures.
+It is an INTERMEDIATE milestone: the actual fullN6/R6 quadrature-Dual128/256
+arrays, their ready independent-anchor comparison and final publication remain
+open. No performance claim or arbitrary-point qualification is added.
+
+After that report's cutoff, every ordinary six-point/rank-six followup is now
+sealed and passing. The common dotted/D2 capsule is
+`validation/ordinary-gh-n6-generalized-requalification`, manifest `185b9372…`,
+with independent portable review `86f0b276…`: all840 reference coefficients per
+precision and840 strict cross-source pairs per case. The positive-shift D6
+capsule is `validation/ordinary-gh-n6-d6-requalification`, manifest `1386c4ce…`:
+all840 coefficients against both defining-integral rules,840 strict cross-source
+pairs (maximum1.77715e-26), and5332 independent saved gates. Historical failed
+predecessors remain unchanged. Root replayed both capsules successfully.
+
+The current wheel is also sealed: `validation/python-interface/final-rank6-wheel-smoke`,
+manifest `5ef739c7…`, wheel `93cea129…`, native `8978f06f…`. Actual build270.195s,
+204selected source bodies including coherent128, native owner/hash import and
+exact10 installed cases allpass, seven owned process groups gone. The N6
+frontend lifecycle smoke is rank1; mathematical rank6 evidence is separate.
+Root saved replay passes2614bindings. No new notebook/typing/performance claim.
+
+Only actual full-Dual imported-quadrature qualification remains numerical work.
+The independent original-SAMPLE DD anchor is COMPLETE: receipt `ae85d933…`,
+399.881s,86272points/337batches/11windows/both5880-field arrays. Independent
+stream replay `461859d5…` verifies229bindings,229363 exactlimb witnesses,
+11windows andvolume1/24. All2520 parent rule differences pass1e-10, max2.44997e-15
+(`6cabc120…`). Raw UV/IR residues remain unprojected. This anchor is ready for
+comparison; it has not yet qualified a successful full-Dual reducer array.
+
+The original explicitPV128 attempt at64GiB FAILED: native1854.211s/total1861.935s,
+malloc84226bytes, receipt `fb364156…`,193pins unchanged/groupgone/cleanupempty,
+zero completed calls. IMPORTANT CORRECTION: the second12318-alias pass after
+the generic12441-alias preparation is a runtime OPTIONAL EXACT-ZERO invariant
+specialization, not established Hybrid fallback. SAMPLE has three null
+(e_time−e_space)^2 separations. `execution.rs:1855–1914` groups the full-Taylor
+zero distances and prepares a specialized IBP recipe while retaining the generic
+one; savedlog673/674 show numericmapping/genericchild complete before this pass.
+The earlier Hybrid64GiB attribution is therefore source-inferred and must be
+corrected precisely rather than promoted as fact. All earlier failures remain.
+
+OriginalPV256 CPU26/session89346/group2117393 continues unchanged to terminal
+under protocoldbe8736c,64GiB/2580-120-2400. Do not mutate or duplicate it.
+Root chose a minimal production resource-route repair after independent audit:
+for genuineE6 quadrature Dual workspaces, retain the prepared generic path
+instead of preparing optional zero-invariant profiles. Existing ordinary-retry
+contract at1933–1957 establishes optionality. All exact-zero certificates,
+master-domain/branch, roundoff, quadrature and coupled-context guards remain.
+Unsupported generic charts can still fail honestly. No scalar algebra changes.
+The proposed half-time fixture workaround is HELD and will not run.
+
+`rank6_finish_audit` owns sourcelease for the minimal change and one concrete
+small N5/D6/Dual regression; it preserves full-Taylor zero classification and
+logs only actual skipped groups. On release, `e6_precision_failure_research`
+owns new libtest build/freeze,22current focused tests +existingoptional-profile
+retry +newregression, then originalSAMPLE R6PV128/256 concurrent captures with
+same64GiB bounds and ready independent DD comparisons. Final wheel must then
+be rebuilt and its exact10 smoke refreshed against this changed core. No broad
+new grid or performance optimization is authorized/required.
+
+Latest post-fix build state: source edits are COMPLETE in execution.rs and
+execution/quadrature_context_tests.rs; source proof `e16e68ad…`. The production
+change retains full-Taylor zero classification and logs actual skipped groups
+before optional-profile cache lookup. Fresh libtest build/freeze passed42.626s,
+receipt `05b6c4bc…`, artifact `4f430732…`,210frozen sources, under
+`target/e6-dual-optional-zero-profile-qualification/build-001`. Focused-001 has
+23PASS and one60s TIMEOUT (new real E6 regression), no assertion failure; all
+source guards/cleanup pass. Root authorized one additive run of ONLY that test
+onCPU24 with300total/30cleanup/240native; no source changes or23-test rerun.
+The fresh post-fix wheel build also passed102.495s, receipt `023178c3…`,205source
+context `acaf6c68…`, under `target/python-final-rank6-wheel-refresh`. All source/
+Cargo leases are free. Wheel exact10 smoke usesCPU22; e6owner prepares new
+originalSAMPLE128/256 packets from4f430732/05b6c4bc (same64GiB/53target/bounds).
+Old explicitPV256 has now hit the same optional-profile64GiB malloc limit
+(48244B/noarrays); its final immutable receipt/cleanup is being collected.
+
+CURRENT RUNNING QUALIFICATION (supersedes older pending lines): all24 focused
+post-fix tests now PASS. The one new real E6 regression completed146.707s under
+the additive bound, receipt `984c361b…`; earlier23passes and60s timeout remain.
+Fresh post-fix wheel exact10/ownership/hash also sealedPASS:
+`validation/python-interface/final-rank6-wheel-refresh-smoke`, manifest
+`ccee07d6…`,2674saved checks,205selected/128coherent-of-actual210, wheeldd84b465/
+native2220aa0b. Root saved replay passes. No source/Cargo lease remains.
+
+Fresh original-SAMPLE fullR6Q captures are RUNNING from artifact4f430732,
+actual05b6build/source210/24gate, same64GiB/2580-120-2400/accuracy53/explicitPV:
+128 CPU28/session17385, protocold5b71274;256 CPU30/session6697, protocol0cc087e5.
+Both root-release.json files verified238immutable bindings. The saved mechanism
+checker additionally requires actual skip diagnostics for BOTHN5terminals and
+zero analytic-profile rows, plus all actual owningcontext/nonzerohigherQ gates.
+The ready DD anchor is unchanged and six complete2520 numerical comparisons
+remain required (fourcore/rules,rulepair,strictsame-source128/256).
+
+Root requested another intermediate report/commit while these25min captures run.
+`current_rank6_report/low_n_generalized_capsule` is sealing narrow source24
+capsule `validation/e6-dual-optional-zero-profile-core-tests` using direct210map
+`81db2d94…` (205borrowed,5ownDDexamplebodies47,527B) and sourceproofe16e68ad.
+`current_rank6_report` prepares `rank6-ordinary-closure-and-dual-route-20261026`
+intermediate PDF/data, goalfalse, preservingall437raw/nestedhistory, including
+ordinary185b/D61386, wheel5ef/ccee and scopedsource24—notactiveR6Qarrays. Root
+will independentlyreplay/rebuild/render/scan/commit+push andlinkPDF. Final
+completion templates remain conditional; README draft not yet applied.
+
+The HISTORICAL pre-fix source bridge `target/final-dual-current-source-bridge/comparison.json`
+(`e37b277f…`) finds128 shared selected old/current sources and125 byte-identical.
+All84 reduction and18 master bodies, entire pentagon6 and expressions helpers
+are identical; the entire123899-byte box production prefix matches. The only
+shared changes are test diagnostics and a dev-only sha2 dependency. No production
+mathematical delta or rebuild is required within that declared source scope;
+this is not a complete dependency-closure claim. This bridge applies to the
+pre-skip wheel5ef and failed originalPV attempts; new post-fix library/wheel
+contexts above require their own current-source equality binding.
+
+Final report templates are under `target/rank6-final-feature-report-20261026`.
+They preserve437raw records and all nested history. Report owner prepares target
+sources only until the final Dual capsules pass. No production source changes,
+new rank-seven grid or performance optimization is planned. After actual final
+numerical gates: refresh README/HANDOFF/report, independent replay/rebuild/render,
+commit+push, link the GitHubPDF, mark the current functional objective complete,
+and stop as requested.
+
+## Historical implementation interval after `6a826a0` (published in `fccffab`)
 
 `6a826a0621229da0c8234a488a5a79f4af844dce` is pushed to `origin/main`.
 Its 59-page report is byte-reproducible and preserves all 408 prior raw records.
@@ -100,6 +229,32 @@ Latest continuation receipts (all uncommitted after the published checkpoint):
 Do not promote a completed capture, tracked precision, source proof, cost-stop,
 or memory failure into independent numerical agreement. No new rank-seven or
 performance-parity campaign is required for the user's functional checkpoint.
+
+## Intermediate ordinary-closure / Dual-route report after `fccffab`
+
+The report checkpoint `docs/data/rank6-ordinary-closure-and-dual-route-20261026.json`
+and its readable companion preserve all437 earlier raw records and timings.
+The goal remains false/open. Root owns the top current continuation, README,
+independent report rebuild/review and publication.
+
+Sealed ordinary parent185b and D6current1386 close the documented ordinary
+six-point/rank-six families with complete references and strict CROSS_SOURCE
+pairs; no same-build convergence is claimed. Old5ef and current refreshccee
+wheel smoke epochs are both retained. The refresh passes exact10 existing
+cases with205 selected/128 declared core sources from the actual210 build;
+its N6 case is rank one, not full rank-six mathematical qualification.
+
+The source24 capsule preserves the original new-test60s timeout and additive
+146.707s exact-test pass. The precise retained64GiB diagnosis is optional
+exact-zero specialization after primary N5 completion in Hybrid64/PV128/PV256;
+Hybrid32 failed earlier mapping. The generic-route resource fix preserves all
+stability/domain guards and actual lane diagnostics. No old failure is erased.
+
+Current full original-SAMPLE R6 quadrature-Dual128/256 runs and independent
+core-anchor comparison remain pending; live captures and unsealed DD packets
+are excluded from report bindings. Half-time replacement stays held/unrun.
+Only those actual gates and coherent final publication remain completion work;
+wider chart/N/Legacy/rescue and performance entries remain qualification limits.
 
 ## Report checkpoint after published `6a826a0`
 

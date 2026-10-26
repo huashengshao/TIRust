@@ -270,3 +270,63 @@ fn ordinary_e6_dual_constructor_instantiates_joint_sensitivity_without_export_po
     assert_eq!(workspace.last_execution(),ExecutionStats::default());
     assert!(workspace.last_quadrature_context.is_empty());
 }
+
+#[test]
+fn e6_dual_zero_profiles_are_optional_and_generic_contexts_stay_coupled() {
+    let mut settings = ReductionSettings::new(5, 0);
+    settings.algorithm = Algorithm::Ibp;
+    settings.dimension_shift = 1;
+    settings.convention = Convention::OneLoop;
+    let plan = ReductionPlan::new(settings).unwrap();
+    let shape = HyperDual::<Complex<Rational>>::new(vec![vec![0], vec![1]]);
+    let mut child = Workspace::new_dual_with_policies(
+        &plan, 0., shape, WorkspacePolicy::AFFINE_QUADRATURE_CHILD,
+        MasterExecutionPolicy::Symbolica,
+    ).unwrap();
+    assert!(child.quadrature.is_some());
+    assert!(child.component_sensitivity.is_some());
+    assert!(child.zero_profile_offset.is_some());
+    let mut ordinary = child.clone();
+    ordinary.zero_profile_offset = None;
+    ordinary.zero_profile_plan = None;
+
+    // The first lane is the first five shifts/masses of the full-rank SAMPLE
+    // witness. Its time-to-spatial separations are exactly null, with every
+    // Taylor coefficient zero. Changing only the time shift in the neighbor
+    // removes those optional profiles without changing the positive-F domain.
+    let batch = KinematicsBatch {
+        rows: 2,
+        components: 2,
+        values: [1., 2.].into_iter().flat_map(|time| {
+            [0., 0., 0., 0., time, 0., 0., 0., 0., 1., 0., 0.,
+                0., 0., 1., 0., 0., 0., 0., 1., 10., 12., 15., 18., 22., 1.]
+                .into_iter().enumerate().flat_map(|(argument, value)| {
+                    [c(value), c(if (20..25).contains(&argument) { 1. } else { 0. })]
+                })
+        }).collect(),
+    };
+    let expected = ordinary.reduce_batch_with_quadrature_context(&batch).unwrap();
+    let actual = child.reduce_batch_with_quadrature_context(&batch).unwrap();
+    assert_eq!(actual.result().statuses, [LaneStatus::Success, LaneStatus::Success]);
+    assert_eq!(actual.result().values, expected.result().values);
+    assert_eq!(actual.result().metadata(), expected.result().metadata());
+    assert_eq!(child.last_execution(), ordinary.last_execution());
+    assert!(child.last_execution().pentagon_box_rows > 0);
+    assert_eq!(child.last_execution().analytic_rows, 0);
+    assert!(child.zero_profiles.is_empty());
+    let skipped = "exact-zero profile specialization skipped for full-component quadrature; ordinary reduction retained";
+    assert!(child.last_diagnostics()[0].iter().any(|note| note == skipped));
+    assert!(!child.last_diagnostics()[1].iter().any(|note| note == skipped));
+    for lane in 0..2 {
+        assert_eq!(actual.origin(lane, 53, 53).unwrap(), QuadratureErrorOrigin::PropagatedEuclidean);
+        assert_eq!(actual.errors(lane, 53, 53).unwrap(), expected.errors(lane, 53, 53).unwrap());
+        actual.result().validated_primal_envelope(lane, 53, 53).unwrap();
+    }
+    // Independent D6 parameter integral and common-mass derivative (minus
+    // the D4 scalar) already establish this normalization and derivative sign.
+    let output = actual.result().lane(0).unwrap();
+    assert!(output[..6].iter().all(|value| *value == c(0.)));
+    assert!((output[6].re + 0.0001771401382640081806).abs() < 2e-14);
+    assert!((output[7].re - 0.0000236059994160983338257).abs() < 2e-14);
+    assert!(output[6].im.abs() < 2e-14 && output[7].im.abs() < 2e-14);
+}

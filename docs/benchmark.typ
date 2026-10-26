@@ -217,20 +217,19 @@
   )
 ]
 = Current coverage
-#text(size: 9.5pt)[The latest standalone Python facade passes 65 installed API cases,
-seven marimo runtime cases and clean consumer typing. New complete public N6 mixed-Dual,
-finite-difference, N5 dotted and Legacy checks appear below with the current source/test checkpoint.
-Complete mathematical acceptance remains open. Performance optimization is deferred;
-all historical results and timings retain their original source snapshots.]
+#text(size: 9.5pt)[The refreshed current wheel passes ten installed smoke cases; the earlier 65API,
+seven marimo cases and consumer typing retain separate source contexts. Ordinary N6/rank-six
+first-dot/D2/D6 precision pairs now pass. Full genuine-quadrature Dual arrays remain pending
+after a narrow optional-route fix. Complete feature acceptance remains open; performance is deferred.]
 #report-table(table(
   columns: (1.05fr, 3.6fr, 0.8fr), inset: (x: 6pt, y: 8pt), stroke: table-stroke,
   fill: (x, y) => if y == 0 { navy } else if y <= 3 { rgb("#d9f0d3") } else { amber },
   table.header([Interface / domain], [Executed scope or remaining gate], [Status]),
-  [Local PyO3 facade], [65 installed API cases, seven marimo cases and clean typing. The fresh wheel captures 201 selected files and all 158 declared current core bodies; no full dependency closure is claimed.], [Passed],
-  [Dotted propagators], [N1/N4 first-dot/triple checks are retained. A later N5 rank-six first-dot Float128/256 pair passes 19740 saved gates; its earlier short timeouts remain failed.], [Scoped],
-  [Example gallery], [Seven runtime cases use the current installed facade. Earlier browser evidence retains three HTML exports and six Chromium views; no new browser-export qualification is added.], [Passed],
-  [Tensor / API coverage], [A later current 22-test source cohort follows the archived 120-test checkpoint; counts overlap. Complete D6 defining-integral checks resolve the earlier finite reference contradiction. Every array retains its own source context.], [Scoped],
-  [Public rank-six Dual], [Explicit PV and unchanged-default Hybrid each pass complete Float128/256 mixed arrays; typed DoubleFloat and independent mass finite differences pass. Typed f64 remains guarded.], [Scoped],
+  [Local PyO3 facade], [Current refresh: 10 installed smoke cases, 205 selected sources and 128 declared core bodies tied to the fresh 210-source build. Older 65API/7marimo/typing retain their historical context.], [Scoped],
+  [Dotted propagators], [N1/N4 first-dot/triple and N5 rank-six first-dot results retain their scoped passes. Current N6 first-dot256/prior128 strict pairs now pass; failed pre-repair attempts remain visible.], [Scoped],
+  [Example gallery], [Seven historical runtime cases and earlier three HTML exports/six browser views keep their own source contexts. No new gallery or typing run accompanies the current 10-case smoke.], [Historical],
+  [Tensor / API coverage], [The new 210-source route fix passes 24 focused tests with a retained timeout. Ordinary rank-six arrays pass; full N6/R6 quadrature-Dual arrays and independent core-anchor agreement remain pending.], [Scoped],
+  [Public rank-six Dual], [Explicit PV and default Hybrid h=0 unit-power mixed Float128/256 arrays pass, with scoped DoubleFloat/finite-difference controls. Typed f64 stays guarded; genuine quadrature-bearing shifted arrays remain pending.], [Scoped],
   [Performance], [Historical private selected TIRust/COLLIER: seven slower families and one short inconclusive family. The fresh scheduler cohort is ineligible because of host contention; no default adoption.], [Measured],
 ))
 #text(size: 8.5pt)[Evidence is local Linux/Python3.13 and source-specific.
@@ -238,7 +237,79 @@ Other platforms, separate Community-host loading and broader tensor numeric/exce
 domains remain unqualified. Earlier C0/D0 identities retain their wheel004 context.]
 
 #pagebreak()
-= Current rank-six follow-up: domains and retained failures
+= Ordinary rank-six closure and refreshed frontend
+The documented ordinary N6/rank-six first-dot, D2 and genuine-D6 families now
+have complete current Float256 results and strict cross-source precision comparisons.
+The full rank-six feature goal remains open while the quadrature-bearing Dual
+witness runs. All 437 earlier raw report values and timings remain unchanged;
+no performance or arbitrary-N claim is added.
+
+#report-table(table(
+  columns: (1.25fr, 3.5fr, 0.8fr), inset: (x: 7pt, y: 13pt), stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else if y == 6 { amber } else { rgb("#d9f0d3") },
+  table.header([Executed domain], [Complete sealed evidence and boundary], [Outcome]),
+  [Cartesian first dot / D2], [Together: 3360 current/prior original-quad slots, 1680 strict cross-source pairs and 2520 pole controls pass. Current256 maxima are≈9.11420×10⁻¹⁶ and 2.67157×10⁻¹⁷; pair maxima≈4.47284×10⁻²⁸ and 2.63578×10⁻²⁷.], [Pass],
+  [Genuine D6 current Float256], [Both complete 840-slot defining-integral rules pass 10⁻¹⁰ (maxima≈1.13558×10⁻¹¹ /6.67806×10⁻¹⁵). All 840 strict old Float128/current Float256 pairs pass 2⁻⁸⁰ (max≈1.77715×10⁻²⁶). The 5332-gate independent audit and all 84 degree-six UV slots remain preserved.], [Pass],
+  [Actual ordinary batching], [The D6 parent uses four packed same-dimension N5/IBP rows, 124 scalar masters and 2400 pentagon-box rows. Requested and actual methods remain explicit; broader mixed-method tensor completion is not called pure IBP.], [Scoped],
+  [Earlier final wheel], [The 5ef source epoch passes 10 installed smoke cases with 204 selected files and 128 coherent core bodies; 2614 saved bindings pass. This wheel predates the resource-route change below and remains immutable.], [Historical pass],
+  [Current wheel refresh], [The ccee epoch repeats 10 cases after the route fix: 8 low/interop, 1 checked-Dual rejection, 1 N6 rank-one lifecycle/contraction. 205 selected files match 128 declared core bodies within the actual 210-source build; 2674 saved checks pass.], [Pass],
+  [Still open], [Original-SAMPLE N6/rank-six explicit PV Float128/256 arrays with owned full-component quadrature contexts, their strict pair, independent mass-derivative anchor agreement, and final coherent publication remain pending.], [Open],
+))
+
+Every precision pair above is explicitly CROSS_SOURCE: current Float256 is compared
+to a separately frozen prior Float128 result. No same-build precision convergence or
+achieved working-bit accuracy is inferred. Rejected original D6 finite values
+remain archived and are not the defining-integral gate. The earlier dot/D2256
+E6 failures remain failed in their original source epochs.
+
+Both wheel epochs use the same exact ten API cases. The N6 smoke has rank one;
+full rank-six mathematical validation is separate. Earlier 65API/7marimo and
+consumer typing remain historical contexts. There is no new notebook, typing,
+platform, hermetic dependency-closure or independent-integral claim from smoke.
+
+#text(size: 8pt)[Sources: #raw("validation/ordinary-gh-n6-generalized-requalification"),
+#raw("validation/ordinary-gh-n6-d6-requalification"),
+#raw("validation/python-interface/final-rank6-wheel-smoke"),
+#raw("validation/python-interface/final-rank6-wheel-refresh-smoke").]
+
+#pagebreak()
+= Optional zero-profile route: correction and bounded tests
+The retained 64GiB Hybrid and explicitPV preparations reach an optional
+exact-zero runtime specialization after their primary N5 child completes, then
+fail before a returned array. Saved stage ordering establishes this precise
+attribution. The earlier Hybrid 32 GiB failure occurs in primary mapping instead.
+
+#report-table(table(
+  columns: (1.25fr, 3.5fr, 0.8fr), inset: (x: 7pt, y: 12pt), stroke: table-stroke,
+  fill: (x, y) => if y == 0 { navy } else if y in (2, 3, 4) { rgb("#d9f0d3") } else { amber },
+  table.header([Stage], [Actual source/test scope and retained limit], [Outcome]),
+  [Corrected old diagnosis], [PV128 generic 12441-alias mapping and the primary N5 child finish before second 12318-alias preparation. Saved Hybrid64/PV128/PV256 logs show the same post-child order. The constructor eager-fallback stage precedes this later optional zero-profile; Hybrid32 fails earlier primary mapping.], [Retained failure],
+  [Narrow route fix], [For genuine E6 multi-component quadrature Dual workspaces, retain the generic route and skip optional zero-profile preparation. Full-Taylor zero classification and generic branch, precision, coupled-context and error guards remain; actual skipped lane groups are diagnosed.], [Source pass],
+  [Concrete current tests], [210 actual compiled source bodies; 24 distinct focused tests pass. The first stage has 23 passes and a 60-second timeout on the new real N5/D6 Dual test; the separate exact-test continuation passes in 146.707 total seconds. The original timeout remains failed.], [Scoped pass],
+  [Coherent frontend], [The current ccee 10-case wheel refresh binds the changed execution source and regression module. Its 205 selected files are tied to the fresh 210-source context; source identity is not a successful full N6/R6 Dual result.], [Pass],
+  [Full original fixture], [Post-fix original-SAMPLE explicit PV Float128/256 runs are active. No completed parent array or imported-context accuracy is admitted at this cutoff. The half-time replacement proposal remains held and unrun.], [Pending],
+  [Independent anchor], [The DD reference and rule-pair stream are ready in unsealed staging. They do not qualify the reducer until actual full parent/Taylor/Laurent comparison and owned propagated-context gates pass. No pending target packet is source-bound here.], [Pending],
+))
+
+The 24-test source capsule is a finite route witness, including one real small
+N5/D6 Dual regression. The initial new-test 60s timeout remains failed; its
+separate successful continuation does not rewrite that receipt. No tolerance,
+master branch, analytic domain or algebraic formula is relaxed by the fix.
+Ordinary and prior frontend evidence retain their own compiled source scopes.
+
+All four earlier Hybrid/PV preparation/resource failures remain
+visible, irrespective of later success with the repaired generic route.
+Unsupported massless scalar derivative charts, conservative high-point Legacy
+admission, high-point explicit-Dual rescue, and arbitrary-N or arbitrary-chart
+qualification remain limits rather than blanket new-grid completion gates.
+Performance optimization stays deferred. All following sections retain their
+historical outcomes and original source contexts.
+
+#text(size: 8pt)[Source: #raw("validation/e6-dual-optional-zero-profile-core-tests").
+No active-capture mutable input or unsealed DD packet is a report binding.]
+
+#pagebreak()
+= Earlier ordinary/source follow-up (fccffab)
 This follow-up preserves all 425 earlier raw result values and timings. Each
 new test or numerical result is tied to its actual source epoch. The generic
 rank-six goal remains open; independent D6 adjudication is on the next page.
