@@ -107,6 +107,7 @@
 #let checked-G-unit = data.rank6_checked_supplied_G_unit_manifest.snapshot
 #let current-physical = data.current_cli_physical_integration_qualification.snapshot
 #let current-wheel004 = data.python_current_facade_wheel004_replay.snapshot
+#let opening-examples = data.at("opening_tensor_timing_examples", default: none)
 #let collier-cell(r) = table.cell(
   fill: if not r.correctness_passed or r.gate in ("inconclusive-noise", "inconclusive-short-block") {
     amber
@@ -187,13 +188,203 @@
   ]
 }
 
+// Fresh opening examples are appended to the archival evidence, never inferred
+// from correctness-witness wall times. The guard keeps absent measurements absent.
+#let example-phase-colors = (rgb("#dbe8f5"), rgb("#dcefdc"), rgb("#c7d9ed"))
+#let example-duration(us) = {
+  if us == none { (value: "Unmeasured", unit: "", divisor: 1) }
+  else if us < 1 { (value: fixed(us * 1000, digits: 1), unit: "ns / point", divisor: 0.001) }
+  else if us < 1000 { (value: fixed(us, digits: 2), unit: "µs / point", divisor: 1) }
+  else if us < 1000000 { (value: fixed(us / 1000, digits: 2), unit: "ms / point", divisor: 1000) }
+  else { (value: fixed(us / 1000000, digits: 2), unit: "s / point", divisor: 1000000) }
+}
+#let example-composition(parts) = {
+  let total = parts.at(0) + parts.at(1)
+  if total > 0 {
+    box(width: 1.2cm, height: 3pt)[
+      #stack(dir: ltr, spacing: 0pt,
+        rect(width: 1.2cm * parts.at(0) / total, height: 3pt, fill: rgb("#4c78a8"), stroke: none),
+        rect(width: 1.2cm * parts.at(1) / total, height: 3pt, fill: rgb("#59a14f"), stroke: none))
+    ]
+  }
+}
+#let example-timing-cell(stats, phase: 0, status: "unmeasured", parts: none) = {
+  let measured = stats != none
+  let shown = example-duration(if measured { stats.mean } else { none })
+  table.cell(fill: if measured { example-phase-colors.at(phase) }
+    else if status == "unmeasured" { pending } else { amber }, {
+    set par(justify: false, leading: 0.15em)
+    align(center)[
+      #text(size: if measured { 13pt } else { 9pt }, weight: "bold", fill: navy)[
+        #if measured { shown.value } else if status == "unmeasured" { "Unmeasured" } else { "Not timed" }
+      ]
+      #linebreak()
+      #text(size: 7pt, fill: luma(65))[
+        #if measured { shown.unit } else { status.replace("_", " ") }
+        #if parts != none { h(2pt); example-composition(parts) }
+      ]
+      #if measured and stats.at("standard_error", default: none) != none {
+        let error = stats.standard_error / shown.divisor
+        [#linebreak() #text(size: 6.5pt, fill: luma(80))[SE ±#fixed(error, digits: if error < 0.01 { 3 } else { 2 })]]
+      }
+    ]
+  })
+}
+#let example-input-cell(row) = table.cell(fill: pale, {
+  set par(justify: false, leading: 0.15em)
+  text(size: 9.5pt, weight: "bold", fill: navy, row.label)
+  linebreak()
+  let precision = if row.numeric_type == "float" { "Float " + str(row.working_bits) + "b" }
+    else if row.numeric_type == "f64" { "f64" } else { row.numeric_type }
+  text(size: 7pt, fill: luma(65))[#precision · #row.moments #if row.moments == 1 { "moment" } else { "moments" }]
+  if row.at("engine", default: none) == "AffinePower" {
+    linebreak()
+    text(size: 6.5pt, fill: navy)[AffinePower]
+  }
+})
+#let example-powers-cell(row) = table.cell({
+  set par(justify: false, leading: 0.2em)
+  let powers-label = if row.powers.all(power => power == 1) { "all 1" }
+    else { "(" + row.powers.map(str).join(",") + ")" }
+  text(size: 8pt, powers-label)
+  linebreak()
+  text(size: 7pt, fill: luma(80))[$h=#row.dimension_shift$]
+})
+#let example-timing-table(rows, extended: false) = report-table(table(
+  columns: if extended { (2.6cm, 2.0cm, 3.0cm, 3.4cm, 3.4cm, 3.4cm) }
+    else { (3.25cm, 1.5cm, 4.35cm, 4.35cm, 4.35cm) },
+  inset: (x: 6pt, y: 5pt),
+  stroke: (x, y) => if y == 0 { none } else { 0.6pt + white },
+  fill: (x, y) => if y == 0 { navy } else { white },
+  table.header(
+    [Input integral], [Powers / shift],
+    ..if extended { ([Outside direct API],) } else { () },
+    [TIRust excl. masters], [Scalar masters], [Total reduction call],
+  ),
+  ..for row in rows {
+    let timing = row.at("timing", default: (:))
+    let total = timing.at("outer_total_us", default: none)
+    let exclusive = timing.at("tirust_exclusive_us", default: none)
+    let masters = timing.at("scalar_masters_us", default: none)
+    (
+      example-input-cell(row), example-powers-cell(row),
+      ..if extended { (table.cell(fill: rgb("#f1e9f6"), {
+        set text(size: 7pt)
+        if row.powers.any(power => power > 1) { [Dotted propagator powers] }
+        else { [Independent dimension shift] }
+      }),) } else { () },
+      example-timing-cell(exclusive, phase: 0, status: row.status),
+      example-timing-cell(masters, phase: 1, status: row.status),
+      example-timing-cell(total, phase: 2, status: row.status,
+        parts: if exclusive != none and masters != none { (exclusive.mean, masters.mean) } else { none }),
+    )
+  },
+))
+#let opening-timing-pages(examples) = {
+  pagebreak()
+  heading(level: 1)[Example tensor integrals: reduction time]
+  text(size: 8.8pt)[Representative $N <= 6$, cumulative rank $R <= 6$ inputs.
+  Every call requests all Cartesian moments $q^alpha$ with $|alpha| <= R$ and
+  all four native Laurent slots. These are *absolute singleton times*;
+  colors identify components, not a relative speed. Precision is explicit.]
+  v(3pt)
+  block(fill: pale, inset: 6pt, radius: 3pt, width: 100%)[
+    #set text(size: 7.8pt)
+    *Exact inputs:* metric $(+,-,-,-)$; use the first $N$ shifts from
+    $(0,e_x,e_y,e_z,e_t/2,e_x+e_y)$ and squared masses $(1,2,3,4,2,3)$;
+    scale $mu=3$. Denominators are $(q+p_i)^2-m_i^2+i 0$, powers $nu_i$;
+    $D=4+2h-2epsilon$. Numerator components stay four-dimensional.
+    Ordinary rows use Hybrid; generalized rows use IBP. Accuracy parameter 53
+    is requested; this is not achieved-bit certification.
+  ]
+  v(4pt)
+  example-timing-table(examples.rows.filter(row => row.table == "ordinary"))
+  v(3pt)
+  text(size: 7.4pt)[*Protocol:* arithmetic means of the same timed calls;
+  blue + green = total before display rounding. SE uses the cell's time unit
+  and is descriptive standard error across blocks, not a
+  controlled-host confidence guarantee. Low-point inputs use 11 blocks targeting
+  100 ms; $N >= 5$ uses five single-call blocks fixed before measurement.
+  TIRust excl. masters = outer call wall time − nested scalar-master wall time;
+  it includes arguments, conversion, dispatch, stability checks and assembly.]
+  v(2pt)
+  text(size: 7.4pt)[*Cold work excluded:* structural plan, workspace construction,
+  first-call specialization/reduction, warm-up, output checks, result destruction and I/O.
+  Separate per-row #raw("plan_ns/workspace_ns/first_call_ns") are retained in
+  the raw data. Warm calls reuse plans and recompute numerical results.]
+
+  pagebreak()
+  heading(level: 1)[Generalized requests outside COLLIER's direct API]
+  text(size: 8.8pt)[Only requests outside COLLIER 1.2.10's direct public integral
+  interface appear below. Each exclusion is explicit. The same input family,
+  full tensor outputs, phase definitions and measurement protocol apply.]
+  v(4pt)
+  example-timing-table(examples.rows.filter(row => row.table == "extended"), extended: true)
+  v(5pt)
+  text(size: 8pt)[*Dots* mean $nu_i > 1$; *independent shifts* mean a direct
+  $D=4+2h-2epsilon$ request with $h != 0$. COLLIER's public tensor routines
+  accept momenta, masses and rank, without propagator-power or general dimension-shift
+  inputs. Internally used higher-dimensional objects are a different interface.
+  Equivalent coincident-denominator or derivative constructions were not benchmarked.
+  See the #link("https://arxiv.org/abs/1604.06792")[COLLIER manual], tensor-integral definition and public tensor-routine arguments.]
+  v(4pt)
+  block(fill: pale, inset: 7pt, radius: 3pt, width: 100%)[
+    #set text(size: 8pt)
+    *Measured scope:* public #raw("TensorReductionPlan / TensorWorkspace") with
+    profiling and explicit Symbolica scalar masters. Profiling selects the existing
+    #raw("AffinePower") workspace for eligible high-point requests; these are not
+    unprofiled thin-workspace timings. Actual per-row engines and precision are saved.
+    Complete finite arrays, equal represented coefficients on repeats and input preservation are checked
+    outside timed regions. This repetition check is separate from independent
+    numerical validation. Failed or unavailable rows stay visible.
+  ]
+  v(4pt)
+  text(size: 8pt)[*Saved-reference validation:* all 18 full arrays, containing
+    8968 complex native Laurent coefficients, pass the $10^(-10)$ comparison.
+    This is agreement with the qualified saved references, not achieved-bit certification.]
+  let cold-n6 = examples.rows.find(row => row.id == "ordinary-n6-r6")
+  if cold-n6 != none and cold-n6.at("first_call_ns", default: none) != none {
+    v(4pt)
+    text(size: 8pt)[*Cold six-point/rank-six example:* plan
+      #fixed(cold-n6.plan_ns / 1000000000, digits: 2) s;
+      workspace #fixed(cold-n6.workspace_ns / 1000000000, digits: 2) s;
+      first call #fixed(cold-n6.first_call_ns / 1000000000, digits: 2) s.
+      The first call includes lazy specialization and its full reduction.
+      These are separate from the warm timings above.]
+  }
+  v(4pt)
+  text(size: 7.5pt)[*Environment:* 2026-10-26, AMD EPYC 9754, pinned logical CPU 18,
+    one thread; Rust 1.99.0 release build. Core source #raw("d2762f5") is unchanged;
+    profiled binary #raw("0d3c5c37"). Mixed precisions are not a fixed-precision
+    topology-scaling comparison.]
+  v(4pt)
+  text(size: 7.5pt)[*Capture workflow (use a fresh output copy; see the suite README):*
+    #linebreak()
+    #raw("python3 validation/benchmark/opening-rank6-20261026/run.py build")
+    #linebreak()
+    #raw("python3 validation/benchmark/opening-rank6-20261026/run.py run")
+    #linebreak()
+    #raw("python3 validation/benchmark/opening-rank6-20261026/run.py summarize")
+    #linebreak()
+    *Exact inputs, calls, spread and source/build context:*
+    #raw("validation/benchmark/opening-rank6-20261026/")
+    #linebreak()
+    *No IREGI/COLLIER speed ratio is inferred from these absolute times.*
+  ]
+  pagebreak()
+}
+
 #align(center)[
   #v(0.4em)
   #text(22pt, weight: "bold", fill: navy)[TIRust benchmark]
   #v(-0.3em)
   #text(12pt, fill: luma(80))[Batched one-loop reduction: TIRust, IREGI, COLLIER and MadLoop]
   #v(0.2em)
-  #text(9.5pt, fill: luma(110))[#report-date · #data.host]
+  #text(9.5pt, fill: luma(110))[#report-date · Archival comparisons: #data.host]
+  #if opening-examples != none {
+    linebreak()
+    text(9pt, fill: luma(110))[Opening examples: AMD EPYC 9754 · CPU 18 · profiled public API]
+  }
 ]
 #v(0.6em)
 #block(fill: pale, inset: 10pt, radius: 4pt, width: 100%)[
@@ -201,10 +392,11 @@
   *Reading guide.* Every displayed timing ratio has TIRust in the numerator:
   _TIRust / IREGI_, _TIRust / COLLIER_, or
   _TIRust(candidate) / TIRust(baseline)_. Physical graphs use _TIRust / MadLoop_.
-  In timing cells, green means TIRust is faster, white parity and red slower. The archival
+  In comparison cells, green means TIRust is faster, white parity and red slower. The archival
   reference-only table shows absolute times and outcomes. Gray is unmeasured;
   amber marks pending or inconclusive evidence.
-  Source inspection does not establish numerical agreement. #data.measurement_note
+  #if opening-examples != none { [The opening example tables use blue/green to identify reduction/master components, not relative speed.] }
+  Source inspection does not establish numerical agreement. *Archival comparison note:* #data.measurement_note
 ]
 #v(0.4em)
 #block(stroke: 0.6pt + luma(200), inset: 9pt, radius: 4pt, width: 100%)[
@@ -216,6 +408,7 @@
     [*Physical validation*], [Current fixed-graph checks appear below; historical timing failures remain visible], [*Scoped*],
   )
 ]
+#if opening-examples != none { opening-timing-pages(opening-examples.snapshot) }
 = Current coverage
 #text(size: 9.5pt)[The documented N≤6/rank≤6 finite numerical checkpoint now passes
 the agreed ordinary, dotted and shifted-array gates. The original quadrature-bearing

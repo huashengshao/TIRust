@@ -1,5 +1,88 @@
 # TIRust / iregi-rust: exhaustive session handoff
 
+## Opening benchmark tables: 26 October 2026 follow-up
+
+The functional goal below remains complete. The user's subsequent reporting
+request adds two opening tables to `docs/benchmark.typ` and the regenerated PDF:
+12 ordinary N≤6/cumulative R≤6 examples, then six generalized requests outside
+COLLIER 1.2.10's **direct public integral API**. No reduction algorithm, scalar
+master, dependency, Cargo manifest or lockfile changed in this follow-up.
+
+The new corpus is `validation/benchmark/opening-rank6-20261026/`:
+
+- `inputs.json` and `make-inputs.py`: fixed 18-row selection, derived exactly
+  from the conditioned massive Cartesian fixture. Shifts are the prefix of
+  `(0,e_x,e_y,e_z,e_t/2,e_x+e_y)`, squared masses `(1,2,3,4,2,3)`, scale μ=3.
+  All input strings are exactly represented dyadic rationals.
+- Ordinary rows: N1R0/R6, N2R1/R6, N3R2/R3/R6, N4R4/R6, N5R5/R6 and N6R6.
+  Hybrid; f64 through N4, Float128 for N5/N6, requested accuracy parameter53.
+- Generalized rows: N1R6/N2R2/N3R4/N4R6 first-dot, N4R6 first propagator
+  cubed, and N3R2/h1. All Float128/IBP/requested53. Positive powers and an
+  independent dimensional request are not direct COLLIER arguments. Equivalent
+  coincident-denominator or derivative representations were not benchmarked;
+  do not claim these mathematical integrals are impossible in COLLIER.
+- `crates/iregi-rust/examples/opening_timing.rs`: source-only benchmark driver
+  through the public `TensorReductionPlan`/`TensorWorkspace` facade. It requests
+  every cumulative Cartesian tensor moment and all four native Laurent slots.
+- `run.py`: portable source guard, release build/freeze, pinned process-group
+  supervision, non-overwriting attempts and raw-statistics aggregation.
+  `source-files.json` names the selected committed context; it is explicitly
+  not a hermetic native build-input closure.
+- `build.json`: core source epoch d2762f5 with frozen example binary
+  `0d3c5c37abfede1b10fb7ff99e55abc2a395bdfc9b0d4bac4ea3d966ed488c37`.
+  The first release compilation took810.137s; two subsequent source-context
+  refreshes reused the same executable, with the final Cargo artifact check
+  taking0.316s. Build duration is not an integral timing. Preliminary build
+  receipts/logs stay in `target/opening-tensor-timings-20261026/initial-build.*`.
+- `cases/<id>/request.json`, `result.json`, `supervision.json`, `native.log`:
+  all18 processes returned0 and measured complete finite successful tensors.
+  First/final represented arrays and every individual timing observation are
+  saved. There are227,451 timed calls; numerical repeat checks occur outside
+  timers. Numeric equality does not certify signed-zero bit identity or
+  unchanged internal routing flags.
+- `summary.json`: block means, medians, min/max, standard deviation and SE.
+  Low-point rows:3warmups,11blocks targeting100ms, maximum10000calls/block.
+  N≥5:1warmup,5one-call blocks fixed in advance. Different working precisions
+  are explicit and must not be treated as binary64 comparisons.
+- `profiling-boundary-source-audit.json` and the independent fixture/timing
+  boundary review explain the same-call split: TIRust-exclusive = outer call
+  wall minus aggregate nested scalar-master wall. E6 includes its internal D0
+  work; nested child profiles add stages once. Imported affine quadrature only
+  propagates already-computed error estimates and belongs to exclusive time.
+- Plan/workspace construction, the first numerical call/lazy specialization,
+  warmup, full-array checks, result destruction and I/O are excluded from warm
+  call time. Allocation/construction through result return remains included.
+  Instrumentation stays enabled. Profiling selects AffinePower for the N6 row,
+  rather than the unprofiled thin SixPoint path: no fastest/default-thin claim.
+- CPU18, AMD EPYC9754, Rust1.99 release, one numerical thread. External host
+  activity is uncontrolled. SE describes observed block variation, not a
+  controlled-host confidence guarantee; these are absolute observations, with
+  no new IREGI/COLLIER speed-parity gate or optimization adoption.
+
+Representative same-call mean times: N4R6/f64 total16.827ms, of which masters
+0.296ms; N6R6/Float128 total3.669s, masters0.347s; N4R6 first-dot/Float128
+1.606s, masters0.0295s. Numerical source and precision must accompany these
+figures. N6 cold preparation is31.339s plan +89.103s workspace +130.169s first
+full numerical call; these costs cannot be relabeled as warm kernel time.
+
+Independent validation uses `compare-reference.py --require-all`, admitting
+only the pinned original IREGI IBP arrays with exact input/basis/Laurent mapping.
+All8,968 complex fields pass the unchanged dimensionally normalized mixed
+`1e-10` gate, maximum below2.714e-13. Original rejected PV/Hybrid history remains
+in `reference-comparison.json`, SHA
+`5d72855e1ad01690c534672d39c7a12e4e2bbbf043b4215a1b163375c95cae8e`.
+The root replay is byte-identical; a closed72-file portable read callback also
+reproduces the entire report without target reference files, a license, native
+integrals or the producer's comparator. Working128 bits do not imply128 achieved
+bits: Symbolica tracks cancellation-dependent operand precision.
+
+See the suite README before recapturing: committed `cases/` already exist even
+in a fresh clone. Preserve/move published observations in a separate output
+copy. The saved-evidence comparator deliberately pins the original receipt
+bindings; a new measurement campaign requires its own receipt bindings/review.
+No numerical producers or builds remain active at publication.
+
+
 ## Final functional checkpoint: rank six, with optimization deferred
 
 The user's revised numerical checkpoint is complete: documented rank-six

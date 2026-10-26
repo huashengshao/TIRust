@@ -9,6 +9,13 @@ dotted propagators and dimension shifts. Performance optimization is deferred.
 The [benchmark report](docs/benchmark.pdf) retains measurements, failed attempts,
 reference defects and explicit qualification limits.
 
+The report opens with representative integral timings through six points and
+rank six, followed by dotted and dimension-shifted requests outside COLLIER's
+direct integral API. Large coloured cells separate TIRust time from nested
+scalar-master evaluation. Exact inputs, raw calls, preparation costs, precision
+and reproduction commands are in the
+[opening timing suite](validation/benchmark/opening-rank6-20261026/README.md).
+
 The [final checkpoint](docs/checkpoints/rank6-functional-completion-20261026.md)
 records ordinary dotted/shifted tensors and the completed six-point, rank-six
 second-mass-derivative Dual validation. For that witness, all 2,520 complex fields

@@ -1,0 +1,1366 @@
+{
+  "schema_version": 1,
+  "suite_id": "opening-rank6-20261026",
+  "purpose": "Representative absolute warm profiled timing; no speed-parity gate",
+  "output_scope": "Every cumulative Cartesian tensor through rank R and all native UV/IR/finite slots",
+  "sample_lanes": 1,
+  "input_family": {
+    "name": "E",
+    "fixture": "validation/highpoint-seven-point-current-cargo/fixture.json",
+    "fixture_sha256": "6c78096e83a399acd111137115505eae10da620b9dd68b6ead56eb2fa06489d2",
+    "metric": "+---",
+    "shifts_time_first": [
+      [
+        "0",
+        "0",
+        "0",
+        "0"
+      ],
+      [
+        "0",
+        "1",
+        "0",
+        "0"
+      ],
+      [
+        "0",
+        "0",
+        "1",
+        "0"
+      ],
+      [
+        "0",
+        "0",
+        "0",
+        "1"
+      ],
+      [
+        "1/2",
+        "0",
+        "0",
+        "0"
+      ],
+      [
+        "0",
+        "1",
+        "1",
+        "0"
+      ]
+    ],
+    "masses_squared": [
+      [
+        "1",
+        "0"
+      ],
+      [
+        "2",
+        "0"
+      ],
+      [
+        "3",
+        "0"
+      ],
+      [
+        "4",
+        "0"
+      ],
+      [
+        "2",
+        "0"
+      ],
+      [
+        "3",
+        "0"
+      ]
+    ],
+    "scale_mu": "3",
+    "preserve_inputs": true,
+    "embedding": "Exact rational strings, exactly representable in all selected binary domains"
+  },
+  "timing_contract": {
+    "api": "TensorReductionPlan / TensorWorkspace, explicit Symbolica master policy, profiling enabled",
+    "exclusive": "Per-call outer wall time minus the aggregate nested scalar-master wall time",
+    "inclusive": "Per-call wall time around reduce_batch only; does not include subsequent output checks or I/O",
+    "phase_additivity": "Arithmetic means of the same calls; exclusive plus masters equals total",
+    "excluded": [
+      "plan preparation",
+      "workspace construction",
+      "first call/lazy specialization",
+      "warmup",
+      "full-array equality and finite checks",
+      "JSON I/O",
+      "process startup"
+    ],
+    "selection": "The profiler changes eligible thin high-point workspace dispatch to the existing AffinePower path; actual engine is always retained",
+    "blocks": "N<=4: three warmup calls, then 11 fixed blocks, loop count chosen once from final warmup, target 100 ms capped at 10000 calls. N>=5: one warmup, then five one-call blocks fixed in advance.",
+    "precision": "Per-row working precision and requested accuracy parameter retained; no achieved-bits certificate inferred",
+    "failure_policy": "Keep failed, refused, killed and unmeasured rows visible; do not replace them with zero timing"
+  },
+  "validation_notice": "The driver verifies complete finite successful arrays, exact repeated-output equality and input preservation. Independent reference qualification remains separate and is not inferred from repetition.",
+  "cases": [
+    {
+      "id": "ordinary-n1-r0",
+      "table": "ordinary",
+      "label": "N=1, R=0",
+      "input_family": "conditioned massive Cartesian prefix E",
+      "input_fixture": "validation/highpoint-seven-point-current-cargo/fixture.json",
+      "input_sample": "seventh_time_quarter",
+      "input_selection": "first 1 propagators, unchanged shifts/masses/scale",
+      "collier_unsupported_reason": null,
+      "driver_request": {
+        "id": "ordinary-n1-r0",
+        "n": 1,
+        "rank": 0,
+        "powers": [
+          1
+        ],
+        "dimension_shift": 0,
+        "algorithm": "Hybrid",
+        "numeric_type": "f64",
+        "working_bits": 53,
+        "requested_bits": 53,
+        "samples": [
+          {
+            "shifts": [
+              [
+                "0",
+                "0",
+                "0",
+                "0"
+              ]
+            ],
+            "masses_squared": [
+              [
+                "1",
+                "0"
+              ]
+            ],
+            "mu": "3"
+          }
+        ],
+        "warmup": 3,
+        "repeats": 11,
+        "iterations": 1,
+        "target_block_ns": 100000000,
+        "maximum_iterations": 10000
+      }
+    },
+    {
+      "id": "ordinary-n1-r6",
+      "table": "ordinary",
+      "label": "N=1, R=6",
+      "input_family": "conditioned massive Cartesian prefix E",
+      "input_fixture": "validation/highpoint-seven-point-current-cargo/fixture.json",
+      "input_sample": "seventh_time_quarter",
+      "input_selection": "first 1 propagators, unchanged shifts/masses/scale",
+      "collier_unsupported_reason": null,
+      "driver_request": {
+        "id": "ordinary-n1-r6",
+        "n": 1,
+        "rank": 6,
+        "powers": [
+          1
+        ],
+        "dimension_shift": 0,
+        "algorithm": "Hybrid",
+        "numeric_type": "f64",
+        "working_bits": 53,
+        "requested_bits": 53,
+        "samples": [
+          {
+            "shifts": [
+              [
+                "0",
+                "0",
+                "0",
+                "0"
+              ]
+            ],
+            "masses_squared": [
+              [
+                "1",
+                "0"
+              ]
+            ],
+            "mu": "3"
+          }
+        ],
+        "warmup": 3,
+        "repeats": 11,
+        "iterations": 1,
+        "target_block_ns": 100000000,
+        "maximum_iterations": 10000
+      }
+    },
+    {
+      "id": "ordinary-n2-r1",
+      "table": "ordinary",
+      "label": "N=2, R=1",
+      "input_family": "conditioned massive Cartesian prefix E",
+      "input_fixture": "validation/highpoint-seven-point-current-cargo/fixture.json",
+      "input_sample": "seventh_time_quarter",
+      "input_selection": "first 2 propagators, unchanged shifts/masses/scale",
+      "collier_unsupported_reason": null,
+      "driver_request": {
+        "id": "ordinary-n2-r1",
+        "n": 2,
+        "rank": 1,
+        "powers": [
+          1,
+          1
+        ],
+        "dimension_shift": 0,
+        "algorithm": "Hybrid",
+        "numeric_type": "f64",
+        "working_bits": 53,
+        "requested_bits": 53,
+        "samples": [
+          {
+            "shifts": [
+              [
+                "0",
+                "0",
+                "0",
+                "0"
+              ],
+              [
+                "0",
+                "1",
+                "0",
+                "0"
+              ]
+            ],
+            "masses_squared": [
+              [
+                "1",
+                "0"
+              ],
+              [
+                "2",
+                "0"
+              ]
+            ],
+            "mu": "3"
+          }
+        ],
+        "warmup": 3,
+        "repeats": 11,
+        "iterations": 1,
+        "target_block_ns": 100000000,
+        "maximum_iterations": 10000
+      }
+    },
+    {
+      "id": "ordinary-n2-r6",
+      "table": "ordinary",
+      "label": "N=2, R=6",
+      "input_family": "conditioned massive Cartesian prefix E",
+      "input_fixture": "validation/highpoint-seven-point-current-cargo/fixture.json",
+      "input_sample": "seventh_time_quarter",
+      "input_selection": "first 2 propagators, unchanged shifts/masses/scale",
+      "collier_unsupported_reason": null,
+      "driver_request": {
+        "id": "ordinary-n2-r6",
+        "n": 2,
+        "rank": 6,
+        "powers": [
+          1,
+          1
+        ],
+        "dimension_shift": 0,
+        "algorithm": "Hybrid",
+        "numeric_type": "f64",
+        "working_bits": 53,
+        "requested_bits": 53,
+        "samples": [
+          {
+            "shifts": [
+              [
+                "0",
+                "0",
+                "0",
+                "0"
+              ],
+              [
+                "0",
+                "1",
+                "0",
+                "0"
+              ]
+            ],
+            "masses_squared": [
+              [
+                "1",
+                "0"
+              ],
+              [
+                "2",
+                "0"
+              ]
+            ],
+            "mu": "3"
+          }
+        ],
+        "warmup": 3,
+        "repeats": 11,
+        "iterations": 1,
+        "target_block_ns": 100000000,
+        "maximum_iterations": 10000
+      }
+    },
+    {
+      "id": "ordinary-n3-r2",
+      "table": "ordinary",
+      "label": "N=3, R=2",
+      "input_family": "conditioned massive Cartesian prefix E",
+      "input_fixture": "validation/highpoint-seven-point-current-cargo/fixture.json",
+      "input_sample": "seventh_time_quarter",
+      "input_selection": "first 3 propagators, unchanged shifts/masses/scale",
+      "collier_unsupported_reason": null,
+      "driver_request": {
+        "id": "ordinary-n3-r2",
+        "n": 3,
+        "rank": 2,
+        "powers": [
+          1,
+          1,
+          1
+        ],
+        "dimension_shift": 0,
+        "algorithm": "Hybrid",
+        "numeric_type": "f64",
+        "working_bits": 53,
+        "requested_bits": 53,
+        "samples": [
+          {
+            "shifts": [
+              [
+                "0",
+                "0",
+                "0",
+                "0"
+              ],
+              [
+                "0",
+                "1",
+                "0",
+                "0"
+              ],
+              [
+                "0",
+                "0",
+                "1",
+                "0"
+              ]
+            ],
+            "masses_squared": [
+              [
+                "1",
+                "0"
+              ],
+              [
+                "2",
+                "0"
+              ],
+              [
+                "3",
+                "0"
+              ]
+            ],
+            "mu": "3"
+          }
+        ],
+        "warmup": 3,
+        "repeats": 11,
+        "iterations": 1,
+        "target_block_ns": 100000000,
+        "maximum_iterations": 10000
+      }
+    },
+    {
+      "id": "ordinary-n3-r3",
+      "table": "ordinary",
+      "label": "N=3, R=3",
+      "input_family": "conditioned massive Cartesian prefix E",
+      "input_fixture": "validation/highpoint-seven-point-current-cargo/fixture.json",
+      "input_sample": "seventh_time_quarter",
+      "input_selection": "first 3 propagators, unchanged shifts/masses/scale",
+      "collier_unsupported_reason": null,
+      "driver_request": {
+        "id": "ordinary-n3-r3",
+        "n": 3,
+        "rank": 3,
+        "powers": [
+          1,
+          1,
+          1
+        ],
+        "dimension_shift": 0,
+        "algorithm": "Hybrid",
+        "numeric_type": "f64",
+        "working_bits": 53,
+        "requested_bits": 53,
+        "samples": [
+          {
+            "shifts": [
+              [
+                "0",
+                "0",
+                "0",
+                "0"
+              ],
+              [
+                "0",
+                "1",
+                "0",
+                "0"
+              ],
+              [
+                "0",
+                "0",
+                "1",
+                "0"
+              ]
+            ],
+            "masses_squared": [
+              [
+                "1",
+                "0"
+              ],
+              [
+                "2",
+                "0"
+              ],
+              [
+                "3",
+                "0"
+              ]
+            ],
+            "mu": "3"
+          }
+        ],
+        "warmup": 3,
+        "repeats": 11,
+        "iterations": 1,
+        "target_block_ns": 100000000,
+        "maximum_iterations": 10000
+      }
+    },
+    {
+      "id": "ordinary-n3-r6",
+      "table": "ordinary",
+      "label": "N=3, R=6",
+      "input_family": "conditioned massive Cartesian prefix E",
+      "input_fixture": "validation/highpoint-seven-point-current-cargo/fixture.json",
+      "input_sample": "seventh_time_quarter",
+      "input_selection": "first 3 propagators, unchanged shifts/masses/scale",
+      "collier_unsupported_reason": null,
+      "driver_request": {
+        "id": "ordinary-n3-r6",
+        "n": 3,
+        "rank": 6,
+        "powers": [
+          1,
+          1,
+          1
+        ],
+        "dimension_shift": 0,
+        "algorithm": "Hybrid",
+        "numeric_type": "f64",
+        "working_bits": 53,
+        "requested_bits": 53,
+        "samples": [
+          {
+            "shifts": [
+              [
+                "0",
+                "0",
+                "0",
+                "0"
+              ],
+              [
+                "0",
+                "1",
+                "0",
+                "0"
+              ],
+              [
+                "0",
+                "0",
+                "1",
+                "0"
+              ]
+            ],
+            "masses_squared": [
+              [
+                "1",
+                "0"
+              ],
+              [
+                "2",
+                "0"
+              ],
+              [
+                "3",
+                "0"
+              ]
+            ],
+            "mu": "3"
+          }
+        ],
+        "warmup": 3,
+        "repeats": 11,
+        "iterations": 1,
+        "target_block_ns": 100000000,
+        "maximum_iterations": 10000
+      }
+    },
+    {
+      "id": "ordinary-n4-r4",
+      "table": "ordinary",
+      "label": "N=4, R=4",
+      "input_family": "conditioned massive Cartesian prefix E",
+      "input_fixture": "validation/highpoint-seven-point-current-cargo/fixture.json",
+      "input_sample": "seventh_time_quarter",
+      "input_selection": "first 4 propagators, unchanged shifts/masses/scale",
+      "collier_unsupported_reason": null,
+      "driver_request": {
+        "id": "ordinary-n4-r4",
+        "n": 4,
+        "rank": 4,
+        "powers": [
+          1,
+          1,
+          1,
+          1
+        ],
+        "dimension_shift": 0,
+        "algorithm": "Hybrid",
+        "numeric_type": "f64",
+        "working_bits": 53,
+        "requested_bits": 53,
+        "samples": [
+          {
+            "shifts": [
+              [
+                "0",
+                "0",
+                "0",
+                "0"
+              ],
+              [
+                "0",
+                "1",
+                "0",
+                "0"
+              ],
+              [
+                "0",
+                "0",
+                "1",
+                "0"
+              ],
+              [
+                "0",
+                "0",
+                "0",
+                "1"
+              ]
+            ],
+            "masses_squared": [
+              [
+                "1",
+                "0"
+              ],
+              [
+                "2",
+                "0"
+              ],
+              [
+                "3",
+                "0"
+              ],
+              [
+                "4",
+                "0"
+              ]
+            ],
+            "mu": "3"
+          }
+        ],
+        "warmup": 3,
+        "repeats": 11,
+        "iterations": 1,
+        "target_block_ns": 100000000,
+        "maximum_iterations": 10000
+      }
+    },
+    {
+      "id": "ordinary-n4-r6",
+      "table": "ordinary",
+      "label": "N=4, R=6",
+      "input_family": "conditioned massive Cartesian prefix E",
+      "input_fixture": "validation/highpoint-seven-point-current-cargo/fixture.json",
+      "input_sample": "seventh_time_quarter",
+      "input_selection": "first 4 propagators, unchanged shifts/masses/scale",
+      "collier_unsupported_reason": null,
+      "driver_request": {
+        "id": "ordinary-n4-r6",
+        "n": 4,
+        "rank": 6,
+        "powers": [
+          1,
+          1,
+          1,
+          1
+        ],
+        "dimension_shift": 0,
+        "algorithm": "Hybrid",
+        "numeric_type": "f64",
+        "working_bits": 53,
+        "requested_bits": 53,
+        "samples": [
+          {
+            "shifts": [
+              [
+                "0",
+                "0",
+                "0",
+                "0"
+              ],
+              [
+                "0",
+                "1",
+                "0",
+                "0"
+              ],
+              [
+                "0",
+                "0",
+                "1",
+                "0"
+              ],
+              [
+                "0",
+                "0",
+                "0",
+                "1"
+              ]
+            ],
+            "masses_squared": [
+              [
+                "1",
+                "0"
+              ],
+              [
+                "2",
+                "0"
+              ],
+              [
+                "3",
+                "0"
+              ],
+              [
+                "4",
+                "0"
+              ]
+            ],
+            "mu": "3"
+          }
+        ],
+        "warmup": 3,
+        "repeats": 11,
+        "iterations": 1,
+        "target_block_ns": 100000000,
+        "maximum_iterations": 10000
+      }
+    },
+    {
+      "id": "ordinary-n5-r5",
+      "table": "ordinary",
+      "label": "N=5, R=5",
+      "input_family": "conditioned massive Cartesian prefix E",
+      "input_fixture": "validation/highpoint-seven-point-current-cargo/fixture.json",
+      "input_sample": "seventh_time_quarter",
+      "input_selection": "first 5 propagators, unchanged shifts/masses/scale",
+      "collier_unsupported_reason": null,
+      "driver_request": {
+        "id": "ordinary-n5-r5",
+        "n": 5,
+        "rank": 5,
+        "powers": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "dimension_shift": 0,
+        "algorithm": "Hybrid",
+        "numeric_type": "float",
+        "working_bits": 128,
+        "requested_bits": 53,
+        "samples": [
+          {
+            "shifts": [
+              [
+                "0",
+                "0",
+                "0",
+                "0"
+              ],
+              [
+                "0",
+                "1",
+                "0",
+                "0"
+              ],
+              [
+                "0",
+                "0",
+                "1",
+                "0"
+              ],
+              [
+                "0",
+                "0",
+                "0",
+                "1"
+              ],
+              [
+                "1/2",
+                "0",
+                "0",
+                "0"
+              ]
+            ],
+            "masses_squared": [
+              [
+                "1",
+                "0"
+              ],
+              [
+                "2",
+                "0"
+              ],
+              [
+                "3",
+                "0"
+              ],
+              [
+                "4",
+                "0"
+              ],
+              [
+                "2",
+                "0"
+              ]
+            ],
+            "mu": "3"
+          }
+        ],
+        "warmup": 1,
+        "repeats": 5,
+        "iterations": 1,
+        "target_block_ns": null,
+        "maximum_iterations": 10000
+      }
+    },
+    {
+      "id": "ordinary-n5-r6",
+      "table": "ordinary",
+      "label": "N=5, R=6",
+      "input_family": "conditioned massive Cartesian prefix E",
+      "input_fixture": "validation/highpoint-seven-point-current-cargo/fixture.json",
+      "input_sample": "seventh_time_quarter",
+      "input_selection": "first 5 propagators, unchanged shifts/masses/scale",
+      "collier_unsupported_reason": null,
+      "driver_request": {
+        "id": "ordinary-n5-r6",
+        "n": 5,
+        "rank": 6,
+        "powers": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "dimension_shift": 0,
+        "algorithm": "Hybrid",
+        "numeric_type": "float",
+        "working_bits": 128,
+        "requested_bits": 53,
+        "samples": [
+          {
+            "shifts": [
+              [
+                "0",
+                "0",
+                "0",
+                "0"
+              ],
+              [
+                "0",
+                "1",
+                "0",
+                "0"
+              ],
+              [
+                "0",
+                "0",
+                "1",
+                "0"
+              ],
+              [
+                "0",
+                "0",
+                "0",
+                "1"
+              ],
+              [
+                "1/2",
+                "0",
+                "0",
+                "0"
+              ]
+            ],
+            "masses_squared": [
+              [
+                "1",
+                "0"
+              ],
+              [
+                "2",
+                "0"
+              ],
+              [
+                "3",
+                "0"
+              ],
+              [
+                "4",
+                "0"
+              ],
+              [
+                "2",
+                "0"
+              ]
+            ],
+            "mu": "3"
+          }
+        ],
+        "warmup": 1,
+        "repeats": 5,
+        "iterations": 1,
+        "target_block_ns": null,
+        "maximum_iterations": 10000
+      }
+    },
+    {
+      "id": "ordinary-n6-r6",
+      "table": "ordinary",
+      "label": "N=6, R=6",
+      "input_family": "conditioned massive Cartesian prefix E",
+      "input_fixture": "validation/highpoint-seven-point-current-cargo/fixture.json",
+      "input_sample": "seventh_time_quarter",
+      "input_selection": "first 6 propagators, unchanged shifts/masses/scale",
+      "collier_unsupported_reason": null,
+      "driver_request": {
+        "id": "ordinary-n6-r6",
+        "n": 6,
+        "rank": 6,
+        "powers": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "dimension_shift": 0,
+        "algorithm": "Hybrid",
+        "numeric_type": "float",
+        "working_bits": 128,
+        "requested_bits": 53,
+        "samples": [
+          {
+            "shifts": [
+              [
+                "0",
+                "0",
+                "0",
+                "0"
+              ],
+              [
+                "0",
+                "1",
+                "0",
+                "0"
+              ],
+              [
+                "0",
+                "0",
+                "1",
+                "0"
+              ],
+              [
+                "0",
+                "0",
+                "0",
+                "1"
+              ],
+              [
+                "1/2",
+                "0",
+                "0",
+                "0"
+              ],
+              [
+                "0",
+                "1",
+                "1",
+                "0"
+              ]
+            ],
+            "masses_squared": [
+              [
+                "1",
+                "0"
+              ],
+              [
+                "2",
+                "0"
+              ],
+              [
+                "3",
+                "0"
+              ],
+              [
+                "4",
+                "0"
+              ],
+              [
+                "2",
+                "0"
+              ],
+              [
+                "3",
+                "0"
+              ]
+            ],
+            "mu": "3"
+          }
+        ],
+        "warmup": 1,
+        "repeats": 5,
+        "iterations": 1,
+        "target_block_ns": null,
+        "maximum_iterations": 10000
+      }
+    },
+    {
+      "id": "extended-n1-r6-dot2",
+      "table": "extended",
+      "label": "N=1, R=6",
+      "input_family": "conditioned massive Cartesian prefix E",
+      "input_fixture": "validation/highpoint-seven-point-current-cargo/fixture.json",
+      "input_sample": "seventh_time_quarter",
+      "input_selection": "first 1 propagators, unchanged shifts/masses/scale",
+      "collier_unsupported_reason": "positive repeated propagator powers (dotted denominators)",
+      "driver_request": {
+        "id": "extended-n1-r6-dot2",
+        "n": 1,
+        "rank": 6,
+        "powers": [
+          2
+        ],
+        "dimension_shift": 0,
+        "algorithm": "Ibp",
+        "numeric_type": "float",
+        "working_bits": 128,
+        "requested_bits": 53,
+        "samples": [
+          {
+            "shifts": [
+              [
+                "0",
+                "0",
+                "0",
+                "0"
+              ]
+            ],
+            "masses_squared": [
+              [
+                "1",
+                "0"
+              ]
+            ],
+            "mu": "3"
+          }
+        ],
+        "warmup": 3,
+        "repeats": 11,
+        "iterations": 1,
+        "target_block_ns": 100000000,
+        "maximum_iterations": 10000
+      }
+    },
+    {
+      "id": "extended-n2-r2-dot2",
+      "table": "extended",
+      "label": "N=2, R=2",
+      "input_family": "conditioned massive Cartesian prefix E",
+      "input_fixture": "validation/highpoint-seven-point-current-cargo/fixture.json",
+      "input_sample": "seventh_time_quarter",
+      "input_selection": "first 2 propagators, unchanged shifts/masses/scale",
+      "collier_unsupported_reason": "positive repeated propagator powers (dotted denominators)",
+      "driver_request": {
+        "id": "extended-n2-r2-dot2",
+        "n": 2,
+        "rank": 2,
+        "powers": [
+          2,
+          1
+        ],
+        "dimension_shift": 0,
+        "algorithm": "Ibp",
+        "numeric_type": "float",
+        "working_bits": 128,
+        "requested_bits": 53,
+        "samples": [
+          {
+            "shifts": [
+              [
+                "0",
+                "0",
+                "0",
+                "0"
+              ],
+              [
+                "0",
+                "1",
+                "0",
+                "0"
+              ]
+            ],
+            "masses_squared": [
+              [
+                "1",
+                "0"
+              ],
+              [
+                "2",
+                "0"
+              ]
+            ],
+            "mu": "3"
+          }
+        ],
+        "warmup": 3,
+        "repeats": 11,
+        "iterations": 1,
+        "target_block_ns": 100000000,
+        "maximum_iterations": 10000
+      }
+    },
+    {
+      "id": "extended-n3-r4-dot2",
+      "table": "extended",
+      "label": "N=3, R=4",
+      "input_family": "conditioned massive Cartesian prefix E",
+      "input_fixture": "validation/highpoint-seven-point-current-cargo/fixture.json",
+      "input_sample": "seventh_time_quarter",
+      "input_selection": "first 3 propagators, unchanged shifts/masses/scale",
+      "collier_unsupported_reason": "positive repeated propagator powers (dotted denominators)",
+      "driver_request": {
+        "id": "extended-n3-r4-dot2",
+        "n": 3,
+        "rank": 4,
+        "powers": [
+          2,
+          1,
+          1
+        ],
+        "dimension_shift": 0,
+        "algorithm": "Ibp",
+        "numeric_type": "float",
+        "working_bits": 128,
+        "requested_bits": 53,
+        "samples": [
+          {
+            "shifts": [
+              [
+                "0",
+                "0",
+                "0",
+                "0"
+              ],
+              [
+                "0",
+                "1",
+                "0",
+                "0"
+              ],
+              [
+                "0",
+                "0",
+                "1",
+                "0"
+              ]
+            ],
+            "masses_squared": [
+              [
+                "1",
+                "0"
+              ],
+              [
+                "2",
+                "0"
+              ],
+              [
+                "3",
+                "0"
+              ]
+            ],
+            "mu": "3"
+          }
+        ],
+        "warmup": 3,
+        "repeats": 11,
+        "iterations": 1,
+        "target_block_ns": 100000000,
+        "maximum_iterations": 10000
+      }
+    },
+    {
+      "id": "extended-n4-r6-dot2",
+      "table": "extended",
+      "label": "N=4, R=6",
+      "input_family": "conditioned massive Cartesian prefix E",
+      "input_fixture": "validation/highpoint-seven-point-current-cargo/fixture.json",
+      "input_sample": "seventh_time_quarter",
+      "input_selection": "first 4 propagators, unchanged shifts/masses/scale",
+      "collier_unsupported_reason": "positive repeated propagator powers (dotted denominators)",
+      "driver_request": {
+        "id": "extended-n4-r6-dot2",
+        "n": 4,
+        "rank": 6,
+        "powers": [
+          2,
+          1,
+          1,
+          1
+        ],
+        "dimension_shift": 0,
+        "algorithm": "Ibp",
+        "numeric_type": "float",
+        "working_bits": 128,
+        "requested_bits": 53,
+        "samples": [
+          {
+            "shifts": [
+              [
+                "0",
+                "0",
+                "0",
+                "0"
+              ],
+              [
+                "0",
+                "1",
+                "0",
+                "0"
+              ],
+              [
+                "0",
+                "0",
+                "1",
+                "0"
+              ],
+              [
+                "0",
+                "0",
+                "0",
+                "1"
+              ]
+            ],
+            "masses_squared": [
+              [
+                "1",
+                "0"
+              ],
+              [
+                "2",
+                "0"
+              ],
+              [
+                "3",
+                "0"
+              ],
+              [
+                "4",
+                "0"
+              ]
+            ],
+            "mu": "3"
+          }
+        ],
+        "warmup": 3,
+        "repeats": 11,
+        "iterations": 1,
+        "target_block_ns": 100000000,
+        "maximum_iterations": 10000
+      }
+    },
+    {
+      "id": "extended-n4-r6-dot3",
+      "table": "extended",
+      "label": "N=4, R=6",
+      "input_family": "conditioned massive Cartesian prefix E",
+      "input_fixture": "validation/highpoint-seven-point-current-cargo/fixture.json",
+      "input_sample": "seventh_time_quarter",
+      "input_selection": "first 4 propagators, unchanged shifts/masses/scale",
+      "collier_unsupported_reason": "positive repeated propagator powers (dotted denominators)",
+      "driver_request": {
+        "id": "extended-n4-r6-dot3",
+        "n": 4,
+        "rank": 6,
+        "powers": [
+          3,
+          1,
+          1,
+          1
+        ],
+        "dimension_shift": 0,
+        "algorithm": "Ibp",
+        "numeric_type": "float",
+        "working_bits": 128,
+        "requested_bits": 53,
+        "samples": [
+          {
+            "shifts": [
+              [
+                "0",
+                "0",
+                "0",
+                "0"
+              ],
+              [
+                "0",
+                "1",
+                "0",
+                "0"
+              ],
+              [
+                "0",
+                "0",
+                "1",
+                "0"
+              ],
+              [
+                "0",
+                "0",
+                "0",
+                "1"
+              ]
+            ],
+            "masses_squared": [
+              [
+                "1",
+                "0"
+              ],
+              [
+                "2",
+                "0"
+              ],
+              [
+                "3",
+                "0"
+              ],
+              [
+                "4",
+                "0"
+              ]
+            ],
+            "mu": "3"
+          }
+        ],
+        "warmup": 3,
+        "repeats": 11,
+        "iterations": 1,
+        "target_block_ns": 100000000,
+        "maximum_iterations": 10000
+      }
+    },
+    {
+      "id": "extended-n3-r2-h1",
+      "table": "extended",
+      "label": "N=3, R=2",
+      "input_family": "conditioned massive Cartesian prefix E",
+      "input_fixture": "validation/highpoint-seven-point-current-cargo/fixture.json",
+      "input_sample": "seventh_time_quarter",
+      "input_selection": "first 3 propagators, unchanged shifts/masses/scale",
+      "collier_unsupported_reason": "independent dimension shift D=4+2h-2epsilon with h nonzero",
+      "driver_request": {
+        "id": "extended-n3-r2-h1",
+        "n": 3,
+        "rank": 2,
+        "powers": [
+          1,
+          1,
+          1
+        ],
+        "dimension_shift": 1,
+        "algorithm": "Ibp",
+        "numeric_type": "float",
+        "working_bits": 128,
+        "requested_bits": 53,
+        "samples": [
+          {
+            "shifts": [
+              [
+                "0",
+                "0",
+                "0",
+                "0"
+              ],
+              [
+                "0",
+                "1",
+                "0",
+                "0"
+              ],
+              [
+                "0",
+                "0",
+                "1",
+                "0"
+              ]
+            ],
+            "masses_squared": [
+              [
+                "1",
+                "0"
+              ],
+              [
+                "2",
+                "0"
+              ],
+              [
+                "3",
+                "0"
+              ]
+            ],
+            "mu": "3"
+          }
+        ],
+        "warmup": 3,
+        "repeats": 11,
+        "iterations": 1,
+        "target_block_ns": 100000000,
+        "maximum_iterations": 10000
+      }
+    }
+  ]
+}
