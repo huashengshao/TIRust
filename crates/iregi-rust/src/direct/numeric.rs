@@ -103,6 +103,8 @@ pub(crate) fn div_dimension<T: NativeFloat>(value: &mut L4<T>, inv_a: &T) {
 pub(crate) struct SolveQuality<T> {
     /// `|det(A)| / prod_i ||row_i||_2`, at most one; zero for singular input.
     pub relative_determinant: T,
+    /// `|det(A)|`.
+    pub determinant: T,
 }
 
 /// Solve `A X = B` in place by Gaussian elimination with partial pivoting.
@@ -179,10 +181,11 @@ pub(crate) fn solve_in_place<T: NativeFloat>(
     let relative_determinant = if hadamard.is_zero() {
         hadamard
     } else {
-        determinant_norm / &hadamard
+        determinant_norm.clone() / &hadamard
     };
     Some(SolveQuality {
         relative_determinant,
+        determinant: determinant_norm,
     })
 }
 

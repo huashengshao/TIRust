@@ -315,3 +315,87 @@ fn degenerate_box_uses_the_constant_one_identity() {
     let error = array_error(&direct.basis, 4, 3.0, direct.lane(0).unwrap(), &expected);
     assert!(error <= 1e-13, "E/A = {error:e}");
 }
+
+/// One batch row from shifts (t,x,y,z), complex squared masses and mu.
+fn row(shifts: &[[f64; 4]], masses: &[(f64, f64)], mu: f64) -> Vec<Complex<f64>> {
+    let mut values = Vec::new();
+    for shift in shifts {
+        values.extend(shift.map(|x| Complex::new(x, 0.0)));
+    }
+    values.extend(masses.iter().map(|&(re, im)| Complex::new(re, im)));
+    values.push(Complex::new(mu, 0.0));
+    values
+}
+
+#[test]
+fn lightlike_and_massless_kinematics_match_the_symbolic_engine() {
+    // Exactly representable lightlike momenta (also k4 = -(k1+k2+k3)).
+    let k1 = [5.0, 0.0, 0.0, 5.0];
+    let k2 = [5.0, 0.0, 0.0, -5.0];
+    let k3 = [-5.0, -3.0, 0.0, -4.0];
+    let add = |a: [f64; 4], b: [f64; 4]| std::array::from_fn::<f64, 4, _>(|i| a[i] + b[i]);
+    let zero = [0.0; 4];
+    let q2 = add(k1, k2);
+    let q3 = add(q2, k3);
+    // (label, rank, shifts, masses)
+    let cases: Vec<(&str, u16, Vec<[f64; 4]>, Vec<(f64, f64)>)> = vec![
+        ("bubble unequal", 4, vec![zero, k1], vec![(1.0, 0.0), (2.0, 0.0)]),
+        ("bubble equal", 4, vec![zero, k1], vec![(2.0, 0.0), (2.0, 0.0)]),
+        ("bubble one massless", 3, vec![zero, k1], vec![(0.0, 0.0), (3.0, 0.0)]),
+        ("bubble other massless", 3, vec![zero, k1], vec![(3.0, 0.0), (0.0, 0.0)]),
+        ("bubble close masses", 4, vec![zero, k1], vec![(4.0, 0.0), (5.0, 0.0)]),
+        ("bubble scaleless", 3, vec![zero, k1], vec![(0.0, 0.0), (0.0, 0.0)]),
+        ("bubble complex", 3, vec![zero, k1], vec![(1.0, -0.1), (2.0, -0.3)]),
+        ("ggH triangle", 3, vec![zero, k1, q2], vec![(3.0, 0.0); 3]),
+        // The massless (IR-divergent) box is checked against original IREGI
+        // in validation/benchmark/direct-engine-20261030/lightlike-check.py.
+        // The ggHH-like box (old engine refuses it in binary64) is also in the
+        // IREGI cross-check.
+    ];
+    for (label, rank, shifts, masses) in cases {
+        let n = shifts.len();
+        let batch = KinematicsBatch {
+            rows: 1,
+            components: 1,
+            values: row(&shifts, &masses, 3.0),
+        };
+        let settings = ReductionSettings::new(n, rank);
+        let direct = DirectReductionPlan::new(settings.clone())
+            .unwrap()
+            .workspace(0.0f64)
+            .unwrap()
+            .reduce_batch(&batch)
+            .unwrap();
+        assert_eq!(direct.statuses[0], LaneStatus::Success, "{label}: {:?}", direct.statuses[0]);
+        let plan = TensorReductionPlan::new_without_direct(settings).unwrap();
+        let mut symbolic = TensorWorkspace::new(&plan, 0.0f64).unwrap();
+        let reference = symbolic.reduce_batch(&batch).unwrap();
+        let reference = match reference.lane(0) {
+            Ok(lane) => lane.to_vec(),
+            Err(status) => {
+                // The symbolic engine refuses a lightlike bubble with one
+                // massless line. Check continuity instead: the m -> 0 closed
+                // form against the generic branch at m^2 = 1e-20, which the
+                // other cases validate against the symbolic engine.
+                eprintln!("{label}: symbolic reference unavailable ({status:?}); checking m^2 -> 0 continuity");
+                assert!(masses.iter().any(|m| *m == (0.0, 0.0)), "{label}: no reference");
+                let mut nearby = masses.clone();
+                for mass in &mut nearby {
+                    if mass.0 == 0.0 && mass.1 == 0.0 {
+                        mass.0 = 1e-20;
+                    }
+                }
+                let near = DirectReductionPlan::new(ReductionSettings::new(n, rank))
+                    .unwrap()
+                    .workspace(0.0f64)
+                    .unwrap()
+                    .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: row(&shifts, &nearby, 3.0) })
+                    .unwrap();
+                near.lane(0).unwrap().to_vec()
+            }
+        };
+        let error = array_error(&direct.basis, n, 3.0, direct.lane(0).unwrap(), &reference);
+        eprintln!("{label}: E/A = {error:e}");
+        assert!(error <= 1e-12, "{label}: E/A = {error:e}");
+    }
+}

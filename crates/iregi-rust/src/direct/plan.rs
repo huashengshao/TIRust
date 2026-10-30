@@ -278,6 +278,9 @@ pub(crate) struct Subset {
     pub master: Option<u32>,
     /// Value index of the first moment, in `tensor_basis` order.
     pub moment_base: Option<u32>,
+    /// Lightlike (or coincident) bubble: coefficients are closed forms
+    /// filled per lane instead of a singular Gram recursion.
+    pub lightlike: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -299,6 +302,9 @@ pub(crate) struct DirectPlanData {
     pub masters: [Vec<(usize, u32)>; 4],
     /// Minimal degenerate subsets of this variant, in profile order.
     pub relations: Vec<RelationGeometry>,
+    /// Lightlike bubbles: `(subset, [(lambda, k, value index)])` excluding
+    /// the master `(0, 0)`.
+    pub lightlike: Vec<(usize, Vec<(u16, u16, u32)>)>,
     pub output: Vec<u32>,
     pub gather_scratch: usize,
     /// Differentiated propagator and Taylor length `K` (its power). The
@@ -456,6 +462,16 @@ impl DirectPlanData {
         settings: ReductionSettings,
         relation_masks: &[u8],
     ) -> Result<Self, ReductionError> {
+        Self::with_profile(settings, relation_masks, &[])
+    }
+
+    /// Plan variant with denominator identities for `relation_masks` and
+    /// closed-form coefficients for the lightlike bubbles `lightlike_masks`.
+    pub fn with_profile(
+        settings: ReductionSettings,
+        relation_masks: &[u8],
+        lightlike_masks: &[u8],
+    ) -> Result<Self, ReductionError> {
         Self::supported(&settings)?;
         let lambda_shift = settings.dimension_shift as u16;
         let jet = settings
@@ -589,6 +605,7 @@ impl DirectPlanData {
                 hexagon: None,
                 master: None,
                 moment_base: None,
+                lightlike: size == 2 && lightlike_masks.contains(&mask),
             };
             match kind {
                 SubsetKind::Pv => {
@@ -653,6 +670,7 @@ impl DirectPlanData {
         // Coefficient programs: increasing subset size, then rank.
         let mut coefficient_program = Vec::new();
         let mut masters: [Vec<(usize, u32)>; 4] = Default::default();
+        let mut lightlike = Vec::new();
         for (id, subset) in subsets.iter().enumerate() {
             if subset.kind != SubsetKind::Pv {
                 continue;
@@ -663,6 +681,17 @@ impl DirectPlanData {
             let layout = &layouts[&subset.mask];
             let momenta = size - 1;
             let c = subset.coefficient_rank.max(0) as u16;
+            if subset.lightlike {
+                let mut entries = Vec::new();
+                for r in 1..=c {
+                    for lambda in 0..=r / 2 {
+                        let k = r - 2 * lambda;
+                        entries.push((lambda, k, layout.lookup[&(lambda, vec![k])]));
+                    }
+                }
+                lightlike.push((id, entries));
+                continue;
+            }
             if size == 1 {
                 for lambda in 1..=c / 2 {
                     let dst = layout.lookup[&(lambda, vec![])];
@@ -959,6 +988,7 @@ impl DirectPlanData {
             terms: builder.terms,
             masters,
             relations,
+            lightlike,
             output,
             gather_scratch,
             jet,

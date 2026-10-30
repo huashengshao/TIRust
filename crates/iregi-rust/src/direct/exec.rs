@@ -49,8 +49,11 @@ enum GeometryFailure {
     /// Singular or ill-conditioned Gram system of this subset; it may be
     /// affinely dependent and reducible by a denominator identity.
     Singular(u8, String),
-    /// A relation of the current variant does not hold on this lane.
+    /// A relation or lightlike assumption of the current variant does not
+    /// hold on this lane.
     Relation(String),
+    /// A bubble with (numerically) lightlike or vanishing momentum.
+    Lightlike(u8),
     Unstable(String),
 }
 
@@ -60,7 +63,8 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     plan: Arc<DirectPlanData>,
     base_plan: Arc<DirectPlanData>,
     /// Variants keyed by their minimal degenerate subsets.
-    variants: HashMap<Vec<u8>, (Arc<DirectPlanData>, Arc<Vec<T>>)>,
+    variants: HashMap<(Vec<u8>, Vec<u8>), (Arc<DirectPlanData>, Arc<Vec<T>>)>,
+    lightlike_profile: Vec<u8>,
     base_constants: Arc<Vec<T>>,
     relation_profile: Vec<u8>,
     prototype: T,
@@ -277,6 +281,7 @@ where
             base_constants: constants.clone(),
             variants: HashMap::new(),
             relation_profile: Vec::new(),
+            lightlike_profile: Vec::new(),
             constants,
             evaluators,
             prototype,
@@ -632,16 +637,18 @@ where
 
     /// Switch the lane to the plan variant of `relation_profile`.
     fn select_variant(&mut self) -> Result<(), ReductionError> {
-        if self.relation_profile.is_empty() {
+        let key = (self.relation_profile.clone(), self.lightlike_profile.clone());
+        if self.relation_profile.is_empty() && self.lightlike_profile.is_empty() {
             self.plan = self.base_plan.clone();
             self.constants = self.base_constants.clone();
-        } else if let Some((plan, constants)) = self.variants.get(&self.relation_profile) {
+        } else if let Some((plan, constants)) = self.variants.get(&key) {
             self.plan = plan.clone();
             self.constants = constants.clone();
         } else {
-            let plan = Arc::new(DirectPlanData::with_relations(
+            let plan = Arc::new(DirectPlanData::with_profile(
                 self.base_plan.settings.clone(),
                 &self.relation_profile,
+                &self.lightlike_profile,
             )?);
             let constants: Arc<Vec<T>> = Arc::new(
                 plan.constants
@@ -649,10 +656,7 @@ where
                     .map(|value| self.prototype.from_rational(value))
                     .collect(),
             );
-            self.variants.insert(
-                self.relation_profile.clone(),
-                (plan.clone(), constants.clone()),
-            );
+            self.variants.insert(key, (plan.clone(), constants.clone()));
             self.plan = plan;
             self.constants = constants;
         }
@@ -713,8 +717,37 @@ where
                     for a in 0..4 {
                         self.geometry[geometry.origin as usize + a] = self.shifts[origin][a].clone();
                     }
+                    if momenta == 1 && (subset.lightlike || subset.coefficient_rank >= 1) {
+                        // Lightlike or coincident bubble: |p^2| negligible
+                        // against its masses (or exactly scaleless).
+                        let p2 = d(origin, members[1]);
+                        let scale = [p2, &self.masses[origin], &self.masses[members[1]]]
+                            .iter()
+                            .map(|z| cnorm2(z).sqrt())
+                            .fold(self.prototype.zero(), |a, b| if b > a { b } else { a });
+                        let lightlike = cnorm2(p2).sqrt() <= scale * &self.binary_tolerance(40);
+                        if subset.lightlike {
+                            if !lightlike {
+                                return Err(GeometryFailure::Relation(format!(
+                                    "bubble {members:?} is not lightlike on this lane"
+                                )));
+                            }
+                            continue;
+                        }
+                        if lightlike {
+                            return Err(GeometryFailure::Lightlike(subset.mask));
+                        }
+                    }
                     if subset.coefficient_rank >= 1 && momenta > 0 {
                         let size = momenta;
+                        // Kinematic scale of the recursion: Gram, f and m0^2.
+                        let mut scale = cnorm2(&self.masses[origin]).sqrt();
+                        for i in 0..size {
+                            let value = cnorm2(&self.geometry[geometry.f as usize + i]).sqrt();
+                            if value > scale {
+                                scale = value;
+                            }
+                        }
                         for i in 0..size {
                             for j in 0..size {
                                 let (mi, mj) = (members[i + 1], members[j + 1]);
@@ -722,6 +755,12 @@ where
                                     csub(&cadd(d(origin, mi), d(origin, mj)), d(mi, mj));
                                 self.rhs[i * size + j] =
                                     if i == j { self.one.clone() } else { self.zero.clone() };
+                            }
+                        }
+                        for value in &self.matrix[..size * size] {
+                            let value = cnorm2(value).sqrt();
+                            if value > scale {
+                                scale = value;
                             }
                         }
                         let quality = solve_in_place(
@@ -737,10 +776,25 @@ where
                             )
                         })?;
                         let power = subset.coefficient_rank as u64;
-                        if quality.relative_determinant.pow(power) < threshold {
+                        // Hadamard-relative and scale-relative conditioning:
+                        // |det Z|^(1/n) against the recursion's kinematic scale.
+                        let mut scaled = quality.determinant.clone();
+                        for _ in 1..size {
+                            scaled = scaled.sqrt();
+                        }
+                        if size == 3 {
+                            scaled = quality.determinant.clone().powf(&(self.prototype.one() / &self.prototype.from_usize(3)));
+                        }
+                        let scaled = if scale.is_zero() { scale.clone() } else { scaled / &scale };
+                        let condition = if scaled < quality.relative_determinant {
+                            scaled
+                        } else {
+                            quality.relative_determinant.clone()
+                        };
+                        if condition.pow(power) < threshold {
                             return Err(GeometryFailure::Singular(subset.mask, format!(
-                                "ill-conditioned Gram matrix for {members:?}: relative determinant {:e}",
-                                quality.relative_determinant
+                                "ill-conditioned Gram matrix for {members:?}: conditioning {:e}",
+                                condition
                             )));
                         }
                         for j in 0..size {
@@ -866,6 +920,142 @@ where
                         self.geometry[weights + 6 * column] = csub(&self.zero, &sum);
                     }
                 }
+            }
+        }
+        Ok(())
+    }
+
+    /// PV coefficients of every lightlike bubble of the current variant,
+    /// from the Feynman-parameter representation at `p^2 = 0`:
+    /// `C(lambda,k) = (-1)^k/(2^lambda lambda!) [I0/eps_UV + H_lambda I0 - I1]`,
+    /// `I0 = int_0^1 x^k D^lambda`, `I1 = int_0^1 x^k D^lambda log(D/mu^2)`,
+    /// `D(x) = m0^2 + x (m1^2 - m0^2)`. Scaleless bubbles keep their
+    /// cancelling UV/IR poles at `lambda = 0` and vanish otherwise.
+    fn lightlike_coefficients(&mut self, mu2: &C<T>) -> Result<(), String> {
+        use oneloop::rust_codegen::runtime::primitives::log;
+        let plan = self.plan.clone();
+        for (subset, entries) in &plan.lightlike {
+            let members = &plan.subsets[*subset].members;
+            let a = self.masses[members[0]].clone();
+            let b = csub(&self.masses[members[1]], &a);
+            let max_k = entries.iter().map(|&(l, k, _)| usize::from(l + k)).max().unwrap_or(0);
+            let a_zero = a.re.is_zero() && a.im.is_zero();
+            let b_zero = b.re.is_zero() && b.im.is_zero();
+            // m1^2 itself, not a + b, which cancels when m1 << m0.
+            let end = self.masses[members[1]].clone();
+            let end_zero = end.re.is_zero() && end.im.is_zero();
+            let real_negative = |z: &C<T>| z.re < z.re.zero();
+            if (!a_zero && real_negative(&a)) || (!end_zero && real_negative(&end)) {
+                return Err("lightlike bubble with a negative real squared mass".into());
+            }
+            // L[n] = int_0^1 x^n log(a + b x) dx, n <= max_k.
+            let mut l_values = vec![self.zero.clone(); max_k + 1];
+            if a_zero && b_zero {
+                // Scaleless; L is not used.
+            } else if b_zero {
+                let log_a = log(&a);
+                for (n, value) in l_values.iter_mut().enumerate() {
+                    *value = cscale(&log_a, &(self.prototype.one() / &self.prototype.from_usize(n + 1)));
+                }
+            } else if end_zero {
+                // m1 = 0: int x^n log(a (1-x)) = log(a)/(n+1) - H_(n+1)/(n+1).
+                let log_a = log(&a);
+                let mut harmonic = self.prototype.zero();
+                for (n, value) in l_values.iter_mut().enumerate() {
+                    let inverse = self.prototype.one() / &self.prototype.from_usize(n + 1);
+                    harmonic += &inverse;
+                    *value = csub(
+                        &cscale(&log_a, &inverse),
+                        &C::new(harmonic.clone() * &inverse, self.prototype.zero()),
+                    );
+                }
+            } else if a_zero {
+                let log_b = log(&b);
+                for (n, value) in l_values.iter_mut().enumerate() {
+                    let inverse = self.prototype.one() / &self.prototype.from_usize(n + 1);
+                    *value = csub(&cscale(&log_b, &inverse), &C::new(inverse.clone() * &inverse, self.prototype.zero()));
+                }
+            } else {
+                // M[k] = int_0^1 x^k / (a + b x) dx, k <= max_k + 1.
+                let mut m_values = vec![self.zero.clone(); max_k + 2];
+                let inverse_a = cinv(&a);
+                let ratio = cmul(&b, &inverse_a);
+                if cnorm2(&ratio) <= self.prototype.one() / &self.prototype.from_usize(4) {
+                    let minus_ratio = csub(&self.zero, &ratio);
+                    let tolerance = self.binary_tolerance(60);
+                    for (k, value) in m_values.iter_mut().enumerate() {
+                        let mut sum = self.zero.clone();
+                        let mut power = self.one.clone();
+                        for m in 0..200 {
+                            let term = cscale(&power, &(self.prototype.one() / &self.prototype.from_usize(k + m + 1)));
+                            sum = cadd(&sum, &term);
+                            if cnorm2(&term).sqrt() <= cnorm2(&sum).sqrt() * &tolerance {
+                                break;
+                            }
+                            power = cmul(&power, &minus_ratio);
+                        }
+                        *value = cmul(&sum, &inverse_a);
+                    }
+                } else {
+                    let inverse_b = cinv(&b);
+                    m_values[0] = cmul(&csub(&log(&end), &log(&a)), &inverse_b);
+                    for k in 1..m_values.len() {
+                        let step = csub(
+                            &C::new(self.prototype.one() / &self.prototype.from_usize(k), self.prototype.zero()),
+                            &cmul(&a, &m_values[k - 1]),
+                        );
+                        m_values[k] = cmul(&step, &inverse_b);
+                    }
+                }
+                let log_end = log(&end);
+                for (n, value) in l_values.iter_mut().enumerate() {
+                    let inverse = self.prototype.one() / &self.prototype.from_usize(n + 1);
+                    *value = csub(&cscale(&log_end, &inverse), &cscale(&cmul(&b, &m_values[n + 1]), &inverse));
+                }
+            }
+            let log_mu2 = log(mu2);
+            for &(lambda, k, index) in entries {
+                let mut value = lzero(&self.zero);
+                if a_zero && b_zero {
+                    if lambda == 0 {
+                        let residue = self.prototype.one() / &self.prototype.from_usize(usize::from(k) + 1);
+                        let residue = if k % 2 == 0 { residue } else { -residue };
+                        value[0] = C::new(residue.clone(), self.prototype.zero());
+                        value[1] = C::new(-residue, self.prototype.zero());
+                    }
+                } else {
+                    let (mut i0, mut i1) = (self.zero.clone(), self.zero.clone());
+                    // (a + b x)^lambda = sum_i binom(lambda,i) a^(lambda-i) b^i x^i.
+                    let mut a_powers = vec![self.one.clone(); usize::from(lambda) + 1];
+                    let mut b_powers = vec![self.one.clone(); usize::from(lambda) + 1];
+                    for i in 1..=usize::from(lambda) {
+                        a_powers[i] = cmul(&a_powers[i - 1], &a);
+                        b_powers[i] = cmul(&b_powers[i - 1], &b);
+                    }
+                    for i in 0..=usize::from(lambda) {
+                        let n = usize::from(k) + i;
+                        let weight = cscale(
+                            &cmul(&a_powers[usize::from(lambda) - i], &b_powers[i]),
+                            &self.binomials[usize::from(lambda)][i],
+                        );
+                        let inverse = self.prototype.one() / &self.prototype.from_usize(n + 1);
+                        i0 = cadd(&i0, &cscale(&weight, &inverse));
+                        let log_term = csub(&l_values[n], &cscale(&log_mu2, &inverse));
+                        i1 = cadd(&i1, &cmul(&weight, &log_term));
+                    }
+                    let mut harmonic = self.prototype.zero();
+                    let mut normalization = self.prototype.one();
+                    for i in 1..=usize::from(lambda) {
+                        harmonic += &(self.prototype.one() / &self.prototype.from_usize(i));
+                        normalization = normalization / &self.prototype.from_usize(2 * i);
+                    }
+                    if k % 2 == 1 {
+                        normalization = -normalization;
+                    }
+                    value[0] = cscale(&i0, &normalization);
+                    value[3] = cscale(&csub(&cscale(&i0, &harmonic), &i1), &normalization);
+                }
+                self.values[index as usize] = value;
             }
         }
         Ok(())
@@ -1454,11 +1644,23 @@ where
                 match self.geometry() {
                     Ok(()) => break,
                     Err(GeometryFailure::Relation(error)) => {
-                        if self.relation_profile.is_empty() {
+                        if self.relation_profile.is_empty() && self.lightlike_profile.is_empty() {
                             failure = Some(error);
                             break;
                         }
                         self.relation_profile.clear();
+                        self.lightlike_profile.clear();
+                        self.select_variant()?;
+                    }
+                    Err(GeometryFailure::Lightlike(mask)) => {
+                        if self.plan.jet.is_some() || self.lightlike_profile.contains(&mask) {
+                            failure = Some(format!(
+                                "lightlike bubble {mask:#b} unsupported for dotted propagators"
+                            ));
+                            break;
+                        }
+                        self.lightlike_profile.push(mask);
+                        self.lightlike_profile.sort_unstable();
                         self.select_variant()?;
                     }
                     Err(GeometryFailure::Unstable(error)) => {
@@ -1509,6 +1711,13 @@ where
             }
             if let Some(started) = started {
                 self.profile.masters += started.elapsed();
+            }
+            if !self.plan.lightlike.is_empty() {
+                let mu2 = self.mu_squared(batch, row);
+                if let Err(error) = self.lightlike_coefficients(&mu2) {
+                    statuses.push(LaneStatus::Unstable(error));
+                    continue;
+                }
             }
             if self.plan.jet.is_some() {
                 let started = self.timer();
