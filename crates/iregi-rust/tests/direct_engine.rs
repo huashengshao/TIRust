@@ -514,3 +514,46 @@ fn inaccurate_binary64_pentagons_are_caught_and_rescued() {
         assert!(error <= 1e-14, "E/A = {error:e}");
     }
 }
+
+#[test]
+fn gram_free_pentagon_is_stable_in_binary64() {
+    // gg -> Hgg top-loop pentagon (stability study pilot point 16): the
+    // four-dimensional Gram recursion refused it in binary64; the
+    // Denner-Dittmaier reduction (only det X of the modified Cayley matrix
+    // inverted) accepts it and agrees with a 256-bit evaluation.
+    use symbolica::domains::float::{Float, RealLike};
+    let shifts = [
+        [0.0, 0.0, 0.0, 0.0],
+        [500.0, 0.0, 0.0, 500.0],
+        [1000.0, 0.0, 0.0, 0.0],
+        [738.7657509103415, 13.903324306995643, -192.0742500575477, -176.51490853602957],
+        [345.579043544914, -190.85951632951324, 105.70685581443107, -267.99921827816706]
+    ];
+    let mt2 = 173.0f64 * 173.0;
+    let values = row(&shifts, &[(mt2, 0.0); 5], 1000.0);
+    let settings = ReductionSettings::new(5, 5);
+    let plan = DirectReductionPlan::new(settings).unwrap();
+    let direct = plan
+        .workspace(0.0f64)
+        .unwrap()
+        .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: values.clone() })
+        .unwrap();
+    assert_eq!(direct.statuses[0], LaneStatus::Success);
+    let lifted: Vec<Complex<Float>> = values
+        .iter()
+        .map(|z| Complex::new(Float::with_val(256, z.re), Float::with_val(256, z.im)))
+        .collect();
+    let mut reference = plan.workspace(Float::new(256)).unwrap();
+    reference.set_stability_threshold(Float::with_val(256, 2f64.powi(-216)));
+    let reference = reference
+        .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: lifted })
+        .unwrap();
+    let reference: Vec<Complex<f64>> = reference
+        .lane(0)
+        .unwrap()
+        .iter()
+        .map(|z| Complex::new(z.re.to_f64(), z.im.to_f64()))
+        .collect();
+    let error = general_array_error(&direct.basis, 4 - 2 * 5, 1000.0, direct.lane(0).unwrap(), &reference);
+    assert!(error <= 1e-11, "E/A = {error:e}");
+}

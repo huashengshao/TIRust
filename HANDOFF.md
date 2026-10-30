@@ -187,7 +187,29 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    confirmed reference). The first capture (877cf47; 7 pentagons where a
    nonfinite binary64 coefficient bypassed the rescue, fixed in 7226962)
    stays under target/stability-20261030/capture-877cf47.
-3c. **Next: Gram-free 5- and 6-point reduction** so physical N=5/6 lanes stay in
+3c. **Done (first part): Gram-free pentagons.** `plan.rs` gives every
+   unjetted pentagon whose box children are not degenerate a coefficient
+   layout E(lambda, kappa) over its four momenta up to rank min(r, 5), built by
+   Denner-Dittmaier hep-ph/0509141 Eqs. (5.9)-(5.10) symmetrized as (5.12)
+   from the five boxes' PV coefficients (rank <= 5): only X^-1 of the modified
+   Cayley matrix X = [[2m0^2, f^T], [f, Z]] (one pivoted 5x5 solve per lane,
+   gated on its relative determinant) and Xtt_(kn)(0i)/det X = products of
+   X^-1 entries. D(0) is rewritten in the pentagon basis by the paper's shift
+   recursion; the rank-5 UV remainder (D_0000(0) + 1/48 in E_{0000k}) uses a
+   unit finite value. A standard gather (4 momenta) produces the moments;
+   ranks 6-8 continue with the Gram recursion (kappa^(r-5) instead of kappa^r).
+   Opening N5/N6 rows unchanged within 1.5e-14; tests
+   `gram_free_pentagon_is_stable_in_binary64` and the existing suites pass.
+   Pilot (50 physical gg->Hgg pentagons): binary64 keeps 9 (was 1) at E/A
+   1e-12..2e-10. Cost (release, CPU 199, one lane, includes the rotation
+   test): N5R5 136 us, N5R6 200, N6R6 526 (877cf47: 117/162/390; capture002
+   before the rotation test: 65/87/216). **The limit is now the boxes:** the
+   remaining refusals are box PV Gram systems at coefficient rank 5 (and
+   rotation-test failures from inaccurate box coefficients). Next: small-Gram
+   box reduction (hep-ph/0509141 sects. 3.4-3.6, COLLIER's expansions) or the
+   Cayley-based reduction of sect. 3.3 (needs numerically integrated
+   D_{00..0}); then the same for the hexagon's sub-boxes.
+   Original plan (kept):  Gram-free 5- and 6-point reduction so physical N=5/6 lanes stay in
    binary64. Denner-Dittmaier hep-ph/0212259 Eq. (2.17)/(2.19)
    (E_P = -sum_i detY_i/detY D_P(i) + 2 sum_ij Zhat_ij/detY p_j^a Delta_aP(i)
    + UV/detY, P<=4) and, for any rank in dim. reg., hep-ph/0509141 sect. 5

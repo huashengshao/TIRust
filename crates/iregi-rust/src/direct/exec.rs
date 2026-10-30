@@ -873,7 +873,83 @@ where
                     for i in 0..5 {
                         self.geometry[geometry.b as usize + i] = self.rhs[i].clone();
                     }
-                    if subset.moment_rank >= 1 {
+                    if geometry.dd_rank >= 1 {
+                        // Gram-free coefficients: momenta and origin for the
+                        // gather, X^-1 of X = [[2 m0^2, f^T], [f, Z]] and the
+                        // second adjugates Xtt_(kn)(0i) / det X.
+                        let pv = subset.pv.unwrap();
+                        for i in 0..4 {
+                            let member = members[i + 1];
+                            let f = cadd(&csub(d(origin, member), &self.masses[member]), &self.masses[origin]);
+                            self.matrix[i + 1] = f.clone();
+                            self.matrix[(i + 1) * 5] = f;
+                            for j in 0..4 {
+                                let (mi, mj) = (members[i + 1], members[j + 1]);
+                                self.matrix[(i + 1) * 5 + j + 1] =
+                                    csub(&cadd(d(origin, mi), d(origin, mj)), d(mi, mj));
+                            }
+                            for a in 0..4 {
+                                self.geometry[pv.p as usize + 4 * i + a] =
+                                    csub(&self.shifts[member][a], &self.shifts[origin][a]);
+                            }
+                        }
+                        for a in 0..4 {
+                            self.geometry[pv.origin as usize + a] = self.shifts[origin][a].clone();
+                        }
+                        self.matrix[0] = cadd(&self.masses[origin], &self.masses[origin]);
+                        for i in 0..5 {
+                            for j in 0..5 {
+                                self.rhs[i * 5 + j] = if i == j { self.one.clone() } else { self.zero.clone() };
+                            }
+                        }
+                        let quality = solve_in_place(&mut self.matrix[..25], &mut self.rhs[..25], 5, 5)
+                            .ok_or_else(|| GeometryFailure::Unstable(format!("singular modified Cayley matrix for {members:?}")));
+                        if quality.is_err() {
+                            self.failed_condition = Some(0.0);
+                        }
+                        let quality = quality?;
+                        if quality.relative_determinant < threshold {
+                            self.failed_condition = Some(quality.relative_determinant.to_f64());
+                            return Err(GeometryFailure::Unstable(format!(
+                                "ill-conditioned modified Cayley matrix for {members:?}: relative determinant {:e}",
+                                quality.relative_determinant
+                            )));
+                        }
+                        let xinv: Vec<C<T>> = self.rhs[..25].to_vec();
+                        for (i, value) in xinv.iter().enumerate() {
+                            self.geometry[geometry.xinv as usize + i] = value.clone();
+                        }
+                        let sums = geometry.sums as usize;
+                        let mut column = self.zero.clone();
+                        for m in 1..=4 {
+                            column = cadd(&column, &xinv[5 * m]);
+                        }
+                        self.geometry[sums] = column;
+                        for k in 1..=4 {
+                            let mut row = self.zero.clone();
+                            for m in 0..5 {
+                                row = cadd(&row, &xinv[5 * k + m]);
+                            }
+                            self.geometry[sums + k] = row;
+                        }
+                        for k in 1..=4 {
+                            for i in 1..=4 {
+                                let mut total = self.zero.clone();
+                                for m in 1..=4 {
+                                    let value = csub(
+                                        &cmul(&xinv[m], &xinv[5 * i + k]),
+                                        &cmul(&xinv[5 * i + m], &xinv[k]),
+                                    );
+                                    if m != k {
+                                        total = cadd(&total, &value);
+                                    }
+                                    self.geometry[geometry.adjadj as usize + 16 * (k - 1) + 4 * (m - 1) + (i - 1)] = value;
+                                }
+                                self.geometry[sums + 5 + 4 * (k - 1) + (i - 1)] = total;
+                            }
+                        }
+                    }
+                    if subset.moment_rank > geometry.dd_rank.max(0) {
                         let mut f = [self.zero.clone(), self.zero.clone(), self.zero.clone(), self.zero.clone()];
                         for i in 0..4 {
                             let member = members[i + 1];
@@ -931,7 +1007,8 @@ where
                         let condition = if kappa.is_zero() || !kappa.is_finite() {
                             self.prototype.zero()
                         } else {
-                            pentagon_calibration.clone() / &kappa.clone().pow(subset.moment_rank as u64)
+                            pentagon_calibration.clone()
+                                / &kappa.clone().pow((subset.moment_rank - geometry.dd_rank.max(0)) as u64)
                         };
                         if condition < threshold {
                             self.failed_condition = Some(condition.to_f64());
@@ -1932,6 +2009,9 @@ where
                 if let Some(started) = started {
                     self.profile.masters += started.elapsed();
                 }
+            }
+            if let Some(unit) = plan.unit_finite {
+                self.values[unit as usize] = [self.zero.clone(), self.zero.clone(), self.zero.clone(), self.one.clone()];
             }
             self.detect_ir_free();
             let started = self.timer();

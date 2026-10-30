@@ -2,8 +2,11 @@
 //!
 //! The plan mirrors the validated symbolic PV planner in `pv.rs`:
 //! Denner--Dittmaier Eqs. (5.10)--(5.11) for at most four denominators, the
-//! four-dimensional external-basis recursion for pentagon Cartesian moments
-//! and the exact thin six-point identity `l^mu = sum_i w_i^mu D_i`. Instead of
+//! Gram-free Denner--Dittmaier pentagon reduction (hep-ph/0509141 sect. 5:
+//! coefficients up to rank 5 from box coefficients with only the modified
+//! Cayley determinant inverted; the four-dimensional external-basis moment
+//! recursion continues above rank 5 and for dotted propagators) and the exact
+//! thin six-point identity `l^mu = sum_i w_i^mu D_i`. Instead of
 //! building one expression per moment, every recurrence node becomes a short
 //! linear instruction over a flat value array, evaluated numerically per lane.
 
@@ -25,6 +28,10 @@ pub(crate) const MAX_POWER: u16 = 5;
 /// Largest dimension shift `h` in `D = 4 + 2h - 2 epsilon`.
 pub(crate) const MAX_SHIFT: i16 = 3;
 pub(crate) const NO_GEOMETRY: u32 = u32::MAX;
+/// Highest pentagon coefficient rank from the Gram-free Denner--Dittmaier
+/// reduction (hep-ph/0509141, sect. 5, with the rank-5 UV remainder); higher
+/// pentagon ranks continue with the four-dimensional Gram recursion.
+pub(crate) const DD_PENTAGON_RANK: i32 = 5;
 
 /// Dense monomial enumeration in `tensor_basis` order with multiplication maps.
 #[derive(Clone, Debug)]
@@ -233,6 +240,20 @@ pub(crate) struct PentagonGeometry {
     pub a: u32,
     pub s: u32,
     pub b: u32,
+    /// Gram-free part: `X^-1` (5x5, row-major, index 0 = the m0 row) of the
+    /// modified Cayley matrix `X = [[2 m0^2, f^T], [f, Z]]`, and
+    /// `Xtt_(kn)(0i) / det X = X^-1_0n X^-1_ik - X^-1_in X^-1_0k` at
+    /// `adjadj + 16 (k-1) + 4 (n-1) + (i-1)`, `k, n, i = 1..4`.
+    pub xinv: u32,
+    pub adjadj: u32,
+    /// Sums that collect the D(0) terms: `sum_{n=1..4} X^-1_n0`, then for
+    /// k = 1..4 `sum_{n=0..4} X^-1_kn`, then for (k, i) the sums over
+    /// `n != k` of `Xtt_(kn)(0i)/det X` at `sums + 5 + 4 (k-1) + (i-1)`.
+    pub sums: u32,
+    /// Coefficient ranks `0..=dd_rank` come from the Gram-free reduction;
+    /// `-1` keeps the Gram recursion for every rank (dotted propagators,
+    /// degenerate box children).
+    pub dd_rank: i32,
 }
 
 /// One gather of Cartesian moments from PV coefficients.
@@ -312,6 +333,9 @@ pub(crate) struct DirectPlanData {
     pub jet: Option<(usize, usize)>,
     /// Gathers read `C(lambda + h, kappa)` and scale by `(-2)^h`.
     pub lambda_shift: u16,
+    /// Value index holding the constant `[0, 0, 0, 1]` (unit finite part),
+    /// used by the rank-5 pentagon UV remainder.
+    pub unit_finite: Option<u32>,
 }
 
 struct Builder {
@@ -490,6 +514,18 @@ impl DirectPlanData {
         let basis = tensor_basis(rank);
         let monomials = MonomialTable::new(rank);
         let top: u8 = ((1u16 << n) - 1) as u8;
+        // Gram-free pentagon rank: not for dotted propagators (no geometry
+        // jets of X^-1 yet) or when a box child is degenerate (it supplies
+        // moments by its identity, not PV coefficients).
+        let dd_rank = |mask: u8, moment: i32| -> i32 {
+            if moment < 0 || jet.is_some() {
+                return -1;
+            }
+            if members(mask).into_iter().any(|member| relation_for(without(mask, member)).is_some()) {
+                return -1;
+            }
+            moment.min(DD_PENTAGON_RANK)
+        };
 
         // Propagate rank needs from the top topology to its pinches.
         let mut coefficient_need: HashMap<u8, i32> = HashMap::new();
@@ -512,11 +548,20 @@ impl DirectPlanData {
             }
             match size {
                 6 | 5 => {
-                    if moment >= 0 {
+                    let dd = if size == 5 { dd_rank(mask, moment) } else { -1 };
+                    if moment > dd {
                         for member in members(mask) {
                             let child = without(mask, member);
                             let need = moment_need.entry(child).or_insert(-1);
                             *need = (*need).max((moment - 1).max(0));
+                        }
+                    }
+                    if dd >= 0 {
+                        // Box coefficients up to the same rank (Denner-Dittmaier).
+                        for member in members(mask) {
+                            let child = without(mask, member);
+                            let need = coefficient_need.entry(child).or_insert(-1);
+                            *need = (*need).max(dd);
                         }
                     }
                 }
@@ -568,6 +613,9 @@ impl DirectPlanData {
         let mut value_count: u32 = 0;
         let mut geometry_count: u32 = 0;
         let mut layouts: HashMap<u8, CoefficientLayout> = HashMap::new();
+        // D(0) of a Gram-free pentagon in its own momentum basis.
+        let mut shifted_layouts: HashMap<u8, HashMap<(u16, Vec<u16>), u32>> = HashMap::new();
+        let mut unit_finite = None;
         let mut relations = Vec::new();
         for &relation in relation_masks {
             let member_list = members(relation);
@@ -639,13 +687,52 @@ impl DirectPlanData {
                     layouts.insert(mask, layout);
                 }
                 SubsetKind::Pentagon => {
-                    subset.pentagon = Some(PentagonGeometry {
+                    let dd = dd_rank(mask, moment);
+                    let mut pentagon = PentagonGeometry {
                         w: geometry_base,
                         a: geometry_base + 16,
                         s: geometry_base + 20,
                         b: geometry_base + 24,
-                    });
+                        xinv: NO_GEOMETRY,
+                        adjadj: NO_GEOMETRY,
+                        sums: NO_GEOMETRY,
+                        dd_rank: dd,
+                    };
                     geometry_count += 29;
+                    if dd >= 0 {
+                        // Momenta and origin for the gather, X^-1, Xtt/det X.
+                        let (geometry, length) = PvGeometry::new(geometry_count, 4);
+                        subset.pv = Some(geometry);
+                        geometry_count += length;
+                        pentagon.xinv = geometry_count;
+                        geometry_count += 25;
+                        pentagon.adjadj = geometry_count;
+                        geometry_count += 64;
+                        pentagon.sums = geometry_count;
+                        geometry_count += 21;
+                        subset.coefficient_rank = dd;
+                        let mut layout = CoefficientLayout {
+                            lookup: HashMap::new(),
+                            spz: HashMap::new(),
+                        };
+                        let mut shifted = HashMap::new();
+                        for r in 0..=dd as u16 {
+                            for lambda in (0..=r / 2).rev() {
+                                for kappa in compositions(r - 2 * lambda, 4) {
+                                    layout.lookup.insert((lambda, kappa.clone()), value_count);
+                                    shifted.insert((lambda, kappa), value_count + 1);
+                                    value_count += 2;
+                                }
+                            }
+                        }
+                        layouts.insert(mask, layout);
+                        shifted_layouts.insert(mask, shifted);
+                        if dd >= 5 && unit_finite.is_none() {
+                            unit_finite = Some(value_count);
+                            value_count += 1;
+                        }
+                    }
+                    subset.pentagon = Some(pentagon);
                 }
                 SubsetKind::Hexagon => {
                     subset.hexagon = Some(geometry_base);
@@ -809,15 +896,146 @@ impl DirectPlanData {
             }
         }
 
+        // Gram-free pentagon coefficients (Denner--Dittmaier, hep-ph/0509141
+        // Eqs. (5.9)-(5.10), symmetrized as in (5.12)): with I = kappa - e_k,
+        //   R E_{lambda,kappa} = 2 lambda Ebar0 + sum_k kappa_k Ebar_k(I),
+        //   Ebar0 = sum_n X^-1_n0 [D_{lambda,kappa}(n) - D_{lambda,kappa}(0)],
+        //   Ebar_k = sum_n X^-1_kn [D_I(n) - D_I(0)] - X^-1_k0 D_I(0)
+        //     - 2 sum_n sum_i I_i Xtt_(kn)(0i)/det X [D_{lambda+1,I-e_i}(n) - .(0)],
+        // with the box coefficients of rank <= R only (no Gram inverse); the
+        // rank-5 UV remainder replaces D_0000(0) by D_0000(0) + 1/48 in
+        // E_{0000k}. D(n), n >= 1, drops momentum n (zero if I_n > 0); D(0)
+        // is the box without member 0 in this basis (D_{kappa}(0) = Dtilde for
+        // kappa_1 = 0, else -sum_{s=2..4} D_{kappa-e1+es}(0) - D_{kappa-e1}(0)).
+        for subset in &subsets {
+            let Some(geometry) = subset.pentagon else { continue };
+            if subset.kind != SubsetKind::Pentagon || geometry.dd_rank < 0 {
+                continue;
+            }
+            let dd = geometry.dd_rank as u16;
+            let layout = &layouts[&subset.mask];
+            let shifted = &shifted_layouts[&subset.mask];
+            let child = |n: usize| without(subset.mask, subset.members[n]);
+            let box_coefficient = |n: usize, lambda: u16, kappa: &[u16]| -> Option<u32> {
+                if kappa[n - 1] != 0 {
+                    return None;
+                }
+                let mut reduced = kappa.to_vec();
+                reduced.remove(n - 1);
+                Some(layouts[&child(n)].lookup[&(lambda, reduced)])
+            };
+            let zero_layout = &layouts[&child(0)];
+            for r in 0..=dd {
+                for lambda in (0..=r / 2).rev() {
+                    let mut kappas = compositions(r - 2 * lambda, 4);
+                    kappas.sort_by_key(|kappa| kappa[0]);
+                    for kappa in kappas {
+                        let dst = shifted[&(lambda, kappa.clone())];
+                        let terms = if kappa[0] == 0 {
+                            let src = zero_layout.lookup[&(lambda, kappa[1..].to_vec())];
+                            vec![builder.term(src, NO_GEOMETRY, rational(1, 1))]
+                        } else {
+                            let mut lower = kappa.clone();
+                            lower[0] -= 1;
+                            let mut terms =
+                                vec![builder.term(shifted[&(lambda, lower.clone())], NO_GEOMETRY, rational(-1, 1))];
+                            for s in 1..4 {
+                                let mut other = lower.clone();
+                                other[s] += 1;
+                                terms.push(builder.term(shifted[&(lambda, other)], NO_GEOMETRY, rational(-1, 1)));
+                            }
+                            terms
+                        };
+                        coefficient_program.push(builder.instruction(dst, terms, PostOp::None));
+                    }
+                }
+            }
+            let xinv = |i: usize, j: usize| geometry.xinv + (5 * i + j) as u32;
+            for r in 0..=dd {
+                let big_r = i64::from(r);
+                for lambda in (0..=r / 2).rev() {
+                    for kappa in compositions(r - 2 * lambda, 4) {
+                        let dst = layout.lookup[&(lambda, kappa.clone())];
+                        let mut terms = Vec::new();
+                        if r == 0 {
+                            // Scalar pentagon: Melrose, b = Y^-1 1.
+                            for i in 0..5 {
+                                let src = layouts[&child(i)].lookup[&(0, vec![0, 0, 0])];
+                                terms.push(builder.term(src, geometry.b + i as u32, rational(1, 1)));
+                            }
+                            coefficient_program.push(builder.instruction(dst, terms, PostOp::None));
+                            continue;
+                        }
+                        if lambda >= 1 {
+                            let c = rational(2 * i64::from(lambda), big_r);
+                            let d0 = shifted[&(lambda, kappa.clone())];
+                            for n in 1..=4 {
+                                if let Some(src) = box_coefficient(n, lambda, &kappa) {
+                                    terms.push(builder.term(src, xinv(n, 0), c.clone()));
+                                }
+                            }
+                            terms.push(builder.term(d0, geometry.sums, -c.clone()));
+                        }
+                        for k in 1..=4 {
+                            if kappa[k - 1] == 0 {
+                                continue;
+                            }
+                            let weight = i64::from(kappa[k - 1]);
+                            let c = rational(weight, big_r);
+                            let mut rest = kappa.clone();
+                            rest[k - 1] -= 1;
+                            let d0 = shifted[&(lambda, rest.clone())];
+                            for n in 1..=4 {
+                                if let Some(src) = box_coefficient(n, lambda, &rest) {
+                                    terms.push(builder.term(src, xinv(k, n), c.clone()));
+                                }
+                            }
+                            terms.push(builder.term(d0, geometry.sums + k as u32, -c.clone()));
+                            for i in 1..=4 {
+                                if rest[i - 1] == 0 {
+                                    continue;
+                                }
+                                let ci = rational(-2 * weight * i64::from(rest[i - 1]), big_r);
+                                let mut lower = rest.clone();
+                                lower[i - 1] -= 1;
+                                let d0 = shifted[&(lambda + 1, lower.clone())];
+                                for n in 1..=4 {
+                                    if n == k {
+                                        continue;
+                                    }
+                                    let g = geometry.adjadj + (16 * (k - 1) + 4 * (n - 1) + (i - 1)) as u32;
+                                    if let Some(src) = box_coefficient(n, lambda + 1, &lower) {
+                                        terms.push(builder.term(src, g, ci.clone()));
+                                    }
+                                }
+                                let g = geometry.sums + (5 + 4 * (k - 1) + (i - 1)) as u32;
+                                terms.push(builder.term(d0, g, -ci.clone()));
+                            }
+                            if r == 5 && lambda == 2 {
+                                let unit = unit_finite.expect("rank-5 pentagons allocate the unit value");
+                                terms.push(builder.term(unit, xinv(k, 0), rational(-weight, 48 * big_r)));
+                            }
+                        }
+                        coefficient_program.push(builder.instruction(dst, terms, PostOp::None));
+                    }
+                }
+            }
+        }
+
         // Gathers of PV subsets whose moments are needed.
         let mut gathers = Vec::new();
         let mut gather_scratch = 0usize;
         for (id, subset) in subsets.iter().enumerate() {
-            if subset.kind != SubsetKind::Pv || subset.moment_rank < 0 {
+            let gram_free = subset.pentagon.is_some_and(|geometry| geometry.dd_rank >= 0);
+            if !(subset.kind == SubsetKind::Pv || gram_free) || subset.moment_rank < 0 {
                 continue;
             }
             let momenta = subset.members.len() - 1;
-            let rank = subset.moment_rank as u16;
+            let rank = if gram_free {
+                subset.moment_rank.min(subset.coefficient_rank) as u16
+            } else {
+                subset.moment_rank as u16
+            };
             let layout = &layouts[&subset.mask];
             let mut kappas = Vec::new();
             let mut kappa_lookup: HashMap<Vec<u16>, u32> = HashMap::new();
@@ -904,6 +1122,10 @@ impl DirectPlanData {
                     let geometry = subset.pentagon.unwrap();
                     let base = subset.moment_base.unwrap();
                     for (index, e) in tensor_basis(subset.moment_rank as u16).iter().enumerate() {
+                        if (e.rank() as i32) <= geometry.dd_rank {
+                            // Gathered from the Gram-free coefficients.
+                            continue;
+                        }
                         let dst = base + index as u32;
                         let mut terms = Vec::new();
                         if e.rank() == 0 {
@@ -993,6 +1215,7 @@ impl DirectPlanData {
             gather_scratch,
             jet,
             lambda_shift,
+            unit_finite,
         })
     }
 }
