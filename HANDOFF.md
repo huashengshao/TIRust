@@ -130,7 +130,24 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    expose them. Test: `near_degenerate_boxes_are_rescued_at_higher_precision`
    (106/256/512-bit tiers, E/A <= 1e-14 against a 512-bit direct evaluation).
    Evidence: `validation/benchmark/direct-engine-20261030/rescue-coplanar.{py,jsonl}`
-   against quad IREGI. Cost per rescued lane (dev build): ~8 ms rank 4 at 256
+   (release 877cf47) against quad IREGI: wherever quad IBP and PV agree the
+   rescued arrays match them (rank 4: 2-3e-17 at delta 1/64, 1/256; within the
+   quad disagreement at 1/1024, 1/4096), rank 6 matches quad IBP to 2-8e-17 at
+   1/8, 1/64 (quad PV is wrong for rank > N; quad IBP degrades below 1/256).
+   Binary64 IREGI IBP is wrong by up to 1e18 on these points while reporting
+   success. At delta = 2^-24 IREGI treats the box as exactly coplanar (error
+   O(delta) = 2e-7); TIRust evaluates the given kinematics.
+   **N >= 5 loop-rotation test (877cf47).** The binary64 stability study
+   (`validation/benchmark/stability-20261030`) showed the pentagon Gram
+   recursion accepting physical gg->Hgg lanes with E/A up to 3e-4 (rounding
+   ~ kappa^rank u, kappa = ||Z|| ||Z^-1|| ~ 60..6e5 for physical 2->3 points;
+   the Hadamard-relative determinant does not track it). Now the pentagon gate
+   uses 2^-7/kappa^rank (removes hopeless lanes) and the binary64 hybrid
+   evaluates every N >= 5 lane twice (propagators rotated) and sends lanes whose
+   arrays differ by more than 2^-30 to the rescue. Consequence: on physical
+   pentagons/hexagons nearly every binary64 lane is rescued (correct, but
+   ms per lane). **Next big item: a Gram-free pentagon reduction** (Denner-
+   Dittmaier, hep-ph/0212259, as in COLLIER) so physical N=5/6 stays in binary64. Cost per rescued lane (dev build): ~8 ms rank 4 at 256
    bits, ~15 ms rank 6 at 512 bits (`examples/direct_tier_profile.rs`).
    The precision tiers were made affordable by a **native arbitrary-precision
    complex dilogarithm in oneloopmaster** (`src/native/dilog.rs`, PATCHES.md):
