@@ -159,6 +159,34 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    2.5e6 at delta=1/1024 on the coplanar box while reporting success
    (`quad-coplanar.{py,jsonl}`); TIRust used to refuse these lanes honestly.
    Long term: Gram expansions as in COLLIER would avoid the extended precision.
+3b. **Binary64 stability study** (`validation/benchmark/stability-20261030`, report
+   section "Binary64 stability"): cumulative E/A profiles as in Hirschi-Peraro
+   arXiv:1604.01363 figs. 2-4 for top-loop gg->HH boxes (rank 4 and 6, 10k
+   points each), a gg->Hgg pentagon (rank 5, 5k) and a gg->gggg hexagon (rank 6,
+   2k) at sqrt(s)=1 TeV, pT>50 GeV, dR>0.5. Codes run as a user would:
+   TIRust default and binary64-only, IREGI IBP/PV with its default on-shell
+   snapping (the timing driver disables it), COLLIER COLI/DD with exact zero
+   massless invariants (with rounded ~1e-10 invariants COLI returns NaN and DD
+   wrong arrays on most pentagons/hexagons). Reference: TIRust direct engine at
+   256 bits, confirmed per point by quad IREGI (<=1e-9; typically 6.3e-17,
+   which is quad IREGI's binary64 pi in its normalization). Quad IREGI alone
+   is unusable: quad PV fails on rank > N boxes, quad IBP on hexagons, and quad
+   PV keeps only 1e-12..1e-10 on some hexagons (COLLIER sides with 256-bit).
+   Pitfalls fixed on the way: serde_json's default float parser is not
+   correctly rounded (pass decimal strings, parse with str::parse); the quad
+   build reads decimals in quad, so give it exact expansions of binary64.
+   Rescue cost on physical points (release, 877cf47): box r4 24 us, r6 49 us
+   (no rescue); pentagon r5 6-9 ms (106 bits); hexagon r6 150-170 ms (256 bits).
+3c. **Next: Gram-free 5- and 6-point reduction** so physical N=5/6 lanes stay in
+   binary64. Denner-Dittmaier hep-ph/0212259 Eq. (2.17)/(2.19)
+   (E_P = -sum_i detY_i/detY D_P(i) + 2 sum_ij Zhat_ij/detY p_j^a Delta_aP(i)
+   + UV/detY, P<=4) and, for any rank in dim. reg., hep-ph/0509141 sect. 5
+   (rank P from 4-point rank P-1; sect. 6 for 6-point; sects. 3.4-3.6 are
+   COLLIER's small-Gram expansions for boxes/triangles). Only det Y (5x5
+   modified Cayley) is inverted. Needed in plan.rs: a pentagon subset kind
+   whose instructions combine the box subsets' moments and their g-part
+   (metric) coefficients; validate against the 256-bit direct engine and
+   COLLIER on the stability points, then rerun the stability study.
 4. Remaining cost centres: masters (log/atan2/dilog in oneloopmaster kernels), the
    recurrence loop (a real-factor fast path gave nothing measurable; the loop is
    load/latency bound, so try SoA L4 layout), gathers.

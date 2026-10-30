@@ -2012,6 +2012,9 @@ where
             statuses.push(if finite {
                 LaneStatus::Success
             } else {
+                // Overflow or a vanishing divisor at this precision: no
+                // conditioning estimate, so report zero (a rescue starts high).
+                self.lane_conditions[row] = Some(0.0);
                 LaneStatus::Unstable("nonfinite direct-engine coefficient".into())
             });
         }
