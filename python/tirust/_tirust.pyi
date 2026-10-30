@@ -1,7 +1,7 @@
 """TIRust native API; upstream names are aliases of their owner stub types."""
 from collections.abc import Sequence
 from os import PathLike
-from typing import Any, Literal, TypeAlias, TypedDict
+from typing import Any, Literal, NotRequired, TypeAlias, TypedDict
 
 from ._types.symbolica.core import ComplexFloat as ComplexFloat, E as E, Expression as Expression, Float as Float, S as S
 from ._types.symbolica.community.hepkit import FeynmanDiagram as FeynmanDiagram, Model as Model
@@ -12,7 +12,7 @@ Number: TypeAlias = int | float | complex | str | Expression | Float | ComplexFl
 NumericInput: TypeAlias = Number | "Dual"
 DType: TypeAlias = Literal["f64", "double-double", "float"]
 Algorithm: TypeAlias = Literal["hybrid", "pv", "ibp"]
-Engine: TypeAlias = Literal["mass_taylor", "legacy_noop", "generic", "six_point", "six_point_hybrid", "certified_tensor", "affine_power", "seven_point"]
+Engine: TypeAlias = Literal["direct", "mass_taylor", "legacy_noop", "generic", "six_point", "six_point_hybrid", "certified_tensor", "affine_power", "seven_point"]
 Convention: TypeAlias = Literal["iregi", "oneloop", "madloop"]
 Shape: TypeAlias = Sequence[Sequence[int]]
 Monomial: TypeAlias = tuple[int, int, int, int]
@@ -86,7 +86,12 @@ LegacyNoOpEngineExecution = TypedDict("LegacyNoOpEngineExecution", {
     "child_preparation_attempts": int, "child_preparation_error": str | None,
 })
 
-EngineExecution: TypeAlias = MassTaylorEngineExecution | LegacyNoOpEngineExecution | GenericEngineExecution | PackedEngineExecution | HybridEngineExecution | CertifiedEngineExecution | AffinePowerEngineExecution
+DirectEngineExecution = TypedDict("DirectEngineExecution", {
+    "engine": Literal["direct"], "input_rows": int, "direct_successes": int,
+    "fallback_rows": int, "fallback_successes": int,
+    "fallback_preparation_error": str | None, "fallback": NotRequired["EngineExecution"],
+})
+EngineExecution: TypeAlias = DirectEngineExecution | MassTaylorEngineExecution | LegacyNoOpEngineExecution | GenericEngineExecution | PackedEngineExecution | HybridEngineExecution | CertifiedEngineExecution | AffinePowerEngineExecution
 
 class ReductionError(RuntimeError): ...
 class LaneError(ReductionError): ...

@@ -155,6 +155,16 @@ Ok(())
 }
 ```
 
+For binary64 workspaces `TensorReductionPlan::new` selects the direct numerical
+engine whenever the request is in its domain (unit powers or one raised power up
+to 5, `h<=3` up to four points, Cartesian shifts, `Preserve`, PV/Hybrid, N<=6);
+`engine_kind()` reports `Direct`, and `engine_execution()` reports direct
+successes, fallback rows and the fallback's own detail. Lanes it cannot reduce
+reliably are rerun on the symbolic engine; `TensorReductionPlan::new_without_direct`
+selects the symbolic dispatch explicitly. `DoubleFloat`, `Float` and Dual
+workspaces use the symbolic engine. The lower-level `DirectReductionPlan` /
+`DirectWorkspace` API is also public.
+
 Moments use increasing rank and IREGI's Cartesian monomial ordering, with
 `[UV single, IR single, IR double, finite]` for each monomial. `Convention`
 selects native IREGI, OneLOop, or MadLoop normalization. `TensorWeights` makes
