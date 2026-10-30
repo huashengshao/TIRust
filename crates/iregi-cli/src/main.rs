@@ -328,6 +328,9 @@ fn engine_execution_json(detail: TensorEngineExecution) -> Value {
             "input_rows":stats.input_rows,"master_rows":stats.master_rows,
             "direct_successes":stats.direct_successes,"fallback_rows":stats.fallback_rows,
             "fallback_successes":stats.fallback_successes,
+            "precision_rescue":stats.precision_rescue.iter().map(|tier| json!({
+                "bits":tier.bits,"rows":tier.rows,"successes":tier.successes})).collect::<Vec<_>>(),
+            "symbolic_rows":stats.symbolic_rows,
             "fallback_preparation_error":stats.fallback_preparation_error,
             "fallback":stats.fallback.map(|child| engine_execution_json(*child)),
         }),

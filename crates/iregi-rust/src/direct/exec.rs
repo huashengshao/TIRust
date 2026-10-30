@@ -26,7 +26,7 @@ use crate::{
 /// Scalar-master implementation used by a direct workspace.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum DirectMasters {
-    /// OneLOop's direct Rust kernels (hand-written binary64 C0/D0 sectors),
+    /// oneloopmaster's direct Rust kernels (hand-written binary64 C0/D0 sectors),
     /// evaluated per lane inside the lane loop.
     #[default]
     Native,
@@ -115,6 +115,12 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     master_rows: usize,
     /// Minimal accepted relative determinant raised to its recursion depth.
     stability_threshold: T,
+    /// Conditioning estimate of the most recent refused system (zero for an
+    /// exactly singular pivot), for precision escalation by the caller.
+    failed_condition: Option<f64>,
+    /// Per lane of the most recent call: `failed_condition` of lanes refused
+    /// on conditioning, `None` otherwise.
+    lane_conditions: Vec<Option<f64>>,
     profiling: bool,
     profile: DirectProfile,
 }
@@ -281,6 +287,8 @@ where
                 normalization,
             },
             stability_threshold,
+            failed_condition: None,
+            lane_conditions: Vec::new(),
             profiling: false,
             profile: DirectProfile::default(),
             base_plan: plan.clone(),
@@ -311,6 +319,10 @@ where
 
     pub fn set_stability_threshold(&mut self, threshold: T) {
         self.stability_threshold = threshold;
+    }
+
+    pub fn last_conditions(&self) -> &[Option<f64>] {
+        &self.lane_conditions
     }
 
     fn timer(&self) -> Option<Instant> {
@@ -443,7 +455,7 @@ where
         Ok(())
     }
 
-    /// Evaluate this lane's masters with the direct OneLOop kernels, writing
+    /// Evaluate this lane's masters with the direct oneloopmaster kernels, writing
     /// the four native Laurent slots straight into the value array.
     fn native_masters(&mut self, mu2: &C<T>) -> Result<(), String> {
         let plan = self.plan.clone();
@@ -488,7 +500,7 @@ where
                 input[arity] = mu2.clone();
                 evaluator.evaluate(&input[..arity + 1], &mut self.native_output)?;
                 self.master_rows += 1;
-                // OneLOop order is [finite, total single, double]. The UV
+                // The oneloopmaster order is [finite, total single, double]. The UV
                 // residues are exact: A0 m^2, B0 one, C0/D0 zero.
                 let uv = match family {
                     0 => self.native_input[0].clone(),
@@ -695,6 +707,7 @@ where
 
     /// Compute every subset's numeric geometry for the current variant.
     fn geometry(&mut self) -> Result<(), GeometryFailure> {
+        self.failed_condition = None;
         let plan = self.plan.clone();
         let n = plan.settings.propagators;
         let threshold = self.stability_threshold.clone();
@@ -786,7 +799,12 @@ where
                                 subset.mask,
                                 format!("singular Gram matrix for {members:?}"),
                             )
-                        })?;
+                        });
+                        if quality.is_err() {
+                            // Exactly singular pivot: conditioning zero.
+                            self.failed_condition = Some(0.0);
+                        }
+                        let quality = quality?;
                         let power = subset.coefficient_rank as u64;
                         // Hadamard-relative and scale-relative conditioning:
                         // |det Z|^(1/n) against the recursion's kinematic scale.
@@ -803,7 +821,8 @@ where
                         } else {
                             quality.relative_determinant.clone()
                         };
-                        if condition.pow(power) < threshold {
+                        if condition.clone().pow(power) < threshold {
+                            self.failed_condition = Some(condition.clone().pow(power).to_f64());
                             return Err(GeometryFailure::Singular(subset.mask, format!(
                                 "ill-conditioned Gram matrix for {members:?}: conditioning {:e}",
                                 condition
@@ -837,8 +856,14 @@ where
                         self.rhs[i] = self.one.clone();
                     }
                     let quality = solve_in_place(&mut self.matrix[..25], &mut self.rhs[..5], 5, 1)
-                        .ok_or_else(|| GeometryFailure::Unstable(format!("singular Cayley matrix for {members:?}")))?;
+                        .ok_or_else(|| GeometryFailure::Unstable(format!("singular Cayley matrix for {members:?}")));
+                    if quality.is_err() {
+                        // Exactly singular pivot: conditioning zero.
+                        self.failed_condition = Some(0.0);
+                    }
+                    let quality = quality?;
                     if quality.relative_determinant < threshold {
+                        self.failed_condition = Some(quality.relative_determinant.to_f64());
                         return Err(GeometryFailure::Unstable(format!(
                             "ill-conditioned Cayley matrix for {members:?}: relative determinant {:e}",
                             quality.relative_determinant
@@ -861,8 +886,15 @@ where
                             }
                         }
                         let quality = solve_in_place(&mut self.matrix[..16], &mut self.rhs[..16], 4, 4)
-                            .ok_or_else(|| GeometryFailure::Singular(subset.mask, format!("singular pentagon Gram matrix for {members:?}")))?;
-                        if quality.relative_determinant.pow(subset.moment_rank as u64) < threshold {
+                            .ok_or_else(|| GeometryFailure::Singular(subset.mask, format!("singular pentagon Gram matrix for {members:?}")));
+                        if quality.is_err() {
+                            // Exactly singular pivot: conditioning zero.
+                            self.failed_condition = Some(0.0);
+                        }
+                        let quality = quality?;
+                        let condition = quality.relative_determinant.clone().pow(subset.moment_rank as u64);
+                        if condition < threshold {
+                            self.failed_condition = Some(condition.to_f64());
                             return Err(GeometryFailure::Singular(subset.mask, format!(
                                 "ill-conditioned pentagon Gram matrix for {members:?}: relative determinant {:e}",
                                 quality.relative_determinant
@@ -915,8 +947,14 @@ where
                         }
                     }
                     let quality = solve_in_place(&mut self.matrix[..25], &mut self.rhs[..25], 5, 5)
-                        .ok_or_else(|| GeometryFailure::Unstable(format!("singular six-point coordinate system for {members:?}")))?;
+                        .ok_or_else(|| GeometryFailure::Unstable(format!("singular six-point coordinate system for {members:?}")));
+                    if quality.is_err() {
+                        // Exactly singular pivot: conditioning zero.
+                        self.failed_condition = Some(0.0);
+                    }
+                    let quality = quality?;
                     if quality.relative_determinant < threshold {
+                        self.failed_condition = Some(quality.relative_determinant.to_f64());
                         return Err(GeometryFailure::Unstable(format!(
                             "ill-conditioned six-point coordinate system: relative determinant {:e}",
                             quality.relative_determinant
@@ -1264,8 +1302,14 @@ where
             inverse[i * size + i] = self.one.clone();
         }
         let quality = solve_in_place(&mut matrix, &mut inverse, size, size)
-            .ok_or_else(|| format!("singular Cayley matrix for {members:?}"))?;
+            .ok_or_else(|| format!("singular Cayley matrix for {members:?}"));
+        if quality.is_err() {
+            // Exactly singular pivot: conditioning zero.
+            self.failed_condition = Some(0.0);
+        }
+        let quality = quality?;
         if quality.relative_determinant < self.stability_threshold {
+            self.failed_condition = Some(quality.relative_determinant.to_f64());
             return Err(format!(
                 "ill-conditioned Cayley matrix for {members:?}: relative determinant {:e}",
                 quality.relative_determinant
@@ -1732,6 +1776,8 @@ where
         let basis_len = base_plan.basis.len();
         let mut values = Vec::with_capacity(batch.rows * basis_len * 4);
         let mut statuses = Vec::with_capacity(batch.rows);
+        self.lane_conditions.clear();
+        self.lane_conditions.resize(batch.rows, None);
         let settings = &base_plan.settings;
         for row in 0..batch.rows {
             let lane_values = values.len();
@@ -1797,6 +1843,7 @@ where
                 }
             }
             if let Some(error) = failure {
+                self.lane_conditions[row] = self.failed_condition;
                 statuses.push(LaneStatus::Unstable(error));
                 continue;
             }
@@ -1836,7 +1883,9 @@ where
                     statuses.push(LaneStatus::Unstable(error));
                     continue;
                 }
+                self.failed_condition = None;
                 if let Err(error) = self.master_jets() {
+                    self.lane_conditions[row] = self.failed_condition;
                     statuses.push(LaneStatus::Unstable(error));
                     continue;
                 }

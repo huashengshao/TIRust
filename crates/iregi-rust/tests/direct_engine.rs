@@ -399,3 +399,56 @@ fn lightlike_and_massless_kinematics_match_the_symbolic_engine() {
         assert!(error <= 1e-12, "{label}: E/A = {error:e}");
     }
 }
+
+#[test]
+fn near_degenerate_boxes_are_rescued_at_higher_precision() {
+    // Shifts 0, e_x, e_y, e_x+e_y+delta e_z: nearly coplanar. Binary64
+    // refuses the Gram system; the facade reruns the lane by the direct engine
+    // at the precision its conditioning calls for. The independent check is a
+    // 512-bit direct evaluation of the same exactly lifted inputs.
+    use iregi_rust::TensorEngineExecution;
+    use symbolica::domains::float::{Float, RealLike};
+    let masses = [(1.0, 0.0), (2.0, 0.0), (3.0, 0.0), (3.0, 0.0)];
+    for (rank, delta, bits) in [(4u16, 1.0 / 64.0, 106u32), (4, 1.0 / 1024.0, 256), (6, 1.0 / 16_777_216.0, 512)] {
+        let shifts = [[0.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 1.0, 1.0, delta]];
+        let values = row(&shifts, &masses, 3.0);
+        let settings = ReductionSettings::new(4, rank);
+        let direct = DirectReductionPlan::new(settings.clone())
+            .unwrap()
+            .workspace(0.0f64)
+            .unwrap()
+            .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: values.clone() })
+            .unwrap();
+        assert!(matches!(direct.statuses[0], LaneStatus::Unstable(_)), "{:?}", direct.statuses[0]);
+        let plan = TensorReductionPlan::new(settings.clone()).unwrap();
+        let mut workspace = TensorWorkspace::new(&plan, 0.0f64).unwrap();
+        let result = workspace
+            .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: values.clone() })
+            .unwrap();
+        assert_eq!(result.statuses[0], LaneStatus::Success);
+        assert!(result.fallback_used[0]);
+        let TensorEngineExecution::Direct(stats) = workspace.engine_execution() else {
+            panic!("expected the direct engine");
+        };
+        assert_eq!(stats.symbolic_rows, 0, "{stats:?}");
+        let accepted = stats.precision_rescue.last().unwrap();
+        assert_eq!((accepted.bits, accepted.successes), (bits, 1), "{stats:?}");
+        let lifted: Vec<Complex<Float>> = values
+            .iter()
+            .map(|z| Complex::new(Float::with_val(512, z.re), Float::with_val(512, z.im)))
+            .collect();
+        let mut reference = DirectReductionPlan::new(settings).unwrap().workspace(Float::new(512)).unwrap();
+        reference.set_stability_threshold(Float::with_val(512, 2f64.powi(-472)));
+        let reference = reference
+            .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: lifted })
+            .unwrap();
+        let reference: Vec<Complex<f64>> = reference
+            .lane(0)
+            .unwrap()
+            .iter()
+            .map(|z| Complex::new(z.re.to_f64(), z.im.to_f64()))
+            .collect();
+        let error = array_error(&result.basis, 4, 3.0, result.lane(0).unwrap(), &reference);
+        assert!(error <= 1e-14, "rank {rank} delta {delta:e}: E/A = {error:e}");
+    }
+}

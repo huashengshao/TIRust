@@ -11,7 +11,7 @@ use iregi_rust::{
 use pyo3::{
     exceptions::{PyIndexError, PyTypeError, PyValueError},
     prelude::*,
-    types::{PyDict, PyTuple},
+    types::{PyDict, PyList, PyTuple},
 };
 use symbolica::{
     domains::float::{Complex, DoubleFloat, Float},
@@ -1162,6 +1162,16 @@ fn engine_execution(execution: &TensorEngineExecution, py: Python<'_>) -> PyResu
             output.set_item("direct_successes", direct.direct_successes)?;
             output.set_item("fallback_rows", direct.fallback_rows)?;
             output.set_item("fallback_successes", direct.fallback_successes)?;
+            let tiers = PyList::empty(py);
+            for tier in &direct.precision_rescue {
+                let entry = PyDict::new(py);
+                entry.set_item("bits", tier.bits)?;
+                entry.set_item("rows", tier.rows)?;
+                entry.set_item("successes", tier.successes)?;
+                tiers.append(entry)?;
+            }
+            output.set_item("precision_rescue", tiers)?;
+            output.set_item("symbolic_rows", direct.symbolic_rows)?;
             output.set_item("fallback_preparation_error", direct.fallback_preparation_error.clone())?;
             if let Some(child) = &direct.fallback {
                 output.set_item("fallback", engine_execution(child, py)?)?;

@@ -12,7 +12,7 @@ reference defects and explicit qualification limits.
 **Direct numerical engine (binary64 default).** `TensorReductionPlan::new` now
 selects a direct engine for unit-power or single-dotted, `h<=3`, Cartesian-shift
 PV/Hybrid requests through six points: the validated PV recurrences run
-numerically per lane with OneLOop's direct scalar kernels, affinely dependent
+numerically per lane with oneloopmaster's direct scalar kernels, affinely dependent
 sub-topologies use their constant-one denominator identity, a dotted propagator
 is a Taylor jet in its squared mass, and `D=4+2h` uses
 `C(lambda+h,kappa)(-2)^h`. Lanes with ill-conditioned systems fall back to the

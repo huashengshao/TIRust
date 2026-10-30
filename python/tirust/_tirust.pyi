@@ -86,9 +86,12 @@ LegacyNoOpEngineExecution = TypedDict("LegacyNoOpEngineExecution", {
     "child_preparation_attempts": int, "child_preparation_error": str | None,
 })
 
+DirectRescueTier = TypedDict("DirectRescueTier", {"bits": int, "rows": int, "successes": int})
+
 DirectEngineExecution = TypedDict("DirectEngineExecution", {
     "engine": Literal["direct"], "input_rows": int, "direct_successes": int,
     "fallback_rows": int, "fallback_successes": int,
+    "precision_rescue": list[DirectRescueTier], "symbolic_rows": int,
     "fallback_preparation_error": str | None, "fallback": NotRequired["EngineExecution"],
 })
 EngineExecution: TypeAlias = DirectEngineExecution | MassTaylorEngineExecution | LegacyNoOpEngineExecution | GenericEngineExecution | PackedEngineExecution | HybridEngineExecution | CertifiedEngineExecution | AffinePowerEngineExecution

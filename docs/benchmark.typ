@@ -67,6 +67,7 @@
   body
 }
 
+
 #let bench = data.qualified_benchmark
 #let native = data.qualified_native_benchmark
 #let recent = data.qualified_5c9_benchmark
@@ -432,7 +433,7 @@
   block(fill: rgb("#d9f0d3"), inset: 9pt, radius: 4pt, width: 100%)[
     #set text(9pt)
     *What changed.* The public binary64 default (`TensorReductionPlan::new` + `TensorWorkspace`)
-    now evaluates the validated PV recurrences numerically per lane with direct OneLOop scalar kernels,
+    now evaluates the validated PV recurrences numerically per lane with direct oneloopmaster scalar kernels,
     instead of interpreting compiled symbolic expressions. Affinely dependent sub-topologies use their
     constant-one denominator identity; a dotted propagator is a Taylor jet in its squared mass with
     master derivatives from the IBP relation; D=6 uses #raw("C(λ+h,κ)·(−2)^h"). Lanes with
@@ -471,6 +472,101 @@
     #raw("run.py --cpu N"), then #raw("summarize.py").
   ]
   pagebreak()
+}
+// Binary64 stability study (30 October 2026): cumulative accuracy profiles
+// in the style of Hirschi and Peraro, arXiv:1604.01363, figs. 2-4.
+#let stability-campaign = data.at("stability_20261030", default: none)
+#let st-style = (
+  "tirust": (paint: rgb("#1a9850"), thickness: 1.7pt),
+  "tirust-direct64": (paint: rgb("#1a9850"), thickness: 0.9pt, dash: "dashed"),
+  "iregi-ibp": (paint: rgb("#d7301f"), thickness: 1.1pt),
+  "iregi-pv": (paint: rgb("#fc8d59"), thickness: 1.1pt, dash: "dashed"),
+  "collier-coli": (paint: rgb("#2c7fb8"), thickness: 1.1pt),
+  "collier-dd": (paint: rgb("#7570b3"), thickness: 1.1pt, dash: "dashed"),
+)
+#let st-plot(integral, grid, width: 6.6cm, height: 4.3cm) = {
+  let x0 = -17.0
+  let x1 = 0.0
+  let ymin = calc.floor(calc.log(1 / integral.with_reference, base: 10))
+  let ylow = ymin - 0.3
+  let px(x) = (x - x0) / (x1 - x0) * width
+  let py(y) = -y / -ylow * height
+  let ox = 1.05cm
+  let oy = 0.45cm
+  box(width: width + ox + 0.15cm, height: height + oy + 0.8cm, {
+    place(dx: ox, dy: 0pt, text(size: 7.5pt, weight: "bold")[#integral.label])
+    for e in range(-16, 1, step: 2) {
+      place(dx: ox + px(e), dy: oy, line(length: height, angle: 90deg, stroke: 0.3pt + luma(225)))
+      place(dx: ox + px(e) - 0.4cm, dy: oy + height + 0.08cm,
+        box(width: 0.8cm, align(center, text(size: 6pt)[10#super[#e]])))
+    }
+    for e in range(ymin, 1) {
+      place(dx: ox, dy: oy + py(e), line(length: width, stroke: 0.3pt + luma(225)))
+      place(dx: 0.25cm, dy: oy + py(e) - 0.16cm,
+        box(width: ox - 0.33cm, align(right, text(size: 6pt)[10#super[#e]])))
+    }
+    place(dx: 0pt, dy: oy + height / 2 - 0.15cm, rotate(-90deg, reflow: false,
+      box(width: 0.3cm, text(size: 6pt)[fraction])))
+    place(dx: ox + px(-3) - 1pt, dy: oy, rect(width: 2pt, height: height, fill: luma(205), stroke: none))
+    for code in integral.codes {
+      let pts = ()
+      for (x, f) in grid.zip(code.curve) {
+        if f == none { continue }
+        if f <= 0 { pts.push((x, ylow)); break }
+        pts.push((x, calc.max(calc.log(f, base: 10), ylow)))
+      }
+      if pts.len() > 1 {
+        place(dx: ox, dy: oy, curve(stroke: st-style.at(code.code),
+          curve.move((px(pts.at(0).at(0)), py(pts.at(0).at(1)))),
+          ..pts.slice(1).map(p => curve.line((px(p.at(0)), py(p.at(1))))),
+        ))
+      }
+    }
+    place(dx: ox, dy: oy, rect(width: width, height: height, stroke: 0.6pt + luma(60)))
+    place(dx: ox, dy: oy + height + 0.45cm,
+      box(width: width, align(center, text(size: 6.5pt)[target relative accuracy Δ])))
+  })
+}
+#let st-legend(codes) = {
+  set text(size: 7pt)
+  grid(columns: 3, column-gutter: 12pt, row-gutter: 5pt,
+    ..codes.map(code => box[#box(width: 0.8cm, height: 0.5em, align(horizon,
+      line(length: 0.8cm, stroke: st-style.at(code.code)))) #h(3pt) #code.label]))
+}
+#let st-cell(code, total) = {
+  let worse = code.at("above_1e-3")
+  table.cell(fill: if worse == 0 { rgb("#d9f0d3") } else if worse / total < 0.01 { pale } else { amber }, {
+    set par(leading: 0.3em, justify: false)
+    text(size: 8pt, weight: "bold")[#if code.median == none [—] else [#de-sci(code.median)]]
+    linebreak()
+    text(size: 6.3pt, fill: luma(70))[p99 #de-sci(code.p99) · >10#super[−3]: #worse/#total
+      #if code.no_array > 0 [· no array #code.no_array] #if code.flagged > 0 and code.code != "tirust" and code.code != "tirust-direct64" [· flagged #code.flagged]]
+  })
+}
+#let stability-pages(snapshot) = {
+  let setup = snapshot.setup
+  [= Binary64 stability: TIRust, original IREGI and COLLIER]
+  text(size: 8.5pt)[
+    *Setup* (as in the stability study of Hirschi and Peraro, arXiv:1604.01363, figs. 2–4):
+    random flat phase-space points at √s = #setup.sqrt_s GeV with p#sub[T] > #setup.pt_min GeV for every
+    final-state gluon and ΔR > #setup.dr_min between gluons (seed #setup.seed); top-quark loops,
+    m#sub[t] = 173 GeV, m#sub[H] = #setup.mh GeV, μ = #setup.mu GeV. Massless legs are lightlike only to
+    binary64 rounding, as in a Monte Carlo. Every code reads the same binary64 inputs and returns the complete
+    tensor array; Δ is its E/A (all Cartesian moments, all four Laurent slots, dimensionally rescaled) against
+    quadruple-precision original IREGI on the same inputs. Each curve gives the fraction of points whose
+    array is worse than Δ; points without an array (refused, nonfinite) count as worse than every Δ.
+    The gray bar marks Δ = 10#super[−3], the usual Monte-Carlo rescue threshold.
+  ]
+  v(0.2em)
+  figure(caption: [Cumulative binary64 stability profiles (fraction of points with E/A > Δ).
+    TIRust (default) is the public binary64 API: lanes the direct engine refuses on conditioning are rerun
+    by it at higher precision before results are returned. TIRust direct engine, binary64 only, shows the
+    same lanes without that rescue. IREGI and COLLIER are binary64 throughout.])[
+    #grid(columns: 2, column-gutter: 4pt, row-gutter: 2pt,
+      ..snapshot.integrals.map(integral => st-plot(integral, snapshot.grid_log10)))
+    #v(2pt)
+    #st-legend(snapshot.integrals.at(0).codes)
+  ]
 }
 
 #let opening-timing-pages(examples) = {
@@ -620,6 +716,7 @@
   )
 ]
 #if direct-campaign != none { direct-engine-pages(direct-campaign.snapshot) }
+#if stability-campaign != none { stability-pages(stability-campaign.snapshot) }
 #if opening-examples != none { opening-timing-pages(opening-examples.snapshot) }
 = Current coverage
 #text(size: 9.5pt)[The documented N≤6/rank≤6 finite numerical checkpoint now passes

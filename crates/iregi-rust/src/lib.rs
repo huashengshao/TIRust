@@ -48,7 +48,7 @@ pub use certified_tensor::{
 pub use contraction::{ContractionPlan, ContractionResult, ContractionWorkspace, NumeratorBatch};
 pub use direct::{DirectMasters, DirectProfile, DirectReductionPlan, DirectWorkspace};
 pub use dispatch::{
-    DirectExecutionStats,
+    DirectExecutionStats, DirectRescueTier,
     TensorEngineExecution, TensorEngineKind, TensorReductionPlan, TensorWorkspace,
     TensorWorkspaceOptions,
 };

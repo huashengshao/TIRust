@@ -57,7 +57,7 @@ impl DirectReductionPlan {
         )
     }
 
-    /// Workspace with the default direct OneLOop master kernels.
+    /// Workspace with the default direct oneloopmaster master kernels.
     pub fn workspace<T: NativeFloat>(&self, prototype: T) -> Result<DirectWorkspace<T>, ReductionError>
     where
         Complex<T>: EvaluationDomain,
@@ -124,5 +124,13 @@ where
     /// Minimal accepted relative determinant (raised to the recursion depth).
     pub fn set_stability_threshold(&mut self, threshold: T) {
         self.executor.set_stability_threshold(threshold);
+    }
+
+    /// Per lane of the most recent call: for lanes refused on conditioning,
+    /// the refused estimate (the quantity compared with the stability
+    /// threshold; zero for an exactly singular pivot), else `None`. Callers
+    /// use it to choose a working precision for a retry.
+    pub fn last_conditions(&self) -> &[Option<f64>] {
+        self.executor.last_conditions()
     }
 }

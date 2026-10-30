@@ -43,8 +43,9 @@ logged in as huashengshao, so push with
   power, `h` 0..3 with N<=4 for h>0, FromShifts, Preserve, PV/Hybrid, N<=6,
   rank<=8). Binary64 workspaces use the direct engine; `Unstable`/`MasterFailure`
   lanes rerun on the lazily prepared symbolic plan (`TensorReductionPlan::new_without_direct`,
-  the old dispatch, also public). Float/DoubleFloat/Dual workspaces and precision
-  rescue use the symbolic plan. `TensorEngineKind::Direct`,
+  the old dispatch, also public), after the direct-engine precision rescue
+  (item 3 below). Float/DoubleFloat/Dual workspaces and `PrecisionRescueWorkspace`
+  use the symbolic plan. `TensorEngineKind::Direct`,
   `TensorEngineExecution::Direct(DirectExecutionStats)`.
 
 ### Validation
@@ -112,39 +113,36 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    `publish.py bind/seal --capture NNN`.
 2. Lightlike bubbles with jets (closed-form mass derivatives); currently those
    lanes fall back.
-3. **Near-degenerate Gram systems (robustness, highest real-world value).**
-   `validation/benchmark/direct-engine-20261030/coplanar-check.{py,jsonl}`: box
-   rank 4 with p3 = e_x+e_y+delta e_z. delta=1/8: TIRust direct succeeds, 3.3e-11
-   vs IREGI IBP. delta 1/64..6e-8: TIRust refuses honestly (direct marks the lane
-   unstable, the symbolic f64 fallback refuses, and even the 128-bit symbolic
-   engine refuses), while IREGI PV silently returns arrays off by 1e-4..0.85 and
-   IREGI IBP returns values of unknown accuracy. delta=0: TIRust's identity
-   agrees with IREGI IBP to 1.2e-13 (IREGI PV off by 3.5e-2).
-   Quad-precision IREGI (`quad-coplanar.{py,jsonl}`, build-v6-001; quad IBP and
-   PV agree to <= 1e-12 for delta >= 1/1024): TIRust 7.2e-12 at 1/8 and 8.5e-14
-   at 0; binary64 IREGI IBP is wrong by 1.7e-4 at 1/64 and 2.5e6 at 1/1024
-   while reporting success. So numeric IBP is not the fix (IREGI's IBP fails
-   the same way). Next: a **direct-engine precision rescue** as the first
-   fallback: rerun unstable lanes through `DirectReductionPlan` with `Float`
-   (or `DoubleFloat`) at a precision chosen from the conditioning estimate
-   (53 + rank*log2(1/cond) + margin, capped at 256-512 bits), with masters from
-   `NativeEvaluator<Float>`, accept when the conditioning check passes at that
-   precision, and round to binary64. Validate against quad IREGI on these
-   points; only then fall back to the symbolic engine. Long term: Gram
-   expansions as in COLLIER.
-   **Feasibility verified** (`examples/direct_precision_probe.rs`): the direct
-   engine already runs with `Float` (masters via `NativeEvaluator<Float>`).
-   delta=1/8: 128 vs 256 bits agree to 1.9e-32 and binary64 vs 256 bits is
-   7.2e-12 (same as against quad IREGI); delta=1/64: 128 vs 256 agree to
-   1.6e-24; delta=1/1024 and 1/65536: 128 bits refuses on conditioning
-   (1.9e-7, 4.8e-11 at rank 4) and 256 bits succeeds. Implementation sketch:
-   in `dispatch/direct_hybrid.rs`, before the symbolic fallback, build (lazily)
-   a `DirectWorkspace<Float>` per precision tier (128, 256, 512), set its
-   stability threshold to `2^-(bits-60)`, lift the unstable lanes' inputs
-   exactly, run, round accepted lanes to binary64 and mark `fallback_used`.
-   The conditioning value is in the Unstable message today; expose it
-   structurally to pick the tier.
-4. Remaining cost centres: masters (log/atan2/dilog in OneLOop kernels), the
+3. **Done: direct-engine precision rescue** (`dispatch/direct_hybrid.rs`).
+   Lanes the binary64 direct engine refuses on conditioning (Gram, Cayley,
+   six-point, jet Cayley) carry the refused estimate structurally
+   (`DirectWorkspace::last_conditions`; exactly singular pivots report 0). The
+   hybrid reruns them with the same direct plan at 106 bits (`DoubleFloat`),
+   256 or 512 bits (`Float`), starting at the first tier whose acceptance
+   threshold `2^-(bits-40)` admits the binary64 estimate with 8 bits margin
+   (singular pivots start at 256) and climbing while the refusal is again a
+   conditioning one. Inputs are lifted exactly; accepted lanes are rounded once
+   and marked `fallback_used`. Only the remaining lanes (and master failures)
+   go to the symbolic engine. `DirectExecutionStats` gained `precision_rescue`
+   (`DirectRescueTier{bits, rows, successes}`) and `symbolic_rows`;
+   `fallback_rows` now counts every lane rerun after the binary64 pass. CLI JSON,
+   Python dict/stubs and `examples/direct_timing.rs` (per-lane diagnostics)
+   expose them. Test: `near_degenerate_boxes_are_rescued_at_higher_precision`
+   (106/256/512-bit tiers, E/A <= 1e-14 against a 512-bit direct evaluation).
+   Evidence: `validation/benchmark/direct-engine-20261030/rescue-coplanar.{py,jsonl}`
+   against quad IREGI. Cost per rescued lane (dev build): ~8 ms rank 4 at 256
+   bits, ~15 ms rank 6 at 512 bits (`examples/direct_tier_profile.rs`).
+   The precision tiers were made affordable by a **native arbitrary-precision
+   complex dilogarithm in oneloopmaster** (`src/native/dilog.rs`, PATCHES.md):
+   Symbolica's generic `polylog(2,z)` cost 0.35-1 ms per call and made a 256-bit
+   box 40 ms of masters; the port of Symbolica's binary64 Bernoulli-series kernel
+   with exact tangent-number coefficients agrees with it to working precision
+   (636 points, 106-512 bits) and costs 15-73 µs.
+   Background (kept): binary64 IREGI IBP is wrong by 1.7e-4 at delta=1/64 and
+   2.5e6 at delta=1/1024 on the coplanar box while reporting success
+   (`quad-coplanar.{py,jsonl}`); TIRust used to refuse these lanes honestly.
+   Long term: Gram expansions as in COLLIER would avoid the extended precision.
+4. Remaining cost centres: masters (log/atan2/dilog in oneloopmaster kernels), the
    recurrence loop (a real-factor fast path gave nothing measurable; the loop is
    load/latency bound, so try SoA L4 layout), gathers.
 5. Batch-major (SIMD across lanes) execution if batch throughput matters more

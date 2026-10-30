@@ -159,12 +159,25 @@ fn main() -> Fallible<()> {
                 (summary.fallback_rows, summary.fallback_successes)
             }
         };
+        let (precision_rescue, symbolic_rows) = match &execution {
+            TensorEngineExecution::Direct(stats) => (
+                stats
+                    .precision_rescue
+                    .iter()
+                    .map(|tier| json!({"bits": tier.bits, "rows": tier.rows, "successes": tier.successes}))
+                    .collect::<Vec<_>>(),
+                Some(stats.symbolic_rows),
+            ),
+            _ => (Vec::new(), None),
+        };
+        let diagnostics = prepared.workspace.last_diagnostics().to_vec();
         let moments = result.basis.len();
         let lanes: Vec<Value> = (0..batch)
             .map(|lane| match result.lane(lane) {
                 Ok(values) => json!({
                     "status": "success",
                     "fallback_used": result.fallback_used[lane],
+                    "diagnostics": diagnostics.get(lane),
                     "moments": (0..moments)
                         .map(|m| (0..4)
                             .map(|slot| {
@@ -183,6 +196,7 @@ fn main() -> Fallible<()> {
                     },
                     "detail": format!("{status:?}"),
                     "fallback_used": result.fallback_used[lane],
+                    "diagnostics": diagnostics.get(lane),
                     "moments": Value::Null,
                 }),
             })
@@ -199,6 +213,8 @@ fn main() -> Fallible<()> {
             "first_call_ns": prepared.first_call_ns,
             "fallback_rows": fallback_rows,
             "fallback_successes": fallback_successes,
+            "precision_rescue": precision_rescue,
+            "symbolic_rows": symbolic_rows,
             "lanes": lanes,
         });
         writeln!(out, "RESULT {}", serde_json::to_string(&record)?)?;

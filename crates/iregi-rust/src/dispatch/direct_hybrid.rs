@@ -1,16 +1,24 @@
 //! Binary64 default: the direct numerical engine with per-lane fallback.
 //!
 //! The direct engine evaluates the validated PV recurrence numerically. Lanes
-//! it cannot reduce reliably (ill-conditioned Gram, Cayley or six-point
-//! systems without a denominator identity, or scalar-master failures) are
-//! rerun on the existing symbolic engine, whose plan and workspace are only
-//! prepared when such a lane first occurs. Invalid inputs are rejected by the
-//! direct engine itself and are not retried.
+//! refused on conditioning (ill-conditioned Gram, Cayley or six-point systems
+//! without a denominator identity) are first rerun by the same direct engine
+//! at higher precision: double-double, then 256 and 512 MPFR bits, starting at
+//! the tier the binary64 conditioning estimate calls for. The binary64 inputs
+//! are lifted exactly, so a tier evaluates the caller's kinematics, and the
+//! accepted coefficients are rounded once. Lanes no tier accepts, and
+//! scalar-master failures, are rerun on the existing symbolic engine, whose
+//! plan and workspace are only prepared when such a lane first occurs.
+//! Invalid inputs are rejected by the direct engine itself and are not
+//! retried.
 
 use std::sync::{Arc, OnceLock};
 
 use iregi_masters::{MasterExecutionPolicy, NativeFloat};
-use symbolica::{domains::float::Complex, evaluate::EvaluationDomain};
+use symbolica::{
+    domains::float::{Complex, DoubleFloat, Float},
+    evaluate::EvaluationDomain,
+};
 
 use super::{TensorEngineExecution, TensorReductionPlan, TensorWorkspace, TensorWorkspaceOptions};
 use crate::{
@@ -65,17 +73,74 @@ impl DirectHybridPlan {
     }
 }
 
+/// Working precisions of the direct-engine rescue: double-double, then MPFR.
+const RESCUE_BITS: [u32; 3] = [106, 256, 512];
+/// A tier accepts conditioning down to `2^-(bits - RESCUE_HEADROOM)`, so the
+/// estimated amplification of its rounding error stays below `2^-40`
+/// (stricter than the binary64 gate of `1e-12` at 53 bits).
+const RESCUE_HEADROOM: u32 = 40;
+/// Bits added to the binary64 estimate when choosing the first tier.
+const RESCUE_MARGIN: u32 = 8;
+
+fn rescue_threshold(bits: u32) -> f64 {
+    2f64.powi(-((bits - RESCUE_HEADROOM) as i32))
+}
+
+/// First tier that admits the binary64 conditioning estimate with margin. An
+/// exactly singular binary64 pivot carries no estimate and starts at 256 bits.
+fn first_tier(condition: f64) -> usize {
+    if condition > 0.0 {
+        RESCUE_BITS
+            .iter()
+            .position(|&bits| condition >= rescue_threshold(bits - RESCUE_MARGIN))
+            .unwrap_or(RESCUE_BITS.len() - 1)
+    } else {
+        1
+    }
+}
+
+/// The binary64 value `x` in the caller's domain, whose precision is 53 bits.
+fn from_binary64<T: NativeFloat>(prototype: &T, x: f64) -> T {
+    match (&x as &dyn std::any::Any).downcast_ref::<T>() {
+        Some(value) => value.clone(),
+        None => Float::with_val(53, x)
+            .try_to_rational()
+            .map_or_else(|| prototype.zero(), |exact| prototype.from_rational(&exact)),
+    }
+}
+
+/// Direct-engine work at one rescue precision.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DirectRescueTier {
+    pub bits: u32,
+    pub rows: usize,
+    pub successes: usize,
+}
+
 /// Counters of the most recent direct-engine call.
 #[derive(Clone, Debug, Default)]
 pub struct DirectExecutionStats {
     pub input_rows: usize,
-    /// Scalar-master evaluations by the direct engine.
+    /// Scalar-master evaluations by the direct engine, at every precision.
     pub master_rows: usize,
     pub direct_successes: usize,
+    /// Lanes rerun after the binary64 direct pass (by the precision rescue,
+    /// the symbolic engine or both), and how many of them succeeded.
     pub fallback_rows: usize,
     pub fallback_successes: usize,
+    /// Direct-engine reruns per precision tier, in order.
+    pub precision_rescue: Vec<DirectRescueTier>,
+    /// Lanes passed on to the symbolic engine.
+    pub symbolic_rows: usize,
     pub fallback_preparation_error: Option<String>,
     pub fallback: Option<Box<TensorEngineExecution>>,
+}
+
+/// Lazily prepared direct workspaces of the rescue tiers.
+#[derive(Clone, Default)]
+struct RescueWorkspaces {
+    double: Option<Box<DirectWorkspace<DoubleFloat>>>,
+    mpfr: [Option<Box<DirectWorkspace<Float>>>; 2],
 }
 
 #[derive(Clone)]
@@ -86,6 +151,7 @@ pub(crate) struct DirectHybridWorkspace<T: NativeFloat> {
     options: TensorWorkspaceOptions,
     accuracy_bits: Option<u32>,
     profiling: bool,
+    rescue: RescueWorkspaces,
     fallback: Option<Box<TensorWorkspace<T>>>,
     last: DirectExecutionStats,
     last_profile: Option<ExecutionProfile>,
@@ -126,6 +192,7 @@ where
             options,
             accuracy_bits: None,
             profiling: options.profiling,
+            rescue: RescueWorkspaces::default(),
             fallback: None,
             last: DirectExecutionStats::default(),
             last_profile: None,
@@ -150,6 +217,12 @@ where
     pub(crate) fn set_profiling(&mut self, enabled: bool) -> Result<(), ReductionError> {
         self.profiling = enabled;
         self.direct.set_profiling(enabled);
+        if let Some(workspace) = &mut self.rescue.double {
+            workspace.set_profiling(enabled);
+        }
+        for workspace in self.rescue.mpfr.iter_mut().flatten() {
+            workspace.set_profiling(enabled);
+        }
         if let Some(fallback) = &mut self.fallback {
             fallback.set_profiling(enabled)?;
         }
@@ -185,6 +258,104 @@ where
             self.fallback = Some(Box::new(workspace));
         }
         Ok(self.fallback.as_mut().unwrap())
+    }
+
+    /// Rerun `lanes` at rescue tier `tier`. Returns, per lane, the status and
+    /// conditioning estimate of the tier, and stores accepted coefficients.
+    fn rescue_tier(
+        &mut self,
+        tier: usize,
+        batch: &KinematicsBatch<T>,
+        lanes: &[usize],
+        result: &mut BatchResult<T>,
+        profile: &mut ExecutionProfile,
+    ) -> Result<Vec<(LaneStatus, Option<f64>)>, ReductionError> {
+        let bits = RESCUE_BITS[tier];
+        let masters = masters_for(self.options);
+        let plan = &self.plan.direct;
+        let profiling = self.profiling;
+        if tier == 0 {
+            if self.rescue.double.is_none() {
+                self.rescue.double = Some(prepare_tier::<DoubleFloat>(
+                    plan.workspace_with_masters::<DoubleFloat>(DoubleFloat::from(0.0), masters),
+                    DoubleFloat::from(rescue_threshold(bits)),
+                    profiling,
+                )?);
+            }
+            let workspace = self.rescue.double.as_mut().unwrap();
+            run_tier::<T, DoubleFloat>(workspace, DoubleFloat::from, batch, lanes, &self.prototype, result, profile, &mut self.last)
+        } else {
+            let slot = &mut self.rescue.mpfr[tier - 1];
+            if slot.is_none() {
+                *slot = Some(prepare_tier::<Float>(
+                    plan.workspace_with_masters::<Float>(Float::new(bits), masters),
+                    Float::with_val(bits, rescue_threshold(bits)),
+                    profiling,
+                )?);
+            }
+            let workspace = slot.as_mut().unwrap();
+            run_tier::<T, Float>(workspace, |x| Float::with_val(bits, x), batch, lanes, &self.prototype, result, profile, &mut self.last)
+        }
+    }
+
+    /// Precision rescue of the conditioning-refused lanes among `retry`.
+    /// Returns the lanes left for the symbolic engine.
+    fn precision_rescue(
+        &mut self,
+        batch: &KinematicsBatch<T>,
+        retry: &[usize],
+        result: &mut BatchResult<T>,
+        profile: &mut ExecutionProfile,
+    ) -> Result<Vec<usize>, ReductionError> {
+        let conditions = self.direct.last_conditions().to_vec();
+        let mut pending: Vec<(usize, usize)> = Vec::new();
+        let mut symbolic = Vec::new();
+        for &lane in retry {
+            match (&result.statuses[lane], conditions.get(lane).copied().flatten()) {
+                (LaneStatus::Unstable(_), Some(condition)) => {
+                    pending.push((lane, first_tier(condition)))
+                }
+                _ => symbolic.push(lane),
+            }
+        }
+        for tier in 0..RESCUE_BITS.len() {
+            let lanes: Vec<usize> = pending
+                .iter()
+                .filter(|&&(_, first)| first <= tier)
+                .map(|&(lane, _)| lane)
+                .collect();
+            if lanes.is_empty() {
+                continue;
+            }
+            let bits = RESCUE_BITS[tier];
+            let outcomes = self.rescue_tier(tier, batch, &lanes, result, profile)?;
+            let mut successes = 0;
+            for (&lane, (status, condition)) in lanes.iter().zip(outcomes) {
+                if status == LaneStatus::Success {
+                    successes += 1;
+                    result.fallback_used[lane] = true;
+                    result.statuses[lane] = LaneStatus::Success;
+                    self.diagnostics[lane]
+                        .push(format!("direct engine at {bits} bits: accepted"));
+                    pending.retain(|&(other, _)| other != lane);
+                    continue;
+                }
+                self.diagnostics[lane].push(format!("direct engine at {bits} bits: {status:?}"));
+                // Escalate only lanes refused on conditioning again.
+                if condition.is_none() || tier + 1 == RESCUE_BITS.len() {
+                    pending.retain(|&(other, _)| other != lane);
+                    symbolic.push(lane);
+                }
+            }
+            self.last.fallback_successes += successes;
+            self.last.precision_rescue.push(DirectRescueTier {
+                bits,
+                rows: lanes.len(),
+                successes,
+            });
+        }
+        symbolic.sort_unstable();
+        Ok(symbolic)
     }
 
     pub(crate) fn reduce_batch(
@@ -228,8 +399,14 @@ where
             reduction: direct_profile.recurrence + direct_profile.gather + direct_profile.output,
             total: Default::default(),
         };
+        self.last.fallback_rows = retry.len();
+        let retry = if retry.is_empty() {
+            retry
+        } else {
+            self.precision_rescue(batch, &retry, &mut result, &mut profile)?
+        };
         if !retry.is_empty() {
-            self.last.fallback_rows = retry.len();
+            self.last.symbolic_rows = retry.len();
             let width = batch.values.len() / batch.rows.max(1);
             let mut values = Vec::with_capacity(retry.len() * width);
             for &lane in &retry {
@@ -292,4 +469,75 @@ where
         }
         Ok(result)
     }
+}
+
+/// Run `lanes` of `batch` on a rescue-tier workspace with exactly lifted
+/// inputs; round accepted lanes into `result`.
+#[allow(clippy::too_many_arguments)]
+fn run_tier<T: NativeFloat, R: NativeFloat>(
+    workspace: &mut DirectWorkspace<R>,
+    lift: impl Fn(f64) -> R,
+    batch: &KinematicsBatch<T>,
+    lanes: &[usize],
+    prototype: &T,
+    result: &mut BatchResult<T>,
+    profile: &mut ExecutionProfile,
+    stats: &mut DirectExecutionStats,
+) -> Result<Vec<(LaneStatus, Option<f64>)>, ReductionError>
+where
+    Complex<R>: EvaluationDomain,
+{
+    let width = batch.values.len() / batch.rows.max(1);
+    let mut values = Vec::with_capacity(lanes.len() * width);
+    for &lane in lanes {
+        // Exact: the caller's domain has 53 bits.
+        values.extend(
+            batch.values[lane * width..(lane + 1) * width]
+                .iter()
+                .map(|z| Complex::new(lift(z.re.to_f64()), lift(z.im.to_f64()))),
+        );
+    }
+    let sub = KinematicsBatch {
+        rows: lanes.len(),
+        components: batch.components,
+        values,
+    };
+    let rescued = workspace.reduce_batch(&sub)?;
+    stats.master_rows += workspace.last_master_rows();
+    let child = workspace.last_profile();
+    profile.arguments += child.geometry;
+    profile.scalar_masters += child.masters;
+    profile.reduction += child.recurrence + child.gather + child.output;
+    let stride = result.basis.len() * 4 * result.components;
+    let conditions = workspace.last_conditions();
+    let mut outcomes = Vec::with_capacity(lanes.len());
+    for (k, &lane) in lanes.iter().enumerate() {
+        if rescued.statuses[k] == LaneStatus::Success {
+            for (out, value) in result.values[lane * stride..(lane + 1) * stride]
+                .iter_mut()
+                .zip(&rescued.values[k * stride..(k + 1) * stride])
+            {
+                *out = Complex::new(
+                    from_binary64(prototype, value.re.to_f64()),
+                    from_binary64(prototype, value.im.to_f64()),
+                );
+            }
+        }
+        outcomes.push((rescued.statuses[k].clone(), conditions.get(k).copied().flatten()));
+    }
+    Ok(outcomes)
+}
+
+fn prepare_tier<R: NativeFloat>(
+    workspace: Result<DirectWorkspace<R>, ReductionError>,
+    threshold: R,
+    profiling: bool,
+) -> Result<Box<DirectWorkspace<R>>, ReductionError>
+where
+    Complex<R>: EvaluationDomain,
+{
+    let mut workspace = workspace?;
+    workspace.set_stability_threshold(threshold);
+    workspace.set_profiling(profiling);
+    Ok(Box::new(workspace))
 }

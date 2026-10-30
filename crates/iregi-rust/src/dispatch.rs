@@ -37,7 +37,7 @@ mod legacy_noop;
 use legacy_noop::{LegacyNoOpPlan, LegacyNoOpWorkspace, highpoint_legacy_domain};
 
 mod direct_hybrid;
-pub use direct_hybrid::DirectExecutionStats;
+pub use direct_hybrid::{DirectExecutionStats, DirectRescueTier};
 use direct_hybrid::{DirectHybridPlan, DirectHybridWorkspace, direct_eligible};
 
 /// The actual reduction implementation, distinct from its requested algorithm.
