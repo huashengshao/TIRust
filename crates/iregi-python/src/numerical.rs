@@ -1172,6 +1172,8 @@ fn engine_execution(execution: &TensorEngineExecution, py: Python<'_>) -> PyResu
             }
             output.set_item("precision_rescue", tiers)?;
             output.set_item("symbolic_rows", direct.symbolic_rows)?;
+            output.set_item("rotation_rows", direct.rotation_rows)?;
+            output.set_item("rotation_failures", direct.rotation_failures)?;
             output.set_item("fallback_preparation_error", direct.fallback_preparation_error.clone())?;
             if let Some(child) = &direct.fallback {
                 output.set_item("fallback", engine_execution(child, py)?)?;

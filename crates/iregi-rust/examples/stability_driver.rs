@@ -62,6 +62,16 @@ fn moments<T: RealLike>(result: &BatchResult<T>, lane: usize) -> Value {
     }
 }
 
+/// A binary64 input: a decimal string, parsed with correct rounding (the
+/// default serde_json number parser is not always correctly rounded), or a
+/// JSON number.
+fn number(value: &Value) -> f64 {
+    match value.as_str() {
+        Some(text) => text.parse().expect("decimal binary64 input"),
+        None => value.as_f64().expect("numeric input"),
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
     let points: Value = serde_json::from_str(&std::fs::read_to_string(&args[1])?)?;
@@ -74,18 +84,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         let n = integral["n"].as_u64().unwrap() as usize;
         let rank = integral["rank"].as_u64().unwrap() as u16;
-        let mu = integral["mu"].as_f64().unwrap();
+        let mu = number(&integral["mu"]);
         let masses: Vec<f64> = integral["masses_squared"]
             .as_array()
             .unwrap()
             .iter()
-            .map(|m| m.as_f64().unwrap())
+            .map(number)
             .collect();
         let lanes = integral["points"].as_array().unwrap();
         let mut values = Vec::with_capacity(lanes.len() * (5 * n + 1));
         for point in lanes {
             for shift in point.as_array().unwrap() {
-                values.extend(shift.as_array().unwrap().iter().map(|x| Complex::new(x.as_f64().unwrap(), 0.0)));
+                values.extend(shift.as_array().unwrap().iter().map(|x| Complex::new(number(x), 0.0)));
             }
             values.extend(masses.iter().map(|&m| Complex::new(m, 0.0)));
             values.push(Complex::new(mu, 0.0));

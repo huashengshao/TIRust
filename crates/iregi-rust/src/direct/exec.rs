@@ -711,6 +711,7 @@ where
         let plan = self.plan.clone();
         let n = plan.settings.propagators;
         let threshold = self.stability_threshold.clone();
+        let pentagon_calibration = self.binary_tolerance(7);
         for relation in &plan.relations {
             let weights = self
                 .affine_relation(&relation.members)
@@ -885,19 +886,58 @@ where
                                     if i == j { self.one.clone() } else { self.zero.clone() };
                             }
                         }
+                        // Row-sum norm of Z before the solve destroys it.
+                        let mut norm = self.prototype.zero();
+                        for i in 0..4 {
+                            let mut row = self.prototype.zero();
+                            for j in 0..4 {
+                                row += cnorm2(&self.matrix[i * 4 + j]).sqrt();
+                            }
+                            if row > norm {
+                                norm = row;
+                            }
+                        }
                         let quality = solve_in_place(&mut self.matrix[..16], &mut self.rhs[..16], 4, 4)
                             .ok_or_else(|| GeometryFailure::Singular(subset.mask, format!("singular pentagon Gram matrix for {members:?}")));
                         if quality.is_err() {
                             // Exactly singular pivot: conditioning zero.
                             self.failed_condition = Some(0.0);
                         }
-                        let quality = quality?;
-                        let condition = quality.relative_determinant.clone().pow(subset.moment_rank as u64);
+                        let _ = quality?;
+                        // The moment recursion applies Z^-1 once per rank, so
+                        // rounding grows like kappa^r with kappa the condition
+                        // number ||Z|| ||Z^-1|| (row sums; rhs now holds Z^-1).
+                        // On physical 2->3 points the binary64 error was within
+                        // ~50 kappa^r u (u = 2^-53); the Hadamard-relative
+                        // determinant missed this (accepted lanes with E/A
+                        // up to 3e-4), though kappa alone also overestimates
+                        // (an opening N6 row with kappa 60 is good to 2e-11).
+                        // This gate only removes hopeless lanes: 2^-7/kappa^r
+                        // against the threshold accepts kappa^r <= 8.6e9 in
+                        // binary64 (1e-12) and kappa^r <= 2^(bits-47) at a
+                        // rescue tier. The binary64 hybrid checks the
+                        // remaining N>=5 lanes a posteriori (loop rotation).
+                        let mut inverse_norm = self.prototype.zero();
+                        for i in 0..4 {
+                            let mut row = self.prototype.zero();
+                            for j in 0..4 {
+                                row += cnorm2(&self.rhs[i * 4 + j]).sqrt();
+                            }
+                            if row > inverse_norm {
+                                inverse_norm = row;
+                            }
+                        }
+                        let kappa = norm * &inverse_norm;
+                        let condition = if kappa.is_zero() || !kappa.is_finite() {
+                            self.prototype.zero()
+                        } else {
+                            pentagon_calibration.clone() / &kappa.clone().pow(subset.moment_rank as u64)
+                        };
                         if condition < threshold {
                             self.failed_condition = Some(condition.to_f64());
                             return Err(GeometryFailure::Singular(subset.mask, format!(
-                                "ill-conditioned pentagon Gram matrix for {members:?}: relative determinant {:e}",
-                                quality.relative_determinant
+                                "ill-conditioned pentagon Gram matrix for {members:?}: condition number {:e}",
+                                kappa
                             )));
                         }
                         for mu in 0..4 {

@@ -452,3 +452,52 @@ fn near_degenerate_boxes_are_rescued_at_higher_precision() {
         assert!(error <= 1e-14, "rank {rank} delta {delta:e}: E/A = {error:e}");
     }
 }
+
+#[test]
+fn inaccurate_binary64_pentagons_are_caught_and_rescued() {
+    // gg -> Hgg top-loop pentagon at sqrt(s) = 1 TeV (stability study point
+    // pentagon-r5 #0). Its Gram system passes the conditioning gates, yet the
+    // binary64 recursion loses ~1e-4 (condition number ~130, rank 5). The
+    // facade's loop-rotation test must catch it; the rescued array must match
+    // a 256-bit direct evaluation.
+    use iregi_rust::TensorEngineExecution;
+    use symbolica::domains::float::{Float, RealLike};
+    let shifts = [
+        [0.0, 0.0, 0.0, 0.0],
+        [500.0, 0.0, 0.0, 500.0],
+        [1000.0, 0.0, 0.0, 0.0],
+        [636.4389996374975, 200.64958343246792, -293.7037081332071, 75.1962597591425],
+        [381.0252510177986, -5.258369435281395, -357.7820947151467, 130.9372527789567]
+    ];
+    let mt2 = 173.0f64 * 173.0;
+    let values = row(&shifts, &[(mt2, 0.0); 5], 1000.0);
+    let settings = ReductionSettings::new(5, 5);
+    let plan = TensorReductionPlan::new(settings.clone()).unwrap();
+    let mut workspace = TensorWorkspace::new(&plan, 0.0f64).unwrap();
+    let result = workspace
+        .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: values.clone() })
+        .unwrap();
+    assert_eq!(result.statuses[0], LaneStatus::Success);
+    assert!(result.fallback_used[0]);
+    let TensorEngineExecution::Direct(stats) = workspace.engine_execution() else {
+        panic!("expected the direct engine");
+    };
+    assert_eq!(stats.rotation_rows, 1, "{stats:?}");
+    let lifted: Vec<Complex<Float>> = values
+        .iter()
+        .map(|z| Complex::new(Float::with_val(256, z.re), Float::with_val(256, z.im)))
+        .collect();
+    let mut reference = DirectReductionPlan::new(settings).unwrap().workspace(Float::new(256)).unwrap();
+    reference.set_stability_threshold(Float::with_val(256, 2f64.powi(-216)));
+    let reference = reference
+        .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: lifted })
+        .unwrap();
+    let reference: Vec<Complex<f64>> = reference
+        .lane(0)
+        .unwrap()
+        .iter()
+        .map(|z| Complex::new(z.re.to_f64(), z.im.to_f64()))
+        .collect();
+    let error = general_array_error(&result.basis, 4 - 2 * 5, 1000.0, result.lane(0).unwrap(), &reference);
+    assert!(error <= 1e-14, "E/A = {error:e}");
+}

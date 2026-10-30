@@ -1,6 +1,12 @@
 //! Binary64 default: the direct numerical engine with per-lane fallback.
 //!
-//! The direct engine evaluates the validated PV recurrence numerically. Lanes
+//! The direct engine evaluates the validated PV recurrence numerically. With
+//! five or more propagators (pentagon Gram recursions, whose rounding a
+//! conditioning estimate predicts poorly) every binary64 lane is evaluated a
+//! second time with its propagators rotated, the same integral through
+//! different Gram systems, as in MadLoop's loop-direction test; a relative
+//! difference above 2^-30 (or a refused rotated copy) sends the lane to the
+//! precision rescue. Lanes
 //! refused on conditioning (ill-conditioned Gram, Cayley or six-point systems
 //! without a denominator identity) are first rerun by the same direct engine
 //! at higher precision: double-double, then 256 and 512 MPFR bits, starting at
@@ -82,6 +88,48 @@ const RESCUE_HEADROOM: u32 = 40;
 /// Bits added to the binary64 estimate when choosing the first tier.
 const RESCUE_MARGIN: u32 = 8;
 
+/// Largest accepted E/A between a binary64 lane and its rotated copy.
+const ROTATION_TOLERANCE: f64 = 1.0 / (1u64 << 30) as f64;
+
+/// The batch with every lane's propagators rotated by one (shifts and squared
+/// masses; the loop momentum is relabelled, the integral is unchanged).
+fn rotated<T: NativeFloat>(batch: &KinematicsBatch<T>, n: usize) -> KinematicsBatch<T> {
+    let width = 5 * n + 1;
+    let mut values = Vec::with_capacity(batch.values.len());
+    for lane in 0..batch.rows {
+        let row = &batch.values[lane * width..(lane + 1) * width];
+        for k in 0..n {
+            let from = (k + 1) % n;
+            values.extend_from_slice(&row[4 * from..4 * from + 4]);
+        }
+        for k in 0..n {
+            values.push(row[4 * n + (k + 1) % n].clone());
+        }
+        values.push(row[5 * n].clone());
+    }
+    KinematicsBatch { rows: batch.rows, components: batch.components, values }
+}
+
+/// E/A between two lanes' arrays, moments weighted by mu^-degree.
+fn lane_difference<T: NativeFloat>(
+    basis: &[Monomial],
+    a: &[Complex<T>],
+    b: &[Complex<T>],
+    mu: f64,
+) -> f64 {
+    let (mut error, mut amplitude) = (0.0f64, 0.0f64);
+    for (m, monomial) in basis.iter().enumerate() {
+        let weight = mu.powi(monomial.rank() as i32);
+        for slot in 0..4 {
+            let (x, y) = (&a[4 * m + slot], &b[4 * m + slot]);
+            let (xr, xi, yr, yi) = (x.re.to_f64(), x.im.to_f64(), y.re.to_f64(), y.im.to_f64());
+            error = error.max((xr - yr).hypot(xi - yi) / weight);
+            amplitude = amplitude.max(yr.hypot(yi) / weight);
+        }
+    }
+    if amplitude > 0.0 { error / amplitude } else if error == 0.0 { 0.0 } else { f64::INFINITY }
+}
+
 fn rescue_threshold(bits: u32) -> f64 {
     2f64.powi(-((bits - RESCUE_HEADROOM) as i32))
 }
@@ -132,6 +180,10 @@ pub struct DirectExecutionStats {
     pub precision_rescue: Vec<DirectRescueTier>,
     /// Lanes passed on to the symbolic engine.
     pub symbolic_rows: usize,
+    /// Binary64 lanes re-evaluated with rotated propagators (N >= 5), and
+    /// those whose rotated copy disagreed or was refused.
+    pub rotation_rows: usize,
+    pub rotation_failures: usize,
     pub fallback_preparation_error: Option<String>,
     pub fallback: Option<Box<TensorEngineExecution>>,
 }
@@ -304,10 +356,10 @@ where
         &mut self,
         batch: &KinematicsBatch<T>,
         retry: &[usize],
+        conditions: &[Option<f64>],
         result: &mut BatchResult<T>,
         profile: &mut ExecutionProfile,
     ) -> Result<Vec<usize>, ReductionError> {
-        let conditions = self.direct.last_conditions().to_vec();
         let mut pending: Vec<(usize, usize)> = Vec::new();
         let mut symbolic = Vec::new();
         for &lane in retry {
@@ -364,11 +416,54 @@ where
     ) -> Result<BatchResult<T>, ReductionError> {
         let started = self.profiling.then(std::time::Instant::now);
         let mut result = self.direct.reduce_batch(batch)?;
+        let mut direct_profile = self.direct.last_profile();
         self.last = DirectExecutionStats {
             input_rows: batch.rows,
             master_rows: self.direct.last_master_rows(),
             ..DirectExecutionStats::default()
         };
+        let mut conditions = self.direct.last_conditions().to_vec();
+        let settings = self.plan.direct.settings();
+        let n = settings.propagators;
+        if n >= 5 && settings.powers.iter().all(|&power| power == settings.powers[0]) {
+            let check = self.direct.reduce_batch(&rotated(batch, n))?;
+            self.last.master_rows += self.direct.last_master_rows();
+            let rotated_profile = self.direct.last_profile();
+            direct_profile.geometry += rotated_profile.geometry;
+            direct_profile.masters += rotated_profile.masters;
+            direct_profile.recurrence += rotated_profile.recurrence;
+            direct_profile.gather += rotated_profile.gather;
+            direct_profile.output += rotated_profile.output;
+            self.last.rotation_rows = batch.rows;
+            let rotated_conditions = self.direct.last_conditions().to_vec();
+            let stride = result.basis.len() * 4;
+            let width = 5 * n + 1;
+            for lane in 0..batch.rows {
+                if result.statuses[lane] != LaneStatus::Success {
+                    continue;
+                }
+                let note = if check.statuses[lane] == LaneStatus::Success {
+                    let mu = batch.values[lane * width + 5 * n].re.to_f64();
+                    let difference = lane_difference(
+                        &result.basis,
+                        &result.values[lane * stride..(lane + 1) * stride],
+                        &check.values[lane * stride..(lane + 1) * stride],
+                        mu,
+                    );
+                    if difference <= ROTATION_TOLERANCE {
+                        continue;
+                    }
+                    // Rounding estimate ~ amplification * 2^-53.
+                    conditions[lane] = Some(2f64.powi(-53) / difference);
+                    format!("loop-rotation test: binary64 arrays differ by E/A {difference:e}")
+                } else {
+                    conditions[lane] = rotated_conditions[lane].or(Some(0.0));
+                    format!("loop-rotation test: rotated lane refused ({:?})", check.statuses[lane])
+                };
+                self.last.rotation_failures += 1;
+                result.statuses[lane] = LaneStatus::Unstable(note);
+            }
+        }
         self.diagnostics.clear();
         self.diagnostics.resize(batch.rows, Vec::new());
         let retry: Vec<usize> = result
@@ -392,7 +487,6 @@ where
                 self.diagnostics[lane].push(format!("direct engine: {note}; fallback requested"));
             }
         }
-        let direct_profile = self.direct.last_profile();
         let mut profile = ExecutionProfile {
             arguments: direct_profile.geometry,
             scalar_masters: direct_profile.masters,
@@ -403,7 +497,7 @@ where
         let retry = if retry.is_empty() {
             retry
         } else {
-            self.precision_rescue(batch, &retry, &mut result, &mut profile)?
+            self.precision_rescue(batch, &retry, &conditions, &mut result, &mut profile)?
         };
         if !retry.is_empty() {
             self.last.symbolic_rows = retry.len();
