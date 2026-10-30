@@ -78,26 +78,47 @@ for iteration and `examples/direct_check.rs` with the float fixture produced by
 converting `opening-rank6-20261026` (see that example's doc comment). Use
 `source scripts/env.sh` (stack size, toolchains) before running test binaries.
 
+### Done after the first campaign (commits 394f1f3, 3f5aff2, c4a72e7)
+
+- **Lightlike bubbles / massless external legs**: bubbles with `|p^2|` below
+  `2^-40` of their scale become `lightlike` plan-variant subsets whose PV
+  coefficients are closed forms (`lightlike_coefficients`, Feynman-parameter
+  `C(lambda,k) = (-1)^k/(2^lambda lambda!) [I0/eps + H_lambda I0 - I1]`, series or
+  recursion for `I1`, exact scaleless/equal/massless-line limits; `m1^2` taken
+  directly, not `a + b`). PV Gram conditioning is also scale-relative now.
+  Validated: symbolic engine (bubbles, ggH triangle), continuity at m^2=1e-20
+  (the symbolic engine refuses one-massless bubbles), and original IREGI for the
+  massless triangle, IR-divergent massless boxes, ggHH and mixed boxes
+  (`validation/benchmark/direct-engine-20261030/lightlike-check.{py,json}`,
+  <= 5e-14 vs IREGI IBP). Dotted propagators with lightlike bubbles still fall back.
+- **Hand-written negative-Källén C0** in vendored oneloopmaster
+  (`handwritten/triangle.rs::hooft_veltman`, PATCHES.md, `examples/c0_hv_check.rs`:
+  80k points within 2e-12 of the generated code, both within 3e-12 of 128 bits;
+  1.7 vs 3.2 µs).
+- **IR-free two-slot kernels** (`ir_free`, `lfma_slots::<FULL>`) and a specialized
+  Taylor-length-2 recurrence (`run_program_jet2`).
+- Dev-build timings now (µs, CPU 199): N3R2 3.75, N4R6 23.6, N5R6 67.7,
+  N6R6 170, dotted N4R6 42/103 (dot2/dot3). The report still shows the first
+  campaign (capture001); a re-run is the next step.
+
 ### Next steps (in order of value)
 
-1. **Lightlike bubbles** (massless external legs, common in QCD): a pinched
-   bubble with `p^2 = 0, p != 0` has a singular Gram and no denominator identity,
-   so such lanes currently fall back to the slow symbolic engine. Implement its
-   coefficients as `C(lambda,k) = (-1/2)^lambda k! J_(lambda+k)(1,1+k)` (as
-   `pv.rs::lightlike_coefficient`), e.g. by extending `ibp()` to dimension
-   shifts (Eqs. 18/21) for unequal masses and closed forms for equal masses, or
-   via oneloop's `NativeTensorEvaluator` bubbles up to rank 4. Validate against
-   `new_without_direct` on massless-leg boxes. Also IR-divergent massless
-   triangles/boxes need checking in the direct engine.
-2. Hand-written binary64 C0 for negative Källén functions (oneloopmaster
-   `triangle_hv.rs`, 't Hooft-Veltman form, 12 dilogs): these inputs take the
-   generated path at ~3 µs per C0, ~40 µs of N6R6. Validate against the generated
-   code on random points before enabling; record in dependencies/oneloopmaster/PATCHES.md.
-3. Specialized jet convolution for K=2/3 (dotted rows spend ~60% in
-   `run_program_jets`); SIMD-friendly L4 layout; skipping IR slots when all
-   masters have zero IR parts.
+1. Re-run the campaign with the current engine (build.py, run.py --cpu N
+   --output target/direct-engine-20261030/capture002, summarize.py), bind it as
+   a new results.json record (append-only), point the report at it, reseal.
+2. Jet specialization for K=3 (dot3 row still ~100 µs) and lightlike bubbles with
+   jets (closed-form mass derivatives).
+3. Remaining cost centres: masters (log/atan2/dilog in OneLOop kernels), the
+   recurrence loop (SIMD-friendly L4 layout), gathers.
 4. Batch-major (SIMD across lanes) execution if batch throughput matters more
    than singleton latency.
+
+### Quota protocol (user instruction, also in Claude memory)
+
+Check `mcp__ccd_session_mgmt__get_usage` about every 10 minutes. Below 5% of the
+5-hour window left: pause subagents with handoffs, keep PIDs of long jobs, wake
+after the reset. Below 3% of the weekly window: permanent stop with a complete
+handoff here.
 
 ## Binary64 opening tables: 26 October 2026 follow-up
 
