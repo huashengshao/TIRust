@@ -1,134 +1,103 @@
 # TIRust / iregi-rust: exhaustive session handoff
 
-## Performance work: direct numerical engine (30 October 2026, IN PROGRESS)
+## Direct numerical engine: binary64 default (30 October 2026)
 
-The user asked for performance work: TIRust is slower than original IREGI and
-much slower than COLLIER. This session paused at 88% of the account's 5-hour
-quota. Everything below is unvalidated work in progress; no benchmark/report
-number has changed.
+The user asked to optimize TIRust, which was slower than original IREGI and much
+slower than COLLIER. The cause was architectural: per-call MPFR interval
+certificates dominated low rank and Symbolica's interpreter of huge compiled
+expressions dominated high rank (workspace construction also took 1-90 s). The
+fix is a direct numerical engine, now the public binary64 default.
 
 **Pushing:** plain `git push` has no stored credential on this host. `gh` is
-logged in as huashengshao (active account), so push with
+logged in as huashengshao, so push with
 `git -c credential.helper= -c credential.helper='!gh auth git-credential' push origin main`.
 
-### Diagnosis (perf, prebuilt `target/optimized-build/release/examples/opening_double`)
+### What exists (crates/iregi-rust/src/direct*, dispatch/direct_hybrid.rs)
 
-- Low rank (N3R2, 1.3 ms/call): ~95% of the timed region is the per-call
-  invariant certificate (`invariant_certificate.rs::check_batch_inner`) doing
-  MPFR `RealBall` interval arithmetic, plus malloc/free. Symbolica's
-  evaluator is ~3%.
-- High rank (N4R6, 11 ms/call): ~85% is
-  `BatchExpressionEvaluator::evaluate_batch` interpreting the huge expanded
-  expression compiled from the symbolic plan (`ReductionPlan.moments`).
-  Workspace construction also takes 1-90 s.
-- Conclusion: incremental tuning cannot close a 40-150x gap to COLLIER. Build
-  a direct numerical recursion engine, keeping the symbolic engine as the
-  robust/certified fallback. (A cheap side win: put an f64 floating-point
-  filter in front of the RealBall certificate.)
+- `direct/plan.rs`: structural plan, no sampled values. Subsets of the N<=6
+  propagators (bitmasks); PV subsets (<=4) get Denner-Dittmaier coefficient
+  instructions mirroring the validated `pv.rs`; pentagons use the 4D Gram/Cayley
+  moment recursion; hexagons the thin identity `l^mu = sum_i w_i^mu D_i`.
+  Gathers turn PV coefficients into Cartesian moments: sparse momentum products,
+  `g_lambda` blocks, a closed metric expansion (`MonomialTable::qexp`) and
+  separable 1-D binomial translations along nonzero origin axes.
+  `with_relations(settings, masks)` builds variants in which subsets containing
+  an affinely dependent minimal subset reduce by `sum_i w_i D_i = 1` at the same
+  rank. One raised power (<=5) gives Taylor jets of length `K = power`; `h<=3`
+  (N<=4) reads `C(lambda+h,kappa)` scaled by `(-2)^h` in every gather.
+- `direct/exec.rs`: per-lane executor generic over `NativeFloat`. Masters come
+  from `oneloop::NativeEvaluator` (hand-written binary64 C0/D0 sectors) per lane,
+  UV slots set exactly (A0 m^2, B0 1, C0/D0 0, IR1 = total - UV); a
+  `DirectMasters::Policy` batched `MasterEvaluator` path also exists. Geometry
+  solves small systems with the pivoted kernel in `direct/numeric.rs` (reuse
+  checks are in its module doc). Ill-conditioned Gram systems trigger an affine
+  relation search (complete pivoting on the coordinate matrix, residual and
+  constant checks); success switches the lane to a cached plan variant, failure
+  reports `Unstable`. Jets: geometry jets (m0^2, f, zf, pentagon `b` via
+  `(R0^-1 E)^k b0`, hexagon weights, relation weights `w0(-t)^k`), master Taylor
+  coefficients by a numeric port of hep-ph/0303184 Eq. (19) (`ibp()`), jet
+  convolution in `run_program_jets`, per-order gathers. Output applies the UV
+  power counting, IregiNative/OneLoop/MadLoop conventions and multinomial weights.
+- `dispatch/direct_hybrid.rs` + `dispatch.rs`: `TensorReductionPlan::new` picks
+  `OrdinaryPlan::Direct` when `DirectReductionPlan::supports` (unit or one raised
+  power, `h` 0..3 with N<=4 for h>0, FromShifts, Preserve, PV/Hybrid, N<=6,
+  rank<=8). Binary64 workspaces use the direct engine; `Unstable`/`MasterFailure`
+  lanes rerun on the lazily prepared symbolic plan (`TensorReductionPlan::new_without_direct`,
+  the old dispatch, also public). Float/DoubleFloat/Dual workspaces and precision
+  rescue use the symbolic plan. `TensorEngineKind::Direct`,
+  `TensorEngineExecution::Direct(DirectExecutionStats)`.
 
-### Preliminary same-session IREGI/COLLIER timings (CPU 152, NOT archival)
+### Validation
 
-Raw data: `docs/research/direct-engine/harness-scratch/prelim-cpu152.jsonl`;
-harness notes: `docs/research/direct-engine/benchmark-harness.md` (18 inputs,
-reference-array format, E/A metric, how to build/run IREGI and COLLIER
-drivers, typst/report keys and a concrete new-campaign plan). Values in µs;
-TIRust is the archived 26 Oct binary64 opening table (different session, so
-no ratio may be published from this).
+- `tests/direct_engine.rs`: all 18 opening rows against the archived reference
+  tensors (E/A <= 2e-14 for N<=4 ordinary, <= 2.4e-11 N5/N6, <= 1.1e-13 dotted/h1),
+  perturbed batches against the existing engine with an isolated invalid lane,
+  and the coplanar-box denominator identity against an independent triangle sum.
+- Full lib suite: 483 pass; `certified_scalar_batch_matches_coordinate_interface_and_isolates_failures`
+  and `certified_scalar_rejects_an_incompatible_mixed_taylor_component` fail, and
+  already failed at the pre-session commit a35690b (verified with the same build).
+  All integration suites pass. Five dispatch tests that probe old-engine
+  internals now construct `new_without_direct`.
 
-| id | TIRust (26 Oct) | best IREGI | COLLIER |
-|---|---:|---:|---:|
-| n1r0 | 0.97 | 0.82 PV | 0.38 |
-| n1r6 | 60.1 | 23.8 Hyb | 4.5 |
-| n2r1 | 6.7 | 3.1 PV | 1.1 |
-| n2r6 | 1485 | 386 IBP (PV STOPs) | 8.6 |
-| n3r2 | 1309 | 25.4 PV | 8.3 |
-| n3r3 | 1450 | 69.8 Hyb | 10.5 |
-| n3r6 | 5651 | 2776 IBP | 51.9 |
-| n4r4 | 1522 | 533 Hyb | 50.3 |
-| n4r6 | 11256 | 12542 IBP | 269 |
-| n5r5 | 5388 | 8925 PV | 307 |
-| n5r6 | 12952 | 49268 IBP | 1069 |
-| n6r6 | 419120 | 204771 IBP | 1863 (nonfinite) |
+### Same-session benchmark (validation/benchmark/direct-engine-20261030)
 
-IREGI E/A is <=1e-14 for N<=4 and ~1e-11 for N5/N6; IREGI PV/Hybrid fail the
-three-digit gate for n3r6/n4r6/n6r6 and STOP on n2r6. Target for the new
-engine: E/A <~1e-13 (N<=4), <~1e-10 (N5/N6).
+Interleaved, one pinned core (CPU 199), fresh process per candidate, 11/7 rounds,
+paired ratios with 99% bootstrap CI. TIRust is faster than IREGI and COLLIER on
+every row, batch 1 and 32. Batch-1 medians (µs): N1R0 0.27 (IREGI 0.77, COLLIER
+0.39), N1R6 2.75 (23.1, 4.38), N2R6 4.94 (383, 8.42), N3R2 5.14 (24.9, 8.32),
+N3R6 11.4 (2707, 51.5), N4R4 22.2 (529, 49.6), N4R6 32.0 (12494, 264), N5R5 64.7
+(8687, 304), N5R6 87.3 (46937, 1059), N6R6 216 (199510; COLLIER nonfinite),
+N4R6 dot2 79.0 (IREGI 14977), dot3 107 (18840). Report: new first section of
+`docs/benchmark.pdf`; `publish.py` appended three results.json records and
+resealed `docs/data/report-validation.json` (the previous proof was stale for
+HANDOFF.md at a35690b).
 
-### New engine design (mirrors the validated `pv.rs` planner numerically)
+Build cost: release (thin LTO, cgu=1) of iregi-rust takes ~6 min; use
+`cargo build --profile devopt` (Cargo.toml, lto off, cgu 16, incremental; ~75 s)
+for iteration and `examples/direct_check.rs` with the float fixture produced by
+converting `opening-rank6-20261026` (see that example's doc comment). Use
+`source scripts/env.sh` (stack size, toolchains) before running test binaries.
 
-Files written this session, **not yet compiled, not yet in `lib.rs`**:
-`crates/iregi-rust/src/direct/{numeric.rs,plan.rs,exec.rs}`. Missing:
-`crates/iregi-rust/src/direct.rs` (module root with
-`mod numeric; mod plan; mod exec;` and a public `DirectReductionPlan` /
-`DirectWorkspace<T>` wrapping `DirectPlanData` / `DirectExecutor`), plus
-`mod direct; pub use direct::...` in `lib.rs`.
+### Next steps (in order of value)
 
-Scope v1: unit powers, h=0, PV/Hybrid, `FromShifts`, `Preserve`, N=1..6,
-rank<=8, ordinary (non-Dual) numbers, generic `T: NativeFloat` (f64 is the
-target). Algorithm, with internal values in OneLOop normalization:
-
-1. Subsets of the N propagators (bitmask, members sorted, origin=lowest).
-   Rank needs propagate down: hexagon/pentagon moment rank r -> each pinch
-   moment rank max(r-1,0); PV subset (<=4) coefficient rank c -> each pinch
-   coefficient rank c-1; a needed moment rank implies coefficient rank.
-2. <=4 propagators: Denner-Dittmaier PV coefficients `C(lambda,kappa)` exactly
-   as `pv.rs::coefficient`: rank 0 = scalar master; 1-point
-   `C(l)=m0^2 C(l-1)/(2l+2-2eps)`; lambda>0
-   `[SPZ(l-1,k)+2m0^2C(l-1,k)+sum_i f_i C(l-1,k+e_i)]/(2(r+3-|S|-2eps))`;
-   lambda=0 with j=first nonzero, rest=k-e_j:
-   `-zs_j SPZ(0,rest) - zf_j C(0,rest) + sum_i Zinv_ji (rest_i==0 ?
-   C_{S\S[i+1]}(0,rest\i) : -2 rest_i C(1,rest-e_i))`, where
-   `zs_j=sum_i Zinv_ji`, `zf_j=sum_i Zinv_ji f_i`, `Z_ij=d0i+d0j-dij`,
-   `f_i=d0i-m_i^2+m0^2`; SPZ = `shifted_pinch_zero` (Denner 2.9).
-3. Cartesian gather replacing IREGI's exponential `recursive_symmetry` and
-   Symbolica `generate_rank`: `H_k(z)=sum_l Q^l/(2^l l!) sum_{|k|} C(l,k)
-   prod_i (p_i.z)^{k_i}/k_i!` (Q=z0^2-|z|^2, Horner in l), translation
-   `F_r=sum_j T^j/j! H_{r-j}` with `T=-origin.z` (Cartesian dot),
-   moment `M(e)=e! [z^e] F_|e|`.
-4. Pentagon (4D basis identity, `pv.rs::five_point_moment`): `M(0)=sum_i b_i
-   M_{S\i}(0)` with `b=R^-1 1`, `R_ij=dij-mi^2-mj^2`; else mu=first nonzero,
-   `M(e)=a_mu M(e-mu) - s_mu M_{S\S0}(e-mu) + sum_j W^mu_j
-   M_{S\S[j+1]}(e-mu)`, `W^mu_j=sum_i p_i^mu Zinv_ij`, `s_mu=sum_j W`,
-   `a_mu=-q_{S0}^mu - sum_j W^mu_j f_j`.
-5. Hexagon: thin identity `l^mu = sum_i w_i^mu D_i` (`pv.rs::thin_six_weights`,
-   5x5 solve of [coordinate rows; f row]), so `M6(e)=sum_i w^{mu+1}_i
-   M_{S\i}(e-mu)` and `M6(0)=sum_i w^0_i M_{S\i}(0)`.
-6. Masters batched across lanes per family through `MasterEvaluator`
-   (args A0:[m2,mu2], B0:[d01,m0,m1,mu2], C0:[d01,d12,d02,m..,mu2],
-   D0:[d01,d12,d23,d03,d02,d13,m..,mu2]); physical poles overwrite UV slots
-   (A0: UV=m0^2, IR=0; B0: UV=1; C0/D0: UV=0), as in the symbolic planner.
-7. Output: zero UV slot when `4+2h-2sum(powers)+rank<0`; IregiNative map
-   `F'=F-a(UV+IR1)+(a^2/2-b)IR2, IR1'=IR1-a IR2`, `a=gamma_E+ln pi`,
-   `b=pi^2/12`, all times `i pi^(2+h)`; MadLoop `(-1)^rank`; Multinomial
-   weights. Lanes with singular/ill-conditioned Gram/Cayley/thin systems
-   return `Unstable` (threshold `relative_det^rank < 1e-12`, to be tuned) and
-   must be re-run on the existing `TensorWorkspace`.
-
-Cost estimate: N6R6 needs 15 boxes at rank 4 plus pentagons, i.e. tens of µs
-plus masters (D0 cost still unmeasured; NativeF64Abc covers A/B/C only).
-
-### Next steps
-
-1. Add `direct.rs` + `lib.rs` wiring; `cargo test -p iregi-rust --release
-   direct` (run with `source .local/tirust-current-toolchain-roots/env.sh;
-   source scripts/env.sh; source .local/symbolica-license.env`, use
-   `CARGO_TARGET_DIR=target/optimized-build`, more `-j` is fine on this host).
-   Fix compile errors (check `prototype.euler()` is gamma_E).
-2. Validation example: run all 12 ordinary opening inputs and compare full
-   arrays with `validation/benchmark/opening-rank6-20261026/cases/*/result.json`
-   (`final_output.lanes[0].values`, exact rationals, `[UV,IR1,IR2,F]` per
-   basis entry) using the E/A metric; also random points vs the existing
-   `TensorWorkspace`.
-3. Integrate into `dispatch.rs` (`TensorEngineKind::Direct`) as the f64
-   default for supported settings, with per-lane fallback to the existing
-   engine on `Unstable`/`MasterFailure`; keep the certified path selectable.
-4. Second engine stage: numeric DN/IBP (`ibp.rs::compile_uncached`, Eqs.
-   15/18/19/21/23) for dots and dimension shifts (extended rows).
-5. Native/fast D0 for f64; profile masters.
-6. New campaign `validation/benchmark/fast-engine-<date>/` timing TIRust,
-   IREGI and COLLIER in one session (plan in the harness notes, section 10);
-   update `docs/benchmark.typ`/PDF with TIRust/IREGI and TIRust/COLLIER
-   ratios; commit and push.
+1. **Lightlike bubbles** (massless external legs, common in QCD): a pinched
+   bubble with `p^2 = 0, p != 0` has a singular Gram and no denominator identity,
+   so such lanes currently fall back to the slow symbolic engine. Implement its
+   coefficients as `C(lambda,k) = (-1/2)^lambda k! J_(lambda+k)(1,1+k)` (as
+   `pv.rs::lightlike_coefficient`), e.g. by extending `ibp()` to dimension
+   shifts (Eqs. 18/21) for unequal masses and closed forms for equal masses, or
+   via oneloop's `NativeTensorEvaluator` bubbles up to rank 4. Validate against
+   `new_without_direct` on massless-leg boxes. Also IR-divergent massless
+   triangles/boxes need checking in the direct engine.
+2. Hand-written binary64 C0 for negative Källén functions (oneloopmaster
+   `triangle_hv.rs`, 't Hooft-Veltman form, 12 dilogs): these inputs take the
+   generated path at ~3 µs per C0, ~40 µs of N6R6. Validate against the generated
+   code on random points before enabling; record in dependencies/oneloopmaster/PATCHES.md.
+3. Specialized jet convolution for K=2/3 (dotted rows spend ~60% in
+   `run_program_jets`); SIMD-friendly L4 layout; skipping IR slots when all
+   masters have zero IR parts.
+4. Batch-major (SIMD across lanes) execution if batch throughput matters more
+   than singleton latency.
 
 ## Binary64 opening tables: 26 October 2026 follow-up
 

@@ -1,6 +1,6 @@
 // Measured values live in data/results.json. null means no measurement.
 #let data = json("data/results.json")
-#let report-date = data.at("rank6_current_report_updated_on", default: data.at("report_updated_on", default: data.date))
+#let report-date = data.at("direct_engine_report_updated_on", default: data.at("rank6_current_report_updated_on", default: data.at("report_updated_on", default: data.date)))
 #set document(title: "TIRust benchmark", author: "Hua-Sheng Shao")
 #set page(paper: "a4", margin: (x: 1.6cm, y: 1.8cm), numbering: "1 / 1",
   header: context {
@@ -339,6 +339,135 @@
     )
   },
 ))
+// Same-session direct-engine campaign (30 October 2026): TIRust public
+// binary64 default versus original IREGI and COLLIER, interleaved per block.
+#let direct-campaign = data.at("direct_engine_20261030", default: none)
+#let de-sci(x) = {
+  if x == none { [n/a] } else if x == 0 { [0] } else {
+    let e = calc.floor(calc.log(x, base: 10))
+    let m = x / calc.pow(10.0, e)
+    [#fixed(m, digits: 1)×10#super[#e]]
+  }
+}
+#let de-time(us) = {
+  if us == none { [—] }
+  else if us < 1 { [#fixed(us * 1000, digits: 0) ns] }
+  else if us < 1000 { [#fixed(us, digits: 2) µs] }
+  else if us < 1000000 { [#fixed(us / 1000, digits: 2) ms] }
+  else { [#fixed(us / 1000000, digits: 2) s] }
+}
+#let de-label(row) = {
+  set par(leading: 0.3em, justify: false)
+  text(size: 9pt, weight: "bold", row.label)
+  let dotted = row.powers.enumerate().filter(((i, p)) => p > 1)
+  if dotted.len() > 0 or row.dimension_shift != 0 {
+    linebreak()
+    text(size: 7pt, fill: luma(80))[
+      #for (i, p) in dotted [ν#sub[#(i + 1)]=#p ]
+      #if row.dimension_shift != 0 [D=#(4 + 2 * row.dimension_shift)]
+    ]
+  }
+  linebreak()
+  text(size: 6.5pt, fill: luma(110))[#row.moments #if row.moments == 1 [moment] else [moments] × 4 slots]
+}
+#let de-engine-cell(record, batch, kind: "TIRust") = {
+  let ok = record != none and record.accepted
+  table.cell(fill: if record == none { pending } else if ok { pale } else { amber }, {
+    set par(leading: 0.3em, justify: false)
+    if record == none {
+      text(size: 8pt, fill: luma(90))[#if kind == "COLLIER" [Outside public API] else [No accepted mode]]
+    } else {
+      let t = if record.timing_us == none { none } else { record.timing_us.median / batch }
+      text(size: 10pt, weight: "bold", de-time(t))
+      if batch > 1 { text(size: 6.5pt)[ /point] }
+      linebreak()
+      text(size: 6.5pt, fill: luma(70))[
+        #if record.mode != none and kind != "TIRust" [#record.mode.replace("mode1-ten6-perm0", "COLI").replace("mode2-ten6-perm0", "DD").replace("mode1-ten6-perm1", "COLI, perm.") · ]
+        #if ok [E/A #de-sci(record.relative_error)] else [#if not record.complete_finite [nonfinite/refused] else [E/A #de-sci(record.relative_error)] · diagnostic]
+      ]
+    }
+  })
+}
+#let de-ratio-cell(ratio, accepted) = {
+  if ratio == none or not accepted {
+    table.cell(fill: pending, text(size: 7.5pt, fill: luma(100))[No ratio])
+  } else {
+    table.cell(fill: ratio-fill(ratio.median), {
+      set par(leading: 0.3em, justify: false)
+      text(size: 10pt, weight: "bold")[×#if ratio.median < 0.01 { fixed(ratio.median, digits: 4) } else { fixed(ratio.median, digits: 3) }]
+      linebreak()
+      text(size: 6.3pt)[99% CI #fixed(ratio.ci99.at(0), digits: 4)–#fixed(ratio.ci99.at(1), digits: 4)]
+    })
+  }
+}
+#let de-table(rows, batch) = {
+  let key = "batch" + str(batch)
+  figure(kind: table, caption: [#if batch == 1 [Single phase-space point] else [Batch of 32 points, time per point] — median of paired block means])[
+    #table(
+      columns: (1.05fr, 1fr, 1.1fr, 0.95fr, 1.05fr, 0.95fr),
+      inset: (x: 5pt, y: 5pt), stroke: table-stroke, align: left + horizon,
+      fill: (x, y) => if y == 0 { navy } else { none },
+      table.header(..([Input], [TIRust (direct)], [IREGI (best mode)], [TIRust / IREGI], [COLLIER 1.2.10], [TIRust / COLLIER]).map(h => text(fill: white, size: 8.5pt, weight: "bold", h))),
+      ..rows.map(row => {
+        let b = row.at(key)
+        let tirust-ok = b.tirust.accepted
+        let iregi-ok = b.iregi != none and b.iregi.accepted
+        let collier-ok = b.collier != none and b.collier.accepted
+        (
+          table.cell(de-label(row)),
+          de-engine-cell(b.tirust, batch),
+          de-engine-cell(b.iregi, batch, kind: "IREGI"),
+          de-ratio-cell(b.ratios.at("tirust_over_iregi", default: none), tirust-ok and iregi-ok),
+          de-engine-cell(b.collier, batch, kind: "COLLIER"),
+          de-ratio-cell(b.ratios.at("tirust_over_collier", default: none), tirust-ok and collier-ok),
+        )
+      }).flatten(),
+    )
+  ]
+}
+#let direct-engine-pages(snapshot) = {
+  let env = snapshot.environment
+  [= Direct numerical engine: same-session comparison]
+  block(fill: rgb("#d9f0d3"), inset: 9pt, radius: 4pt, width: 100%)[
+    #set text(9pt)
+    *What changed.* The public binary64 default (`TensorReductionPlan::new` + `TensorWorkspace`)
+    now evaluates the validated PV recurrences numerically per lane with direct OneLOop scalar kernels,
+    instead of interpreting compiled symbolic expressions. Affinely dependent sub-topologies use their
+    constant-one denominator identity; a dotted propagator is a Taylor jet in its squared mass with
+    master derivatives from the IBP relation; D=6 uses #raw("C(λ+h,κ)·(−2)^h"). Lanes with
+    ill-conditioned systems fall back to the symbolic engine, prepared only on demand.
+  ]
+  v(0.3em)
+  text(size: 8.5pt)[
+    *Protocol.* All three codes ran in one session on CPU #env.cpu (#env.cpu_model), one pinned core,
+    load average #env.loadavg_start.join(" / ") at start. For every row and batch size each
+    candidate got a fresh process; a pilot fixed the calls per block (≈20 ms); then
+    #env.rounds.batch1 (batch 1) or #env.rounds.batch32 (batch 32) rounds ran one block per candidate in
+    seeded random order. Ratios are medians of same-round block ratios with 99% bootstrap intervals;
+    every ratio has TIRust in the numerator (green: TIRust faster). E/A is the dimensionally rescaled
+    whole-array error of lane 0 versus the archived reference tensors (admitted against quadruple-precision
+    original IREGI). IREGI uses its fastest mode with a complete finite array within E/A≤10#super[−3].
+    COLLIER uses the archived selected public configuration. Rejected or nonfinite outputs are shown
+    amber with diagnostic times and never enter a ratio. Builds: TIRust release (thin LTO), Fortran
+    `-O3`, all baseline x86-64; binary SHA-256 in `validation/benchmark/direct-engine-20261030/summary.json`.
+  ]
+  v(0.3em)
+  de-table(snapshot.rows, 1)
+  pagebreak()
+  de-table(snapshot.rows, 32)
+  v(0.3em)
+  let cross = snapshot.rows.map(r => r.batch32.tirust_iregi_cross_error_lanes).filter(x => x != none)
+  text(size: 8.5pt)[
+    Lanes 1–31 of each batch are binary-exact perturbations of the reference point (shifts×(256+l)/256,
+    masses²+l/64). TIRust and same-session original-IREGI IBP agree on all of them with
+    maximum E/A #de-sci(calc.max(..cross)). IREGI modes that STOP, refuse or exceed the accuracy gate are
+    retained in the snapshot (`iregi_modes`). Reproduce with
+    #raw("python3 validation/benchmark/direct-engine-20261030/build.py") and
+    #raw("run.py --cpu N"), then #raw("summarize.py").
+  ]
+  pagebreak()
+}
+
 #let opening-timing-pages(examples) = {
   pagebreak()
   heading(level: 1)[Example tensor integrals: double-precision timing]
@@ -454,9 +583,13 @@
   #text(12pt, fill: luma(80))[Batched one-loop reduction: TIRust, IREGI, COLLIER and MadLoop]
   #v(0.2em)
   #text(9.5pt, fill: luma(110))[#report-date · Archival comparisons: #data.host]
+  #if direct-campaign != none {
+    linebreak()
+    text(9pt, fill: luma(110))[Direct engine: same-session TIRust/IREGI/COLLIER · AMD EPYC 9754 · CPU #direct-campaign.snapshot.environment.cpu · binary64]
+  }
   #if opening-examples != none {
     linebreak()
-    text(9pt, fill: luma(110))[Opening examples: AMD EPYC 9754 · CPU 18 · binary64 · selected measured paths]
+    text(9pt, fill: luma(110))[Historical opening examples (26 October): CPU 18 · previous TIRust engine]
   }
 ]
 #v(0.6em)
@@ -477,10 +610,11 @@
   *Current priorities*
   #table(columns: (1fr, 2fr, auto), stroke: none, inset: (x: 4pt, y: 4pt),
     [*Feature completion*], [The documented finite N≤6/rank≤6 numerical checkpoint, including dots, is validated. Higher-N qualification remains separate.], [*Validated*],
-    [*Performance optimization*], [Separate future work; no new speed or parity gate applies to this validated checkpoint], [*Deferred*],
+    [*Performance optimization*], [Direct numerical engine is the binary64 default; same-session TIRust/IREGI/COLLIER tables follow. Further optimization continues.], [*Active*],
     [*Physical validation*], [Current fixed-graph checks appear below; historical timing failures remain visible], [*Scoped*],
   )
 ]
+#if direct-campaign != none { direct-engine-pages(direct-campaign.snapshot) }
 #if opening-examples != none { opening-timing-pages(opening-examples.snapshot) }
 = Current coverage
 #text(size: 9.5pt)[The documented N≤6/rank≤6 finite numerical checkpoint now passes

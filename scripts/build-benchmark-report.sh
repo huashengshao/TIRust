@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 
 report = json.loads(Path('docs/data/results.json').read_text())
-date = datetime.date.fromisoformat(report.get('rank6_current_report_updated_on', report.get('report_updated_on', report['date'])))
+date = datetime.date.fromisoformat(report.get('direct_engine_report_updated_on', report.get('rank6_current_report_updated_on', report.get('report_updated_on', report['date']))))
 print(int(datetime.datetime.combine(date, datetime.time(), datetime.timezone.utc).timestamp()))
 PY
 )"

@@ -5,12 +5,26 @@ and batched numerical evaluation, and oneloopmaster for scalar integrals.
 
 Development follows [PLAN.md](PLAN.md). The documented one- through six-point,
 cumulative rank-six functional checkpoint is independently validated, including
-dotted propagators and dimension shifts. Performance optimization is deferred.
+dotted propagators and dimension shifts.
 The [benchmark report](docs/benchmark.pdf) retains measurements, failed attempts,
 reference defects and explicit qualification limits.
 
-The report opens with representative integral timings through six points and
-rank six, followed by dotted and dimension-shifted requests outside COLLIER's
+**Direct numerical engine (binary64 default).** `TensorReductionPlan::new` now
+selects a direct engine for unit-power or single-dotted, `h<=3`, Cartesian-shift
+PV/Hybrid requests through six points: the validated PV recurrences run
+numerically per lane with OneLOop's direct scalar kernels, affinely dependent
+sub-topologies use their constant-one denominator identity, a dotted propagator
+is a Taylor jet in its squared mass, and `D=4+2h` uses
+`C(lambda+h,kappa)(-2)^h`. Lanes with ill-conditioned systems fall back to the
+symbolic engine, which is prepared only on demand (`new_without_direct` keeps the
+old dispatch). In the [same-session benchmark](validation/benchmark/direct-engine-20261030/README.md)
+TIRust is faster than original IREGI and COLLIER on all 18 opening inputs, singly
+and in batches of 32: TIRust/IREGI 0.001-0.36 and TIRust/COLLIER 0.08-0.70, with
+full-array agreement against the archived references (E/A <= 2.4e-11).
+
+The report opens with this comparison. The historical opening tables follow:
+representative integral timings through six points and
+rank six of the previous engine, followed by dotted and dimension-shifted requests outside COLLIER's
 direct integral API. Large coloured cells separate TIRust time from nested
 scalar-master evaluation. Exact inputs, raw calls, preparation costs, precision
 and reproduction commands are in the
