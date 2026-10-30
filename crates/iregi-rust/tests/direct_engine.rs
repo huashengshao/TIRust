@@ -27,20 +27,23 @@ struct Case {
     id: String,
     n: usize,
     rank: u16,
+    powers: Vec<u16>,
+    h: i16,
     row: Vec<Complex<f64>>,
     mu: f64,
     reference: Vec<Complex<f64>>,
 }
 
 fn ordinary_cases() -> Vec<Case> {
+    opening_cases().into_iter().filter(|case| case.id.starts_with("ordinary")).collect()
+}
+
+fn opening_cases() -> Vec<Case> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join(SUITE);
     let inputs: Value =
         serde_json::from_str(&std::fs::read_to_string(root.join("inputs.json")).unwrap()).unwrap();
     let mut cases = Vec::new();
     for case in inputs["cases"].as_array().unwrap() {
-        if case["table"] != "ordinary" {
-            continue;
-        }
         let request = &case["driver_request"];
         let id = request["id"].as_str().unwrap().to_string();
         let sample = &request["samples"][0];
@@ -77,6 +80,13 @@ fn ordinary_cases() -> Vec<Case> {
             id,
             n: request["n"].as_u64().unwrap() as usize,
             rank: request["rank"].as_u64().unwrap() as u16,
+            powers: request["powers"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|p| p.as_u64().unwrap() as u16)
+                .collect(),
+            h: request["dimension_shift"].as_i64().unwrap() as i16,
             row,
             mu,
             reference,
@@ -93,9 +103,20 @@ fn array_error(
     value: &[Complex<f64>],
     reference: &[Complex<f64>],
 ) -> f64 {
+    general_array_error(basis, 4 - 2 * n as i32, mu, value, reference)
+}
+
+/// `E/A` with weights `mu^(rank + 4 + 2h - 2 sum(powers))`.
+fn general_array_error(
+    basis: &[iregi_rust::basis::Monomial],
+    base: i32,
+    mu: f64,
+    value: &[Complex<f64>],
+    reference: &[Complex<f64>],
+) -> f64 {
     let (mut error, mut amplitude) = (0.0f64, 0.0f64);
     for (m, monomial) in basis.iter().enumerate() {
-        let weight = mu.powi(monomial.rank() as i32 + 4 - 2 * n as i32);
+        let weight = mu.powi(monomial.rank() as i32 + base);
         for slot in 0..4 {
             let (a, b) = (value[4 * m + slot], reference[4 * m + slot]);
             error = error.max((a.re - b.re).hypot(a.im - b.im) / weight);
@@ -128,6 +149,40 @@ fn ordinary_opening_rows_match_reference_arrays() {
         // A repeated call on the same workspace is bitwise reproducible.
         let again = workspace.reduce_batch(&batch).unwrap();
         assert_eq!(again.lane(0).unwrap(), lane, "{}", case.id);
+    }
+}
+
+#[test]
+fn dotted_and_dimension_shifted_rows_match_reference_arrays() {
+    let cases: Vec<_> = opening_cases()
+        .into_iter()
+        .filter(|case| case.id.starts_with("extended"))
+        .collect();
+    assert_eq!(cases.len(), 6);
+    for case in &cases {
+        let mut settings = ReductionSettings::new(case.n, case.rank);
+        settings.powers = case.powers.clone();
+        settings.dimension_shift = case.h;
+        assert!(DirectReductionPlan::supports(&settings), "{}", case.id);
+        let mut workspace = DirectReductionPlan::new(settings).unwrap().workspace(0.0f64).unwrap();
+        let batch = KinematicsBatch {
+            rows: 1,
+            components: 1,
+            values: case.row.clone(),
+        };
+        let result = workspace.reduce_batch(&batch).unwrap();
+        assert_eq!(result.statuses[0], LaneStatus::Success, "{}", case.id);
+        let base = 4 + 2 * i32::from(case.h)
+            - 2 * case.powers.iter().map(|&p| i32::from(p)).sum::<i32>();
+        let error = general_array_error(
+            &result.basis,
+            base,
+            case.mu,
+            result.lane(0).unwrap(),
+            &case.reference,
+        );
+        // Original IREGI's own binary64 IBP reaches ~1e-13 on the N4R6 rows.
+        assert!(error <= 1e-12, "{}: E/A = {error:e}", case.id);
     }
 }
 

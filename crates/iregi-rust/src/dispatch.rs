@@ -36,9 +36,15 @@ use six_hybrid::{SixHybridPlan, SixHybridWorkspace};
 mod legacy_noop;
 use legacy_noop::{LegacyNoOpPlan, LegacyNoOpWorkspace, highpoint_legacy_domain};
 
+mod direct_hybrid;
+pub use direct_hybrid::DirectExecutionStats;
+use direct_hybrid::{DirectHybridPlan, DirectHybridWorkspace, direct_eligible};
+
 /// The actual reduction implementation, distinct from its requested algorithm.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TensorEngineKind {
+    /// Direct numerical recurrences (binary64), with lazy per-lane fallback.
+    Direct,
     Generic,
     SixPoint,
     SixPointHybrid,
@@ -51,6 +57,7 @@ pub enum TensorEngineKind {
 
 #[derive(Clone, Debug)]
 enum OrdinaryPlan {
+    Direct(Arc<DirectHybridPlan>),
     Generic(Arc<ReductionPlan>),
     SixPoint(Arc<SixPointReductionPlan>),
     SixPointHybrid(Arc<SixHybridPlan>),
@@ -135,7 +142,25 @@ impl TensorReductionPlan {
         })
     }
 
+    /// Prepare the default plan. Eligible unit-power, unshifted Cartesian
+    /// PV/Hybrid requests select the direct numerical engine for binary64
+    /// workspaces; its symbolic fallback plan is prepared only on demand.
     pub fn new(settings: ReductionSettings) -> Result<Self, ReductionError> {
+        if direct_eligible(&settings) {
+            let plan = Arc::new(DirectHybridPlan::new(settings.clone())?);
+            return Ok(Self {
+                requested_settings: settings,
+                ordinary: OrdinaryPlan::Direct(plan),
+                generic: Arc::new(OnceLock::new()),
+                affine: Arc::new(OnceLock::new()),
+                notes: vec!["Facade selection: direct numerical recurrences for binary64 workspaces; other numeric domains and unstable lanes use the existing ordinary plan, prepared on demand.".into()],
+            });
+        }
+        Self::new_without_direct(settings)
+    }
+
+    /// The existing symbolic ordinary dispatch, never selecting the direct engine.
+    pub fn new_without_direct(settings: ReductionSettings) -> Result<Self, ReductionError> {
         let requested_settings = settings.clone();
         let ordinary = match ordinary_kind(&settings) {
             TensorEngineKind::MassTaylor => {
@@ -152,6 +177,9 @@ impl TensorReductionPlan {
             }
             TensorEngineKind::CertifiedTensor => {
                 unreachable!("checked tensors require the explicit constructor")
+            }
+            TensorEngineKind::Direct => {
+                unreachable!("ordinary_kind never selects the direct engine")
             }
             TensorEngineKind::SevenPoint => {
                 OrdinaryPlan::SevenPoint(Arc::new(SevenPointReductionPlan::new(settings)?))
@@ -178,6 +206,7 @@ impl TensorReductionPlan {
             OrdinaryPlan::SixPoint(_) => vec!["Facade ordinary selection: SixPointReductionPlan; specialized preparation logs are not exposed by that wrapper.".into()],
             OrdinaryPlan::SixPointHybrid(_) => vec!["Facade ordinary selection: specialized six-point PV primary with lazy genuine batched IBP fallback; requested Hybrid settings retained.".into()],
             OrdinaryPlan::CertifiedTensor(_) => unreachable!("ordinary constructor never selects checked input"),
+            OrdinaryPlan::Direct(_) => unreachable!("ordinary constructor never selects the direct engine"),
             OrdinaryPlan::SevenPoint(_) => vec!["Facade ordinary selection: SevenPointReductionPlan; specialized preparation logs are not exposed by that wrapper.".into()],
             OrdinaryPlan::AffinePower(_) => vec!["Facade selection: affine positive-power descent into packed same-dimension child plans; actual requested/selected child algorithms and notes are retained in tagged execution metadata.".into()],
         };
@@ -220,6 +249,7 @@ impl TensorReductionPlan {
     /// generic execution; affine composition preserves its own selected engine.
     pub fn engine_kind(&self) -> TensorEngineKind {
         match &self.ordinary {
+            OrdinaryPlan::Direct(_) => TensorEngineKind::Direct,
             OrdinaryPlan::Generic(_) => TensorEngineKind::Generic,
             OrdinaryPlan::MassTaylor(_) => TensorEngineKind::MassTaylor,
             OrdinaryPlan::SixPoint(_) => TensorEngineKind::SixPoint,
@@ -233,6 +263,7 @@ impl TensorReductionPlan {
 
     pub fn basis(&self) -> &[Monomial] {
         match &self.ordinary {
+            OrdinaryPlan::Direct(plan) => plan.basis(),
             OrdinaryPlan::Generic(plan) => plan.basis(),
             OrdinaryPlan::SixPoint(plan) => plan.basis(),
             OrdinaryPlan::SixPointHybrid(plan) => plan.primary.basis(),
@@ -246,6 +277,7 @@ impl TensorReductionPlan {
 
     pub fn input_layout(&self) -> &InputLayout {
         match &self.ordinary {
+            OrdinaryPlan::Direct(plan) => &plan.layout,
             OrdinaryPlan::Generic(plan) => plan.input_layout(),
             OrdinaryPlan::SixPoint(plan) => plan.input_layout(),
             OrdinaryPlan::SixPointHybrid(plan) => plan.primary.input_layout(),
@@ -259,6 +291,7 @@ impl TensorReductionPlan {
 
     pub fn parameter_count(&self) -> usize {
         match &self.ordinary {
+            OrdinaryPlan::Direct(plan) => plan.layout.scale + 1,
             OrdinaryPlan::Generic(plan) => plan.parameter_count(),
             OrdinaryPlan::SixPoint(plan) => plan.parameter_count(),
             OrdinaryPlan::SixPointHybrid(plan) => plan.primary.parameter_count(),
@@ -280,6 +313,7 @@ impl TensorReductionPlan {
         monomials: &[Monomial],
     ) -> Result<ContractionPlan, ReductionError> {
         match &self.ordinary {
+            OrdinaryPlan::Direct(plan) => plan.fallback()?.contraction_plan(monomials),
             OrdinaryPlan::Generic(plan) => ContractionPlan::new(plan, monomials),
             OrdinaryPlan::SixPoint(plan) => plan.contraction_plan(monomials),
             OrdinaryPlan::SixPointHybrid(plan) => plan.primary.contraction_plan(monomials),
@@ -288,6 +322,14 @@ impl TensorReductionPlan {
             OrdinaryPlan::AffinePower(plan) => plan.contraction_plan(monomials),
             OrdinaryPlan::MassTaylor(plan) => plan.contraction_plan(monomials),
             OrdinaryPlan::LegacyNoOp(plan) => plan.contraction_plan(monomials),
+        }
+    }
+
+    /// This plan, or for a direct plan its lazily prepared symbolic fallback.
+    pub fn without_direct(&self) -> Result<Arc<TensorReductionPlan>, ReductionError> {
+        match &self.ordinary {
+            OrdinaryPlan::Direct(plan) => plan.fallback(),
+            _ => Ok(Arc::new(self.clone())),
         }
     }
 
@@ -396,6 +438,7 @@ impl TensorWorkspaceOptions {
 
 #[derive(Clone)]
 enum WorkspaceEngine<T: NativeFloat> {
+    Direct(Box<DirectHybridWorkspace<T>>),
     Generic(Workspace<T>),
     SixPoint(SixPointWorkspace<T>),
     SixPointHybrid(SixHybridWorkspace<T>),
@@ -412,6 +455,8 @@ enum WorkspaceEngine<T: NativeFloat> {
 /// Exact tagged execution detail, including actual nested certificate work.
 #[derive(Clone, Debug)]
 pub enum TensorEngineExecution {
+    /// Direct numerical lanes and any actual fallback execution.
+    Direct(DirectExecutionStats),
     Generic {
         execution: ExecutionStats,
         certificate_execution: CertificateExecutionStats,
@@ -458,6 +503,26 @@ impl TensorEngineExecution {
     /// remain in the tagged detail and are not added to these work fields.
     pub fn summary(&self) -> Result<ExecutionStats, ReductionError> {
         match self {
+            Self::Direct(stats) => {
+                let mut result = match &stats.fallback {
+                    Some(child) => child.summary()?,
+                    None => ExecutionStats::default(),
+                };
+                result.input_rows = stats.input_rows;
+                result.reduction_rows = result
+                    .reduction_rows
+                    .checked_add(stats.input_rows)
+                    .ok_or_else(counter_overflow)?;
+                result.fallback_rows = result
+                    .fallback_rows
+                    .checked_add(stats.fallback_rows)
+                    .ok_or_else(counter_overflow)?;
+                result.fallback_successes = result
+                    .fallback_successes
+                    .checked_add(stats.fallback_successes)
+                    .ok_or_else(counter_overflow)?;
+                Ok(result)
+            }
             Self::Generic { execution, .. } | Self::CertifiedTensor { execution, .. } => {
                 Ok(*execution)
             }
@@ -566,6 +631,22 @@ where
         prototype: T,
         options: TensorWorkspaceOptions,
     ) -> Result<Self, ReductionError> {
+        if let OrdinaryPlan::Direct(direct) = &plan.ordinary {
+            if DirectHybridWorkspace::eligible(&prototype) {
+                options
+                    .master_policy
+                    .validate_available()
+                    .map_err(|e| ReductionError::Preparation(e.to_string()))?;
+                let workspace = DirectHybridWorkspace::new(direct.clone(), prototype, options)?;
+                return Ok(Self {
+                    engine: WorkspaceEngine::Direct(Box::new(workspace)),
+                    requested_master_policy: options.master_policy,
+                    notes: plan.preparation_notes().to_vec(),
+                });
+            }
+            let fallback = direct.fallback()?;
+            return Self::new_with_options(&fallback, prototype, options);
+        }
         if let OrdinaryPlan::LegacyNoOp(legacy) = &plan.ordinary {
             let workspace = LegacyNoOpWorkspace::new(legacy.clone(), prototype, options)?;
             return Ok(Self {
@@ -615,6 +696,9 @@ where
             return Self::generic(plan, prototype, options);
         }
         let engine = match &plan.ordinary {
+            OrdinaryPlan::Direct(_) => {
+                unreachable!("direct workspace returns before thin dispatch")
+            }
             OrdinaryPlan::MassTaylor(_) => {
                 unreachable!("mass-Taylor workspace returns before thin dispatch")
             }
@@ -785,6 +869,7 @@ where
 
     pub fn engine_kind(&self) -> TensorEngineKind {
         match &self.engine {
+            WorkspaceEngine::Direct(_) => TensorEngineKind::Direct,
             WorkspaceEngine::Generic(_) => TensorEngineKind::Generic,
             WorkspaceEngine::MassTaylor(_) => TensorEngineKind::MassTaylor,
             WorkspaceEngine::SixPoint(_) => TensorEngineKind::SixPoint,
@@ -808,6 +893,7 @@ where
 
     pub fn set_accuracy_precision(&mut self, bits: u32) -> Result<(), ReductionError> {
         match &mut self.engine {
+            WorkspaceEngine::Direct(workspace) => workspace.set_accuracy_precision(bits),
             WorkspaceEngine::Generic(workspace) => workspace.set_accuracy_precision(bits),
             WorkspaceEngine::SixPoint(workspace) => workspace.set_accuracy_precision(bits),
             WorkspaceEngine::SixPointHybrid(workspace) => workspace.set_accuracy_precision(bits),
@@ -846,6 +932,7 @@ where
     /// thin workspaces still require profiling at construction.
     pub fn set_profiling(&mut self, enabled: bool) -> Result<(), ReductionError> {
         match &mut self.engine {
+            WorkspaceEngine::Direct(workspace) => workspace.set_profiling(enabled),
             WorkspaceEngine::Generic(workspace) => {
                 workspace.set_profiling(enabled);
                 Ok(())
@@ -881,6 +968,7 @@ where
 
     pub fn component_count(&self) -> usize {
         match &self.engine {
+            WorkspaceEngine::Direct(_) => 1,
             WorkspaceEngine::Generic(workspace) => workspace.component_count(),
             WorkspaceEngine::SixPoint(workspace) => workspace.component_count(),
             WorkspaceEngine::SixPointHybrid(workspace) => workspace.component_count(),
@@ -901,7 +989,8 @@ where
             WorkspaceEngine::AffinePower(workspace) => workspace.dual_shape(),
             WorkspaceEngine::MassTaylor(workspace) => workspace.dual_shape(),
             WorkspaceEngine::LegacyNoOp(workspace) => workspace.dual_shape(),
-            WorkspaceEngine::SixPoint(_)
+            WorkspaceEngine::Direct(_)
+            | WorkspaceEngine::SixPoint(_)
             | WorkspaceEngine::SixPointHybrid(_)
             | WorkspaceEngine::SevenPoint(_) => None,
         }
@@ -909,6 +998,7 @@ where
 
     pub fn binary_precision(&self) -> u32 {
         match &self.engine {
+            WorkspaceEngine::Direct(workspace) => workspace.binary_precision(),
             WorkspaceEngine::Generic(workspace) => workspace.binary_precision(),
             WorkspaceEngine::SixPoint(workspace) => workspace.binary_precision(),
             WorkspaceEngine::SixPointHybrid(workspace) => workspace.binary_precision(),
@@ -924,6 +1014,7 @@ where
 
     pub fn last_diagnostics(&self) -> &[Vec<String>] {
         match &self.engine {
+            WorkspaceEngine::Direct(workspace) => workspace.last_diagnostics(),
             WorkspaceEngine::Generic(workspace) => workspace.last_diagnostics(),
             WorkspaceEngine::SixPoint(workspace) => workspace.last_diagnostics(),
             WorkspaceEngine::SixPointHybrid(workspace) => workspace.last_diagnostics(),
@@ -937,6 +1028,9 @@ where
 
     pub fn engine_execution(&self) -> TensorEngineExecution {
         match &self.engine {
+            WorkspaceEngine::Direct(workspace) => {
+                TensorEngineExecution::Direct(workspace.last_execution().clone())
+            }
             WorkspaceEngine::Generic(workspace) => TensorEngineExecution::Generic {
                 execution: workspace.last_execution(),
                 certificate_execution: workspace.last_planar_certificate_execution(),
@@ -1008,6 +1102,7 @@ where
 
     pub fn last_profile(&self) -> Option<ExecutionProfile> {
         match &self.engine {
+            WorkspaceEngine::Direct(workspace) => workspace.last_profile(),
             WorkspaceEngine::Generic(workspace) => workspace.last_profile(),
             WorkspaceEngine::SixPoint(workspace) => workspace.last_profile(),
             WorkspaceEngine::SixPointHybrid(workspace) => workspace.last_profile(),
@@ -1024,6 +1119,7 @@ where
         batch: &KinematicsBatch<T>,
     ) -> Result<BatchResult<T>, ReductionError> {
         match &mut self.engine {
+            WorkspaceEngine::Direct(workspace) => workspace.reduce_batch(batch),
             WorkspaceEngine::Generic(workspace) => workspace.reduce_batch(batch),
             WorkspaceEngine::SixPoint(workspace) => workspace.reduce_batch(batch),
             WorkspaceEngine::SixPointHybrid(workspace) => workspace.reduce_batch(batch),
@@ -1360,7 +1456,7 @@ mod tests {
     #[test]
     fn generic_batch_contraction_and_state_match_existing_api() {
         let settings = ReductionSettings::new(1, 1);
-        let facade = TensorReductionPlan::new(settings.clone()).unwrap();
+        let facade = TensorReductionPlan::new_without_direct(settings.clone()).unwrap();
         let generic = facade.generic_plan().unwrap();
         assert!(Arc::ptr_eq(&generic, &facade.generic_plan().unwrap()));
         assert_eq!(facade.settings().algorithm, Algorithm::Hybrid);
@@ -1424,7 +1520,7 @@ mod tests {
 
     #[test]
     fn explicit_dual_and_profile_options_delegate_to_generic() {
-        let plan = TensorReductionPlan::new(ReductionSettings::new(1, 0)).unwrap();
+        let plan = TensorReductionPlan::new_without_direct(ReductionSettings::new(1, 0)).unwrap();
         let options = TensorWorkspaceOptions {
             profiling: true,
             master_policy: MasterExecutionPolicy::Symbolica,
@@ -1455,8 +1551,33 @@ mod tests {
     }
 
     #[test]
-    fn explicit_master_policy_is_never_silently_replaced() {
+    fn binary64_default_selects_direct_and_other_domains_fall_back() {
+        use symbolica::domains::float::Float;
         let plan = TensorReductionPlan::new(ReductionSettings::new(1, 0)).unwrap();
+        assert_eq!(plan.engine_kind(), TensorEngineKind::Direct);
+        let mut workspace = TensorWorkspace::new(&plan, 0.).unwrap();
+        assert_eq!(workspace.engine_kind(), TensorEngineKind::Direct);
+        let direct = workspace.reduce_batch(&tadpole_batch()).unwrap();
+        let mut symbolic = TensorWorkspace::new(
+            &TensorReductionPlan::new_without_direct(ReductionSettings::new(1, 0)).unwrap(),
+            0.,
+        )
+        .unwrap();
+        let reference = symbolic.reduce_batch(&tadpole_batch()).unwrap();
+        for (a, b) in direct.lane(0).unwrap().iter().zip(reference.lane(0).unwrap()) {
+            assert!((a.re - b.re).abs() + (a.im - b.im).abs() <= 1e-13 * (1. + b.re.abs() + b.im.abs()));
+        }
+        assert_eq!(workspace.execution_summary().unwrap().input_rows, 2);
+        let float = TensorWorkspace::new(&plan, Float::new(128)).unwrap();
+        assert_ne!(float.engine_kind(), TensorEngineKind::Direct);
+        let shape = HyperDual::<f64>::new(vec![vec![0]]);
+        let dual = TensorWorkspace::new_dual(&plan, 0., shape).unwrap();
+        assert_ne!(dual.engine_kind(), TensorEngineKind::Direct);
+    }
+
+    #[test]
+    fn explicit_master_policy_is_never_silently_replaced() {
+        let plan = TensorReductionPlan::new_without_direct(ReductionSettings::new(1, 0)).unwrap();
         let options = TensorWorkspaceOptions {
             master_policy: MasterExecutionPolicy::NativeF64Abc,
             profiling: false,

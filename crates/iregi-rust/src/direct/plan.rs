@@ -20,6 +20,10 @@ use crate::{
 pub(crate) const MAX_PROPAGATORS: usize = 6;
 /// Largest tensor rank handled by the direct engine.
 pub(crate) const MAX_RANK: u16 = 8;
+/// Largest power of the (single) dotted propagator.
+pub(crate) const MAX_POWER: u16 = 5;
+/// Largest dimension shift `h` in `D = 4 + 2h - 2 epsilon`.
+pub(crate) const MAX_SHIFT: i16 = 3;
 pub(crate) const NO_GEOMETRY: u32 = u32::MAX;
 
 /// Dense monomial enumeration in `tensor_basis` order with multiplication maps.
@@ -234,6 +238,11 @@ pub(crate) struct DirectPlanData {
     pub relations: Vec<RelationGeometry>,
     pub output: Vec<u32>,
     pub gather_scratch: usize,
+    /// Differentiated propagator and Taylor length `K` (its power). The
+    /// output is the order-`K-1` Taylor coefficient in its squared mass.
+    pub jet: Option<(usize, usize)>,
+    /// Gathers read `C(lambda + h, kappa)` and scale by `(-2)^h`.
+    pub lambda_shift: u16,
 }
 
 struct Builder {
@@ -332,14 +341,27 @@ impl DirectPlanData {
                 "direct engine handles rank <= {MAX_RANK}"
             )));
         }
-        if settings.powers.len() != n || settings.powers.iter().any(|&p| p != 1) {
+        if settings.powers.len() != n || settings.powers.contains(&0) {
             return Err(ReductionError::Unsupported(
-                "direct engine currently requires unit propagator powers".into(),
+                "direct engine requires one positive power per propagator".into(),
             ));
         }
-        if settings.dimension_shift != 0 {
+        let dotted = settings.powers.iter().filter(|&&p| p > 1).count();
+        if dotted > 1 || settings.powers.iter().any(|&p| p > MAX_POWER) {
+            return Err(ReductionError::Unsupported(format!(
+                "direct engine handles at most one raised propagator power, up to {MAX_POWER}"
+            )));
+        }
+        if !(0..=MAX_SHIFT).contains(&settings.dimension_shift) {
+            return Err(ReductionError::Unsupported(format!(
+                "direct engine handles dimension shifts 0..={MAX_SHIFT}"
+            )));
+        }
+        if settings.dimension_shift > 0 && n > 4 {
+            // A shifted scalar pentagon is a genuine master, not reducible
+            // to four-dimensional boxes.
             return Err(ReductionError::Unsupported(
-                "direct engine currently requires dimension shift zero".into(),
+                "direct engine handles dimension shifts up to four propagators".into(),
             ));
         }
         if settings.algorithm == Algorithm::Ibp {
@@ -372,6 +394,12 @@ impl DirectPlanData {
         relation_masks: &[u8],
     ) -> Result<Self, ReductionError> {
         Self::supported(&settings)?;
+        let lambda_shift = settings.dimension_shift as u16;
+        let jet = settings
+            .powers
+            .iter()
+            .position(|&p| p > 1)
+            .map(|d| (d, usize::from(settings.powers[d])));
         let relation_for = |mask: u8| -> Option<usize> {
             if mask.count_ones() >= 6 {
                 return None;
@@ -416,7 +444,7 @@ impl DirectPlanData {
                 _ => {
                     if moment >= 0 {
                         let need = coefficient_need.entry(mask).or_insert(-1);
-                        *need = (*need).max(moment);
+                        *need = (*need).max(moment + 2 * i32::from(lambda_shift));
                     }
                     let coefficient = coefficient_need.get(&mask).copied().unwrap_or(-1);
                     if coefficient >= 1 && size >= 2 {
@@ -426,6 +454,23 @@ impl DirectPlanData {
                             *need = (*need).max(coefficient - 1);
                         }
                     }
+                }
+            }
+        }
+
+        // Mass derivatives of a master reach every pinch of it by IBP.
+        if let Some((dotted, _)) = jet {
+            let parents: Vec<u8> = coefficient_need
+                .iter()
+                .filter(|&(&mask, &need)| need >= 0 && mask & (1 << dotted) != 0)
+                .map(|(&mask, _)| mask)
+                .collect();
+            for parent in parents {
+                let mut sub = parent;
+                while sub != 0 {
+                    let need = coefficient_need.entry(sub).or_insert(-1);
+                    *need = (*need).max(0);
+                    sub = (sub - 1) & parent;
                 }
             }
         }
@@ -713,7 +758,7 @@ impl DirectPlanData {
                 for (kappa, &k) in kappa_lookup.iter() {
                     if 2 * lambda + kappas[k as usize].degree <= rank {
                         coefficient[usize::from(lambda) * kappas.len() + k as usize] =
-                            layout.lookup[&(lambda, kappa.clone())];
+                            layout.lookup[&(lambda + lambda_shift, kappa.clone())];
                     }
                 }
             }
@@ -853,6 +898,8 @@ impl DirectPlanData {
             relations,
             output,
             gather_scratch,
+            jet,
+            lambda_shift,
         })
     }
 }

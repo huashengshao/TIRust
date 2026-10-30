@@ -92,6 +92,7 @@ impl DirectReductionPlan {
 }
 
 /// Owned numerical scratch storage for one direct plan.
+#[derive(Clone)]
 pub struct DirectWorkspace<T: NativeFloat> {
     executor: DirectExecutor<T>,
 }

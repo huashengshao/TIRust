@@ -74,6 +74,10 @@ where
         settings: RescueSettings,
     ) -> Result<Self, ReductionError> {
         let accuracy_bits = validate_rescue_settings(prototype.get_precision(), settings)?;
+        // Precision rescue compares working precisions on one engine: use
+        // the symbolic plan even where binary64 defaults to direct recurrences.
+        let symbolic = plan.without_direct()?;
+        let plan = symbolic.as_ref();
         if !specialized_rescue_eligible(plan.engine_kind())
             && !crate::dispatch::affine_power_eligible(plan.settings())
         {

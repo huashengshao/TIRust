@@ -77,7 +77,7 @@ fn thin_ordinary_plan_caches_an_affine_capability_recipe_without_generic_prepara
     // Plan construction only: no N6 numerical workspace or evaluator is built.
     let mut settings=ReductionSettings::new(6,0);
     settings.algorithm=Algorithm::PassarinoVeltman;
-    let plan=TensorReductionPlan::new(settings).unwrap();
+    let plan=TensorReductionPlan::new_without_direct(settings).unwrap();
     assert_eq!(plan.engine_kind(),TensorEngineKind::SixPoint);
     assert!(plan.generic.get().is_none());assert!(plan.affine.get().is_none());
     let affine=plan.affine_plan().unwrap();
