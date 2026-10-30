@@ -7,6 +7,11 @@ much slower than COLLIER. This session paused at 88% of the account's 5-hour
 quota. Everything below is unvalidated work in progress; no benchmark/report
 number has changed.
 
+**Unpushed commits:** this session's commits are local only (`git status`
+shows `main` ahead of `origin/main`). The `gh` account on this host
+(ValentinHirschi) gets 403 on `huashengshao/iregi-rust`; push first thing next
+session with the huashengshao credentials (`git push origin main`).
+
 ### Diagnosis (perf, prebuilt `target/optimized-build/release/examples/opening_double`)
 
 - Low rank (N3R2, 1.3 ms/call): ~95% of the timed region is the per-call
