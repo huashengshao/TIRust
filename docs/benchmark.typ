@@ -341,7 +341,8 @@
 ))
 // Same-session direct-engine campaign (30 October 2026): TIRust public
 // binary64 default versus original IREGI and COLLIER, interleaved per block.
-#let direct-campaign = data.at("direct_engine_20261030", default: none)
+#let direct-campaign = data.at("direct_engine_20261030_capture002", default: data.at("direct_engine_20261030", default: none))
+#let direct-first-capture = data.at("direct_engine_20261030", default: none)
 #let de-sci(x) = {
   if x == none { [n/a] } else if x == 0 { [0] } else {
     let e = calc.floor(calc.log(x, base: 10))
@@ -449,7 +450,11 @@
     original IREGI). IREGI uses its fastest mode with a complete finite array within E/A≤10#super[−3].
     COLLIER uses the archived selected public configuration. Rejected or nonfinite outputs are shown
     amber with diagnostic times and never enter a ratio. Builds: TIRust release (thin LTO), Fortran
-    `-O3`, all baseline x86-64; binary SHA-256 in `validation/benchmark/direct-engine-20261030/summary.json`.
+    `-O3`, all baseline x86-64; binary SHA-256 in `validation/benchmark/direct-engine-20261030/summary-002.json`.
+    TIRust source: commit #raw(snapshot.at("tirust_source_commit", default: snapshot.tirust_git_head).slice(0, 7)).
+    This is the second capture of the day (after lightlike support, a hand-written negative-Källén C0,
+    IR-free two-slot kernels and fixed-length jet kernels); the first capture
+    (TIRust #raw(direct-first-capture.snapshot.tirust_git_head.slice(0, 7))) remains bound unchanged in the report data.
   ]
   v(0.3em)
   de-table(snapshot.rows, 1)

@@ -19,8 +19,10 @@ is a Taylor jet in its squared mass, and `D=4+2h` uses
 symbolic engine, which is prepared only on demand (`new_without_direct` keeps the
 old dispatch). In the [same-session benchmark](validation/benchmark/direct-engine-20261030/README.md)
 TIRust is faster than original IREGI and COLLIER on all 18 opening inputs, singly
-and in batches of 32: TIRust/IREGI 0.001-0.36 and TIRust/COLLIER 0.08-0.70, with
-full-array agreement against the archived references (E/A <= 2.4e-11).
+and in batches of 32: in the latest capture TIRust/IREGI 0.0008-0.36 and
+TIRust/COLLIER 0.06-0.68, with full-array agreement against the archived
+references (E/A <= 1.8e-11). Massless external legs (lightlike bubbles) are also
+handled directly, cross-checked against original IREGI.
 
 The report opens with this comparison. The historical opening tables follow:
 representative integral timings through six points and

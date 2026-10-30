@@ -103,11 +103,15 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
 
 ### Next steps (in order of value)
 
-1. Re-run the campaign with the current engine (build.py, run.py --cpu N
-   --output target/direct-engine-20261030/capture002, summarize.py), bind it as
-   a new results.json record (append-only), point the report at it, reseal.
-2. Jet specialization for K=3 (dot3 row still ~100 µs) and lightlike bubbles with
-   jets (closed-form mass derivatives).
+1. Done: capture002 (TIRust 9979308, const-generic jet kernels K=2..5 included)
+   is bound as `direct_engine_20261030_capture002` and shown in the report;
+   capture001 stays bound. Batch-1 µs: N3R2 3.68, N4R6 23.3, N5R6 66.9, N6R6 166,
+   dotted N4R6 42.0/66.3; TIRust/COLLIER 0.06-0.68, TIRust/IREGI 0.0008-0.36.
+   For a later capture use `build.py build-NNN.json`, `run.py --build-record`,
+   `summarize.py ... build-NNN.json`, extend `publish.py LATER`, then
+   `publish.py bind/seal --capture NNN`.
+2. Lightlike bubbles with jets (closed-form mass derivatives); currently those
+   lanes fall back.
 3. Remaining cost centres: masters (log/atan2/dilog in OneLOop kernels), the
    recurrence loop (SIMD-friendly L4 layout), gathers.
 4. Batch-major (SIMD across lanes) execution if batch throughput matters more
