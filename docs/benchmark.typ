@@ -437,7 +437,8 @@
     instead of interpreting compiled symbolic expressions. Affinely dependent sub-topologies use their
     constant-one denominator identity; a dotted propagator is a Taylor jet in its squared mass with
     master derivatives from the IBP relation; D=6 uses #raw("C(λ+h,κ)·(−2)^h"). Lanes with
-    ill-conditioned systems fall back to the symbolic engine, prepared only on demand.
+    ill-conditioned systems, and for N≥5 lanes failing a loop-rotation test, are rerun by the same direct engine
+    at 106/256/512 bits (added after these timing captures; see the stability section), then by the symbolic engine.
   ]
   v(0.3em)
   text(size: 8.5pt)[
@@ -478,7 +479,7 @@
 #let stability-campaign = data.at("stability_20261030", default: none)
 #let st-style = (
   "tirust": (paint: rgb("#1a9850"), thickness: 1.7pt),
-  "tirust-direct64": (paint: rgb("#1a9850"), thickness: 0.9pt, dash: "dashed"),
+  "tirust-binary64": (paint: rgb("#1a9850"), thickness: 0.9pt, dash: "dashed"),
   "iregi-ibp": (paint: rgb("#d7301f"), thickness: 1.1pt),
   "iregi-pv": (paint: rgb("#fc8d59"), thickness: 1.1pt, dash: "dashed"),
   "collier-coli": (paint: rgb("#2c7fb8"), thickness: 1.1pt),
@@ -494,7 +495,7 @@
   let ox = 1.05cm
   let oy = 0.45cm
   box(width: width + ox + 0.15cm, height: height + oy + 0.8cm, {
-    place(dx: ox, dy: 0pt, text(size: 7.5pt, weight: "bold")[#integral.label])
+    place(dx: ox, dy: 0pt, text(size: 7.5pt, weight: "bold")[#integral.label.replace("->", "→")])
     for e in range(-16, 1, step: 2) {
       place(dx: ox + px(e), dy: oy, line(length: height, angle: 90deg, stroke: 0.3pt + luma(225)))
       place(dx: ox + px(e) - 0.4cm, dy: oy + height + 0.08cm,
@@ -505,8 +506,8 @@
       place(dx: 0.25cm, dy: oy + py(e) - 0.16cm,
         box(width: ox - 0.33cm, align(right, text(size: 6pt)[10#super[#e]])))
     }
-    place(dx: 0pt, dy: oy + height / 2 - 0.15cm, rotate(-90deg, reflow: false,
-      box(width: 0.3cm, text(size: 6pt)[fraction])))
+    place(dx: 0.12cm - height / 2, dy: oy + height / 2 - 0.15cm, rotate(-90deg,
+      box(width: height, height: 0.3cm, align(center + horizon, text(size: 6pt)[fraction with E/A > Δ]))))
     place(dx: ox + px(-3) - 1pt, dy: oy, rect(width: 2pt, height: height, fill: luma(205), stroke: none))
     for code in integral.codes {
       let pts = ()
@@ -540,32 +541,98 @@
     text(size: 8pt, weight: "bold")[#if code.median == none [—] else [#de-sci(code.median)]]
     linebreak()
     text(size: 6.3pt, fill: luma(70))[p99 #de-sci(code.p99) · >10#super[−3]: #worse/#total
-      #if code.no_array > 0 [· no array #code.no_array] #if code.flagged > 0 and code.code != "tirust" and code.code != "tirust-direct64" [· flagged #code.flagged]]
+      #if code.no_array > 0 [· no array #code.no_array] #if code.flagged > 0 and code.code != "tirust" and code.code != "tirust-binary64" [· flagged #code.flagged]]
   })
 }
 #let stability-pages(snapshot) = {
   let setup = snapshot.setup
   [= Binary64 stability: TIRust, original IREGI and COLLIER]
+  context [#metadata(here().page()) <stability-page>]
   text(size: 8.5pt)[
     *Setup* (as in the stability study of Hirschi and Peraro, arXiv:1604.01363, figs. 2–4):
     random flat phase-space points at √s = #setup.sqrt_s GeV with p#sub[T] > #setup.pt_min GeV for every
     final-state gluon and ΔR > #setup.dr_min between gluons (seed #setup.seed); top-quark loops,
-    m#sub[t] = 173 GeV, m#sub[H] = #setup.mh GeV, μ = #setup.mu GeV. Massless legs are lightlike only to
-    binary64 rounding, as in a Monte Carlo. Every code reads the same binary64 inputs and returns the complete
-    tensor array; Δ is its E/A (all Cartesian moments, all four Laurent slots, dimensionally rescaled) against
-    quadruple-precision original IREGI on the same inputs. Each curve gives the fraction of points whose
-    array is worse than Δ; points without an array (refused, nonfinite) count as worse than every Δ.
-    The gray bar marks Δ = 10#super[−3], the usual Monte-Carlo rescue threshold.
+    m#sub[t] = 173 GeV, m#sub[H] = #setup.mh GeV, μ = #setup.mu GeV. Every code reads the same binary64
+    inputs, as a user would run it: massless legs are lightlike only to binary64 rounding
+    (|p#super[2]| ≈ 10#super[−16] s), and each code treats them as exactly lightlike — TIRust by its lightlike
+    tolerance, IREGI by its default on-shell snapping (as in MadLoop), COLLIER through exact zero invariants
+    (passing the rounded invariants instead made COLI return NaN and DD wrong arrays on most pentagons and
+    hexagons). Δ is the E/A of the complete returned array (all Cartesian moments, all four Laurent slots,
+    dimensionally rescaled) against the reference. Each curve gives the fraction of points whose array is worse
+    than Δ; points without an array (refused, nonfinite) count as worse than every Δ. The gray bar marks
+    Δ = 10#super[−3], the usual Monte-Carlo rescue threshold.
   ]
   v(0.2em)
   figure(caption: [Cumulative binary64 stability profiles (fraction of points with E/A > Δ).
-    TIRust (default) is the public binary64 API: lanes the direct engine refuses on conditioning are rerun
-    by it at higher precision before results are returned. TIRust direct engine, binary64 only, shows the
-    same lanes without that rescue. IREGI and COLLIER are binary64 throughout.])[
+    TIRust (default) is the public binary64 API: lanes its own checks refuse (conditioning gates; for N≥5 a
+    loop-rotation test comparing two binary64 evaluations) are rerun by the direct engine at 106, 256 or 512
+    bits before results are returned. "TIRust binary64 only" shows the binary64 arrays with those refusals
+    as missing. IREGI and COLLIER are binary64 throughout.])[
     #grid(columns: 2, column-gutter: 4pt, row-gutter: 2pt,
       ..snapshot.integrals.map(integral => st-plot(integral, snapshot.grid_log10)))
     #v(2pt)
     #st-legend(snapshot.integrals.at(0).codes)
+  ]
+  v(0.2em)
+  let codes = snapshot.integrals.at(0).codes
+  block(breakable: false, figure(kind: table, caption: [Per-point E/A: median, 99th percentile and the number of points worse than
+    10#super[−3] (green: none; blue: below 1%; amber: 1% or more). "No array": refused or nonfinite output;
+    "flagged": COLLIER accuracy flag or IREGI non-success status (values still scored).])[
+    #table(
+      columns: (1.25fr,) + (1fr,) * codes.len(),
+      inset: (x: 4pt, y: 4pt), stroke: table-stroke, align: left + horizon,
+      fill: (x, y) => if y == 0 { navy } else { none },
+      table.header(..([Integral],) .map(h => text(fill: white, size: 7.5pt, weight: "bold", h)),
+        ..codes.map(c => text(fill: white, size: 7pt, weight: "bold", c.label))),
+      ..snapshot.integrals.map(integral => (
+        table.cell(text(size: 7.5pt)[*#integral.id* \ #text(size: 6.3pt, fill: luma(80))[#integral.with_reference points]]),
+        ..integral.codes.map(code => st-cell(code, integral.with_reference)),
+      )).flatten(),
+    )
+  ])
+  text(size: 8.5pt)[
+    *Findings.* On the boxes TIRust's binary64 arrays match COLLIER's accuracy; original IREGI's PV mode
+    fails on every rank-6 box (rank above N) and its IBP mode has rare large outliers. On the pentagon and the
+    hexagon COLLIER (both branches) stays accurate on every point, IREGI PV is mostly accurate with a tail,
+    and IREGI IBP fails often (on the hexagon almost always). TIRust returns an accurate array on every point,
+    but on physical pentagons and hexagons only through its precision rescue: its binary64 pentagon recursion
+    (moments through the inverse Gram matrix) is refused on nearly all of them, so those lanes cost
+    milliseconds instead of microseconds. A Gram-free five-point reduction (Denner–Dittmaier) is the next step.
+  ]
+  v(0.2em)
+  let rescued = snapshot.integrals.map(i => (i.id, i.codes.at(0).at("rescued_by_bits", default: (:))))
+  block(breakable: false, figure(kind: table, caption: [Reference and TIRust precision rescue per integral.])[
+    #table(
+      columns: (1.1fr, 1.5fr, 1.3fr, 1.5fr, 0.8fr, 1.6fr),
+      inset: (x: 4pt, y: 4pt), stroke: table-stroke, align: left + horizon,
+      fill: (x, y) => if y == 0 { navy } else { none },
+      table.header(..([Integral], [256-bit reference confirmed by], [Confirmation E/A median / max],
+        [Confirmed only above 10#super[−12] (COLLIER sides with 256 bits)], [Excluded],
+        [TIRust lanes rescued (bits: lanes)]).map(h => text(fill: white, size: 7pt, weight: "bold", h))),
+      ..snapshot.integrals.map(i => {
+        let rules = i.reference_rules
+        let tiers = rescued.find(r => r.at(0) == i.id).at(1)
+        (
+          text(size: 7.5pt)[*#i.id*],
+          text(size: 7pt)[#for (rule, count) in rules [#rule.replace("256-bit, confirmed by ", "").replace("quadIBP", "quad IBP").replace("quadPV", "quad PV"): #count \ ]],
+          text(size: 7pt)[#de-sci(i.reference_checks.confirmation_median) / #de-sci(i.reference_checks.confirmation_max)],
+          text(size: 7pt)[#i.reference_checks.at("confirmed_above_1e-12") (#i.reference_checks.of_which_collier_closer_to_256bit)],
+          text(size: 7pt)[#(i.points - i.with_reference) / #i.points],
+          text(size: 7pt)[#if tiers.len() == 0 [none] else { tiers.pairs().map(((b, c)) => [#b: #c]).join(", ") }],
+        )
+      }).flatten(),
+    )
+  ])
+  text(size: 8pt)[
+    *Reference.* The TIRust direct engine at 256 bits on the same binary64 inputs, accepted per point only when
+    quadruple-precision original IREGI (IBP or PV, whichever agrees better; on-shell snapping as above) confirms
+    it to E/A ≤ 10#super[−9]; otherwise the quad IBP array when both quad modes agree, else the point is
+    excluded. Quad IREGI alone cannot be the reference: its IREGI-native normalization carries a binary64 π
+    (every array is off by 6.3×10#super[−17]), quad PV fails on the rank-6 box (rank above N), quad IBP on the
+    hexagon, and quad PV keeps only 10#super[−12]–10#super[−10] on some hexagon points, where COLLIER (independent
+    of both) agrees with the 256-bit array instead. Below the confirmation level Δ is not independently verified.
+    TIRust lanes rescued at 256 bits equal the reference after rounding (Δ = 0). Binaries and the TIRust commit are in `validation/benchmark/stability-20261030/summary.json`; reproduce with
+    #raw("make-points.py"), #raw("build.py"), #raw("run.py") and #raw("summarize.py") in that directory.
   ]
 }
 

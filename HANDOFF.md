@@ -177,6 +177,16 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    build reads decimals in quad, so give it exact expansions of binary64.
    Rescue cost on physical points (release, 877cf47): box r4 24 us, r6 49 us
    (no rescue); pentagon r5 6-9 ms (106 bits); hexagon r6 150-170 ms (256 bits).
+   **Results (TIRust 7226962, report pages 4-5, bound as `stability_20261030`):**
+   TIRust default returns an array on every point; worst E/A 9.6e-9 (box r4),
+   3.4e-10 (box r6), 2.4e-10 (pentagon), 1e-16 (hexagon); binary64 alone keeps
+   99.7% of r4 boxes, 96% of r6 boxes, 31/5000 pentagons, 0 hexagons. COLLIER
+   COLI/DD: worst 6e-11..1.3e-9 everywhere. IREGI PV wrong on all r6 boxes,
+   otherwise mostly fine (tails to 1e-1..3e3); IREGI IBP: 268/5000 pentagons
+   and 1987/1994 hexagons worse than 1e-3. Excluded: 6/2000 hexagons (no
+   confirmed reference). The first capture (877cf47; 7 pentagons where a
+   nonfinite binary64 coefficient bypassed the rescue, fixed in 7226962)
+   stays under target/stability-20261030/capture-877cf47.
 3c. **Next: Gram-free 5- and 6-point reduction** so physical N=5/6 lanes stay in
    binary64. Denner-Dittmaier hep-ph/0212259 Eq. (2.17)/(2.19)
    (E_P = -sum_i detY_i/detY D_P(i) + 2 sum_ij Zhat_ij/detY p_j^a Delta_aP(i)
