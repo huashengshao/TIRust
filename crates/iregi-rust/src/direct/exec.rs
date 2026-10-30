@@ -1420,8 +1420,14 @@ where
 
     fn run_program(&mut self, program_is_moments: bool) {
         match (self.plan.jet, self.ir_free) {
-            (Some((_, 2)), true) => self.run_program_jet2::<false>(program_is_moments),
-            (Some((_, 2)), false) => self.run_program_jet2::<true>(program_is_moments),
+            (Some((_, 2)), true) => self.run_program_jet::<false, 2>(program_is_moments),
+            (Some((_, 2)), false) => self.run_program_jet::<true, 2>(program_is_moments),
+            (Some((_, 3)), true) => self.run_program_jet::<false, 3>(program_is_moments),
+            (Some((_, 3)), false) => self.run_program_jet::<true, 3>(program_is_moments),
+            (Some((_, 4)), true) => self.run_program_jet::<false, 4>(program_is_moments),
+            (Some((_, 4)), false) => self.run_program_jet::<true, 4>(program_is_moments),
+            (Some((_, 5)), true) => self.run_program_jet::<false, 5>(program_is_moments),
+            (Some((_, 5)), false) => self.run_program_jet::<true, 5>(program_is_moments),
             (Some(_), _) => self.run_program_jets(program_is_moments),
             (None, true) => self.run_program_ordinary::<false>(program_is_moments),
             (None, false) => self.run_program_ordinary::<true>(program_is_moments),
@@ -1454,9 +1460,9 @@ where
         self.ir_free = free;
     }
 
-    /// Taylor length two: order one is `g0 v1 + g1 v0`, where `g1` is
-    /// nonzero only for mass-dependent geometry.
-    fn run_program_jet2<const FULL: bool>(&mut self, program_is_moments: bool) {
+    /// Taylor length `K`: order `k` accumulates `sum_(a+b=k) g_a v_b`, skipping
+    /// the vanishing orders of mass-independent geometry.
+    fn run_program_jet<const FULL: bool, const K: usize>(&mut self, program_is_moments: bool) {
         let plan = self.plan.clone();
         let program = if program_is_moments {
             &plan.moment_program
@@ -1464,38 +1470,42 @@ where
             &plan.coefficient_program
         };
         for instruction in program {
-            let mut acc0 = lzero(&self.zero);
-            let mut acc1 = lzero(&self.zero);
+            let mut acc: [L4<T>; K] = std::array::from_fn(|_| lzero(&self.zero));
             for term in &plan.terms[instruction.terms.0 as usize..instruction.terms.1 as usize] {
                 let constant = &self.constants[term.constant as usize];
                 let src = term.src as usize;
                 if term.geometry == NO_GEOMETRY {
                     let factor = C::new(constant.clone(), self.prototype.zero());
-                    lfma_slots::<T, FULL>(&mut acc0, &factor, &self.values[src]);
-                    lfma_slots::<T, FULL>(&mut acc1, &factor, &self.values_jet[0][src]);
+                    lfma_slots::<T, FULL>(&mut acc[0], &factor, &self.values[src]);
+                    for b in 1..K {
+                        lfma_slots::<T, FULL>(&mut acc[b], &factor, &self.values_jet[b - 1][src]);
+                    }
                     continue;
                 }
                 let g = term.geometry as usize;
-                let g0 = &self.geometry[g];
-                if !(g0.re.is_zero() && g0.im.is_zero()) {
-                    let factor = if term.constant == 0 { g0.clone() } else { cscale(g0, constant) };
-                    lfma_slots::<T, FULL>(&mut acc0, &factor, &self.values[src]);
-                    lfma_slots::<T, FULL>(&mut acc1, &factor, &self.values_jet[0][src]);
-                }
-                let g1 = &self.geometry_jet[0][g];
-                if !(g1.re.is_zero() && g1.im.is_zero()) {
-                    let factor = if term.constant == 0 { g1.clone() } else { cscale(g1, constant) };
-                    lfma_slots::<T, FULL>(&mut acc1, &factor, &self.values[src]);
+                for a in 0..K {
+                    let ga = if a == 0 { &self.geometry[g] } else { &self.geometry_jet[a - 1][g] };
+                    if ga.re.is_zero() && ga.im.is_zero() {
+                        continue;
+                    }
+                    let factor = if term.constant == 0 { ga.clone() } else { cscale(ga, constant) };
+                    lfma_slots::<T, FULL>(&mut acc[a], &factor, &self.values[src]);
+                    for b in 1..K - a {
+                        lfma_slots::<T, FULL>(&mut acc[a + b], &factor, &self.values_jet[b - 1][src]);
+                    }
                 }
             }
             if let PostOp::DivideDimension { inverse } = instruction.post {
                 let inverse = &self.constants[inverse as usize];
-                div_dimension(&mut acc0, inverse);
-                div_dimension(&mut acc1, inverse);
+                for value in &mut acc {
+                    div_dimension(value, inverse);
+                }
             }
             let dst = instruction.dst as usize;
-            self.values[dst] = acc0;
-            self.values_jet[0][dst] = acc1;
+            self.values[dst] = acc[0].clone();
+            for order in 1..K {
+                self.values_jet[order - 1][dst] = acc[order].clone();
+            }
         }
     }
 
