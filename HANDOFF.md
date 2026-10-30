@@ -132,6 +132,18 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    precision, and round to binary64. Validate against quad IREGI on these
    points; only then fall back to the symbolic engine. Long term: Gram
    expansions as in COLLIER.
+   **Feasibility verified** (`examples/direct_precision_probe.rs`): the direct
+   engine already runs with `Float` (masters via `NativeEvaluator<Float>`).
+   delta=1/8: 128 vs 256 bits agree to 1.9e-32 and binary64 vs 256 bits is
+   7.2e-12 (same as against quad IREGI); delta=1/64: 128 vs 256 agree to
+   1.6e-24; delta=1/1024 and 1/65536: 128 bits refuses on conditioning
+   (1.9e-7, 4.8e-11 at rank 4) and 256 bits succeeds. Implementation sketch:
+   in `dispatch/direct_hybrid.rs`, before the symbolic fallback, build (lazily)
+   a `DirectWorkspace<Float>` per precision tier (128, 256, 512), set its
+   stability threshold to `2^-(bits-60)`, lift the unstable lanes' inputs
+   exactly, run, round accepted lanes to binary64 and mark `fallback_used`.
+   The conditioning value is in the Unstable message today; expose it
+   structurally to pick the tier.
 4. Remaining cost centres: masters (log/atan2/dilog in OneLOop kernels), the
    recurrence loop (a real-factor fast path gave nothing measurable; the loop is
    load/latency bound, so try SoA L4 layout), gathers.
