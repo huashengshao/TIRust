@@ -82,16 +82,20 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     distances: Vec<C<T>>,
     shifts: Vec<[C<T>; 4]>,
     masses: Vec<C<T>>,
-    products: Vec<C<T>>,
-    poly_a: Vec<L4<T>>,
-    poly_b: Vec<L4<T>>,
-    poly_h: Vec<L4<T>>,
-    poly_s: Vec<L4<T>>,
-    poly_u: Vec<L4<T>>,
-    poly_v: Vec<L4<T>>,
+    /// `g_lambda` blocks, `lambda * stride + monomial`.
+    g_buffer: Vec<L4<T>>,
+    sparse_products: Vec<(u32, C<T>)>,
+    product_ranges: Vec<(u32, u32)>,
+    dense: Vec<C<T>>,
+    dense_mark: Vec<bool>,
+    touched: Vec<u32>,
+    qexp_constants: Vec<Vec<T>>,
+    binomials: Vec<Vec<T>>,
+    tpow: Vec<C<T>>,
     matrix: Vec<C<T>>,
     rhs: Vec<C<T>>,
     native_constants: NativeConstants<T>,
+    output_flags: Vec<OutputFlags<T>>,
     /// Taylor orders `1..K` of values and geometry in the dotted squared mass.
     values_jet: Vec<Vec<L4<T>>>,
     geometry_jet: Vec<Vec<C<T>>>,
@@ -105,6 +109,17 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     stability_threshold: T,
     profiling: bool,
     profile: DirectProfile,
+}
+
+/// Per-output-moment conversion flags.
+#[derive(Clone)]
+struct OutputFlags<T> {
+    /// UV power counting: no UV pole at this rank.
+    uv_zero: bool,
+    /// Odd rank (MadLoop sign).
+    odd: bool,
+    /// Multinomial weight, if requested.
+    weight: Option<T>,
 }
 
 #[derive(Clone)]
@@ -184,7 +199,6 @@ where
         let jet_orders = plan.jet.map_or(0, |(_, k)| k - 1);
         let gather_degree = plan.basis.len();
         let max_size = plan.subsets.iter().map(|s| s.members.len()).max().unwrap_or(1);
-        let products_len = plan.gather_scratch.max(1);
         let stability_threshold = prototype.from_rational(&symbolica::domains::rational::Rational::from((
             symbolica::domains::integer::Integer::from(1),
             symbolica::domains::integer::Integer::from(1_000_000_000_000i64),
@@ -195,13 +209,30 @@ where
             distances: vec![zero.clone(); plan.settings.propagators * plan.settings.propagators],
             shifts: vec![[zero.clone(), zero.clone(), zero.clone(), zero.clone()]; plan.settings.propagators],
             masses: vec![zero.clone(); plan.settings.propagators],
-            products: vec![zero.clone(); products_len],
-            poly_a: vec![lzero(&zero); gather_degree],
-            poly_b: vec![lzero(&zero); gather_degree],
-            poly_h: vec![lzero(&zero); gather_degree],
-            poly_s: vec![lzero(&zero); gather_degree],
-            poly_u: vec![lzero(&zero); gather_degree * (usize::from(plan.settings.rank) + 1)],
-            poly_v: vec![lzero(&zero); gather_degree * (usize::from(plan.settings.rank) + 1)],
+            g_buffer: vec![lzero(&zero); gather_degree * (usize::from(plan.settings.rank) / 2 + 1)],
+            sparse_products: Vec::new(),
+            product_ranges: Vec::new(),
+            dense: vec![zero.clone(); gather_degree],
+            dense_mark: vec![false; gather_degree],
+            touched: Vec::new(),
+            qexp_constants: plan
+                .monomials
+                .qexp
+                .iter()
+                .map(|terms| terms.iter().map(|(_, _, c)| prototype.from_rational(c)).collect())
+                .collect(),
+            binomials: (0..=usize::from(plan.settings.rank))
+                .map(|j| {
+                    (0..=j)
+                        .map(|k| {
+                            let value: u64 = ((k as u64 + 1)..=(j as u64)).product::<u64>()
+                                / (1..=(j - k) as u64).product::<u64>();
+                            prototype.from_usize(value as usize)
+                        })
+                        .collect()
+                })
+                .collect(),
+            tpow: vec![zero.clone(); usize::from(plan.settings.rank) + 1],
             matrix: vec![zero.clone(); max_size.max(5) * max_size.max(5)],
             rhs: vec![zero.clone(); 5 * 5],
             values_jet: vec![vec![lzero(&zero); plan.value_count]; jet_orders],
@@ -217,6 +248,23 @@ where
             master_errors: Vec::new(),
             master_offsets,
             master_count,
+            output_flags: {
+                let settings = &plan.settings;
+                let base = 4 + 2 * i32::from(settings.dimension_shift)
+                    - 2 * settings.powers.iter().map(|&p| i32::from(p)).sum::<i32>();
+                plan.basis
+                    .iter()
+                    .map(|monomial| {
+                        let rank = monomial.rank() as i32;
+                        OutputFlags {
+                            uv_zero: base + rank < 0,
+                            odd: rank % 2 == 1,
+                            weight: (settings.tensor_weights == TensorWeights::Multinomial)
+                                .then(|| prototype.from_usize(multinomial(monomial.0) as usize)),
+                        }
+                    })
+                    .collect()
+            },
             native_constants: NativeConstants {
                 a,
                 a_half_squared_minus_b,
@@ -614,9 +662,6 @@ where
         }
         if self.geometry.len() < plan.geometry_count {
             self.geometry.resize(plan.geometry_count, self.zero.clone());
-        }
-        if self.products.len() < plan.gather_scratch {
-            self.products.resize(plan.gather_scratch, self.zero.clone());
         }
         let (value_count, geometry_count) = (plan.value_count, plan.geometry_count);
         for values in &mut self.values_jet {
@@ -1197,10 +1242,16 @@ where
                 let constant = &self.constants[term.constant as usize];
                 let factor = if term.geometry == NO_GEOMETRY {
                     C::new(constant.clone(), self.prototype.zero())
-                } else if term.constant == 0 {
-                    self.geometry[term.geometry as usize].clone()
                 } else {
-                    cscale(&self.geometry[term.geometry as usize], constant)
+                    let geometry = &self.geometry[term.geometry as usize];
+                    if geometry.re.is_zero() && geometry.im.is_zero() {
+                        continue;
+                    }
+                    if term.constant == 0 {
+                        geometry.clone()
+                    } else {
+                        cscale(geometry, constant)
+                    }
                 };
                 lfma(&mut accumulator, &factor, &self.values[term.src as usize]);
             }
@@ -1214,165 +1265,138 @@ where
         }
     }
 
+    /// Cartesian moments of every gathered PV subset.
+    ///
+    /// 1. Momentum products `P_k(z) = prod_i (p_i.z)^(k_i)/k_i!`.
+    /// 2. `g_lambda(f) = sum_(|k|=|f|) C(lambda, k) [z^f] P_k`.
+    /// 3. Untranslated moments by the closed metric expansion
+    ///    `L(e) = sum_a e! (-1)^(a1+a2+a3)/(2^|a| a!) g_|a|(e-2a)`.
+    /// 4. Translation to the loop momentum, `M(e) = sum_f binom(e,f)
+    ///    (-o)^(e-f) L(f)`, as separable 1-D binomial transforms along the
+    ///    nonzero axes of the subset origin `o`.
     fn gather(&mut self) {
         let plan = self.plan.clone();
         let table = &plan.monomials;
+        let stride = table.block(usize::from(plan.settings.rank)).end;
         for gather in &plan.gathers {
             let subset = &plan.subsets[gather.subset];
             let geometry = subset.pv.unwrap();
             let rank = usize::from(gather.moment_rank);
-            // Momentum products prod_i (p_i.z)^k_i / k_i!.
-            for (k, kappa) in gather.kappas.iter().enumerate() {
-                let offset = kappa.offset as usize;
-                let block = table.block(usize::from(kappa.degree));
+            let momenta = subset.members.len() - 1;
+            // 1. Products as sparse (local monomial, value) lists per kappa.
+            self.sparse_products.clear();
+            self.product_ranges.clear();
+            for kappa in &gather.kappas {
+                let start = self.sparse_products.len() as u32;
                 if kappa.degree == 0 {
-                    self.products[offset] = self.one.clone();
+                    self.sparse_products.push((0, self.one.clone()));
+                    self.product_ranges.push((start, start + 1));
                     continue;
                 }
-                for slot in &mut self.products[offset..offset + block.len()] {
-                    *slot = self.zero.clone();
-                }
+                let block = table.block(usize::from(kappa.degree));
                 let parent = &gather.kappas[kappa.parent as usize];
-                let parent_block = table.block(usize::from(parent.degree));
-                let divisor = self.prototype.from_usize(usize::from(kappa.divisor));
+                let parent_start = table.block(usize::from(parent.degree)).start;
+                let (from, to) = self.product_ranges[kappa.parent as usize];
+                let inverse = self.prototype.one() / &self.prototype.from_usize(usize::from(kappa.divisor));
                 let p = geometry.p as usize + 4 * usize::from(kappa.momentum);
-                for (local, monomial) in parent_block.clone().enumerate() {
-                    let value = self.products[parent.offset as usize + local].clone();
-                    if value.re.is_zero() && value.im.is_zero() {
-                        continue;
-                    }
-                    let value = C::new(value.re / &divisor, value.im / &divisor);
+                self.touched.clear();
+                for entry in from..to {
+                    let (local, value) = self.sparse_products[entry as usize].clone();
+                    let value = cscale(&value, &inverse);
+                    let monomial = parent_start + local as usize;
                     for a in 0..4 {
-                        let target = table.multiply[monomial][a] as usize - block.start;
-                        let update = cmul(&value, &self.geometry[p + a]);
-                        self.products[offset + target] =
-                            cadd(&self.products[offset + target], &update);
-                    }
-                }
-                let _ = k;
-            }
-            // Untranslated generating polynomial H_k, Horner in the metric.
-            let kappas = gather.kappas.len();
-            for degree in 0..=rank {
-                let block = table.block(degree);
-                for slot in &mut self.poly_h[block.clone()] {
-                    *slot = lzero(&self.zero);
-                }
-                let lambda_max = degree / 2;
-                for lambda in (0..=lambda_max).rev() {
-                    let momentum_degree = degree - 2 * lambda;
-                    let a_block = table.block(momentum_degree);
-                    for slot in &mut self.poly_a[a_block.clone()] {
-                        *slot = lzero(&self.zero);
-                    }
-                    for (k, kappa) in gather.kappas.iter().enumerate() {
-                        if usize::from(kappa.degree) != momentum_degree {
+                        let component = &self.geometry[p + a];
+                        if component.re.is_zero() && component.im.is_zero() {
                             continue;
                         }
-                        let coefficient = gather.coefficient[lambda * kappas + k];
-                        let value = self.values[coefficient as usize].clone();
-                        for (local, monomial) in a_block.clone().enumerate() {
-                            let product = &self.products[kappa.offset as usize + local];
-                            if product.re.is_zero() && product.im.is_zero() {
-                                continue;
-                            }
-                            lfma(&mut self.poly_a[monomial], product, &value);
+                        let target = table.multiply[monomial][a] as usize - block.start;
+                        if !self.dense_mark[target] {
+                            self.dense_mark[target] = true;
+                            self.dense[target] = self.zero.clone();
+                            self.touched.push(target as u32);
                         }
-                    }
-                    if lambda == lambda_max {
-                        for monomial in a_block.clone() {
-                            self.poly_b[monomial] = self.poly_a[monomial].clone();
-                        }
-                    } else {
-                        // B <- A + Q B / (2 (lambda + 1)), Q = z0^2 - z^2.
-                        // poly_h holds finished lower-degree H blocks, so
-                        // the Horner step uses its own scratch.
-                        let previous = table.block(momentum_degree - 2);
-                        let scale = self.prototype.one()
-                            / &self.prototype.from_usize(2 * (lambda + 1));
-                        for monomial in a_block.clone() {
-                            self.poly_s[monomial] = self.poly_a[monomial].clone();
-                        }
-                        for monomial in previous.clone() {
-                            let value = self.poly_b[monomial].clone();
-                            for a in 0..4 {
-                                let target = table.multiply[table.multiply[monomial][a] as usize][a]
-                                    as usize;
-                                let factor = if a == 0 { scale.clone() } else { -scale.clone() };
-                                for slot in 0..4 {
-                                    let update = cscale(&value[slot], &factor);
-                                    self.poly_s[target][slot] =
-                                        cadd(&self.poly_s[target][slot], &update);
-                                }
-                            }
-                        }
-                        for monomial in a_block.clone() {
-                            self.poly_b[monomial] = self.poly_s[monomial].clone();
-                        }
+                        let update = cmul(&value, component);
+                        self.dense[target] = cadd(&self.dense[target], &update);
                     }
                 }
-                for monomial in block.clone() {
-                    self.poly_h[monomial] = self.poly_b[monomial].clone();
+                for &target in &self.touched {
+                    self.dense_mark[target as usize] = false;
+                    let value = self.dense[target as usize].clone();
+                    if !(value.re.is_zero() && value.im.is_zero()) {
+                        self.sparse_products.push((target, value));
+                    }
+                }
+                let end = self.sparse_products.len() as u32;
+                self.product_ranges.push((start, end));
+            }
+            // 2. g_lambda blocks; without momenta only degree zero exists.
+            let kappas = gather.kappas.len();
+            for lambda in 0..=rank / 2 {
+                let top = if momenta == 0 { 0 } else { rank - 2 * lambda };
+                let base = lambda * stride;
+                for slot in &mut self.g_buffer[base..base + table.block(top).end] {
+                    *slot = lzero(&self.zero);
+                }
+                for (k, kappa) in gather.kappas.iter().enumerate() {
+                    let degree = usize::from(kappa.degree);
+                    if degree > top {
+                        continue;
+                    }
+                    let coefficient = gather.coefficient[lambda * kappas + k];
+                    let value = &self.values[coefficient as usize];
+                    let block_start = base + table.block(degree).start;
+                    let (from, to) = self.product_ranges[k];
+                    for (local, product) in &self.sparse_products[from as usize..to as usize] {
+                        lfma(&mut self.g_buffer[block_start + *local as usize], product, value);
+                    }
                 }
             }
-            // Translate l -> l - origin: F_r = sum_j T^j/j! H_(r-j), T = -origin.z.
-            let origin = geometry.origin as usize;
-            let translated = (0..4).any(|a| {
-                let value = &self.geometry[origin + a];
-                !(value.re.is_zero() && value.im.is_zero())
-            });
+            // 3. Untranslated moments.
             let moment_base = gather.moment_base as usize;
-            if !translated {
-                for monomial in table.block(0).start..table.block(rank).end {
-                    let factorial = self.prototype.from_usize(table.factorials[monomial] as usize)
-                        * &self.gather_scale;
-                    let value = &self.poly_h[monomial];
-                    self.values[moment_base + monomial] =
-                        std::array::from_fn(|slot| cscale(&value[slot], &factorial));
+            for e in 0..table.block(rank).end {
+                let mut total = lzero(&self.zero);
+                for (term, &(src, lambda, _)) in table.qexp[e].iter().enumerate() {
+                    if momenta == 0 && src != 0 {
+                        continue;
+                    }
+                    let value = &self.g_buffer[usize::from(lambda) * stride + src as usize];
+                    let constant = &self.qexp_constants[e][term];
+                    for slot in 0..4 {
+                        total[slot] = cadd(&total[slot], &cscale(&value[slot], constant));
+                    }
                 }
-                continue;
+                for slot in &mut total {
+                    *slot = cscale(slot, &self.gather_scale);
+                }
+                self.values[moment_base + e] = total;
             }
-            let negative_origin: [C<T>; 4] =
-                std::array::from_fn(|a| csub(&self.zero, &self.geometry[origin + a]));
-            let stride = table.block(rank).end;
-            // poly_u[j * stride + m] holds T^j/j! H_(r-1-j); poly_v the next r.
-            for r in 0..=rank {
-                let block = table.block(r);
-                for j in 0..=r {
-                    for monomial in block.clone() {
-                        self.poly_v[j * stride + monomial] = lzero(&self.zero);
+            // 4. Translation along the nonzero origin axes.
+            let origin = geometry.origin as usize;
+            for axis in 0..4 {
+                let shift = &self.geometry[origin + axis];
+                if shift.re.is_zero() && shift.im.is_zero() {
+                    continue;
+                }
+                let t = csub(&self.zero, shift);
+                self.tpow[0] = self.one.clone();
+                for k in 1..=rank {
+                    self.tpow[k] = cmul(&self.tpow[k - 1], &t);
+                }
+                for (others, line) in &table.lines[axis] {
+                    let others = usize::from(*others);
+                    if others > rank {
+                        continue;
                     }
-                }
-                for monomial in block.clone() {
-                    self.poly_v[monomial] = self.poly_h[monomial].clone();
-                }
-                if r > 0 {
-                    let previous = table.block(r - 1);
-                    for j in 1..=r {
-                        let inverse = self.prototype.one() / &self.prototype.from_usize(j);
-                        for monomial in previous.clone() {
-                            let value = self.poly_u[(j - 1) * stride + monomial].clone();
-                            for a in 0..4 {
-                                let target = table.multiply[monomial][a] as usize;
-                                let factor = cscale(&negative_origin[a], &inverse);
-                                lfma(&mut self.poly_v[j * stride + target], &factor, &value);
-                            }
+                    let length = rank - others;
+                    for j in (1..=length).rev() {
+                        let mut total = self.values[moment_base + line[j] as usize].clone();
+                        for k in 0..j {
+                            let factor = cscale(&self.tpow[j - k], &self.binomials[j][k]);
+                            lfma(&mut total, &factor, &self.values[moment_base + line[k] as usize]);
                         }
+                        self.values[moment_base + line[j] as usize] = total;
                     }
                 }
-                for monomial in block.clone() {
-                    let mut total = lzero(&self.zero);
-                    for j in 0..=r {
-                        for slot in 0..4 {
-                            total[slot] = cadd(&total[slot], &self.poly_v[j * stride + monomial][slot]);
-                        }
-                    }
-                    let factorial = self.prototype.from_usize(table.factorials[monomial] as usize)
-                        * &self.gather_scale;
-                    self.values[moment_base + monomial] =
-                        std::array::from_fn(|slot| cscale(&total[slot], &factorial));
-                }
-                std::mem::swap(&mut self.poly_u, &mut self.poly_v);
             }
         }
     }
@@ -1408,8 +1432,6 @@ where
         let mut values = Vec::with_capacity(batch.rows * basis_len * 4);
         let mut statuses = Vec::with_capacity(batch.rows);
         let settings = &base_plan.settings;
-        let base_uv_degree = 4 + 2 * i32::from(settings.dimension_shift)
-            - 2 * settings.powers.iter().map(|&p| i32::from(p)).sum::<i32>();
         for row in 0..batch.rows {
             let lane_values = values.len();
             values.resize(lane_values + basis_len * 4, self.zero.clone());
@@ -1531,47 +1553,47 @@ where
             let started = self.timer();
             let mut finite = true;
             let output_order = plan.jet.map_or(0, |(_, k)| k - 1);
-            for (index, monomial) in plan.basis.iter().enumerate() {
-                let mut value = if output_order == 0 {
-                    self.values[plan.output[index] as usize].clone()
-                } else {
-                    self.values_jet[output_order - 1][plan.output[index] as usize].clone()
-                };
-                let rank = monomial.rank() as i32;
-                if base_uv_degree + rank < 0 {
-                    value[0] = self.zero.clone();
-                }
-                match settings.convention {
-                    Convention::OneLoop => {}
+            let source = if output_order == 0 {
+                &self.values
+            } else {
+                &self.values_jet[output_order - 1]
+            };
+            let constants = &self.native_constants;
+            // The native normalization is purely imaginary, i pi^(2+h).
+            let p = &constants.normalization.im;
+            let lane_out = &mut values[lane_values..lane_values + 4 * basis_len];
+            for (index, flags) in self.output_flags.iter().enumerate() {
+                let v = &source[plan.output[index] as usize];
+                let uv = if flags.uv_zero { self.zero.clone() } else { v[0].clone() };
+                let mut out: L4<T> = match settings.convention {
+                    Convention::OneLoop => [uv, v[1].clone(), v[2].clone(), v[3].clone()],
                     Convention::MadLoop => {
-                        if rank % 2 == 1 {
-                            for slot in &mut value {
+                        let mut out = [uv, v[1].clone(), v[2].clone(), v[3].clone()];
+                        if flags.odd {
+                            for slot in &mut out {
                                 *slot = csub(&self.zero, slot);
                             }
                         }
+                        out
                     }
                     Convention::IregiNative => {
-                        let constants = &self.native_constants;
-                        let [uv, ir1, ir2, fin] = value.clone();
+                        let single_ir = csub(&v[1], &cscale(&v[2], &constants.a));
                         let finite_part = cadd(
-                            &csub(&fin, &cscale(&cadd(&uv, &ir1), &constants.a)),
-                            &cscale(&ir2, &constants.a_half_squared_minus_b),
+                            &csub(&v[3], &cscale(&cadd(&uv, &v[1]), &constants.a)),
+                            &cscale(&v[2], &constants.a_half_squared_minus_b),
                         );
-                        let single_ir = csub(&ir1, &cscale(&ir2, &constants.a));
-                        value = [uv, single_ir, ir2, finite_part]
-                            .map(|slot| cmul(&slot, &constants.normalization));
+                        [uv, single_ir, v[2].clone(), finite_part]
+                            .map(|z| C::new(-(z.im * p), z.re * p))
+                    }
+                };
+                if let Some(weight) = &flags.weight {
+                    for slot in &mut out {
+                        *slot = cscale(slot, weight);
                     }
                 }
-                if settings.tensor_weights == TensorWeights::Multinomial {
-                    let weight = multinomial(monomial.0);
-                    let weight = self.prototype.from_usize(weight as usize);
-                    for slot in &mut value {
-                        *slot = cscale(slot, &weight);
-                    }
-                }
-                for (slot, entry) in value.into_iter().enumerate() {
+                for (slot, entry) in out.into_iter().enumerate() {
                     finite &= entry.re.is_finite() && entry.im.is_finite();
-                    values[lane_values + 4 * index + slot] = entry;
+                    lane_out[4 * index + slot] = entry;
                 }
             }
             if let Some(started) = started {

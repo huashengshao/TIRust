@@ -28,6 +28,7 @@ pub(crate) const NO_GEOMETRY: u32 = u32::MAX;
 
 /// Dense monomial enumeration in `tensor_basis` order with multiplication maps.
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub(crate) struct MonomialTable {
     pub exponents: Vec<[u16; 4]>,
     /// `degree_start[d]..degree_start[d + 1]` holds the degree-`d` block.
@@ -36,6 +37,15 @@ pub(crate) struct MonomialTable {
     pub multiply: Vec<[u32; 4]>,
     /// `e!` for each monomial.
     pub factorials: Vec<u64>,
+    /// Metric expansion of the untranslated moment of `e`:
+    /// `L(e) = sum (src, lambda, c) c g_lambda(src)`, `src = e - 2a`,
+    /// `lambda = |a|`, `c = e! (-1)^(a1+a2+a3) / (2^|a| a!)`.
+    pub qexp: Vec<Vec<(u32, u16, Rational)>>,
+    /// Per axis: lines of monomials with fixed other exponents, as
+    /// `(sum of the other exponents, indices for exponent 0, 1, ...)`.
+    pub lines: [Vec<(u16, Vec<u32>)>; 4],
+    /// Monomial degrees.
+    pub degrees: Vec<u16>,
 }
 
 impl MonomialTable {
@@ -61,15 +71,65 @@ impl MonomialTable {
                 })
             })
             .collect();
-        let factorials = exponents
+        let factorials: Vec<u64> = exponents
             .iter()
             .map(|e| e.iter().map(|&x| factorial_u64(x)).product())
             .collect();
+        let qexp = exponents
+            .iter()
+            .enumerate()
+            .map(|(index, e)| {
+                let mut terms = Vec::new();
+                for a0 in 0..=e[0] / 2 {
+                    for a1 in 0..=e[1] / 2 {
+                        for a2 in 0..=e[2] / 2 {
+                            for a3 in 0..=e[3] / 2 {
+                                let a = [a0, a1, a2, a3];
+                                let src = [e[0] - 2 * a0, e[1] - 2 * a1, e[2] - 2 * a2, e[3] - 2 * a3];
+                                let lambda: u16 = a.iter().sum();
+                                let sign = if (a1 + a2 + a3) % 2 == 0 { 1 } else { -1 };
+                                let denominator = (1i64 << lambda)
+                                    * a.iter().map(|&x| factorial_u64(x) as i64).product::<i64>();
+                                let constant = Rational::from((
+                                    Integer::from(sign * factorials[index] as i64),
+                                    Integer::from(denominator),
+                                ));
+                                terms.push((lookup[&src], lambda, constant));
+                            }
+                        }
+                    }
+                }
+                terms
+            })
+            .collect();
+        let mut lines: [Vec<(u16, Vec<u32>)>; 4] = Default::default();
+        for (axis, axis_lines) in lines.iter_mut().enumerate() {
+            for (index, e) in exponents.iter().enumerate() {
+                if e[axis] != 0 {
+                    continue;
+                }
+                let others: u16 = e.iter().sum();
+                let mut line = vec![index as u32];
+                let mut next = *e;
+                loop {
+                    next[axis] += 1;
+                    match lookup.get(&next) {
+                        Some(&i) => line.push(i),
+                        None => break,
+                    }
+                }
+                axis_lines.push((others, line));
+            }
+        }
+        let degrees = exponents.iter().map(|e| e.iter().sum()).collect();
         Self {
             exponents,
             degree_start,
             multiply,
             factorials,
+            qexp,
+            lines,
+            degrees,
         }
     }
 
@@ -119,6 +179,7 @@ pub(crate) enum SubsetKind {
 
 /// A minimal affinely dependent propagator subset of a plan variant.
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub(crate) struct RelationGeometry {
     pub mask: u8,
     pub members: Vec<usize>,
@@ -188,6 +249,7 @@ pub(crate) struct Gather {
 }
 
 #[derive(Clone, Copy, Debug)]
+#[allow(dead_code)]
 pub(crate) struct GatherKappa {
     pub degree: u16,
     /// Parent multi-index and the momentum multiplied in; none for zero.
@@ -200,6 +262,7 @@ pub(crate) struct GatherKappa {
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub(crate) struct Subset {
     pub mask: u8,
     pub members: Vec<usize>,
