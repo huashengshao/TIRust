@@ -112,9 +112,25 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    `publish.py bind/seal --capture NNN`.
 2. Lightlike bubbles with jets (closed-form mass derivatives); currently those
    lanes fall back.
-3. Remaining cost centres: masters (log/atan2/dilog in OneLOop kernels), the
-   recurrence loop (SIMD-friendly L4 layout), gathers.
-4. Batch-major (SIMD across lanes) execution if batch throughput matters more
+3. **Near-degenerate Gram systems (robustness, highest real-world value).**
+   `validation/benchmark/direct-engine-20261030/coplanar-check.{py,jsonl}`: box
+   rank 4 with p3 = e_x+e_y+delta e_z. delta=1/8: TIRust direct succeeds, 3.3e-11
+   vs IREGI IBP. delta 1/64..6e-8: TIRust refuses honestly (direct marks the lane
+   unstable, the symbolic f64 fallback refuses, and even the 128-bit symbolic
+   engine refuses), while IREGI PV silently returns arrays off by 1e-4..0.85 and
+   IREGI IBP returns values of unknown accuracy. delta=0: TIRust's identity
+   agrees with IREGI IBP to 1.2e-13 (IREGI PV off by 3.5e-2). Next: a direct
+   numeric IBP tensor path as the first fallback: Davydychev generating
+   function as in `plan.rs::compile_scalar_tensors` (J_(h+r-pairs)(nu+c) with
+   binomial weights, Q^pairs and (p_i.t)^c over absolute shifts), and `ibp()`
+   extended to dimension shifts (ibp.rs Eqs. 18/21/23/15, exceptional cases
+   fall back). Check whether Eq. (18)'s division by B (small with the Gram)
+   needs an expansion; validate with the quad-precision IREGI reference build
+   (target/reference) on these delta points.
+4. Remaining cost centres: masters (log/atan2/dilog in OneLOop kernels), the
+   recurrence loop (a real-factor fast path gave nothing measurable; the loop is
+   load/latency bound, so try SoA L4 layout), gathers.
+5. Batch-major (SIMD across lanes) execution if batch throughput matters more
    than singleton latency.
 
 ### Quota protocol (user instruction, also in Claude memory)
