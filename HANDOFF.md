@@ -119,14 +119,19 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    unstable, the symbolic f64 fallback refuses, and even the 128-bit symbolic
    engine refuses), while IREGI PV silently returns arrays off by 1e-4..0.85 and
    IREGI IBP returns values of unknown accuracy. delta=0: TIRust's identity
-   agrees with IREGI IBP to 1.2e-13 (IREGI PV off by 3.5e-2). Next: a direct
-   numeric IBP tensor path as the first fallback: Davydychev generating
-   function as in `plan.rs::compile_scalar_tensors` (J_(h+r-pairs)(nu+c) with
-   binomial weights, Q^pairs and (p_i.t)^c over absolute shifts), and `ibp()`
-   extended to dimension shifts (ibp.rs Eqs. 18/21/23/15, exceptional cases
-   fall back). Check whether Eq. (18)'s division by B (small with the Gram)
-   needs an expansion; validate with the quad-precision IREGI reference build
-   (target/reference) on these delta points.
+   agrees with IREGI IBP to 1.2e-13 (IREGI PV off by 3.5e-2).
+   Quad-precision IREGI (`quad-coplanar.{py,jsonl}`, build-v6-001; quad IBP and
+   PV agree to <= 1e-12 for delta >= 1/1024): TIRust 7.2e-12 at 1/8 and 8.5e-14
+   at 0; binary64 IREGI IBP is wrong by 1.7e-4 at 1/64 and 2.5e6 at 1/1024
+   while reporting success. So numeric IBP is not the fix (IREGI's IBP fails
+   the same way). Next: a **direct-engine precision rescue** as the first
+   fallback: rerun unstable lanes through `DirectReductionPlan` with `Float`
+   (or `DoubleFloat`) at a precision chosen from the conditioning estimate
+   (53 + rank*log2(1/cond) + margin, capped at 256-512 bits), with masters from
+   `NativeEvaluator<Float>`, accept when the conditioning check passes at that
+   precision, and round to binary64. Validate against quad IREGI on these
+   points; only then fall back to the symbolic engine. Long term: Gram
+   expansions as in COLLIER.
 4. Remaining cost centres: masters (log/atan2/dilog in OneLOop kernels), the
    recurrence loop (a real-factor fast path gave nothing measurable; the loop is
    load/latency bound, so try SoA L4 layout), gathers.
