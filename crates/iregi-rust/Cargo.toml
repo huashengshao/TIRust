@@ -15,10 +15,11 @@ native-f64-abc = ["iregi-masters/native-f64-abc"]
 [dependencies]
 symbolica.workspace = true
 iregi-masters.workspace = true
+# Direct binary64 scalar masters (hand-written OneLOop kernels) for the direct engine.
+oneloop.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
-oneloop.workspace = true
 sha2 = "=0.10.9"

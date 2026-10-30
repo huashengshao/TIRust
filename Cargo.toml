@@ -45,6 +45,13 @@ codegen-units = 1
 [profile.dev.package."*"]
 opt-level = 2
 
+# Fast incremental optimized builds for development iteration only.
+[profile.devopt]
+inherits = "release"
+lto = false
+codegen-units = 16
+incremental = true
+
 [profile.bench]
 inherits = "release"
 debug = true

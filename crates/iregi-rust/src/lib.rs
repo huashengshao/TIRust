@@ -11,6 +11,7 @@ pub mod certified_scalar;
 pub mod certified_tensor;
 pub mod contraction;
 mod convention;
+pub mod direct;
 pub mod dispatch;
 mod exact_zero_certificate;
 pub mod execution;
@@ -45,6 +46,7 @@ pub use certified_tensor::{
     CertifiedTensorReductionPlan, CertifiedTensorWorkspace, TensorCertificateExecutionStats,
 };
 pub use contraction::{ContractionPlan, ContractionResult, ContractionWorkspace, NumeratorBatch};
+pub use direct::{DirectMasters, DirectProfile, DirectReductionPlan, DirectWorkspace};
 pub use dispatch::{
     TensorEngineExecution, TensorEngineKind, TensorReductionPlan, TensorWorkspace,
     TensorWorkspaceOptions,

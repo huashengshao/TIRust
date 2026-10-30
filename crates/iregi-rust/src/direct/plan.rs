@@ -107,6 +107,19 @@ pub(crate) enum SubsetKind {
     Pv,
     Pentagon,
     Hexagon,
+    /// Affinely dependent external points: the lane's constant-one
+    /// denominator identity `sum_i w_i D_i = 1` reduces every moment to
+    /// same-rank pinches. Index into `DirectPlanData::relations`.
+    Relation(usize),
+}
+
+/// A minimal affinely dependent propagator subset of a plan variant.
+#[derive(Clone, Debug)]
+pub(crate) struct RelationGeometry {
+    pub mask: u8,
+    pub members: Vec<usize>,
+    /// Geometry offset of the identity weights, one per member.
+    pub weights: u32,
 }
 
 /// Geometry offsets of a PV subset with `n` momenta.
@@ -217,6 +230,8 @@ pub(crate) struct DirectPlanData {
     pub terms: Vec<Term>,
     /// Masters per family `A0..D0`: `(subset, value index)`.
     pub masters: [Vec<(usize, u32)>; 4],
+    /// Minimal degenerate subsets of this variant, in profile order.
+    pub relations: Vec<RelationGeometry>,
     pub output: Vec<u32>,
     pub gather_scratch: usize,
 }
@@ -346,7 +361,23 @@ impl DirectPlanData {
     }
 
     pub fn new(settings: ReductionSettings) -> Result<Self, ReductionError> {
+        Self::with_relations(settings, &[])
+    }
+
+    /// Plan variant in which every subset (of at most five propagators)
+    /// containing one of `relation_masks` is reduced by that subset's
+    /// constant-one denominator identity instead of its singular Gram system.
+    pub fn with_relations(
+        settings: ReductionSettings,
+        relation_masks: &[u8],
+    ) -> Result<Self, ReductionError> {
         Self::supported(&settings)?;
+        let relation_for = |mask: u8| -> Option<usize> {
+            if mask.count_ones() >= 6 {
+                return None;
+            }
+            relation_masks.iter().position(|&r| r & !mask == 0)
+        };
         let n = settings.propagators;
         let rank = settings.rank;
         let basis = tensor_basis(rank);
@@ -362,6 +393,16 @@ impl DirectPlanData {
         for &mask in &masks {
             let size = mask.count_ones() as usize;
             let moment = moment_need.get(&mask).copied().unwrap_or(-1);
+            if let Some(relation) = relation_for(mask) {
+                if moment >= 0 {
+                    for member in members(relation_masks[relation]) {
+                        let child = without(mask, member);
+                        let need = moment_need.entry(child).or_insert(-1);
+                        *need = (*need).max(moment);
+                    }
+                }
+                continue;
+            }
             match size {
                 6 | 5 => {
                     if moment >= 0 {
@@ -403,6 +444,16 @@ impl DirectPlanData {
         let mut value_count: u32 = 0;
         let mut geometry_count: u32 = 0;
         let mut layouts: HashMap<u8, CoefficientLayout> = HashMap::new();
+        let mut relations = Vec::new();
+        for &relation in relation_masks {
+            let member_list = members(relation);
+            relations.push(RelationGeometry {
+                mask: relation,
+                weights: geometry_count,
+                members: member_list.clone(),
+            });
+            geometry_count += member_list.len() as u32;
+        }
         for &mask in &masks {
             let coefficient = coefficient_need.get(&mask).copied().unwrap_or(-1);
             let moment = moment_need.get(&mask).copied().unwrap_or(-1);
@@ -411,9 +462,10 @@ impl DirectPlanData {
             }
             let member_list = members(mask);
             let size = member_list.len();
-            let kind = match size {
-                6 => SubsetKind::Hexagon,
-                5 => SubsetKind::Pentagon,
+            let kind = match (relation_for(mask), size) {
+                (Some(relation), _) => SubsetKind::Relation(relation),
+                (None, 6) => SubsetKind::Hexagon,
+                (None, 5) => SubsetKind::Pentagon,
                 _ => SubsetKind::Pv,
             };
             let geometry_base = geometry_count;
@@ -474,6 +526,13 @@ impl DirectPlanData {
                     subset.hexagon = Some(geometry_base);
                     geometry_count += 30;
                 }
+                SubsetKind::Relation(_) => {
+                    if coefficient >= 0 {
+                        return Err(ReductionError::Preparation(
+                            "a degenerate subset cannot supply PV coefficients".into(),
+                        ));
+                    }
+                }
             }
             if moment >= 0 {
                 subset.moment_base = Some(value_count);
@@ -528,7 +587,7 @@ impl DirectPlanData {
                                     .collect();
                                 let src = zero_child.lookup[&(lambda, child)];
                                 let count = binomial(first, total) * factorial(total)
-                                    / extra.iter().map(|&x| factorial(x)).product::<Integer>();
+                                    / extra.iter().fold(Integer::from(1), |acc, &x| acc * factorial(x));
                                 let value = Rational::from(count) * &rational(sign, 1);
                                 terms.push(builder.term(src, NO_GEOMETRY, value));
                             }
@@ -651,9 +710,9 @@ impl DirectPlanData {
             let lambdas = usize::from(rank / 2) + 1;
             let mut coefficient = vec![u32::MAX; lambdas * kappas.len()];
             for lambda in 0..lambdas as u16 {
-                for (k, kappa) in kappa_lookup.iter() {
-                    if 2 * lambda + kappas[*k as usize].degree <= rank {
-                        coefficient[usize::from(lambda) * kappas.len() + *k as usize] =
+                for (kappa, &k) in kappa_lookup.iter() {
+                    if 2 * lambda + kappas[k as usize].degree <= rank {
+                        coefficient[usize::from(lambda) * kappas.len() + k as usize] =
                             layout.lookup[&(lambda, kappa.clone())];
                     }
                 }
@@ -681,6 +740,29 @@ impl DirectPlanData {
             }
             match subset.kind {
                 SubsetKind::Pv => {}
+                SubsetKind::Relation(relation) => {
+                    let relation = &relations[relation];
+                    let base = subset.moment_base.unwrap();
+                    for (index, e) in tensor_basis(subset.moment_rank as u16).iter().enumerate() {
+                        let terms = relation
+                            .members
+                            .iter()
+                            .enumerate()
+                            .map(|(j, &member)| {
+                                builder.term(
+                                    child_moment(without(subset.mask, member), e.0),
+                                    relation.weights + j as u32,
+                                    rational(1, 1),
+                                )
+                            })
+                            .collect();
+                        moment_program.push(builder.instruction(
+                            base + index as u32,
+                            terms,
+                            PostOp::None,
+                        ));
+                    }
+                }
                 SubsetKind::Pentagon => {
                     let geometry = subset.pentagon.unwrap();
                     let base = subset.moment_base.unwrap();
@@ -768,6 +850,7 @@ impl DirectPlanData {
             moment_program,
             terms: builder.terms,
             masters,
+            relations,
             output,
             gather_scratch,
         })

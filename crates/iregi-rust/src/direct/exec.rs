@@ -6,14 +6,14 @@
 //! reused buffers. A lane whose required Gram, Cayley or thin-six system is
 //! numerically singular reports `Unstable` and exposes no coefficients.
 
-use std::{sync::Arc, time::Instant};
+use std::{collections::HashMap, sync::Arc, time::Instant};
 
 use iregi_masters::{MasterEvaluator, MasterExecutionPolicy, NativeFloat, ScalarIntegral};
 use symbolica::{domains::float::Complex, evaluate::EvaluationDomain};
 
 use super::{
     numeric::{
-        C, L4, cadd, cfma, cmul, cnorm2, cscale, csub, czero, div_dimension, lfma, lzero,
+        C, L4, cadd, cfma, cinv, cmul, cnorm2, cscale, csub, czero, div_dimension, lfma, lzero,
         solve_in_place,
     },
     plan::{DirectPlanData, NO_GEOMETRY, PostOp, SubsetKind},
@@ -22,6 +22,17 @@ use crate::{
     BatchResult, Convention, KinematicsBatch, LaneStatus, ReductionError, TensorWeights,
     types::ResultMetadata,
 };
+
+/// Scalar-master implementation used by a direct workspace.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum DirectMasters {
+    /// OneLOop's direct Rust kernels (hand-written binary64 C0/D0 sectors),
+    /// evaluated per lane inside the lane loop.
+    #[default]
+    Native,
+    /// `MasterEvaluator` with an explicit policy, batched across lanes.
+    Policy(MasterExecutionPolicy),
+}
 
 /// Stage timings of the most recent profiled call.
 #[derive(Clone, Copy, Debug, Default)]
@@ -33,13 +44,32 @@ pub struct DirectProfile {
     pub output: std::time::Duration,
 }
 
+/// Why a lane's geometry cannot use the current plan variant.
+enum GeometryFailure {
+    /// Singular or ill-conditioned Gram system of this subset; it may be
+    /// affinely dependent and reducible by a denominator identity.
+    Singular(u8, String),
+    /// A relation of the current variant does not hold on this lane.
+    Relation(String),
+    Unstable(String),
+}
+
 pub(crate) struct DirectExecutor<T: NativeFloat> {
+    /// Plan variant of the current lane.
     plan: Arc<DirectPlanData>,
+    base_plan: Arc<DirectPlanData>,
+    /// Variants keyed by their minimal degenerate subsets.
+    variants: HashMap<Vec<u8>, (Arc<DirectPlanData>, Arc<Vec<T>>)>,
+    base_constants: Arc<Vec<T>>,
+    relation_profile: Vec<u8>,
     prototype: T,
     zero: C<T>,
     one: C<T>,
-    constants: Vec<T>,
+    constants: Arc<Vec<T>>,
     evaluators: [Option<MasterEvaluator<T>>; 4],
+    native: [Option<oneloop::NativeEvaluator<T>>; 4],
+    native_input: Vec<C<T>>,
+    native_output: Vec<C<T>>,
     master_inputs: [Vec<C<T>>; 4],
     /// Per lane, per family, per master: four Laurent slots.
     master_values: Vec<L4<T>>,
@@ -55,6 +85,7 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     poly_a: Vec<L4<T>>,
     poly_b: Vec<L4<T>>,
     poly_h: Vec<L4<T>>,
+    poly_s: Vec<L4<T>>,
     poly_u: Vec<L4<T>>,
     poly_v: Vec<L4<T>>,
     matrix: Vec<C<T>>,
@@ -79,15 +110,16 @@ where
     pub fn new(
         plan: Arc<DirectPlanData>,
         prototype: T,
-        policy: MasterExecutionPolicy,
+        masters: DirectMasters,
     ) -> Result<Self, ReductionError> {
         let zero = czero(&prototype);
         let one = C::new(prototype.one(), prototype.zero());
-        let constants = plan
-            .constants
-            .iter()
-            .map(|value| prototype.from_rational(value))
-            .collect();
+        let constants: Arc<Vec<T>> = Arc::new(
+            plan.constants
+                .iter()
+                .map(|value| prototype.from_rational(value))
+                .collect(),
+        );
         let families = [
             ScalarIntegral::A0,
             ScalarIntegral::B0,
@@ -95,12 +127,27 @@ where
             ScalarIntegral::D0,
         ];
         let mut evaluators: [Option<MasterEvaluator<T>>; 4] = Default::default();
+        let mut native: [Option<oneloop::NativeEvaluator<T>>; 4] = Default::default();
         for (family_index, family) in families.into_iter().enumerate() {
-            if !plan.masters[family_index].is_empty() {
-                evaluators[family_index] = Some(
-                    MasterEvaluator::new_with_policy(family, prototype.clone(), policy)
-                        .map_err(|error| ReductionError::Preparation(error.to_string()))?,
-                );
+            if plan.masters[family_index].is_empty() {
+                continue;
+            }
+            match masters {
+                DirectMasters::Native => {
+                    native[family_index] = Some(
+                        oneloop::NativeEvaluator::with_binary_precision(
+                            family,
+                            prototype.get_precision(),
+                        )
+                        .map_err(ReductionError::Preparation)?,
+                    );
+                }
+                DirectMasters::Policy(policy) => {
+                    evaluators[family_index] = Some(
+                        MasterEvaluator::new_with_policy(family, prototype.clone(), policy)
+                            .map_err(|error| ReductionError::Preparation(error.to_string()))?,
+                    );
+                }
             }
         }
         let mut master_offsets = [0; 4];
@@ -136,10 +183,14 @@ where
             poly_a: vec![lzero(&zero); gather_degree],
             poly_b: vec![lzero(&zero); gather_degree],
             poly_h: vec![lzero(&zero); gather_degree],
+            poly_s: vec![lzero(&zero); gather_degree],
             poly_u: vec![lzero(&zero); gather_degree * (usize::from(plan.settings.rank) + 1)],
             poly_v: vec![lzero(&zero); gather_degree * (usize::from(plan.settings.rank) + 1)],
             matrix: vec![zero.clone(); max_size.max(5) * max_size.max(5)],
             rhs: vec![zero.clone(); 5 * 5],
+            native_input: vec![zero.clone(); 11],
+            native_output: vec![zero.clone(); 3],
+            native,
             master_inputs: Default::default(),
             master_values: Vec::new(),
             master_errors: Vec::new(),
@@ -153,6 +204,10 @@ where
             stability_threshold,
             profiling: false,
             profile: DirectProfile::default(),
+            base_plan: plan.clone(),
+            base_constants: constants.clone(),
+            variants: HashMap::new(),
+            relation_profile: Vec::new(),
             constants,
             evaluators,
             prototype,
@@ -296,11 +351,261 @@ where
         Ok(())
     }
 
-    /// Compute every subset's numeric geometry. Returns an instability note.
-    fn geometry(&mut self) -> Result<(), String> {
+    /// Evaluate this lane's masters with the direct OneLOop kernels, writing
+    /// the four native Laurent slots straight into the value array.
+    fn native_masters(&mut self, mu2: &C<T>) -> Result<(), String> {
+        let plan = self.plan.clone();
+        let n = plan.settings.propagators;
+        for family in 0..4 {
+            let Some(evaluator) = self.native[family].as_mut() else {
+                continue;
+            };
+            for &(subset, index) in &plan.masters[family] {
+                let members = &plan.subsets[subset].members;
+                let d = |i: usize, j: usize| self.distances[members[i] * n + members[j]].clone();
+                let input = &mut self.native_input;
+                let arity = match family {
+                    0 => {
+                        input[0] = self.masses[members[0]].clone();
+                        1
+                    }
+                    1 => {
+                        input[0] = d(0, 1);
+                        3
+                    }
+                    2 => {
+                        input[0] = d(0, 1);
+                        input[1] = d(1, 2);
+                        input[2] = d(0, 2);
+                        6
+                    }
+                    _ => {
+                        input[0] = d(0, 1);
+                        input[1] = d(1, 2);
+                        input[2] = d(2, 3);
+                        input[3] = d(0, 3);
+                        input[4] = d(0, 2);
+                        input[5] = d(1, 3);
+                        10
+                    }
+                };
+                let first_mass = arity - members.len();
+                for (k, &member) in members.iter().enumerate() {
+                    input[first_mass + k] = self.masses[member].clone();
+                }
+                input[arity] = mu2.clone();
+                evaluator.evaluate(&input[..arity + 1], &mut self.native_output)?;
+                // OneLOop order is [finite, total single, double]. The UV
+                // residues are exact: A0 m^2, B0 one, C0/D0 zero.
+                let uv = match family {
+                    0 => self.native_input[0].clone(),
+                    1 => self.one.clone(),
+                    _ => self.zero.clone(),
+                };
+                let [finite, single, double] = [
+                    self.native_output[0].clone(),
+                    self.native_output[1].clone(),
+                    self.native_output[2].clone(),
+                ];
+                self.values[index as usize] = [uv.clone(), csub(&single, &uv), double, finite];
+            }
+        }
+        Ok(())
+    }
+
+    /// `2^-bits` at working precision.
+    fn binary_tolerance(&self, bits: u64) -> T {
+        self.prototype.one() / &self.prototype.from_usize(2).pow(bits)
+    }
+
+    /// The constant-one identity `sum_i c_i D_i = 1` over `members`, if their
+    /// external points are affinely dependent: `sum c_i = 0`, `sum c_i q_i = 0`
+    /// and `sum c_i (q_i^2 - m_i^2) = 1`. `c` follows the member order.
+    fn affine_relation(&self, members: &[usize]) -> Result<Vec<C<T>>, String> {
+        let k = members.len();
+        if k < 2 {
+            return Err("a single propagator has no denominator identity".into());
+        }
+        let n = k - 1;
+        let origin = members[0];
+        let mut p = vec![self.zero.clone(); 4 * n];
+        let mut norms = Vec::with_capacity(n);
+        let mut scale = self.prototype.zero();
+        for j in 0..n {
+            let mut norm = self.prototype.zero();
+            for a in 0..4 {
+                let value = csub(&self.shifts[members[j + 1]][a], &self.shifts[origin][a]);
+                norm += cnorm2(&value);
+                p[a * n + j] = value;
+            }
+            let norm = norm.sqrt();
+            if norm > scale {
+                scale = norm.clone();
+            }
+            norms.push(norm);
+        }
+        let original = p.clone();
+        // Complete pivoting, so the numerical rank is explicit.
+        let tolerance = scale * &self.binary_tolerance(40);
+        let mut columns: Vec<usize> = (0..n).collect();
+        let mut rank = 0;
+        for step in 0..n.min(4) {
+            let mut best = self.prototype.zero();
+            let mut pivot = (step, step);
+            for row in step..4 {
+                for column in step..n {
+                    let candidate = cnorm2(&p[row * n + columns[column]]);
+                    if candidate > best {
+                        best = candidate;
+                        pivot = (row, column);
+                    }
+                }
+            }
+            if best.sqrt() <= tolerance {
+                break;
+            }
+            if pivot.0 != step {
+                for column in 0..n {
+                    p.swap(step * n + column, pivot.0 * n + column);
+                }
+            }
+            columns.swap(step, pivot.1);
+            let inverse = cinv(&p[step * n + columns[step]]);
+            for row in step + 1..4 {
+                let factor = cmul(&p[row * n + columns[step]], &inverse);
+                for column in step..n {
+                    let update = cmul(&factor, &p[step * n + columns[column]]);
+                    p[row * n + columns[column]] = csub(&p[row * n + columns[column]], &update);
+                }
+            }
+            rank += 1;
+        }
+        if rank == n {
+            return Err(format!("external points of {members:?} are affinely independent"));
+        }
+        let mut v = vec![self.zero.clone(); n];
+        v[columns[rank]] = self.one.clone();
+        for step in (0..rank).rev() {
+            let mut sum = self.zero.clone();
+            for column in step + 1..n {
+                cfma(&mut sum, &p[step * n + columns[column]], &v[columns[column]]);
+            }
+            v[columns[step]] = csub(&self.zero, &cmul(&sum, &cinv(&p[step * n + columns[step]])));
+        }
+        // Residual and normalization from the original coordinates.
+        let mut bound = self.prototype.zero();
+        for j in 0..n {
+            bound += cnorm2(&v[j]).sqrt() * &norms[j];
+        }
+        for a in 0..4 {
+            let mut residual = self.zero.clone();
+            for j in 0..n {
+                cfma(&mut residual, &v[j], &original[a * n + j]);
+            }
+            if cnorm2(&residual).sqrt() > bound.clone() * &self.binary_tolerance(33) {
+                return Err(format!("no exact affine relation among {members:?}"));
+            }
+        }
+        let nprop = self.plan.settings.propagators;
+        let mut constant = self.zero.clone();
+        let mut constant_bound = self.prototype.zero();
+        for j in 0..n {
+            let member = members[j + 1];
+            let f = cadd(
+                &csub(&self.distances[origin * nprop + member], &self.masses[member]),
+                &self.masses[origin],
+            );
+            constant_bound += (cnorm2(&v[j]) * &cnorm2(&f)).sqrt();
+            cfma(&mut constant, &v[j], &f);
+        }
+        if cnorm2(&constant).sqrt() <= constant_bound * &self.binary_tolerance(33) {
+            return Err(format!("homogeneous denominator relation among {members:?}"));
+        }
+        let inverse = cinv(&constant);
+        let mut weights = Vec::with_capacity(k);
+        let mut sum = self.zero.clone();
+        for value in &v {
+            sum = cadd(&sum, value);
+        }
+        weights.push(csub(&self.zero, &cmul(&sum, &inverse)));
+        for value in &v {
+            weights.push(cmul(value, &inverse));
+        }
+        Ok(weights)
+    }
+
+    /// Minimal support of the affine relation of a singular subset.
+    fn relation_support(&self, mask: u8) -> Result<u8, String> {
+        let members: Vec<usize> = (0..8).filter(|&i| mask & (1 << i) != 0).collect();
+        let weights = self.affine_relation(&members)?;
+        let largest = weights
+            .iter()
+            .map(cnorm2)
+            .fold(self.prototype.zero(), |a, b| if b > a { b } else { a });
+        let cut = largest * &self.binary_tolerance(80);
+        let mut support = 0u8;
+        for (weight, &member) in weights.iter().zip(&members) {
+            if cnorm2(weight) > cut {
+                support |= 1 << member;
+            }
+        }
+        let support_members: Vec<usize> = (0..8).filter(|&i| support & (1 << i) != 0).collect();
+        self.affine_relation(&support_members)?;
+        Ok(support)
+    }
+
+    /// Switch the lane to the plan variant of `relation_profile`.
+    fn select_variant(&mut self) -> Result<(), ReductionError> {
+        if self.relation_profile.is_empty() {
+            self.plan = self.base_plan.clone();
+            self.constants = self.base_constants.clone();
+        } else if let Some((plan, constants)) = self.variants.get(&self.relation_profile) {
+            self.plan = plan.clone();
+            self.constants = constants.clone();
+        } else {
+            let plan = Arc::new(DirectPlanData::with_relations(
+                self.base_plan.settings.clone(),
+                &self.relation_profile,
+            )?);
+            let constants: Arc<Vec<T>> = Arc::new(
+                plan.constants
+                    .iter()
+                    .map(|value| self.prototype.from_rational(value))
+                    .collect(),
+            );
+            self.variants.insert(
+                self.relation_profile.clone(),
+                (plan.clone(), constants.clone()),
+            );
+            self.plan = plan;
+            self.constants = constants;
+        }
+        let plan = &self.plan;
+        if self.values.len() < plan.value_count {
+            self.values.resize(plan.value_count, lzero(&self.zero));
+        }
+        if self.geometry.len() < plan.geometry_count {
+            self.geometry.resize(plan.geometry_count, self.zero.clone());
+        }
+        if self.products.len() < plan.gather_scratch {
+            self.products.resize(plan.gather_scratch, self.zero.clone());
+        }
+        Ok(())
+    }
+
+    /// Compute every subset's numeric geometry for the current variant.
+    fn geometry(&mut self) -> Result<(), GeometryFailure> {
         let plan = self.plan.clone();
         let n = plan.settings.propagators;
         let threshold = self.stability_threshold.clone();
+        for relation in &plan.relations {
+            let weights = self
+                .affine_relation(&relation.members)
+                .map_err(GeometryFailure::Relation)?;
+            for (j, weight) in weights.into_iter().enumerate() {
+                self.geometry[relation.weights as usize + j] = weight;
+            }
+        }
         for subset in &plan.subsets {
             let members = &subset.members;
             let origin = members[0];
@@ -341,13 +646,18 @@ where
                             size,
                             size,
                         )
-                        .ok_or_else(|| format!("singular Gram matrix for {members:?}"))?;
+                        .ok_or_else(|| {
+                            GeometryFailure::Singular(
+                                subset.mask,
+                                format!("singular Gram matrix for {members:?}"),
+                            )
+                        })?;
                         let power = subset.coefficient_rank as u64;
                         if quality.relative_determinant.pow(power) < threshold {
-                            return Err(format!(
+                            return Err(GeometryFailure::Singular(subset.mask, format!(
                                 "ill-conditioned Gram matrix for {members:?}: relative determinant {:e}",
                                 quality.relative_determinant
-                            ));
+                            )));
                         }
                         for j in 0..size {
                             let mut zs = self.zero.clone();
@@ -377,12 +687,12 @@ where
                         self.rhs[i] = self.one.clone();
                     }
                     let quality = solve_in_place(&mut self.matrix[..25], &mut self.rhs[..5], 5, 1)
-                        .ok_or_else(|| format!("singular Cayley matrix for {members:?}"))?;
+                        .ok_or_else(|| GeometryFailure::Unstable(format!("singular Cayley matrix for {members:?}")))?;
                     if quality.relative_determinant < threshold {
-                        return Err(format!(
+                        return Err(GeometryFailure::Unstable(format!(
                             "ill-conditioned Cayley matrix for {members:?}: relative determinant {:e}",
                             quality.relative_determinant
-                        ));
+                        )));
                     }
                     for i in 0..5 {
                         self.geometry[geometry.b as usize + i] = self.rhs[i].clone();
@@ -401,12 +711,12 @@ where
                             }
                         }
                         let quality = solve_in_place(&mut self.matrix[..16], &mut self.rhs[..16], 4, 4)
-                            .ok_or_else(|| format!("singular pentagon Gram matrix for {members:?}"))?;
+                            .ok_or_else(|| GeometryFailure::Singular(subset.mask, format!("singular pentagon Gram matrix for {members:?}")))?;
                         if quality.relative_determinant.pow(subset.moment_rank as u64) < threshold {
-                            return Err(format!(
+                            return Err(GeometryFailure::Singular(subset.mask, format!(
                                 "ill-conditioned pentagon Gram matrix for {members:?}: relative determinant {:e}",
                                 quality.relative_determinant
-                            ));
+                            )));
                         }
                         for mu in 0..4 {
                             let mut a = csub(&self.zero, &self.shifts[origin][mu]);
@@ -427,6 +737,7 @@ where
                         }
                     }
                 }
+                SubsetKind::Relation(_) => {}
                 SubsetKind::Hexagon => {
                     let weights = subset.hexagon.unwrap() as usize;
                     let half = self.prototype.one() / &self.prototype.from_usize(2);
@@ -454,12 +765,12 @@ where
                         }
                     }
                     let quality = solve_in_place(&mut self.matrix[..25], &mut self.rhs[..25], 5, 5)
-                        .ok_or_else(|| format!("singular six-point coordinate system for {members:?}"))?;
+                        .ok_or_else(|| GeometryFailure::Unstable(format!("singular six-point coordinate system for {members:?}")))?;
                     if quality.relative_determinant < threshold {
-                        return Err(format!(
+                        return Err(GeometryFailure::Unstable(format!(
                             "ill-conditioned six-point coordinate system: relative determinant {:e}",
                             quality.relative_determinant
-                        ));
+                        )));
                     }
                     for column in 0..5 {
                         let mut sum = self.zero.clone();
@@ -577,11 +888,13 @@ where
                         }
                     } else {
                         // B <- A + Q B / (2 (lambda + 1)), Q = z0^2 - z^2.
+                        // poly_h holds finished lower-degree H blocks, so
+                        // the Horner step uses its own scratch.
                         let previous = table.block(momentum_degree - 2);
                         let scale = self.prototype.one()
                             / &self.prototype.from_usize(2 * (lambda + 1));
                         for monomial in a_block.clone() {
-                            self.poly_h[monomial] = self.poly_a[monomial].clone();
+                            self.poly_s[monomial] = self.poly_a[monomial].clone();
                         }
                         for monomial in previous.clone() {
                             let value = self.poly_b[monomial].clone();
@@ -591,13 +904,13 @@ where
                                 let factor = if a == 0 { scale.clone() } else { -scale.clone() };
                                 for slot in 0..4 {
                                     let update = cscale(&value[slot], &factor);
-                                    self.poly_h[target][slot] =
-                                        cadd(&self.poly_h[target][slot], &update);
+                                    self.poly_s[target][slot] =
+                                        cadd(&self.poly_s[target][slot], &update);
                                 }
                             }
                         }
                         for monomial in a_block.clone() {
-                            self.poly_b[monomial] = self.poly_h[monomial].clone();
+                            self.poly_b[monomial] = self.poly_s[monomial].clone();
                         }
                     }
                 }
@@ -683,43 +996,98 @@ where
             )));
         }
         self.profile = DirectProfile::default();
-        let started = self.timer();
-        self.evaluate_masters(batch)?;
-        if let Some(started) = started {
-            self.profile.masters += started.elapsed();
+        let batched_masters = self.evaluators.iter().any(Option::is_some);
+        if batched_masters {
+            let started = self.timer();
+            self.evaluate_masters(batch)?;
+            if let Some(started) = started {
+                self.profile.masters += started.elapsed();
+            }
         }
-        let plan = self.plan.clone();
-        let basis_len = plan.basis.len();
+        let base_plan = self.base_plan.clone();
+        let basis_len = base_plan.basis.len();
         let mut values = Vec::with_capacity(batch.rows * basis_len * 4);
         let mut statuses = Vec::with_capacity(batch.rows);
-        let settings = &plan.settings;
+        let settings = &base_plan.settings;
         let base_uv_degree = 4 + 2 * i32::from(settings.dimension_shift)
             - 2 * settings.powers.iter().map(|&p| i32::from(p)).sum::<i32>();
         for row in 0..batch.rows {
             let lane_values = values.len();
             values.resize(lane_values + basis_len * 4, self.zero.clone());
-            if let Some(error) = &self.master_errors[row] {
-                statuses.push(LaneStatus::MasterFailure(error.clone()));
-                continue;
+            if batched_masters {
+                if let Some(error) = &self.master_errors[row] {
+                    statuses.push(LaneStatus::MasterFailure(error.clone()));
+                    continue;
+                }
             }
             let started = self.timer();
             if let Err(error) = self.read_lane(batch, row) {
                 statuses.push(LaneStatus::InvalidInput(error));
                 continue;
             }
-            if let Err(error) = self.geometry() {
+            // Reuse the previous lane's variant; on a relation that does not
+            // hold here, restart from the base plan. Each affinely dependent
+            // subset the geometry discovers switches to a relation variant.
+            let mut failure = None;
+            loop {
+                match self.geometry() {
+                    Ok(()) => break,
+                    Err(GeometryFailure::Relation(error)) => {
+                        if self.relation_profile.is_empty() {
+                            failure = Some(error);
+                            break;
+                        }
+                        self.relation_profile.clear();
+                        self.select_variant()?;
+                    }
+                    Err(GeometryFailure::Unstable(error)) => {
+                        failure = Some(error);
+                        break;
+                    }
+                    Err(GeometryFailure::Singular(mask, error)) => {
+                        match self.relation_support(mask) {
+                            Ok(support)
+                                if !self.relation_profile.contains(&support)
+                                    && !(batched_masters && support != 0) =>
+                            {
+                                self.relation_profile.push(support);
+                                self.relation_profile.sort_unstable();
+                                self.select_variant()?;
+                            }
+                            _ => {
+                                failure = Some(error);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(error) = failure {
                 statuses.push(LaneStatus::Unstable(error));
                 continue;
             }
-            for family in 0..4 {
-                for (k, &(_, index)) in plan.masters[family].iter().enumerate() {
-                    self.values[index as usize] = self.master_values
-                        [row * self.master_count + self.master_offsets[family] + k]
-                        .clone();
+            let plan = self.plan.clone();
+            if let Some(started) = started {
+                self.profile.geometry += started.elapsed();
+            }
+            let started = self.timer();
+            if batched_masters {
+                for family in 0..4 {
+                    for (k, &(_, index)) in plan.masters[family].iter().enumerate() {
+                        self.values[index as usize] = self.master_values
+                            [row * self.master_count + self.master_offsets[family] + k]
+                            .clone();
+                    }
+                }
+            } else {
+                let mu2 = self.mu_squared(batch, row);
+                if let Err(error) = self.native_masters(&mu2) {
+                    statuses.push(LaneStatus::MasterFailure(error));
+                    continue;
                 }
             }
             if let Some(started) = started {
-                self.profile.geometry += started.elapsed();
+                self.profile.masters += started.elapsed();
             }
             let started = self.timer();
             self.run_program(false);
@@ -789,7 +1157,7 @@ where
         let rows = batch.rows;
         let _ = cnorm2::<T>;
         Ok(BatchResult {
-            basis: plan.basis.clone(),
+            basis: base_plan.basis.clone(),
             components: 1,
             metadata: ResultMetadata::new(settings.convention, settings.tensor_weights, None),
             values,
