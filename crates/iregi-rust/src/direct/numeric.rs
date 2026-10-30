@@ -72,6 +72,22 @@ pub(crate) fn lfma<T: NativeFloat>(acc: &mut L4<T>, factor: &C<T>, value: &L4<T>
     }
 }
 
+/// `acc += factor * value` in the active slots: all four, or only UV and
+/// finite when the lane has no IR poles (`FULL = false`).
+#[inline(always)]
+pub(crate) fn lfma_slots<T: NativeFloat, const FULL: bool>(
+    acc: &mut L4<T>,
+    factor: &C<T>,
+    value: &L4<T>,
+) {
+    if FULL {
+        lfma(acc, factor, value);
+    } else {
+        cfma(&mut acc[0], factor, &value[0]);
+        cfma(&mut acc[3], factor, &value[3]);
+    }
+}
+
 /// Multiply by `(a - 2 epsilon)` through the finite term.
 pub(crate) fn mul_dimension<T: NativeFloat>(value: &mut L4<T>, a: &T) {
     let two = a.from_usize(2);

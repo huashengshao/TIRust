@@ -13,8 +13,8 @@ use symbolica::{domains::float::Complex, evaluate::EvaluationDomain};
 
 use super::{
     numeric::{
-        C, L4, cadd, cfma, cinv, cmul, cnorm2, cscale, csub, czero, div_dimension, lfma, lzero,
-        mul_dimension, solve_in_place,
+        C, L4, cadd, cfma, cinv, cmul, cnorm2, cscale, csub, czero, div_dimension, lfma,
+        lfma_slots, lzero, mul_dimension, solve_in_place,
     },
     plan::{DirectPlanData, NO_GEOMETRY, PostOp, SubsetKind},
 };
@@ -109,6 +109,8 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     rinv_memo: HashMap<u8, Vec<C<T>>>,
     /// `(-2)^h` of dimension-shifted gathers.
     gather_scale: T,
+    /// The current lane's masters have no IR poles (two-slot kernels).
+    ir_free: bool,
     /// Minimal accepted relative determinant raised to its recursion depth.
     stability_threshold: T,
     profiling: bool,
@@ -244,6 +246,7 @@ where
             ibp_memo: HashMap::new(),
             rinv_memo: HashMap::new(),
             gather_scale,
+            ir_free: false,
             native_input: vec![zero.clone(); 11],
             native_output: vec![zero.clone(); 3],
             native,
@@ -1416,10 +1419,87 @@ where
     }
 
     fn run_program(&mut self, program_is_moments: bool) {
-        if self.plan.jet.is_some() {
-            self.run_program_jets(program_is_moments);
-            return;
+        match (self.plan.jet, self.ir_free) {
+            (Some((_, 2)), true) => self.run_program_jet2::<false>(program_is_moments),
+            (Some((_, 2)), false) => self.run_program_jet2::<true>(program_is_moments),
+            (Some(_), _) => self.run_program_jets(program_is_moments),
+            (None, true) => self.run_program_ordinary::<false>(program_is_moments),
+            (None, false) => self.run_program_ordinary::<true>(program_is_moments),
         }
+    }
+
+    /// Whether every master (and closed-form) value of this lane has
+    /// vanishing IR slots. Recurrences are linear and never move UV or
+    /// finite parts into IR slots, so those slots then stay exactly zero.
+    fn detect_ir_free(&mut self) {
+        let zero = |z: &C<T>| z.re.is_zero() && z.im.is_zero();
+        let plan = self.plan.clone();
+        let mut free = true;
+        for family in &plan.masters {
+            for &(_, index) in family {
+                let value = &self.values[index as usize];
+                free &= zero(&value[1]) && zero(&value[2]);
+                for order in &self.values_jet {
+                    let value = &order[index as usize];
+                    free &= zero(&value[1]) && zero(&value[2]);
+                }
+            }
+        }
+        for (_, entries) in &plan.lightlike {
+            for &(_, _, index) in entries {
+                let value = &self.values[index as usize];
+                free &= zero(&value[1]) && zero(&value[2]);
+            }
+        }
+        self.ir_free = free;
+    }
+
+    /// Taylor length two: order one is `g0 v1 + g1 v0`, where `g1` is
+    /// nonzero only for mass-dependent geometry.
+    fn run_program_jet2<const FULL: bool>(&mut self, program_is_moments: bool) {
+        let plan = self.plan.clone();
+        let program = if program_is_moments {
+            &plan.moment_program
+        } else {
+            &plan.coefficient_program
+        };
+        for instruction in program {
+            let mut acc0 = lzero(&self.zero);
+            let mut acc1 = lzero(&self.zero);
+            for term in &plan.terms[instruction.terms.0 as usize..instruction.terms.1 as usize] {
+                let constant = &self.constants[term.constant as usize];
+                let src = term.src as usize;
+                if term.geometry == NO_GEOMETRY {
+                    let factor = C::new(constant.clone(), self.prototype.zero());
+                    lfma_slots::<T, FULL>(&mut acc0, &factor, &self.values[src]);
+                    lfma_slots::<T, FULL>(&mut acc1, &factor, &self.values_jet[0][src]);
+                    continue;
+                }
+                let g = term.geometry as usize;
+                let g0 = &self.geometry[g];
+                if !(g0.re.is_zero() && g0.im.is_zero()) {
+                    let factor = if term.constant == 0 { g0.clone() } else { cscale(g0, constant) };
+                    lfma_slots::<T, FULL>(&mut acc0, &factor, &self.values[src]);
+                    lfma_slots::<T, FULL>(&mut acc1, &factor, &self.values_jet[0][src]);
+                }
+                let g1 = &self.geometry_jet[0][g];
+                if !(g1.re.is_zero() && g1.im.is_zero()) {
+                    let factor = if term.constant == 0 { g1.clone() } else { cscale(g1, constant) };
+                    lfma_slots::<T, FULL>(&mut acc1, &factor, &self.values[src]);
+                }
+            }
+            if let PostOp::DivideDimension { inverse } = instruction.post {
+                let inverse = &self.constants[inverse as usize];
+                div_dimension(&mut acc0, inverse);
+                div_dimension(&mut acc1, inverse);
+            }
+            let dst = instruction.dst as usize;
+            self.values[dst] = acc0;
+            self.values_jet[0][dst] = acc1;
+        }
+    }
+
+    fn run_program_ordinary<const FULL: bool>(&mut self, program_is_moments: bool) {
         let plan = self.plan.clone();
         let program = if program_is_moments {
             &plan.moment_program
@@ -1443,7 +1523,7 @@ where
                         cscale(geometry, constant)
                     }
                 };
-                lfma(&mut accumulator, &factor, &self.values[term.src as usize]);
+                lfma_slots::<T, FULL>(&mut accumulator, &factor, &self.values[term.src as usize]);
             }
             match instruction.post {
                 PostOp::None => {}
@@ -1465,6 +1545,14 @@ where
     ///    (-o)^(e-f) L(f)`, as separable 1-D binomial transforms along the
     ///    nonzero axes of the subset origin `o`.
     fn gather(&mut self) {
+        if self.ir_free {
+            self.gather_with::<false>();
+        } else {
+            self.gather_with::<true>();
+        }
+    }
+
+    fn gather_with<const FULL: bool>(&mut self) {
         let plan = self.plan.clone();
         let table = &plan.monomials;
         let stride = table.block(usize::from(plan.settings.rank)).end;
@@ -1537,7 +1625,7 @@ where
                     let block_start = base + table.block(degree).start;
                     let (from, to) = self.product_ranges[k];
                     for (local, product) in &self.sparse_products[from as usize..to as usize] {
-                        lfma(&mut self.g_buffer[block_start + *local as usize], product, value);
+                        lfma_slots::<T, FULL>(&mut self.g_buffer[block_start + *local as usize], product, value);
                     }
                 }
             }
@@ -1551,8 +1639,11 @@ where
                     }
                     let value = &self.g_buffer[usize::from(lambda) * stride + src as usize];
                     let constant = &self.qexp_constants[e][term];
-                    for slot in 0..4 {
+                    for slot in if FULL { 0..4 } else { 0..1 } {
                         total[slot] = cadd(&total[slot], &cscale(&value[slot], constant));
+                    }
+                    if !FULL {
+                        total[3] = cadd(&total[3], &cscale(&value[3], constant));
                     }
                 }
                 for slot in &mut total {
@@ -1582,7 +1673,7 @@ where
                         let mut total = self.values[moment_base + line[j] as usize].clone();
                         for k in 0..j {
                             let factor = cscale(&self.tpow[j - k], &self.binomials[j][k]);
-                            lfma(&mut total, &factor, &self.values[moment_base + line[k] as usize]);
+                            lfma_slots::<T, FULL>(&mut total, &factor, &self.values[moment_base + line[k] as usize]);
                         }
                         self.values[moment_base + line[j] as usize] = total;
                     }
@@ -1733,6 +1824,7 @@ where
                     self.profile.masters += started.elapsed();
                 }
             }
+            self.detect_ir_free();
             let started = self.timer();
             self.run_program(false);
             if let Some(started) = started {
