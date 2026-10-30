@@ -69,6 +69,8 @@ impl DirectHybridPlan {
 #[derive(Clone, Debug, Default)]
 pub struct DirectExecutionStats {
     pub input_rows: usize,
+    /// Scalar-master evaluations by the direct engine.
+    pub master_rows: usize,
     pub direct_successes: usize,
     pub fallback_rows: usize,
     pub fallback_successes: usize,
@@ -193,6 +195,7 @@ where
         let mut result = self.direct.reduce_batch(batch)?;
         self.last = DirectExecutionStats {
             input_rows: batch.rows,
+            master_rows: self.direct.last_master_rows(),
             ..DirectExecutionStats::default()
         };
         self.diagnostics.clear();

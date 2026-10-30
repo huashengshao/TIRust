@@ -509,6 +509,10 @@ impl TensorEngineExecution {
                     None => ExecutionStats::default(),
                 };
                 result.input_rows = stats.input_rows;
+                result.master_rows = result
+                    .master_rows
+                    .checked_add(stats.master_rows)
+                    .ok_or_else(counter_overflow)?;
                 result.reduction_rows = result
                     .reduction_rows
                     .checked_add(stats.input_rows)

@@ -116,6 +116,11 @@ where
         self.executor.last_profile()
     }
 
+    /// Scalar-master evaluations of the most recent call.
+    pub fn last_master_rows(&self) -> usize {
+        self.executor.last_master_rows()
+    }
+
     /// Minimal accepted relative determinant (raised to the recursion depth).
     pub fn set_stability_threshold(&mut self, threshold: T) {
         self.executor.set_stability_threshold(threshold);

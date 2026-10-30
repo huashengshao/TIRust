@@ -1102,6 +1102,7 @@ fn stats(stats: ExecutionStats, py: Python<'_>) -> PyResult<Py<PyDict>> {
 
 fn engine_name(kind: TensorEngineKind) -> &'static str {
     match kind {
+        TensorEngineKind::Direct => "direct",
         TensorEngineKind::Generic => "generic",
         TensorEngineKind::LegacyNoOp => "legacy_noop",
         TensorEngineKind::SixPoint => "six_point",
@@ -1155,6 +1156,17 @@ fn engine_execution(execution: &TensorEngineExecution, py: Python<'_>) -> PyResu
         }};
     }
     match execution {
+        TensorEngineExecution::Direct(direct) => {
+            output.set_item("engine", engine_name(TensorEngineKind::Direct))?;
+            output.set_item("input_rows", direct.input_rows)?;
+            output.set_item("direct_successes", direct.direct_successes)?;
+            output.set_item("fallback_rows", direct.fallback_rows)?;
+            output.set_item("fallback_successes", direct.fallback_successes)?;
+            output.set_item("fallback_preparation_error", direct.fallback_preparation_error.clone())?;
+            if let Some(child) = &direct.fallback {
+                output.set_item("fallback", engine_execution(child, py)?)?;
+            }
+        }
         TensorEngineExecution::Generic {
             execution,
             certificate_execution,

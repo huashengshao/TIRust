@@ -111,6 +111,8 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     gather_scale: T,
     /// The current lane's masters have no IR poles (two-slot kernels).
     ir_free: bool,
+    /// Scalar-master evaluations of the most recent call.
+    master_rows: usize,
     /// Minimal accepted relative determinant raised to its recursion depth.
     stability_threshold: T,
     profiling: bool,
@@ -247,6 +249,7 @@ where
             rinv_memo: HashMap::new(),
             gather_scale,
             ir_free: false,
+            master_rows: 0,
             native_input: vec![zero.clone(); 11],
             native_output: vec![zero.clone(); 3],
             native,
@@ -302,6 +305,10 @@ where
         self.profile
     }
 
+    pub fn last_master_rows(&self) -> usize {
+        self.master_rows
+    }
+
     pub fn set_stability_threshold(&mut self, threshold: T) {
         self.stability_threshold = threshold;
     }
@@ -327,7 +334,7 @@ where
         }
         let mu = &values[5 * n];
         if !mu.im.is_zero() || mu.re <= mu.re.zero() {
-            return Err("the renormalization scale must be real and positive".into());
+            return Err("mu must be positive and real".into());
         }
         if self.masses.iter().any(|mass| mass.im > mass.im.zero()) {
             return Err("squared masses require nonpositive imaginary parts".into());
@@ -395,6 +402,7 @@ where
             };
             let per_lane = plan.masters[family].len();
             let batch_rows = rows * per_lane;
+            self.master_rows += batch_rows;
             let result = evaluator
                 .evaluate_batch(&self.master_inputs[family], batch_rows)
                 .map_err(|error| ReductionError::Evaluation(error.to_string()))?;
@@ -479,6 +487,7 @@ where
                 }
                 input[arity] = mu2.clone();
                 evaluator.evaluate(&input[..arity + 1], &mut self.native_output)?;
+                self.master_rows += 1;
                 // OneLOop order is [finite, total single, double]. The UV
                 // residues are exact: A0 m^2, B0 one, C0/D0 zero.
                 let uv = match family {
@@ -1710,6 +1719,7 @@ where
             )));
         }
         self.profile = DirectProfile::default();
+        self.master_rows = 0;
         let batched_masters = self.evaluators.iter().any(Option::is_some);
         if batched_masters {
             let started = self.timer();

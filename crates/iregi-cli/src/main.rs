@@ -322,6 +322,15 @@ fn certificate_execution_json(stats: CertificateExecutionStats) -> Value {
 
 fn engine_execution_json(detail: TensorEngineExecution) -> Value {
     match detail {
+        TensorEngineExecution::Direct(stats) => json!({
+            "engine":"Direct",
+            "execution":TensorEngineExecution::Direct(stats.clone()).summary().ok().map(execution_json),
+            "input_rows":stats.input_rows,"master_rows":stats.master_rows,
+            "direct_successes":stats.direct_successes,"fallback_rows":stats.fallback_rows,
+            "fallback_successes":stats.fallback_successes,
+            "fallback_preparation_error":stats.fallback_preparation_error,
+            "fallback":stats.fallback.map(|child| engine_execution_json(*child)),
+        }),
         TensorEngineExecution::Generic {
             execution,
             certificate_execution,
@@ -825,7 +834,7 @@ mod tests {
             reduce(&[valid, invalid], settings, 0f64, None, &parsed.numeric).unwrap();
         assert!(!success);
         assert_eq!(output["algorithm_requested"], "Hybrid");
-        assert_eq!(output["engine_execution"]["engine"], "Generic");
+        assert_eq!(output["engine_execution"]["engine"], "Direct");
         assert_eq!(output["execution"], output["engine_execution"]["execution"]);
         assert_eq!(output["execution"]["input_rows"], 2);
         assert!(output["execution"]["master_rows"].as_u64().unwrap() > 0);
