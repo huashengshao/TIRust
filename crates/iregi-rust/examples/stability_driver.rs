@@ -10,7 +10,8 @@
 //!   lanes are reported, not repaired;
 //! - `direct256`: the direct engine at 256 bits on the same binary64 inputs
 //!   (accepting conditioning down to 2^-216), a second high-precision
-//!   reference besides quadruple-precision original IREGI.
+//!   reference besides quadruple-precision original IREGI, written with all
+//!   77 significant digits.
 //!
 //! usage: stability_driver POINTS_JSON OUTPUT_JSONL [INTEGRAL_ID]
 use std::io::Write;
@@ -21,6 +22,25 @@ use iregi_rust::{
 };
 use serde_json::{Value, json};
 use symbolica::domains::float::{Complex, Float, RealLike};
+
+/// The lane's complete array as decimal strings with every significant digit
+/// of the working precision (for reference comparisons beyond binary64).
+fn moments_text(result: &BatchResult<Float>, lane: usize) -> Value {
+    match result.lane(lane) {
+        Ok(values) => json!({
+            "status": "success",
+            "moments": (0..result.basis.len())
+                .map(|m| (0..4)
+                    .map(|slot| {
+                        let z = &values[4 * m + slot];
+                        [z.re.to_string(), z.im.to_string()]
+                    })
+                    .collect::<Vec<_>>())
+                .collect::<Vec<_>>(),
+        }),
+        Err(status) => json!({"status": format!("{status:?}"), "moments": Value::Null}),
+    }
+}
 
 fn moments<T: RealLike>(result: &BatchResult<T>, lane: usize) -> Value {
     match result.lane(lane) {
@@ -104,7 +124,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "index": lane,
                 "default": entry_default,
                 "direct64": moments(&direct64, lane),
-                "direct256": moments(&direct256, lane),
+                "direct256": moments_text(&direct256, lane),
             });
             writeln!(sink, "{}", serde_json::to_string(&record)?)?;
         }
