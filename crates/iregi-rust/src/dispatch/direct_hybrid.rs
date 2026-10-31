@@ -142,8 +142,19 @@ fn lane_difference<T: NativeFloat>(
     if amplitude > 0.0 { error / amplitude } else if error == 0.0 { 0.0 } else { f64::INFINITY }
 }
 
+/// Headroom of the double-double tier. Its acceptance is checked a
+/// posteriori by the loop-rotation test for N >= 5 (`RESCUE_ROTATION_TOLERANCE`):
+/// on physical gg -> ggggg heptagons the conditioning estimate called for 256
+/// bits, while the 106-bit direct engine with no gate at all agreed with 256
+/// bits to E/A <= 1.7e-23 (30 points).
+const RESCUE_DD_HEADROOM: u32 = 20;
+/// Largest accepted E/A between a 106-bit lane and its rotated copy, both
+/// rounded to binary64 (a few ulps).
+const RESCUE_ROTATION_TOLERANCE: f64 = 1.0 / (1u64 << 46) as f64;
+
 fn rescue_threshold(bits: u32) -> f64 {
-    2f64.powi(-((bits - RESCUE_HEADROOM) as i32))
+    let headroom = if bits == RESCUE_BITS[0] { RESCUE_DD_HEADROOM } else { RESCUE_HEADROOM };
+    2f64.powi(-((bits - headroom) as i32))
 }
 
 /// First tier that admits the binary64 conditioning estimate with margin. An
@@ -152,7 +163,7 @@ fn first_tier(condition: f64) -> usize {
     if condition > 0.0 {
         RESCUE_BITS
             .iter()
-            .position(|&bits| condition >= rescue_threshold(bits - RESCUE_MARGIN))
+            .position(|&bits| condition >= rescue_threshold(bits) * 2f64.powi(RESCUE_MARGIN as i32))
             .unwrap_or(RESCUE_BITS.len() - 1)
     } else {
         1
@@ -395,7 +406,47 @@ where
                 continue;
             }
             let bits = RESCUE_BITS[tier];
-            let outcomes = self.rescue_tier(tier, batch, &lanes, result, profile)?;
+            let mut outcomes = self.rescue_tier(tier, batch, &lanes, result, profile)?;
+            if tier == 0 && rotation_tested(self.plan.direct.settings()) {
+                // The double-double tier's looser gate is checked a posteriori:
+                // the accepted lanes are evaluated again with rotated
+                // propagators; a disagreement escalates the lane.
+                let accepted: Vec<usize> = lanes
+                    .iter()
+                    .zip(&outcomes)
+                    .filter(|(_, (status, _))| *status == LaneStatus::Success)
+                    .map(|(&lane, _)| lane)
+                    .collect();
+                if !accepted.is_empty() {
+                    let n = self.plan.direct.settings().propagators;
+                    let mut check = result.clone();
+                    let checks = self.rescue_tier(tier, &rotated(batch, n), &accepted, &mut check, profile)?;
+                    let stride = result.basis.len() * 4;
+                    let width = 5 * n + 1;
+                    for (&lane, (status, _)) in accepted.iter().zip(checks) {
+                        let difference = if status == LaneStatus::Success {
+                            let mu = batch.values[lane * width + 5 * n].re.to_f64();
+                            lane_difference(
+                                &result.basis,
+                                &result.values[lane * stride..(lane + 1) * stride],
+                                &check.values[lane * stride..(lane + 1) * stride],
+                                mu,
+                            )
+                        } else {
+                            f64::INFINITY
+                        };
+                        if difference > RESCUE_ROTATION_TOLERANCE {
+                            let index = lanes.iter().position(|&other| other == lane).unwrap();
+                            outcomes[index] = (
+                                LaneStatus::Unstable(format!(
+                                    "loop-rotation test at {bits} bits: arrays differ by E/A {difference:e}"
+                                )),
+                                Some(0.0),
+                            );
+                        }
+                    }
+                }
+            }
             let mut successes = 0;
             for (&lane, (status, condition)) in lanes.iter().zip(outcomes) {
                 if status == LaneStatus::Success {

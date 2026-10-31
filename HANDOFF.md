@@ -299,6 +299,16 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    #12 determinism-test parsing. Upstream main 7b3f43c has 33 failing tests in
    this environment (cargo test --no-fail-fast --features generated-evaluators);
    both oneloopmaster branches add none.
+   Heptagon rescue made cheaper (commit after 616d63c): the 106-bit tier uses
+   20 bits of headroom (RESCUE_DD_HEADROOM) instead of 40, chosen first whenever
+   the binary64 estimate allows it, and is checked a posteriori by a rotated
+   106-bit evaluation (RESCUE_ROTATION_TOLERANCE 2^-46 on binary64-rounded
+   arrays; failures escalate to 256). Evidence: the 106-bit engine without any
+   gate agreed with 256 bits to <= 1.7e-23 on 30 heptagons. 40 study points
+   each: heptagons 38 accepted at 106 (2 at 256), worst E/A 3e-24; hexagons and
+   pentagons unchanged in accuracy. Heptagon #0: 121 ms instead of 644 ms. Next:
+   profile the 106-bit heptagon (~60 ms per evaluation) and the partial rescue
+   (plan A above).
    Engine gaps found: exactly singular six-point thin systems and null-
    hyperplane boxes (singular Gram, affinely independent) have no route.
 3d. **Next: small-Gram box reduction** (hep-ph/0509141 sect. 3.4, Eqs.
