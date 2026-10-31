@@ -309,6 +309,15 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    pentagons unchanged in accuracy. Heptagon #0: 121 ms instead of 644 ms. Next:
    profile the 106-bit heptagon (~60 ms per evaluation) and the partial rescue
    (plan A above).
+   Partial rescue implemented (plan A): binary64 executors record boxes and
+   triangles refused by their Gram gate (not the top subset, no jets/shifts),
+   compute their coefficients with cached double-double executors of their own
+   plans (DirectExecutor::inject_external, plan.coefficient_ranges/counts) and
+   skip their instructions. 40 study points each: full rescues heptagon 40->6,
+   hexagon 31->0, pentagon 3->0 (box r6 unchanged 3: top box), worst E/A
+   3.4e-11..5.8e-11 (binary64 level, within the rotation tolerance); heptagon
+   #0 20.6 ms (was 121 ms DD-first, 644 ms at 256 bits). Report/PDF not yet
+   recaptured with this (next capture 004).
    Engine gaps found: exactly singular six-point thin systems and null-
    hyperplane boxes (singular Gram, affinely independent) have no route.
 3d. **Next: small-Gram box reduction** (hep-ph/0509141 sect. 3.4, Eqs.

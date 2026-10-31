@@ -337,6 +337,12 @@ pub(crate) struct DirectPlanData {
     /// Value index holding the constant `[0, 0, 0, 1]` (unit finite part),
     /// used by the rank-5 pentagon UV remainder.
     pub unit_finite: Option<u32>,
+    /// Per subset: its coefficient instructions `coefficient_program[a..b]`
+    /// (PV subsets; empty otherwise) and the number of its coefficient values
+    /// `C(lambda, kappa)`, contiguous from its master. A refused box or
+    /// triangle can thus be computed elsewhere and injected (partial rescue).
+    pub coefficient_ranges: Vec<(u32, u32)>,
+    pub coefficient_counts: Vec<u32>,
 }
 
 struct Builder {
@@ -766,7 +772,9 @@ impl DirectPlanData {
         let mut coefficient_program = Vec::new();
         let mut masters: [Vec<(usize, u32)>; 4] = Default::default();
         let mut lightlike = Vec::new();
+        let mut range_starts = Vec::with_capacity(subsets.len() + 1);
         for (id, subset) in subsets.iter().enumerate() {
+            range_starts.push(coefficient_program.len() as u32);
             if subset.kind != SubsetKind::Pv {
                 continue;
             }
@@ -904,6 +912,16 @@ impl DirectPlanData {
             }
         }
 
+        range_starts.push(coefficient_program.len() as u32);
+        let coefficient_ranges: Vec<(u32, u32)> =
+            (0..subsets.len()).map(|id| (range_starts[id], range_starts[id + 1])).collect();
+        let coefficient_counts: Vec<u32> = subsets
+            .iter()
+            .map(|subset| match (subset.kind, layouts.get(&subset.mask)) {
+                (SubsetKind::Pv, Some(layout)) => layout.lookup.len() as u32,
+                _ => 0,
+            })
+            .collect();
         // Gram-free pentagon coefficients (Denner--Dittmaier, hep-ph/0509141
         // Eqs. (5.9)-(5.10), symmetrized as in (5.12)): with I = kappa - e_k,
         //   R E_{lambda,kappa} = 2 lambda Ebar0 + sum_k kappa_k Ebar_k(I),
@@ -1225,6 +1243,8 @@ impl DirectPlanData {
             jet,
             lambda_shift,
             unit_finite,
+            coefficient_ranges,
+            coefficient_counts,
         })
     }
 }

@@ -57,8 +57,22 @@ enum GeometryFailure {
     Unstable(String),
 }
 
+/// Partial rescue of a binary64 executor: boxes and triangles refused by
+/// their Gram gate are evaluated by double-double executors of their own
+/// plans (same members, origin and coefficient rank), and the rounded
+/// coefficients replace the binary64 recursion; everything else stays
+/// binary64.
+#[derive(Clone)]
+pub(crate) struct PartialRescue {
+    executors: HashMap<(usize, u16), DirectExecutor<symbolica::domains::float::DoubleFloat>>,
+    threshold: f64,
+}
+
 #[derive(Clone)]
 pub(crate) struct DirectExecutor<T: NativeFloat> {
+    /// Partial rescue (binary64 only) and the subsets it serves on this lane.
+    partial: Option<Box<PartialRescue>>,
+    external: Vec<usize>,
     /// Plan variant of the current lane.
     plan: Arc<DirectPlanData>,
     base_plan: Arc<DirectPlanData>,
@@ -221,6 +235,8 @@ where
             symbolica::domains::integer::Integer::from(1_000_000_000_000i64),
         )));
         Ok(Self {
+            partial: None,
+            external: Vec::new(),
             values: vec![lzero(&zero); plan.value_count],
             geometry: vec![zero.clone(); plan.geometry_count.max(1)],
             distances: vec![zero.clone(); plan.settings.propagators * plan.settings.propagators],
@@ -535,6 +551,86 @@ where
         Ok(())
     }
 
+    /// Enable the partial rescue (binary64 executors only) with the given
+    /// double-double acceptance threshold.
+    pub(crate) fn enable_partial_rescue(&mut self, threshold: f64) {
+        if T::FIXED_BITS == Some(53) {
+            self.partial = Some(Box::new(PartialRescue { executors: HashMap::new(), threshold }));
+        }
+    }
+
+    /// Coefficient values of the top subset of the current lane's variant,
+    /// when it is a PV subset.
+    pub(crate) fn top_coefficients(&self) -> Option<Vec<L4<T>>> {
+        let id = self.plan.subsets.len().checked_sub(1)?;
+        let subset = &self.plan.subsets[id];
+        if subset.kind != SubsetKind::Pv || subset.lightlike {
+            return None;
+        }
+        let start = subset.master? as usize;
+        let count = self.plan.coefficient_counts[id] as usize;
+        Some(self.values[start..start + count].to_vec())
+    }
+
+    /// Evaluate every external subset of this lane in double-double and
+    /// inject its rounded coefficients.
+    fn inject_external(&mut self, mu: f64) -> Result<(), String> {
+        use symbolica::domains::float::{DoubleFloat, RealLike};
+        let plan = self.plan.clone();
+        let external = self.external.clone();
+        let mut partial = self.partial.take().ok_or("no partial rescue")?;
+        let outcome = (|| -> Result<(), String> {
+            for &id in &external {
+                let subset = &plan.subsets[id];
+                let size = subset.members.len();
+                let rank = subset.coefficient_rank.max(0) as u16;
+                let executor = match partial.executors.entry((size, rank)) {
+                    std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+                    std::collections::hash_map::Entry::Vacant(entry) => {
+                        let small = DirectPlanData::new(crate::ReductionSettings::new(size, rank))
+                            .map_err(|e| e.to_string())?;
+                        let mut executor = DirectExecutor::<DoubleFloat>::new(Arc::new(small), DoubleFloat::from(0.0), DirectMasters::Native)
+                            .map_err(|e| e.to_string())?;
+                        executor.set_stability_threshold(DoubleFloat::from(partial.threshold));
+                        entry.insert(executor)
+                    }
+                };
+                let mut values = Vec::with_capacity(5 * size + 1);
+                for &member in &subset.members {
+                    for a in 0..4 {
+                        let z = &self.shifts[member][a];
+                        values.push(Complex::new(DoubleFloat::from(z.re.to_f64()), DoubleFloat::from(z.im.to_f64())));
+                    }
+                }
+                for &member in &subset.members {
+                    let z = &self.masses[member];
+                    values.push(Complex::new(DoubleFloat::from(z.re.to_f64()), DoubleFloat::from(z.im.to_f64())));
+                }
+                values.push(Complex::new(DoubleFloat::from(mu), DoubleFloat::from(0.0)));
+                let result = executor
+                    .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values })
+                    .map_err(|e| e.to_string())?;
+                if result.statuses[0] != LaneStatus::Success {
+                    return Err(format!("partial rescue of {:?}: {:?}", subset.members, result.statuses[0]));
+                }
+                let coefficients = executor.top_coefficients().ok_or("partial rescue: no PV coefficients")?;
+                if coefficients.len() != plan.coefficient_counts[id] as usize {
+                    return Err("partial rescue: coefficient layouts differ".into());
+                }
+                let start = subset.master.ok_or("partial rescue: no master")? as usize;
+                for (k, slots) in coefficients.iter().enumerate() {
+                    self.values[start + k] = std::array::from_fn(|slot| {
+                        let z = &slots[slot];
+                        C::new(exact_f64(&self.prototype, z.re.to_f64()), exact_f64(&self.prototype, z.im.to_f64()))
+                    });
+                }
+            }
+            Ok(())
+        })();
+        self.partial = Some(partial);
+        outcome
+    }
+
     /// `2^-bits` at working precision.
     fn binary_tolerance(&self, bits: u64) -> T {
         self.prototype.one() / &self.prototype.from_usize(2).pow(bits)
@@ -725,6 +821,7 @@ where
     /// Compute every subset's numeric geometry for the current variant.
     fn geometry(&mut self) -> Result<(), GeometryFailure> {
         self.failed_condition = None;
+        self.external.clear();
         let plan = self.plan.clone();
         let n = plan.settings.propagators;
         let threshold = self.stability_threshold.clone();
@@ -737,7 +834,9 @@ where
                 self.geometry[relation.weights as usize + j] = weight;
             }
         }
-        for subset in &plan.subsets {
+        let top_mask = plan.subsets.last().map(|subset| subset.mask);
+        let partial = self.partial.is_some() && plan.jet.is_none() && plan.lambda_shift == 0;
+        for (subset_id, subset) in plan.subsets.iter().enumerate() {
             let members = &subset.members;
             let origin = members[0];
             let d = |i: usize, j: usize| &self.distances[i * n + j];
@@ -840,6 +939,14 @@ where
                             quality.relative_determinant.clone()
                         };
                         if condition.clone().pow(power) < threshold {
+                            if partial && (2..=3).contains(&size) && Some(subset.mask) != top_mask {
+                                // Computed in double-double and injected.
+                                let estimate = condition.clone().pow(power).to_f64();
+                                self.failed_condition =
+                                    Some(self.failed_condition.map_or(estimate, |f: f64| f.min(estimate)));
+                                self.external.push(subset_id);
+                                continue;
+                            }
                             self.failed_condition = Some(condition.clone().pow(power).to_f64());
                             return Err(GeometryFailure::Singular(subset.mask, format!(
                                 "ill-conditioned Gram matrix for {members:?}: conditioning {:e}",
@@ -1725,7 +1832,16 @@ where
         } else {
             &plan.coefficient_program
         };
-        for instruction in program {
+        // Instructions of externally computed (injected) subsets are skipped.
+        let skip: Vec<(u32, u32)> = if program_is_moments {
+            Vec::new()
+        } else {
+            self.external.iter().map(|&id| plan.coefficient_ranges[id]).collect()
+        };
+        for (index, instruction) in program.iter().enumerate() {
+            if !skip.is_empty() && skip.iter().any(|&(a, b)| a <= index as u32 && (index as u32) < b) {
+                continue;
+            }
             let mut accumulator = lzero(&self.zero);
             for term in &plan.terms[instruction.terms.0 as usize..instruction.terms.1 as usize] {
                 let constant = &self.constants[term.constant as usize];
@@ -2049,6 +2165,15 @@ where
                     self.profile.masters += started.elapsed();
                 }
             }
+            if !self.external.is_empty() {
+                let n = self.plan.settings.propagators;
+                let mu = batch.values[row * (5 * n + 1) + 5 * n].re.to_f64();
+                if let Err(error) = self.inject_external(mu) {
+                    self.lane_conditions[row] = self.failed_condition;
+                    statuses.push(LaneStatus::Unstable(error));
+                    continue;
+                }
+            }
             if let Some(unit) = plan.unit_finite {
                 self.values[unit as usize] = [self.zero.clone(), self.zero.clone(), self.zero.clone(), self.one.clone()];
             }
@@ -2150,6 +2275,16 @@ where
             primal_envelopes: vec![None; rows],
             primal_envelope_errors: vec![None; rows],
         })
+    }
+}
+
+/// The binary64 value `x` exactly in the executor's number type.
+fn exact_f64<T: NativeFloat>(prototype: &T, x: f64) -> T {
+    match (&x as &dyn std::any::Any).downcast_ref::<T>() {
+        Some(value) => value.clone(),
+        None => symbolica::domains::float::Float::with_val(53, x)
+            .try_to_rational()
+            .map_or_else(|| prototype.zero(), |exact| prototype.from_rational(&exact)),
     }
 }
 

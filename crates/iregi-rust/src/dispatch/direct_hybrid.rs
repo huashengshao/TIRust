@@ -263,6 +263,7 @@ where
         if rotation_tested(plan.direct.settings()) {
             direct.set_stability_threshold(from_binary64(&prototype, ROTATION_GATE));
         }
+        direct.enable_partial_rescue(rescue_threshold(RESCUE_BITS[0]));
         Ok(Self {
             plan,
             direct,

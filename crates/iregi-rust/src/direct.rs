@@ -122,6 +122,13 @@ where
     }
 
     /// Minimal accepted relative determinant (raised to the recursion depth).
+    /// Partial rescue (binary64 workspaces): boxes and triangles refused by
+    /// their Gram gate are computed in double-double with acceptance down to
+    /// `threshold` and injected; the rest of the lane stays binary64.
+    pub fn enable_partial_rescue(&mut self, threshold: f64) {
+        self.executor.enable_partial_rescue(threshold);
+    }
+
     pub fn set_stability_threshold(&mut self, threshold: T) {
         self.executor.set_stability_threshold(threshold);
     }
