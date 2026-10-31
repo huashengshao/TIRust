@@ -320,6 +320,34 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    recaptured with this (next capture 004).
    Engine gaps found: exactly singular six-point thin systems and null-
    hyperplane boxes (singular Gram, affinely independent) have no route.
+3f. **Binary64-only path and the rescue switch (31 October, after a43a524).**
+   User requests: improve double-precision-only TIRust; add an option to
+   disable the precision rescue. `PrecisionRescue::{Automatic, Disabled}` in
+   `TensorWorkspaceOptions::precision_rescue` and
+   `TensorWorkspace::set_precision_rescue` (CLI `--no-precision-rescue`,
+   Python `set_precision_rescue(False)`): Disabled = no partial DD, no tiers;
+   lanes with a conditioning estimate are returned Unstable ("precision rescue
+   disabled" note); lanes without one still go to the binary64 symbolic
+   engine. Checked binary64 retry (`direct_hybrid.rs`, both modes, N>=4 with
+   equal powers): lanes refused by the a priori gate (or, N>=5, whose rotated
+   copy was) are evaluated again with the gate at CHECKED_GATE = 1e-30 and kept
+   when the rotated copy agrees within tolerance/4 (CHECKED_MARGIN_BITS = 2).
+   The rotation tolerance is the accuracy request 2^(19-accuracy_bits)
+   (default 2^-34). Probe (`examples/binary64_probe.rs`, all stability points;
+   outputs in the session scratchpad): binary64-only kept box r4 9966 ->
+   9976/10000, r6 9630 -> 9744, pentagon 4318 -> 4556/5000, hexagon 488 ->
+   1519/2000, heptagon 0 -> 46/100; worst kept E/A unchanged (9.6e-9, 3.4e-10,
+   2.7e-10, 1.5e-10, 2e-11). At the 2^-20 request: 9988, 9927, 4972, 1965,
+   93/100, worst 2.5e-6. Default path: full rescues r6 370 -> 256, pentagon 38,
+   hexagon 34, heptagon 13/100 (with partial rescue). Most remaining refusals
+   are accurate to 1e-8 (open gate); genuinely lost precision: about 20 r4
+   and 120 r6 top boxes (small Gram: |det Z|/max|Xadj_0j| median 3e-3 and
+   2.7e-2, smallest on the worst lanes, so sect. 3.4 should converge fast
+   there; COLLIER's CalcDg in target/reference/collier/source/.../reductionD.F90).
+   Stability driver records `binary64` / `binary64_r20` (facade, rescue
+   disabled); run.py/summarize.py use them from capture 005 (codes
+   tirust-binary64, tirust-binary64-r20); capture 004's "binary64" curve is
+   the old derivation (default without a full rescue, partial DD included).
 3d. **Next: small-Gram box reduction** (hep-ph/0509141 sect. 3.4, Eqs.
    (recurGram1)/(recurGram2), arXiv source in the paper; COLLIER's scheme).
    For a box with momenta p1..p3: pick j maximizing |Xadj_0j| and (k,l)

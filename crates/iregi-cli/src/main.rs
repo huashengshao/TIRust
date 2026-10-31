@@ -114,6 +114,11 @@ struct NumericArgs {
     /// Independent verification precision; defaults to twice --rescue-bits.
     #[arg(long,requires="rescue",value_parser=clap::value_parser!(u32).range(2..))]
     verification_bits: Option<u32>,
+    /// Compute every lane at the selected precision only: lanes the binary64
+    /// direct engine refuses are reported unstable instead of being rerun at
+    /// 106, 256 or 512 bits.
+    #[arg(long, conflicts_with = "rescue")]
+    no_precision_rescue: bool,
     /// COLLIER-style UV scale mu_UV^2 (default: each lane's mu^2).
     #[arg(long)]
     mu_uv2: Option<f64>,
@@ -138,6 +143,7 @@ struct NumericPolicy {
     output_bits: u32,
     accuracy_bits: u32,
     rescue: Option<RescueSettings>,
+    precision_rescue: iregi_rust::PrecisionRescue,
     regulators: iregi_rust::Regulators,
 }
 
@@ -183,6 +189,11 @@ impl NumericArgs {
             output_bits,
             accuracy_bits,
             rescue,
+            precision_rescue: if self.no_precision_rescue {
+                iregi_rust::PrecisionRescue::Disabled
+            } else {
+                iregi_rust::PrecisionRescue::Automatic
+            },
             regulators: iregi_rust::Regulators {
                 mu_uv_squared: self.mu_uv2,
                 mu_ir_squared: self.mu_ir2,
@@ -207,6 +218,7 @@ impl NumericPolicy {
                 "working_bits":settings.working_bits,"verification_bits":settings.verification_bits})),
             "verification_scope":if self.rescue.is_some(){"tensor_moments"}else{"none"},
             "input_promotion":"exactly promotes the already parsed output-domain input; does not recover decimal digits rounded during input parsing",
+            "precision_rescue":format!("{:?}",self.precision_rescue),
             "regulators":self.regulators,
             "scope":"tensor coefficients at the exactly represented input; numerator evaluation and contraction use output precision and are not independently verified by tensor rescue"})
     }
@@ -245,6 +257,7 @@ where
                 .set_accuracy_precision(policy.accuracy_bits)
                 .map_err(|e| e.to_string())?;
             workspace.set_regulators(policy.regulators);
+            workspace.set_precision_rescue(policy.precision_rescue);
             Ok(Self::Ordinary(workspace))
         }
     }
@@ -369,6 +382,7 @@ fn engine_execution_json(detail: TensorEngineExecution) -> Value {
                 "bits":tier.bits,"rows":tier.rows,"successes":tier.successes})).collect::<Vec<_>>(),
             "symbolic_rows":stats.symbolic_rows,
             "rotation_rows":stats.rotation_rows,"rotation_failures":stats.rotation_failures,
+            "checked_rows":stats.checked_rows,"checked_successes":stats.checked_successes,
             "fallback_preparation_error":stats.fallback_preparation_error,
             "fallback":stats.fallback.map(|child| engine_execution_json(*child)),
         }),

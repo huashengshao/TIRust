@@ -559,6 +559,10 @@ where
         }
     }
 
+    pub(crate) fn disable_partial_rescue(&mut self) {
+        self.partial = None;
+    }
+
     /// Coefficient values of the top subset of the current lane's variant,
     /// when it is a PV subset.
     pub(crate) fn top_coefficients(&self) -> Option<Vec<L4<T>>> {

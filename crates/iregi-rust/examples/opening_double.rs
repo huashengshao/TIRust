@@ -219,6 +219,7 @@ where
             _ => return Err("unsupported master policy".into()),
         },
         profiling: !request.postconstruction_profiling,
+        ..Default::default()
     };
     let started = Instant::now();
     let mut workspace = TensorWorkspace::new_with_options(&plan, prototype, options)?;

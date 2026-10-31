@@ -866,6 +866,7 @@ mod tests {
             TensorWorkspaceOptions {
                 master_policy: MasterExecutionPolicy::Symbolica,
                 profiling: false,
+                ..Default::default()
             },
         )
         .unwrap();

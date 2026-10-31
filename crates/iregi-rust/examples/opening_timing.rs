@@ -211,6 +211,7 @@ where
     let options = TensorWorkspaceOptions {
         master_policy: MasterExecutionPolicy::Symbolica,
         profiling: true,
+        ..Default::default()
     };
     let started = Instant::now();
     let mut workspace = TensorWorkspace::new_with_options(&plan, prototype, options)?;

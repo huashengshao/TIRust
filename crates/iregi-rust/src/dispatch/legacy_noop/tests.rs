@@ -196,6 +196,7 @@ fn empty_invalid_and_malformed_calls_do_not_prepare_any_reduction_graph() {
         TensorWorkspaceOptions {
             master_policy: MasterExecutionPolicy::Symbolica,
             profiling: true,
+            ..Default::default()
         },
     )
     .unwrap();

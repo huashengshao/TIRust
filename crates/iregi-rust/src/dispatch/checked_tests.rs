@@ -19,6 +19,7 @@ fn symbolic(profiling: bool) -> TensorWorkspaceOptions {
     TensorWorkspaceOptions {
         master_policy: MasterExecutionPolicy::Symbolica,
         profiling,
+        ..Default::default()
     }
 }
 /// Literal quarter-unit fixture. The 21 packed products are independently
@@ -77,6 +78,7 @@ fn checked_master_policy_never_downgrades_to_unchecked_generic() {
         let native = TensorWorkspaceOptions {
             master_policy: MasterExecutionPolicy::NativeF64Abc,
             profiling,
+            ..Default::default()
         };
         assert!(matches!(
             native.validate_checked(),
@@ -132,6 +134,7 @@ fn checked_facade_preserves_layout_and_profiling_and_rejects_before_masters() {
     let native = TensorWorkspaceOptions {
         master_policy: MasterExecutionPolicy::NativeF64Abc,
         profiling: true,
+        ..Default::default()
     };
     assert!(matches!(
         TensorWorkspace::new_with_options(&plan, 0., native),

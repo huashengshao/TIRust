@@ -159,11 +159,23 @@ For binary64 workspaces `TensorReductionPlan::new` selects the direct numerical
 engine whenever the request is in its domain (unit powers or one raised power up
 to 5, `h<=3` up to four points, Cartesian shifts, `Preserve`, PV/Hybrid, N<=7 (unit powers at N=7));
 `engine_kind()` reports `Direct`, and `engine_execution()` reports direct
-successes, fallback rows and the fallback's own detail. Lanes it cannot reduce
-reliably are rerun on the symbolic engine; `TensorReductionPlan::new_without_direct`
+successes, fallback rows and the fallback's own detail. Binary64 lanes are
+checked by conditioning gates and, for four or more propagators with equal
+powers, a loop-rotation test (the same integral with relabelled propagators,
+tolerance the requested accuracy, 2^-34 by default). Lanes the a priori gate
+refuses are evaluated again below it and kept when the rotated copy agrees.
+By default, boxes and triangles refused inside a lane are computed in
+double-double, and lanes still refused are rerun by the direct engine at 106,
+256 or 512 bits, then on the symbolic engine.
+`TensorWorkspaceOptions::precision_rescue = PrecisionRescue::Disabled` (or
+`TensorWorkspace::set_precision_rescue`; CLI `--no-precision-rescue`; Python
+`workspace.set_precision_rescue(False)`) keeps every lane in binary64: refused
+lanes are returned `Unstable`, with the reason in `last_diagnostics()`. A looser
+accuracy request (`set_accuracy_precision(bits)`, tolerance 2^(19-bits)) lets
+the binary64-only path keep more lanes. `TensorReductionPlan::new_without_direct`
 selects the symbolic dispatch explicitly. `DoubleFloat`, `Float` and Dual
-workspaces use the symbolic engine. The lower-level `DirectReductionPlan` /
-`DirectWorkspace` API is also public.
+workspaces use the symbolic engine at their own precision. The lower-level
+`DirectReductionPlan` / `DirectWorkspace` API is also public.
 
 Moments use increasing rank and IREGI's Cartesian monomial ordering, with
 `[UV single, IR single, IR double, finite]` for each monomial. `Convention`

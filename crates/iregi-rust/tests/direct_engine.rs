@@ -609,6 +609,118 @@ fn direct_256(n: usize, rank: u16, values: &[Complex<f64>]) -> (Vec<iregi_rust::
     (result.basis.clone(), array)
 }
 
+/// Facade result of a gg -> HH top-loop box (sqrt(s) = 1 TeV) with the given
+/// precision rescue, its counters and notes, and its E/A against a 256-bit
+/// direct evaluation (when the lane succeeded).
+fn physical_box(
+    shifts: &[[f64; 4]; 4],
+    rank: u16,
+    rescue: iregi_rust::PrecisionRescue,
+) -> (iregi_rust::BatchResult<f64>, iregi_rust::DirectExecutionStats, Vec<String>, Option<f64>) {
+    use iregi_rust::{TensorEngineExecution, TensorWorkspaceOptions};
+    let mt2 = 173.0f64 * 173.0;
+    let values = row(shifts, &[(mt2, 0.0); 4], 1000.0);
+    let plan = TensorReductionPlan::new(ReductionSettings::new(4, rank)).unwrap();
+    let options = TensorWorkspaceOptions { precision_rescue: rescue, ..Default::default() };
+    let mut workspace = TensorWorkspace::new_with_options(&plan, 0.0f64, options).unwrap();
+    assert_eq!(workspace.precision_rescue(), rescue);
+    let result = workspace
+        .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: values.clone() })
+        .unwrap();
+    let TensorEngineExecution::Direct(stats) = workspace.engine_execution() else {
+        panic!("expected the direct engine");
+    };
+    let stats = stats.clone();
+    let notes = workspace.last_diagnostics()[0].clone();
+    let error = result.lane(0).ok().map(|lane| {
+        let (_, reference) = direct_256(4, rank, &values);
+        general_array_error(&result.basis, 4 - 2 * 4, 1000.0, lane, &reference)
+    });
+    (result, stats, notes, error)
+}
+
+#[test]
+fn gate_refused_binary64_box_is_kept_by_the_rotation_check() {
+    // gg -> HH rank-6 box (stability point box-r6 #759): the a priori Gram
+    // gate refuses it (estimate 3.8e-17), yet binary64 keeps E/A 3.8e-12.
+    // The checked retry evaluates it below the gate with rotated propagators
+    // too; the copies agree, so the binary64 array is returned, with the
+    // precision rescue disabled or not.
+    use iregi_rust::PrecisionRescue;
+    let shifts = [
+        [0.0, 0.0, 0.0, 0.0],
+        [500.0, 0.0, 0.0, 500.0],
+        [1000.0, 0.0, 0.0, 0.0],
+        [499.99999999999994, 21.6322892694395, -42.18555103069406, 481.7960391547444],
+    ];
+    for rescue in [PrecisionRescue::Disabled, PrecisionRescue::Automatic] {
+        let (result, stats, notes, error) = physical_box(&shifts, 6, rescue);
+        assert_eq!(result.statuses[0], LaneStatus::Success, "{notes:?}");
+        assert!(!result.fallback_used[0], "{stats:?}");
+        assert_eq!((stats.checked_rows, stats.checked_successes), (1, 1), "{stats:?}");
+        assert!(stats.precision_rescue.is_empty(), "{stats:?}");
+        let error = error.unwrap();
+        assert!(error <= 1e-11, "E/A = {error:e}");
+    }
+}
+
+#[test]
+fn disabled_precision_rescue_returns_inaccurate_binary64_lanes_unstable() {
+    // gg -> HH rank-4 box (box-r4 #5046): binary64 keeps only E/A 1.1e-3 and
+    // its rotated copy differs by 1.4e-3. With the rescue disabled the lane
+    // is refused, never rerun, with the reason in its diagnostics; by default
+    // it is rescued at higher precision.
+    use iregi_rust::PrecisionRescue;
+    let shifts = [
+        [0.0, 0.0, 0.0, 0.0],
+        [500.0, 0.0, 0.0, 500.0],
+        [1000.0, 0.0, 0.0, 0.0],
+        [499.9999999999999, 8.840408903567376, -6.981798561273453, -483.99184048831603],
+    ];
+    let (result, stats, notes, _) = physical_box(&shifts, 4, PrecisionRescue::Disabled);
+    assert!(matches!(result.statuses[0], LaneStatus::Unstable(_)), "{:?}", result.statuses[0]);
+    assert!(!result.fallback_used[0], "{stats:?}");
+    assert_eq!((stats.checked_rows, stats.checked_successes), (1, 0), "{stats:?}");
+    assert!(stats.precision_rescue.is_empty() && stats.symbolic_rows == 0, "{stats:?}");
+    assert!(notes.iter().any(|note| note.contains("precision rescue disabled")), "{notes:?}");
+    let (result, stats, _, error) = physical_box(&shifts, 4, PrecisionRescue::Automatic);
+    assert_eq!(result.statuses[0], LaneStatus::Success);
+    assert!(result.fallback_used[0], "{stats:?}");
+    let error = error.unwrap();
+    assert!(error <= 1e-14, "E/A = {error:e}");
+}
+
+#[test]
+fn precision_rescue_switches_on_an_existing_workspace() {
+    // Pentagon-r5 #212 (binary64 keeps ~2.5e-9, caught by the loop-rotation
+    // test): the same workspace refuses it with the rescue disabled and
+    // rescues it again once re-enabled.
+    use iregi_rust::PrecisionRescue;
+    let shifts = [
+        [0.0, 0.0, 0.0, 0.0],
+        [500.0, 0.0, 0.0, 500.0],
+        [1000.0, 0.0, 0.0, 0.0],
+        [664.7752755465025, -264.68605966338976, 196.959906569897, 59.360769105269235],
+        [366.1961747737811, -226.26921095725032, 197.98348258528515, -209.05602888970952],
+    ];
+    let mt2 = 173.0f64 * 173.0;
+    let batch = KinematicsBatch { rows: 1, components: 1, values: row(&shifts, &[(mt2, 0.0); 5], 1000.0) };
+    let plan = TensorReductionPlan::new(ReductionSettings::new(5, 5)).unwrap();
+    let mut workspace = TensorWorkspace::new(&plan, 0.0f64).unwrap();
+    assert_eq!(workspace.precision_rescue(), PrecisionRescue::Automatic);
+    workspace.set_precision_rescue(PrecisionRescue::Disabled);
+    let refused = workspace.reduce_batch(&batch).unwrap();
+    assert!(matches!(refused.statuses[0], LaneStatus::Unstable(_)), "{:?}", refused.statuses[0]);
+    assert!(!refused.fallback_used[0]);
+    workspace.set_precision_rescue(PrecisionRescue::Automatic);
+    let rescued = workspace.reduce_batch(&batch).unwrap();
+    assert_eq!(rescued.statuses[0], LaneStatus::Success);
+    assert!(rescued.fallback_used[0]);
+    let (_, reference) = direct_256(5, 5, &batch.values);
+    let error = general_array_error(&rescued.basis, 4 - 2 * 5, 1000.0, rescued.lane(0).unwrap(), &reference);
+    assert!(error <= 1e-14, "E/A = {error:e}");
+}
+
 #[test]
 fn seven_point_rank_seven_heptagon_matches_high_precision() {
     // gg -> ggggg top-loop heptagon at sqrt(s) = 1 TeV (stability study point

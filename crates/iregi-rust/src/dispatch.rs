@@ -406,6 +406,29 @@ pub struct TensorWorkspaceOptions {
     /// Construction retains its existing generic/affine dispatch; to profile a
     /// selected six-point thin engine, enable profiling after construction.
     pub profiling: bool,
+    /// Whether lanes refused by the binary64 direct engine's checks may be
+    /// rerun at higher precision (see [`PrecisionRescue`]).
+    pub precision_rescue: PrecisionRescue,
+}
+
+/// Precision rescue of a binary64 workspace.
+///
+/// Only binary64 workspaces of the direct engine ever change precision.
+/// Workspaces of other number types, and the other engines, compute every
+/// lane in their own arithmetic either way.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PrecisionRescue {
+    /// Lanes refused by the binary64 checks (conditioning gates and the
+    /// loop-rotation test) are rerun by the direct engine at 106, 256 or 512
+    /// bits, and boxes or triangles refused inside a lane are computed in
+    /// double-double, before the result is rounded to binary64.
+    #[default]
+    Automatic,
+    /// Every lane is computed in binary64 only. Lanes refused by the checks
+    /// are returned as [`crate::LaneStatus::Unstable`] with the reason in the
+    /// diagnostics; lanes the direct engine does not support structurally
+    /// still go to the binary64 symbolic engine.
+    Disabled,
 }
 
 impl TensorWorkspaceOptions {
@@ -1143,6 +1166,24 @@ where
         self.regulators
     }
 
+    /// Allow or forbid the precision rescue of later calls (see
+    /// [`PrecisionRescue`]). Workspaces that never change precision accept
+    /// either value and are unaffected.
+    pub fn set_precision_rescue(&mut self, rescue: PrecisionRescue) {
+        if let WorkspaceEngine::Direct(workspace) = &mut self.engine {
+            workspace.set_precision_rescue(rescue);
+        }
+    }
+
+    /// The effective setting: `Disabled` for workspaces that never change
+    /// precision.
+    pub fn precision_rescue(&self) -> PrecisionRescue {
+        match &self.engine {
+            WorkspaceEngine::Direct(workspace) => workspace.precision_rescue_setting(),
+            _ => PrecisionRescue::Disabled,
+        }
+    }
+
     pub fn reduce_batch(
         &mut self,
         batch: &KinematicsBatch<T>,
@@ -1330,7 +1371,8 @@ mod tests {
         assert!(
             TensorWorkspaceOptions {
                 master_policy: MasterExecutionPolicy::Symbolica,
-                profiling: false
+                profiling: false,
+                ..Default::default()
             }
             .permits_thin()
         );
@@ -1562,6 +1604,7 @@ mod tests {
         let options = TensorWorkspaceOptions {
             profiling: true,
             master_policy: MasterExecutionPolicy::Symbolica,
+            ..Default::default()
         };
         let shape = HyperDual::<f64>::new(vec![vec![0]]);
         let mut dual = TensorWorkspace::new_dual_with_options(&plan, 0., shape, options).unwrap();
@@ -1619,6 +1662,7 @@ mod tests {
         let options = TensorWorkspaceOptions {
             master_policy: MasterExecutionPolicy::NativeF64Abc,
             profiling: false,
+            ..Default::default()
         };
         let result = TensorWorkspace::new_with_options(&plan, 0., options);
         if cfg!(feature = "native-f64-abc") {
@@ -1681,6 +1725,7 @@ mod tests {
                 TensorWorkspaceOptions {
                     master_policy: MasterExecutionPolicy::Symbolica,
                     profiling: false,
+                    ..Default::default()
                 },
             )
             .unwrap();

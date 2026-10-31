@@ -129,6 +129,11 @@ where
         self.executor.enable_partial_rescue(threshold);
     }
 
+    /// Refused boxes and triangles refuse the lane again (the default).
+    pub fn disable_partial_rescue(&mut self) {
+        self.executor.disable_partial_rescue();
+    }
+
     pub fn set_stability_threshold(&mut self, threshold: T) {
         self.executor.set_stability_threshold(threshold);
     }

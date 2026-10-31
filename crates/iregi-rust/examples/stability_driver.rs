@@ -6,6 +6,9 @@
 //! - `default`: the public binary64 facade (`TensorReductionPlan` default,
 //!   with the direct engine's automatic precision rescue and the symbolic
 //!   fallback), with per-lane diagnostics;
+//! - `binary64` and `binary64_r20`: the public facade with the precision
+//!   rescue disabled (`PrecisionRescue::Disabled`: every lane in binary64,
+//!   refusals reported), at the default accuracy request 2^-34 and at 2^-20;
 //! - `direct64`: the direct engine in binary64 alone (no rescue): refused
 //!   lanes are reported, not repaired;
 //! - `direct256`: the direct engine at 256 bits on the same binary64 inputs
@@ -17,8 +20,8 @@
 use std::io::Write;
 
 use iregi_rust::{
-    BatchResult, DirectReductionPlan, KinematicsBatch, ReductionSettings, TensorReductionPlan,
-    TensorWorkspace,
+    BatchResult, DirectReductionPlan, KinematicsBatch, PrecisionRescue, ReductionSettings,
+    TensorReductionPlan, TensorWorkspace, TensorWorkspaceOptions,
 };
 use serde_json::{Value, json};
 use symbolica::domains::float::{Complex, Float, RealLike};
@@ -108,6 +111,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let default = facade.reduce_batch(&batch)?;
         let diagnostics = facade.last_diagnostics().to_vec();
 
+        let options = TensorWorkspaceOptions { precision_rescue: PrecisionRescue::Disabled, ..Default::default() };
+        let mut only = TensorWorkspace::new_with_options(&plan, 0.0f64, options)?;
+        let binary64 = only.reduce_batch(&batch)?;
+        let binary64_diagnostics = only.last_diagnostics().to_vec();
+        // Requested accuracy 2^(19-39) = 2^-20.
+        only.set_accuracy_precision(39)?;
+        let binary64_r20 = only.reduce_batch(&batch)?;
+
         let direct = DirectReductionPlan::new(settings)?;
         let direct64 = direct.workspace(0.0f64)?.reduce_batch(&batch)?;
 
@@ -129,10 +140,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut entry_default = moments(&default, lane);
             entry_default["fallback_used"] = json!(default.fallback_used[lane]);
             entry_default["diagnostics"] = json!(diagnostics.get(lane));
+            let mut entry_binary64 = moments(&binary64, lane);
+            entry_binary64["fallback_used"] = json!(binary64.fallback_used[lane]);
+            entry_binary64["diagnostics"] = json!(binary64_diagnostics.get(lane));
+            let mut entry_binary64_r20 = moments(&binary64_r20, lane);
+            entry_binary64_r20["fallback_used"] = json!(binary64_r20.fallback_used[lane]);
             let record = json!({
                 "integral": id,
                 "index": lane,
                 "default": entry_default,
+                "binary64": entry_binary64,
+                "binary64_r20": entry_binary64_r20,
                 "direct64": moments(&direct64, lane),
                 "direct256": moments_text(&direct256, lane),
             });

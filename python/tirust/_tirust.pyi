@@ -92,7 +92,7 @@ DirectEngineExecution = TypedDict("DirectEngineExecution", {
     "engine": Literal["direct"], "input_rows": int, "direct_successes": int,
     "fallback_rows": int, "fallback_successes": int,
     "precision_rescue": list[DirectRescueTier], "symbolic_rows": int,
-    "rotation_rows": int, "rotation_failures": int,
+    "rotation_rows": int, "rotation_failures": int, "checked_rows": int, "checked_successes": int,
     "fallback_preparation_error": str | None, "fallback": NotRequired["EngineExecution"],
 })
 EngineExecution: TypeAlias = DirectEngineExecution | MassTaylorEngineExecution | LegacyNoOpEngineExecution | GenericEngineExecution | PackedEngineExecution | HybridEngineExecution | CertifiedEngineExecution | AffinePowerEngineExecution
@@ -182,6 +182,11 @@ class Workspace:
         delta_ir2: float = 0.0,
         collier_normalization: bool = False,
     ) -> None: ...
+    def set_precision_rescue(self, enabled: bool) -> None:
+        """Allow (default) or forbid rerunning refused float64 lanes at higher
+        precision; with enabled=False every lane is computed in binary64 only and
+        refused lanes are returned Unstable."""
+    def precision_rescue(self) -> bool: ...
     def reduce_batch(self, batch: KinematicsBatch | Sequence[Sequence[NumericInput]]) -> BatchResult: ...
     def contract(self, result: BatchResult, *, monomials: Sequence[Monomial],
         coefficients: Sequence[Sequence[NumericInput]]) -> ContractionResult: ...

@@ -5,17 +5,27 @@
 //! conditioning estimate predicts poorly) every binary64 lane is evaluated a
 //! second time with its propagators rotated, the same integral through
 //! different Gram systems, as in MadLoop's loop-direction test; a relative
-//! difference above 2^-30 (or a refused rotated copy) sends the lane to the
-//! precision rescue. Lanes
-//! refused on conditioning (ill-conditioned Gram, Cayley or six-point systems
-//! without a denominator identity) are first rerun by the same direct engine
-//! at higher precision: double-double, then 256 and 512 MPFR bits, starting at
-//! the tier the binary64 conditioning estimate calls for. The binary64 inputs
-//! are lifted exactly, so a tier evaluates the caller's kinematics, and the
-//! accepted coefficients are rounded once. Lanes no tier accepts, and
-//! scalar-master failures, are rerun on the existing symbolic engine, whose
-//! plan and workspace are only prepared when such a lane first occurs.
-//! Invalid inputs are rejected by the direct engine itself and are not
+//! difference above the requested accuracy (2^-34 by default) or a refused
+//! rotated copy refuses the lane.
+//!
+//! Lanes the a priori conditioning gate refuses (four or more propagators,
+//! equal powers) are evaluated again in binary64 with the gate lowered to
+//! `CHECKED_GATE` and kept when their rotated copy agrees two bits better
+//! than the tolerance: the a posteriori test replaces the a priori bound,
+//! which is pessimistic for most such lanes.
+//!
+//! With [`PrecisionRescue::Automatic`] (the default) lanes still refused on
+//! conditioning are rerun by the same direct engine at higher precision:
+//! double-double, then 256 and 512 MPFR bits, starting at the tier the
+//! binary64 conditioning estimate calls for; boxes and triangles refused
+//! inside a lane are computed in double-double first (partial rescue). The
+//! binary64 inputs are lifted exactly, so a tier evaluates the caller's
+//! kinematics, and the accepted coefficients are rounded once. With
+//! [`PrecisionRescue::Disabled`] these lanes are returned unstable. Lanes no
+//! tier accepts (or, rescue disabled, lanes without a conditioning estimate)
+//! and scalar-master failures are rerun on the existing binary64 symbolic
+//! engine, whose plan and workspace are only prepared when such a lane first
+//! occurs. Invalid inputs are rejected by the direct engine itself and are not
 //! retried.
 
 use std::sync::{Arc, OnceLock};
@@ -26,7 +36,10 @@ use symbolica::{
     evaluate::EvaluationDomain,
 };
 
-use super::{TensorEngineExecution, TensorReductionPlan, TensorWorkspace, TensorWorkspaceOptions};
+use super::{
+    PrecisionRescue, TensorEngineExecution, TensorReductionPlan, TensorWorkspace,
+    TensorWorkspaceOptions,
+};
 use crate::{
     BatchResult, DirectMasters, DirectReductionPlan, DirectWorkspace, ExecutionProfile,
     InputLayout, KinematicsBatch, LaneStatus, ReductionError, ReductionSettings,
@@ -98,9 +111,28 @@ const ROTATION_TOLERANCE: f64 = 1.0 / (1u64 << 34) as f64;
 /// accepted tail at <= 1e-9 before the rotation test.
 const ROTATION_GATE: f64 = 1e-15;
 
+/// Gate of the checked binary64 retry. On the stability-20261030 points
+/// (boxes to heptagons) no lane below 1e-21 passed the rotation check.
+const CHECKED_GATE: f64 = 1e-30;
+/// Bits by which a lane below the a priori gate must beat the rotation
+/// tolerance. Its rotated copy shares the ill-conditioned subsystems, so the
+/// difference underestimates the error more often: on stability-20261030
+/// such lanes accepted at the plain tolerance reached E/A 6.6 times it, with
+/// two bits at most 2.4 times it (the binary64 tail without the retry).
+const CHECKED_MARGIN_BITS: i32 = 2;
+
 /// Whether the binary64 pass runs the loop-rotation test.
 fn rotation_tested(settings: &ReductionSettings) -> bool {
-    settings.propagators >= 5 && settings.powers.iter().all(|&power| power == settings.powers[0])
+    settings.propagators >= 5 && uniform_powers(settings)
+}
+
+/// Whether lanes refused by the a priori gate get the checked retry.
+fn rotation_checkable(settings: &ReductionSettings) -> bool {
+    settings.propagators >= 4 && uniform_powers(settings)
+}
+
+fn uniform_powers(settings: &ReductionSettings) -> bool {
+    settings.powers.iter().all(|&power| power == settings.powers[0])
 }
 
 /// The batch with every lane's propagators rotated by one (shifts and squared
@@ -207,6 +239,10 @@ pub struct DirectExecutionStats {
     /// those whose rotated copy disagreed or was refused.
     pub rotation_rows: usize,
     pub rotation_failures: usize,
+    /// Lanes refused by the a priori binary64 gate and evaluated again in
+    /// binary64 below it, and those kept by the rotation check.
+    pub checked_rows: usize,
+    pub checked_successes: usize,
     pub fallback_preparation_error: Option<String>,
     pub fallback: Option<Box<TensorEngineExecution>>,
 }
@@ -226,6 +262,9 @@ pub(crate) struct DirectHybridWorkspace<T: NativeFloat> {
     options: TensorWorkspaceOptions,
     accuracy_bits: Option<u32>,
     profiling: bool,
+    precision_rescue: PrecisionRescue,
+    /// Binary64 workspace of the checked retry, prepared on first use.
+    checked: Option<Box<DirectWorkspace<T>>>,
     rescue: RescueWorkspaces,
     fallback: Option<Box<TensorWorkspace<T>>>,
     last: DirectExecutionStats,
@@ -263,7 +302,9 @@ where
         if rotation_tested(plan.direct.settings()) {
             direct.set_stability_threshold(from_binary64(&prototype, ROTATION_GATE));
         }
-        direct.enable_partial_rescue(rescue_threshold(RESCUE_BITS[0]));
+        if options.precision_rescue == PrecisionRescue::Automatic {
+            direct.enable_partial_rescue(rescue_threshold(RESCUE_BITS[0]));
+        }
         Ok(Self {
             plan,
             direct,
@@ -271,6 +312,8 @@ where
             options,
             accuracy_bits: None,
             profiling: options.profiling,
+            precision_rescue: options.precision_rescue,
+            checked: None,
             rescue: RescueWorkspaces::default(),
             fallback: None,
             last: DirectExecutionStats::default(),
@@ -293,9 +336,38 @@ where
         Ok(())
     }
 
+    pub(crate) fn set_precision_rescue(&mut self, rescue: PrecisionRescue) {
+        self.precision_rescue = rescue;
+        self.options.precision_rescue = rescue;
+        for workspace in std::iter::once(&mut self.direct).chain(self.checked.as_deref_mut()) {
+            match rescue {
+                PrecisionRescue::Automatic => {
+                    workspace.enable_partial_rescue(rescue_threshold(RESCUE_BITS[0]))
+                }
+                PrecisionRescue::Disabled => workspace.disable_partial_rescue(),
+            }
+        }
+    }
+
+    pub(crate) fn precision_rescue_setting(&self) -> PrecisionRescue {
+        self.precision_rescue
+    }
+
+    /// Largest accepted E/A between a binary64 lane and its rotated copy:
+    /// the requested accuracy `2^(19 - bits)` (2^-34 by default).
+    fn rotation_tolerance(&self) -> f64 {
+        match self.accuracy_bits {
+            Some(bits) => 2f64.powi(19 - bits as i32),
+            None => ROTATION_TOLERANCE,
+        }
+    }
+
     pub(crate) fn set_profiling(&mut self, enabled: bool) -> Result<(), ReductionError> {
         self.profiling = enabled;
         self.direct.set_profiling(enabled);
+        if let Some(workspace) = &mut self.checked {
+            workspace.set_profiling(enabled);
+        }
         if let Some(workspace) = &mut self.rescue.double {
             workspace.set_profiling(enabled);
         }
@@ -477,6 +549,89 @@ where
         Ok(symbolic)
     }
 
+    /// Checked binary64 retry of `lanes`, refused by the a priori gate: they
+    /// are evaluated again in binary64 with the gate at `CHECKED_GATE`, with
+    /// rotated propagators too, and kept when the two arrays agree within
+    /// `tolerance * 2^-CHECKED_MARGIN_BITS`. Lanes not kept stay refused with
+    /// their a priori conditioning estimate, which picks the rescue tier.
+    fn checked_retry(
+        &mut self,
+        batch: &KinematicsBatch<T>,
+        lanes: &[usize],
+        tolerance: f64,
+        result: &mut BatchResult<T>,
+        profile: &mut ExecutionProfile,
+    ) -> Result<(), ReductionError> {
+        let n = self.plan.direct.settings().propagators;
+        if self.checked.is_none() {
+            let mut workspace = self
+                .plan
+                .direct
+                .workspace_with_masters(self.prototype.clone(), masters_for(self.options))?;
+            workspace.set_stability_threshold(from_binary64(&self.prototype, CHECKED_GATE));
+            workspace.set_profiling(self.profiling);
+            if self.precision_rescue == PrecisionRescue::Automatic {
+                workspace.enable_partial_rescue(rescue_threshold(RESCUE_BITS[0]));
+            }
+            self.checked = Some(Box::new(workspace));
+        }
+        let workspace = self.checked.as_mut().unwrap();
+        let width = batch.values.len() / batch.rows.max(1);
+        let mut values = Vec::with_capacity(lanes.len() * width);
+        for &lane in lanes {
+            values.extend_from_slice(&batch.values[lane * width..(lane + 1) * width]);
+        }
+        let sub = KinematicsBatch { rows: lanes.len(), components: batch.components, values };
+        let first = workspace.reduce_batch(&sub)?;
+        self.last.master_rows += workspace.last_master_rows();
+        let mut child = workspace.last_profile();
+        let second = workspace.reduce_batch(&rotated(&sub, n))?;
+        self.last.master_rows += workspace.last_master_rows();
+        let rotated_profile = workspace.last_profile();
+        child.geometry += rotated_profile.geometry;
+        child.masters += rotated_profile.masters;
+        child.recurrence += rotated_profile.recurrence;
+        child.gather += rotated_profile.gather;
+        child.output += rotated_profile.output;
+        profile.arguments += child.geometry;
+        profile.scalar_masters += child.masters;
+        profile.reduction += child.recurrence + child.gather + child.output;
+        self.last.checked_rows += lanes.len();
+        let required = tolerance * 2f64.powi(-CHECKED_MARGIN_BITS);
+        let stride = result.basis.len() * 4 * result.components;
+        let width_lane = 5 * n + 1;
+        for (k, &lane) in lanes.iter().enumerate() {
+            let note = match (&first.statuses[k], &second.statuses[k]) {
+                (LaneStatus::Success, LaneStatus::Success) => {
+                    let mu = batch.values[lane * width_lane + 5 * n].re.to_f64();
+                    let (a, b) = (
+                        &first.values[k * stride..(k + 1) * stride],
+                        &second.values[k * stride..(k + 1) * stride],
+                    );
+                    let difference = lane_difference(&result.basis, a, b, mu);
+                    if difference <= required {
+                        result.values[lane * stride..(lane + 1) * stride].clone_from_slice(a);
+                        result.statuses[lane] = LaneStatus::Success;
+                        result.primal_envelopes[lane] = first.primal_envelopes[k].clone();
+                        result.primal_envelope_errors[lane] = first.primal_envelope_errors[k].clone();
+                        self.last.checked_successes += 1;
+                        self.diagnostics[lane].push(format!(
+                            "binary64 below the conditioning gate: kept, rotated copy agrees to E/A {difference:e}"
+                        ));
+                        continue;
+                    }
+                    format!("below the gate the rotated copy differs by E/A {difference:e}")
+                }
+                (LaneStatus::Success, status) => format!("below the gate the rotated copy is refused ({status:?})"),
+                (status, _) => format!("below the gate refused again ({status:?})"),
+            };
+            if let LaneStatus::Unstable(previous) = &result.statuses[lane] {
+                result.statuses[lane] = LaneStatus::Unstable(format!("{previous}; {note}"));
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn reduce_batch(
         &mut self,
         batch: &KinematicsBatch<T>,
@@ -492,7 +647,21 @@ where
         let mut conditions = self.direct.last_conditions().to_vec();
         let settings = self.plan.direct.settings();
         let n = settings.propagators;
-        if rotation_tested(settings) {
+        let (tested, checkable) = (rotation_tested(settings), rotation_checkable(settings));
+        let tolerance = self.rotation_tolerance();
+        // Lanes refused by the a priori gate (N >= 5: or whose rotated copy
+        // was), for the checked binary64 retry.
+        let mut checked: Vec<usize> = Vec::new();
+        if checkable {
+            for lane in 0..batch.rows {
+                if matches!(result.statuses[lane], LaneStatus::Unstable(_))
+                    && conditions[lane].is_some_and(|condition| condition >= CHECKED_GATE)
+                {
+                    checked.push(lane);
+                }
+            }
+        }
+        if tested {
             let check = self.direct.reduce_batch(&rotated(batch, n))?;
             self.last.master_rows += self.direct.last_master_rows();
             let rotated_profile = self.direct.last_profile();
@@ -517,7 +686,7 @@ where
                         &check.values[lane * stride..(lane + 1) * stride],
                         mu,
                     );
-                    if difference <= ROTATION_TOLERANCE {
+                    if difference <= tolerance {
                         continue;
                     }
                     // Rounding estimate ~ amplification * 2^-53.
@@ -525,6 +694,12 @@ where
                     format!("loop-rotation test: binary64 arrays differ by E/A {difference:e}")
                 } else {
                     conditions[lane] = rotated_conditions[lane].or(Some(0.0));
+                    if checkable
+                        && matches!(check.statuses[lane], LaneStatus::Unstable(_))
+                        && rotated_conditions[lane].is_some_and(|condition| condition >= CHECKED_GATE)
+                    {
+                        checked.push(lane);
+                    }
                     format!("loop-rotation test: rotated lane refused ({:?})", check.statuses[lane])
                 };
                 self.last.rotation_failures += 1;
@@ -533,6 +708,21 @@ where
         }
         self.diagnostics.clear();
         self.diagnostics.resize(batch.rows, Vec::new());
+        self.last.direct_successes = result
+            .statuses
+            .iter()
+            .filter(|status| **status == LaneStatus::Success)
+            .count();
+        let mut profile = ExecutionProfile {
+            arguments: direct_profile.geometry,
+            scalar_masters: direct_profile.masters,
+            reduction: direct_profile.recurrence + direct_profile.gather + direct_profile.output,
+            total: Default::default(),
+        };
+        if !checked.is_empty() {
+            checked.sort_unstable();
+            self.checked_retry(batch, &checked, tolerance, &mut result, &mut profile)?;
+        }
         let retry: Vec<usize> = result
             .statuses
             .iter()
@@ -542,29 +732,28 @@ where
             })
             .map(|(lane, _)| lane)
             .collect();
-        self.last.direct_successes = result
-            .statuses
-            .iter()
-            .filter(|status| **status == LaneStatus::Success)
-            .count();
+        let disabled = self.precision_rescue == PrecisionRescue::Disabled;
+        let mut rerun = Vec::with_capacity(retry.len());
         for &lane in &retry {
+            // Rescue disabled: lanes refused on conditioning are final.
+            let last = disabled
+                && matches!(result.statuses[lane], LaneStatus::Unstable(_))
+                && conditions[lane].is_some();
             if let LaneStatus::Unstable(note) | LaneStatus::MasterFailure(note) =
                 &result.statuses[lane]
             {
-                self.diagnostics[lane].push(format!("direct engine: {note}; fallback requested"));
+                let action = if last { "precision rescue disabled" } else { "fallback requested" };
+                self.diagnostics[lane].push(format!("direct engine: {note}; {action}"));
+            }
+            if !last {
+                rerun.push(lane);
             }
         }
-        let mut profile = ExecutionProfile {
-            arguments: direct_profile.geometry,
-            scalar_masters: direct_profile.masters,
-            reduction: direct_profile.recurrence + direct_profile.gather + direct_profile.output,
-            total: Default::default(),
-        };
-        self.last.fallback_rows = retry.len();
-        let retry = if retry.is_empty() {
-            retry
+        self.last.fallback_rows = rerun.len();
+        let retry = if rerun.is_empty() || disabled {
+            rerun
         } else {
-            self.precision_rescue(batch, &retry, &conditions, &mut result, &mut profile)?
+            self.precision_rescue(batch, &rerun, &conditions, &mut result, &mut profile)?
         };
         if !retry.is_empty() {
             self.last.symbolic_rows = retry.len();

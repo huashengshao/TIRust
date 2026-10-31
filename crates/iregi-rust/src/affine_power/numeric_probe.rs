@@ -179,6 +179,7 @@ impl Plan {
         let options = TensorWorkspaceOptions {
             master_policy: MasterExecutionPolicy::Symbolica,
             profiling: true,
+            ..Default::default()
         };
         let mut workspace = match shape {
             Some(shape) => TensorWorkspace::new_dual_with_options(

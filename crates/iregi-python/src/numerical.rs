@@ -553,6 +553,34 @@ impl PyWorkspace {
         }
     }
 
+    /// Allow (default) or forbid the precision rescue of later calls. With
+    /// enabled=False a float64 workspace computes every lane in binary64 only:
+    /// lanes refused by its checks are returned with an Unstable status and
+    /// the reason in the diagnostics, never rerun at higher precision.
+    /// Double-double and MPFR workspaces never change precision either way.
+    fn set_precision_rescue(&mut self, enabled: bool) {
+        let rescue = if enabled {
+            iregi_rust::PrecisionRescue::Automatic
+        } else {
+            iregi_rust::PrecisionRescue::Disabled
+        };
+        match &mut self.inner {
+            Workspaces::F64(engine) => engine.workspace.set_precision_rescue(rescue),
+            Workspaces::Dd(engine) => engine.workspace.set_precision_rescue(rescue),
+            Workspaces::Float(engine) => engine.workspace.set_precision_rescue(rescue),
+        }
+    }
+
+    /// Whether later calls may rerun lanes at higher precision.
+    fn precision_rescue(&self) -> bool {
+        let rescue = match &self.inner {
+            Workspaces::F64(engine) => engine.workspace.precision_rescue(),
+            Workspaces::Dd(engine) => engine.workspace.precision_rescue(),
+            Workspaces::Float(engine) => engine.workspace.precision_rescue(),
+        };
+        rescue == iregi_rust::PrecisionRescue::Automatic
+    }
+
     /// Evaluate one genuine Rust batch; failed lanes keep independent diagnostics.
     fn reduce_batch(
         &mut self,
@@ -1207,6 +1235,8 @@ fn engine_execution(execution: &TensorEngineExecution, py: Python<'_>) -> PyResu
             output.set_item("symbolic_rows", direct.symbolic_rows)?;
             output.set_item("rotation_rows", direct.rotation_rows)?;
             output.set_item("rotation_failures", direct.rotation_failures)?;
+            output.set_item("checked_rows", direct.checked_rows)?;
+            output.set_item("checked_successes", direct.checked_successes)?;
             output.set_item("fallback_preparation_error", direct.fallback_preparation_error.clone())?;
             if let Some(child) = &direct.fallback {
                 output.set_item("fallback", engine_execution(child, py)?)?;

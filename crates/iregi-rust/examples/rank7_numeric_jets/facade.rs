@@ -142,7 +142,7 @@ where Complex<T>: EvaluationDomain {
         record["plan_engine_kind"] = json!(format!("{:?}",plan.engine_kind()));
         let parameters = plan.parameter_count();
         record["status"] = json!("preparing_workspace");write(output,&record)?;
-        let options = TensorWorkspaceOptions {master_policy:MasterExecutionPolicy::Symbolica,profiling:true};
+        let options = TensorWorkspaceOptions {master_policy:MasterExecutionPolicy::Symbolica,profiling:true,..Default::default()};
         let mut workspace = if profile == "plain" {
             TensorWorkspace::new_with_options(&plan,prototype.clone(),options)?
         } else {
