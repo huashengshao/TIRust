@@ -22,7 +22,7 @@ use crate::{
 /// Largest point count handled by the direct engine.
 pub(crate) const MAX_PROPAGATORS: usize = 7;
 /// Largest tensor rank handled by the direct engine.
-pub(crate) const MAX_RANK: u16 = 8;
+pub(crate) const MAX_RANK: u16 = 32;
 /// Largest power of the (single) dotted propagator.
 pub(crate) const MAX_POWER: u16 = 5;
 /// Largest dimension shift `h` in `D = 4 + 2h - 2 epsilon`.

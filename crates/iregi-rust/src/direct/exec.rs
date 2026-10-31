@@ -279,14 +279,18 @@ where
             // Coefficient ranks may exceed the tensor rank (boosted pinches).
             binomials: (0..=usize::from(plan.settings.rank)
                 .max(plan.subsets.iter().map(|subset| subset.coefficient_rank.max(0) as usize).max().unwrap_or(0)))
-                .map(|j| {
-                    (0..=j)
-                        .map(|k| {
-                            let value: u64 = ((k as u64 + 1)..=(j as u64)).product::<u64>()
-                                / (1..=(j - k) as u64).product::<u64>();
-                            prototype.from_usize(value as usize)
-                        })
-                        .collect()
+                // Pascal's rule in the working arithmetic: exact, no overflow.
+                .scan(Vec::<T>::new(), |row: &mut Vec<T>, _| {
+                    let mut next = Vec::with_capacity(row.len() + 1);
+                    next.push(prototype.one());
+                    for k in 1..row.len() {
+                        next.push(row[k - 1].clone() + &row[k]);
+                    }
+                    if !row.is_empty() {
+                        next.push(prototype.one());
+                    }
+                    *row = next.clone();
+                    Some(next)
                 })
                 .collect(),
             tpow: vec![zero.clone(); usize::from(plan.settings.rank) + 1],
@@ -2411,7 +2415,13 @@ fn exact_f64<T: NativeFloat>(prototype: &T, x: f64) -> T {
 }
 
 fn multinomial(e: [u16; 4]) -> u64 {
-    let factorial = |n: u16| (1..=u64::from(n)).product::<u64>();
-    let rank: u16 = e.iter().sum();
-    factorial(rank) / e.iter().map(|&x| factorial(x)).product::<u64>()
+    // Product of binomials in u128 (exact; fits u64 up to rank 32).
+    let binomial = |n: u128, k: u128| (0..k).fold(1u128, |acc, i| acc * (n - i) / (i + 1));
+    let mut total = 0u128;
+    let mut value = 1u128;
+    for &x in &e {
+        total += u128::from(x);
+        value *= binomial(total, u128::from(x));
+    }
+    u64::try_from(value).expect("multinomial beyond u64 (rank above 32)")
 }

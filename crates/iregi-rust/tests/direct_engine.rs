@@ -826,3 +826,24 @@ fn seven_point_rank_seven_heptagon_matches_high_precision() {
     let error = general_array_error(&scalar_basis, 4 - 2 * 7, 1000.0, result.lane(0).unwrap(), &scalar);
     assert!(error <= 1e-13, "scalar binary64 E/A = {error:e}");
 }
+
+#[test]
+fn ranks_above_eight_match_high_precision() {
+    // The direct engine's rank limit is 32 (was 8): a rank-12 triangle and a
+    // rank-10 box of the opening kinematics in binary64 against 256 bits.
+    for (n, rank) in [(3usize, 12u16), (4, 10)] {
+        let shifts = [[0.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]];
+        let masses = [(1.0, 0.0), (2.0, 0.0), (3.0, 0.0), (4.0, 0.0)];
+        let values = row(&shifts[..n], &masses[..n], 3.0);
+        let result = DirectReductionPlan::new(ReductionSettings::new(n, rank))
+            .unwrap()
+            .workspace(0.0f64)
+            .unwrap()
+            .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: values.clone() })
+            .unwrap();
+        assert_eq!(result.statuses[0], LaneStatus::Success, "N{n} R{rank}");
+        let (_, reference) = direct_256(n, rank, &values);
+        let error = general_array_error(&result.basis, 4 - 2 * n as i32, 3.0, result.lane(0).unwrap(), &reference);
+        assert!(error <= 1e-10, "N{n} R{rank}: E/A = {error:e}");
+    }
+}
