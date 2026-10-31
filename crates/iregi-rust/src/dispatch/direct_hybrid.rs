@@ -278,6 +278,9 @@ pub(crate) struct DirectHybridWorkspace<T: NativeFloat> {
     /// expansion retry, prepared on first use.
     checked: Option<Box<DirectWorkspace<T>>>,
     expanded: Option<Box<DirectWorkspace<T>>>,
+    /// ... and of the alternative-PV retry (refused boxes and triangles by
+    /// the modified Cayley reduction only).
+    alternative: Option<Box<DirectWorkspace<T>>>,
     /// Binary64 workspace without any gate, for best-effort arrays of lanes
     /// no other binary64 stage computed.
     open: Option<Box<DirectWorkspace<T>>>,
@@ -336,6 +339,7 @@ where
             precision_rescue: options.precision_rescue,
             checked: None,
             expanded: None,
+            alternative: None,
             open: None,
             candidates: Vec::new(),
             rescue: RescueWorkspaces::default(),
@@ -389,7 +393,7 @@ where
     pub(crate) fn set_profiling(&mut self, enabled: bool) -> Result<(), ReductionError> {
         self.profiling = enabled;
         self.direct.set_profiling(enabled);
-        for workspace in self.checked.iter_mut().chain(self.expanded.iter_mut()) {
+        for workspace in self.checked.iter_mut().chain(self.expanded.iter_mut()).chain(self.alternative.iter_mut()).chain(self.open.iter_mut()) {
             workspace.set_profiling(enabled);
         }
         if let Some(workspace) = &mut self.rescue.double {
@@ -585,10 +589,18 @@ where
         tolerance: f64,
         result: &mut BatchResult<T>,
         profile: &mut ExecutionProfile,
-        expansion: bool,
+        stage: u8,
     ) -> Result<(), ReductionError> {
+        // 0: below the gate; 1: small-Gram expansions (alternative PV as
+        // their last resort); 2: alternative PV alone. Stages 1 and 2 count
+        // as expansion rows.
+        let expansion = stage >= 1;
         let n = self.plan.direct.settings().propagators;
-        let slot = if expansion { &mut self.expanded } else { &mut self.checked };
+        let slot = match stage {
+            0 => &mut self.checked,
+            1 => &mut self.expanded,
+            _ => &mut self.alternative,
+        };
         if slot.is_none() {
             let mut workspace = self
                 .plan
@@ -599,7 +611,11 @@ where
                 if rotation_tested(self.plan.direct.settings()) {
                     workspace.set_stability_threshold(from_binary64(&self.prototype, ROTATION_GATE));
                 }
-                workspace.enable_gram_expansion(GRAM_BOOST);
+                if stage == 2 {
+                    workspace.enable_alternative_pv();
+                } else {
+                    workspace.enable_gram_expansion(GRAM_BOOST);
+                }
             } else {
                 workspace.set_stability_threshold(from_binary64(&self.prototype, CHECKED_GATE));
                 if self.precision_rescue == PrecisionRescue::Automatic {
@@ -655,7 +671,7 @@ where
                         result.primal_envelope_errors[lane] = first.primal_envelope_errors[k].clone();
                         let stage = if expansion {
                             self.last.expansion_successes += 1;
-                            "binary64 small-Gram expansion"
+                            if stage == 2 { "binary64 alternative PV" } else { "binary64 small-Gram expansion" }
                         } else {
                             self.last.checked_successes += 1;
                             "binary64 below the conditioning gate"
@@ -773,11 +789,18 @@ where
         if !checked.is_empty() {
             checked.sort_unstable();
             checked.dedup();
-            self.checked_retry(batch, &checked, tolerance, &mut result, &mut profile, false)?;
+            self.checked_retry(batch, &checked, tolerance, &mut result, &mut profile, 0)?;
             // Lanes still refused: refused boxes by the small-Gram expansion.
             checked.retain(|&lane| result.statuses[lane] != LaneStatus::Success);
             if !checked.is_empty() {
-                self.checked_retry(batch, &checked, tolerance, &mut result, &mut profile, true)?;
+                self.checked_retry(batch, &checked, tolerance, &mut result, &mut profile, 1)?;
+                // Lanes still refused: the alternative PV reduction alone
+                // (each method wins on different lanes; the rotation test
+                // decides, as COLLIER's error estimates choose its method).
+                checked.retain(|&lane| result.statuses[lane] != LaneStatus::Success);
+                if !checked.is_empty() {
+                    self.checked_retry(batch, &checked, tolerance, &mut result, &mut profile, 2)?;
+                }
             }
         }
         let retry: Vec<usize> = result

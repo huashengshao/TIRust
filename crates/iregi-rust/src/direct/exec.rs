@@ -83,6 +83,8 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     /// triangles up to this rank instead of its Gram system, and lanes
     /// return no moments.
     gram_top: Option<u16>,
+    /// Auxiliary executor of the alternative-PV stage: skip the expansions.
+    gram_alt_only: bool,
     gram_top_active: bool,
     /// Plan variant of the current lane.
     plan: Arc<DirectPlanData>,
@@ -251,6 +253,7 @@ where
             gram: None,
             gram_external: Vec::new(),
             gram_top: None,
+            gram_alt_only: false,
             gram_top_active: false,
             values: vec![lzero(&zero); plan.value_count],
             geometry: vec![zero.clone(); plan.geometry_count.max(1)],
@@ -592,6 +595,11 @@ where
     /// their precision; the caller checks the result a posteriori).
     pub(crate) fn enable_gram_expansion(&mut self, boost: u16) {
         self.gram = Some(Box::new(gram::GramRescue::new(boost)));
+    }
+
+    /// Refused boxes and triangles by the alternative PV reduction alone.
+    pub(crate) fn enable_alternative_pv(&mut self) {
+        self.gram = Some(Box::new(gram::GramRescue::alternative()));
     }
 
     /// Coefficient values of the top subset of the current lane's variant,

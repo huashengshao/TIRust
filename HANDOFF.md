@@ -372,6 +372,16 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    stability capture 005 (binary64-only facade at 2^-34 and 2^-20, build
    50acff0 = code of ffb2716; commit 193415e), report pages 1-5 timing, 6-8
    stability. Capture 005 matches the probe numbers above.
+3m. **Alternative-PV retry stage (method choice a posteriori).** Flagged
+   N>=5 lanes sit in an intermediate regime (x_g ~ 0.03-0.2, Zadjf/Delta ~
+   4-30, momenta >> m_t: COLLIER's small-momentum expansions do not apply).
+   Neither method dominates (forcing alternative PV everywhere: hexagon
+   certified 1750 but tail 1.6e-8), so a 4th binary64 retry runs the
+   alternative PV alone (GramRescue::alternative, aux gram_alt_only) on lanes
+   the expansion stage left refused, guarded by COLLIER's a priori estimate
+   2^-53 w^ceil(r/2) <= 2^-36 (w = max|Zadj f|/|Delta|; the rotated copy shares
+   that error). Probe64k: certified pentagon 4936, hexagon 1821, heptagon
+   78/100, certified tails unchanged (1.4e-10, 2.0e-10).
 3l. **Published stability captures 006 (0b6aba4) and 007 (9e5bca0).** 007: no
    TIRust curve has points without an array (binary64-only certified r4 9997,
    r6 9990, pentagon 4868, hexagon 1740, heptagon 361/495; flagged rest worst

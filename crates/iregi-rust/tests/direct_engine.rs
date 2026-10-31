@@ -717,7 +717,9 @@ fn disabled_precision_rescue_returns_inaccurate_binary64_lanes_unstable() {
     assert!(matches!(result.statuses[0], LaneStatus::Unstable(_)), "{:?}", result.statuses[0]);
     assert!(!result.fallback_used[0], "{stats:?}");
     assert_eq!((stats.checked_rows, stats.checked_successes), (1, 0), "{stats:?}");
-    assert_eq!((stats.expansion_rows, stats.expansion_successes), (1, 0), "{stats:?}");
+    // Both expansion stages (small-Gram expansions, then the alternative PV
+    // reduction alone) ran and refused.
+    assert_eq!((stats.expansion_rows, stats.expansion_successes), (2, 0), "{stats:?}");
     // Still reported, COLLIER-style: the best binary64 array, uncertified,
     // with its estimated error (the E/A to its rotated copy). The estimate may
     // be conservative (here the returned array is far better than its copy)

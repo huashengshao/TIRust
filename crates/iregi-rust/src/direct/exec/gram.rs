@@ -50,13 +50,21 @@ pub(crate) struct GramRescue<T: NativeFloat> {
     /// Boosts tried in order: a smaller one first (fewer high-rank triangles
     /// for its gate to refuse), the largest one only where it fails.
     boosts: Vec<u16>,
+    /// Alternative PV reduction only (no expansions).
+    alternative: bool,
 }
 
 impl<T: NativeFloat> GramRescue<T> {
     pub(crate) fn new(boost: u16) -> Self {
         let mut boosts = vec![boost.min(FIRST_BOOST), boost];
         boosts.dedup();
-        Self { executors: HashMap::new(), boosts }
+        Self { executors: HashMap::new(), boosts, alternative: false }
+    }
+
+    /// The alternative PV reduction alone: triangles of the box's own rank
+    /// suffice (boost 1 keeps the expansion bookkeeping valid).
+    pub(crate) fn alternative() -> Self {
+        Self { executors: HashMap::new(), boosts: vec![1], alternative: true }
     }
 }
 
@@ -64,6 +72,10 @@ impl<T: NativeFloat> GramRescue<T> {
 const FIRST_BOOST: u16 = 8;
 
 type Key = (u16, [u16; 3]);
+
+/// Largest a priori error estimate of the alternative PV stage (the binary64
+/// retries accept rotated copies within 2^-36).
+const ALTERNATIVE_PV_LIMIT: f64 = 1.0 / (1u64 << 36) as f64;
 
 /// Largest accepted relative change of the last expansion pass.
 const EXPANSION_TOLERANCE: f64 = 1.0 / (1u64 << 30) as f64;
@@ -150,6 +162,7 @@ where
                         // likewise); the caller's a posteriori check decides.
                         executor.set_stability_threshold(self.stability_threshold.clone() * &self.stability_threshold);
                         executor.gram_top = Some(rank);
+                        executor.gram_alt_only = gram.alternative;
                         entry.insert(executor)
                     }
                 };
@@ -556,6 +569,20 @@ where
             Ok(cur)
         };
         let chosen = match chosen {
+            _ if self.gram_alt_only => {
+                // COLLIER's a priori estimate of this reduction (CalcDred,
+                // w_pv2): rounding grows like w^ceil(r/2), w = max |(Zadj f)_j|
+                // / |Delta|; its rotated copy shares that error (Delta and
+                // det X do not depend on the labelling), so large w is
+                // refused here instead of trusted to the rotation test.
+                let size = |z: &C<T>| cnorm2(z).to_f64().sqrt();
+                let w = (0..nm).map(|j| size(&adjf[j])).fold(0.0f64, f64::max) / size(&delta);
+                let estimate = 2f64.powi(-53) * w.max(1.0).powi((i32::from(target) + 1) / 2);
+                if !(estimate <= ALTERNATIVE_PV_LIMIT) {
+                    return Err(format!("alternative PV: estimated error {estimate:e}"));
+                }
+                alt_pv()?
+            }
             Some(map) if last_change <= EXPANSION_TOLERANCE => map,
             _ => 'gc: {
                 // Small (Zadj f)_j as well (Xtilde >> Zadj f): the expansion

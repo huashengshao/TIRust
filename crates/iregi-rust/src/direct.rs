@@ -143,6 +143,13 @@ where
         self.executor.enable_gram_expansion(boost);
     }
 
+    /// Boxes and triangles refused by their Gram gate are computed by the
+    /// alternative PV reduction through the modified Cayley matrix
+    /// (Denner-Dittmaier sect. 3.2) only. Unchecked, like the expansion.
+    pub fn enable_alternative_pv(&mut self) {
+        self.executor.enable_alternative_pv();
+    }
+
     pub fn set_stability_threshold(&mut self, threshold: T) {
         self.executor.set_stability_threshold(threshold);
     }
