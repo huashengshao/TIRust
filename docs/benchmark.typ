@@ -552,7 +552,7 @@
 }
 // Binary64 stability study (30 October 2026): cumulative accuracy profiles
 // in the style of Hirschi and Peraro, arXiv:1604.01363, figs. 2-4.
-#let stability-campaign-id = ("005", "004", "003", "002").find(id => ("stability_20261030_capture" + id) in data)
+#let stability-campaign-id = ("007", "006", "005", "004", "003", "002").find(id => ("stability_20261030_capture" + id) in data)
 #let stability-campaign = if stability-campaign-id != none { data.at("stability_20261030_capture" + stability-campaign-id) } else { data.at("stability_20261030", default: none) }
 #let stability-first-capture = data.at("stability_20261030", default: none)
 #let st-style = (
@@ -693,30 +693,31 @@
     )
   ])
   text(size: 8.5pt)[
-    *Findings (capture 005, TIRust #raw(snapshot.tirust_git_head.slice(0, 7))).* TIRust's default returns an accurate array on every point
-    of all five integrals (worst E/A 9.6×10#super[−9] on the rank-4 box, ≤3.4×10#super[−10] elsewhere).
-    "TIRust binary64 only" is now the public facade with the precision rescue disabled: every lane is
-    computed in binary64 and refused lanes count as missing. Two binary64 steps were added since capture
-    004: lanes refused by the a priori conditioning gate are evaluated again below it, and boxes with a
-    small Gram determinant are computed by the small-Gram expansion of Denner and Dittmaier
-    (hep-ph/0509141; triangles eight ranks higher), each kept only when the loop-rotated copy agrees two
-    bits better than the requested accuracy. At the default request (2#super[−34]) binary64 alone keeps
-    9995/10000 rank-4 and 9976/10000 rank-6 boxes, 4694/5000 pentagons, 1569/2000 hexagons and 262/495
-    heptagons, with the worst kept E/A unchanged (≤9.6×10#super[−9]); at the request 2#super[−20] it keeps
-    10000, 9999, 4984, 1968 and 459, worst E/A 2.5×10#super[−6]. Every box on which the expansion
-    converged agreed with the 256-bit reference to ≤3.4×10#super[−11]. The default path reruns at higher
-    precision only 5 and 24 boxes (capture 004: 34 and 370), 36 pentagons, 33 hexagons and 51 heptagons;
-    boxes and triangles refused inside a lane are computed in double-double there (partial rescue).
-    Capture 003 found the two oneloopmaster master issues behind most inaccurate binary64 pentagon and
-    hexagon lanes (B0 cancelling like m#super[2]/p#super[2] at the binary64 invariants of massless legs,
-    and a NaN D0), both repaired. COLLIER (both branches) stays accurate everywhere. Original IREGI's PV
-    fails on every rank-6 box and on every heptagon, its IBP on the hexagons and heptagons (E/A up to
-    10#super[97]), all reported as successful (minimal reproducers in `validation/mre`). NinjaRS, reducing
-    the contracted numerator, returns a value on every point with tails beyond 10#super[−3] on one rank-6
-    box and a few hexagons and heptagons. Heptagon references are confirmed by COLLIER COLI and DD
-    (≤10#super[−9]) instead of quad IREGI, which fails there in both modes; COLLIER's heptagon curves are
-    therefore conditioned on that agreement (5 of 500 points excluded); six hexagon points are confirmed
-    the same way. Captures 001-004 remain bound unchanged in the report data.
+    *Findings (capture 007, TIRust #raw(snapshot.tirust_git_head.slice(0, 7))).* TIRust's default returns an
+    accurate array on every point of all five integrals (worst E/A 9.6×10#super[−9] on the rank-4 box,
+    ≤3.4×10#super[−10] elsewhere). "TIRust binary64 only" (precision rescue disabled) now reports every
+    point with a binary64 array, as COLLIER does: lanes that pass TIRust's checks are certified, the others
+    return their best binary64 array flagged with an estimated error, so its curves have no plateau. At the
+    default request (2#super[−34]) binary64 certifies 9997/10000 rank-4 and 9990/10000 rank-6 boxes,
+    4868/5000 pentagons, 1740/2000 hexagons and 361/495 heptagons; the flagged rest stays below
+    2×10#super[−6] on pentagons and 1.7×10#super[−4] on hexagons, and one heptagon reaches
+    8.9×10#super[−3] (flagged with an estimate of 4.8×10#super[−3]). Since capture 005 TIRust follows
+    COLLIER further (Denner and Dittmaier, hep-ph/0509141): small-Gram expansions for triangles as well
+    as boxes, the expansion for small Gram and small modified Cayley determinants (sect. 3.5), and the
+    alternative PV reduction through the modified Cayley matrix (sect. 3.2), which divides by the Gram
+    determinant only once per two ranks. Invariant snapping now includes the representation error of
+    the shifts, and oneloopmaster's binary64 D0, which returned NaN for two opposite numerically
+    lightlike legs, retries such points with those invariants at zero (upstream pull request
+    alphal00p/oneloopmaster\#15). COLLIER (both branches) stays accurate everywhere without flags; the
+    flagged N≥5 binary64 tails show what TIRust still lacks (COLLIER's small-momentum expansions and
+    its choice of method by estimated error). Original IREGI's PV fails on every rank-6 box and on every
+    heptagon, its IBP on the hexagons and heptagons (E/A up to 10#super[97]), all reported as successful
+    (minimal reproducers in `validation/mre`). NinjaRS, reducing the contracted numerator, returns a
+    value on every point with tails beyond 10#super[−3] on one rank-6 box and a few hexagons and
+    heptagons. Heptagon references are confirmed by COLLIER COLI and DD (≤10#super[−9]) instead of quad
+    IREGI, which fails there in both modes; COLLIER's heptagon curves are therefore conditioned on that
+    agreement (5 of 500 points excluded); six hexagon points are confirmed the same way. Captures
+    001-006 remain bound unchanged in the report data.
   ]
   v(0.2em)
   let rescued = snapshot.integrals.map(i => (i.id, i.codes.at(0).at("rescued_by_bits", default: (:))))

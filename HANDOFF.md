@@ -372,6 +372,14 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    stability capture 005 (binary64-only facade at 2^-34 and 2^-20, build
    50acff0 = code of ffb2716; commit 193415e), report pages 1-5 timing, 6-8
    stability. Capture 005 matches the probe numbers above.
+3l. **Published stability captures 006 (0b6aba4) and 007 (9e5bca0).** 007: no
+   TIRust curve has points without an array (binary64-only certified r4 9997,
+   r6 9990, pentagon 4868, hexagon 1740, heptagon 361/495; flagged rest worst
+   2e-6 / 1.7e-4 / 8.9e-3 (one heptagon, estimate 4.8e-3)). oneloopmaster D0
+   retry: vendored + upstream PR alphal00p/oneloopmaster#15 (branch
+   nonfinite-c0-d0-retry; permutation_regressions' two failures are on main
+   too). Next: COLLIER small-momentum expansions (Dgp/Dgpf), method choice by
+   estimated error, timing capture with the new stages (only refused lanes).
 3k. **Alternative PV, array for every lane, wider snapping (after 11efdbd).**
    (1) gram.rs: last resort when both expansions fail = alternative PV
    (sect. 3.2, PValtrec1/2, COLLIER CalcDpv2): metric coefficients divide by
