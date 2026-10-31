@@ -328,6 +328,13 @@ where
         direct.set_profiling(options.profiling);
         if rotation_tested(plan.direct.settings()) {
             direct.set_stability_threshold(from_binary64(&prototype, ROTATION_GATE));
+            // COLLIER-style a priori method choice; the rotation test checks.
+            // (Validated up to seven points and rank 7; larger plans would
+            // build many high-rank auxiliary plans.)
+            let settings = plan.direct.settings();
+            if settings.propagators <= 7 && settings.rank <= 7 {
+                direct.enable_estimated_method_choice(GRAM_BOOST, from_binary64(&prototype, ROTATION_GATE));
+            }
         }
         if options.precision_rescue == PrecisionRescue::Automatic {
             direct.enable_partial_rescue(rescue_threshold(RESCUE_BITS[0]));
@@ -735,7 +742,15 @@ where
             }
         }
         if tested {
+            // Lanes computed partly by the expansions are held to the retries'
+            // stricter level (their rotated copies share more of the error).
+            let gram_lanes: Vec<bool> = self.direct.last_gram_lanes().to_vec();
             let check = self.direct.reduce_batch(&rotated(batch, n))?;
+            let gram_lanes: Vec<bool> = gram_lanes
+                .iter()
+                .zip(self.direct.last_gram_lanes())
+                .map(|(a, b)| *a || *b)
+                .collect();
             self.last.master_rows += self.direct.last_master_rows();
             let rotated_profile = self.direct.last_profile();
             direct_profile.geometry += rotated_profile.geometry;
@@ -759,7 +774,12 @@ where
                         &check.values[lane * stride..(lane + 1) * stride],
                         mu,
                     );
-                    if difference <= tolerance {
+                    let limit = if gram_lanes.get(lane).copied().unwrap_or(false) {
+                        tolerance * 2f64.powi(-CHECKED_MARGIN_BITS)
+                    } else {
+                        tolerance
+                    };
+                    if difference <= limit {
                         result.estimated_errors[lane] = Some(difference);
                         continue;
                     }

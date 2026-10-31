@@ -88,6 +88,9 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     /// Every box and triangle by the expansions or the alternative PV
     /// reduction, whatever its Gram conditioning (COLLIER chooses per box).
     gram_everywhere: bool,
+    /// A priori choice (main binary64 pass): a box or triangle leaves PV
+    /// when its estimate 2^-52 w^r exceeds 2^-36; refusals as before.
+    gram_estimated: bool,
     gram_top_active: bool,
     /// Plan variant of the current lane.
     plan: Arc<DirectPlanData>,
@@ -151,6 +154,9 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     /// Per lane of the most recent call: `failed_condition` of lanes refused
     /// on conditioning, `None` otherwise.
     lane_conditions: Vec<Option<f64>>,
+    /// Per lane of the most recent call: some box or triangle was computed
+    /// by the expansions or the alternative PV reduction.
+    lane_gram: Vec<bool>,
     /// `8 * 2^-precision`: a squared distance below this multiple of its
     /// sum of squared components is zero within its own rounding.
     rounding: T,
@@ -258,6 +264,7 @@ where
             gram_top: None,
             gram_alt_only: false,
             gram_everywhere: false,
+            gram_estimated: false,
             gram_top_active: false,
             values: vec![lzero(&zero); plan.value_count],
             geometry: vec![zero.clone(); plan.geometry_count.max(1)],
@@ -336,6 +343,7 @@ where
             stability_threshold,
             failed_condition: None,
             lane_conditions: Vec::new(),
+            lane_gram: Vec::new(),
             rounding: {
                 let half = prototype.one() / &prototype.from_usize(2);
                 (0..prototype.get_precision()).fold(prototype.from_usize(8), |acc, _| acc * &half)
@@ -374,6 +382,10 @@ where
 
     pub fn last_conditions(&self) -> &[Option<f64>] {
         &self.lane_conditions
+    }
+
+    pub(crate) fn last_gram_lanes(&self) -> &[bool] {
+        &self.lane_gram
     }
 
     fn timer(&self) -> Option<Instant> {
@@ -611,6 +623,12 @@ where
     pub(crate) fn enable_gram_expansion_everywhere(&mut self, boost: u16, aux_threshold: T) {
         self.gram = Some(Box::new(gram::GramRescue::everywhere(boost, aux_threshold)));
         self.gram_everywhere = true;
+    }
+
+    /// COLLIER-style a priori method choice in this executor's own pass.
+    pub(crate) fn enable_estimated_method_choice(&mut self, boost: u16, aux_threshold: T) {
+        self.gram = Some(Box::new(gram::GramRescue::everywhere(boost, aux_threshold)));
+        self.gram_estimated = true;
     }
 
     /// Refused boxes and triangles by the alternative PV reduction alone.
@@ -946,7 +964,7 @@ where
                     if subset.coefficient_rank >= 1 && momenta > 0 {
                         let size = momenta;
                         let aux_top = self.gram_top.is_some() && Some(subset.mask) == top_mask;
-                        if gram && self.gram_everywhere && !aux_top && (2..=3).contains(&size) {
+                        if gram && (self.gram_everywhere || self.gram_estimated) && !aux_top && (2..=3).contains(&size) {
                             // COLLIER's per-box choice: off Passarino-Veltman
                             // where its estimate is worse (w > 2) and the
                             // adjugates do not vanish.
@@ -963,7 +981,13 @@ where
                             let f: [C<T>; 3] = std::array::from_fn(|i| {
                                 if i < size { self.geometry[geometry.f as usize + i].clone() } else { zero.clone() }
                             });
-                            if gram::gram_indicator(&z, &f, size).is_some_and(|w| w > 2.0) {
+                            let rank = subset.coefficient_rank.max(1);
+                            let switch = |w: f64| if self.gram_everywhere {
+                                w > 2.0
+                            } else {
+                                2f64.powi(-52) * w.powi(rank) > 2f64.powi(-36)
+                            };
+                            if gram::gram_indicator(&z, &f, size).is_some_and(switch) {
                                 self.gram_external.push(subset_id);
                                 continue;
                             }
@@ -1030,7 +1054,7 @@ where
                             quality.relative_determinant.clone()
                         };
                         if condition.clone().pow(power) < threshold {
-                            if gram && (2..=3).contains(&size) {
+                            if gram && !self.gram_estimated && (2..=3).contains(&size) {
                                 // Small-Gram expansion (box or triangle), injected in the lane loop.
                                 let estimate = condition.clone().pow(power).to_f64();
                                 self.failed_condition =
@@ -2157,6 +2181,8 @@ where
         let mut statuses = Vec::with_capacity(batch.rows);
         self.lane_conditions.clear();
         self.lane_conditions.resize(batch.rows, None);
+        self.lane_gram.clear();
+        self.lane_gram.resize(batch.rows, false);
         let settings = &base_plan.settings;
         for row in 0..batch.rows {
             let lane_values = values.len();
@@ -2282,6 +2308,7 @@ where
                 }
             }
             if !self.gram_external.is_empty() {
+                self.lane_gram[row] = true;
                 let n = self.plan.settings.propagators;
                 let mu = batch.values[row * (5 * n + 1) + 5 * n].clone();
                 if let Err(error) = self.inject_gram(&mu) {
