@@ -1265,14 +1265,16 @@ where
                     // (column mu+1) over six members: the 5x5 system of their
                     // four momentum components and f row. A seven-point lane
                     // drops the member whose remaining six give the best
-                    // conditioned system (its weight is zero).
+                    // conditioned system (its weight is zero); an N-point lane
+                    // drops the N - 6 members whose remaining six do.
                     let weights = subset.hexagon.unwrap() as usize;
                     let size = members.len();
                     let half = self.prototype.one() / &self.prototype.from_usize(2);
-                    let drops: Vec<usize> = if size == 6 { vec![usize::MAX] } else { (0..size).collect() };
-                    let mut best: Option<(T, Vec<C<T>>, usize)> = None;
+                    // Dropped members as bit sets over the member positions.
+                    let drops: Vec<u32> = (0u32..(1 << size)).filter(|m| m.count_ones() as usize + 6 == size).collect();
+                    let mut best: Option<(T, Vec<C<T>>, u32)> = None;
                     for drop in drops {
-                        let chosen: Vec<usize> = (0..size).filter(|&k| k != drop).collect();
+                        let chosen: Vec<usize> = (0..size).filter(|&k| drop & (1 << k) == 0).collect();
                         let origin = members[chosen[0]];
                         for column in 0..5 {
                             let member = members[chosen[column + 1]];
@@ -1318,7 +1320,7 @@ where
                             relative
                         )));
                     }
-                    let chosen: Vec<usize> = (0..size).filter(|&k| k != drop).collect();
+                    let chosen: Vec<usize> = (0..size).filter(|&k| drop & (1 << k) == 0).collect();
                     for column in 0..5 {
                         let mut sum = self.zero.clone();
                         for i in 0..5 {
@@ -1327,8 +1329,8 @@ where
                             self.geometry[weights + size * column + chosen[i + 1]] = value;
                         }
                         self.geometry[weights + size * column + chosen[0]] = csub(&self.zero, &sum);
-                        if drop != usize::MAX {
-                            self.geometry[weights + size * column + drop] = self.zero.clone();
+                        for dropped in (0..size).filter(|&k| drop & (1 << k) != 0) {
+                            self.geometry[weights + size * column + dropped] = self.zero.clone();
                         }
                     }
                 }
