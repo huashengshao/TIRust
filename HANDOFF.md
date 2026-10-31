@@ -368,6 +368,10 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    9995, r6 9976, pentagon 4694, hexagon 1569 (of 2000), heptagon 46/100;
    default full rescues r4 5, r6 24. Coplanar test box: delta 1/64, 1/1024
    now binary64 (E/A 6e-14, 3e-14), 2^-24 still 512 bits.
+   Published: capture 004 (timing + stability, a43a524; commit 50acff0) and
+   stability capture 005 (binary64-only facade at 2^-34 and 2^-20, build
+   50acff0 = code of ffb2716; commit 193415e), report pages 1-5 timing, 6-8
+   stability. Capture 005 matches the probe numbers above.
 3d. **Next: small-Gram box reduction** (hep-ph/0509141 sect. 3.4, Eqs.
    (recurGram1)/(recurGram2), arXiv source in the paper; COLLIER's scheme).
    For a box with momenta p1..p3: pick j maximizing |Xadj_0j| and (k,l)
