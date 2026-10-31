@@ -372,6 +372,24 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    stability capture 005 (binary64-only facade at 2^-34 and 2^-20, build
    50acff0 = code of ffb2716; commit 193415e), report pages 1-5 timing, 6-8
    stability. Capture 005 matches the probe numbers above.
+3h. **In progress (user: "port COLLIER's remaining binary64 methods").**
+   Remaining binary64-only refusals at 2^-34 (scratchpad probe64c, code
+   ffb2716): box r6 24 (expansion no-convergence 17, rotation 7); pentagon
+   306 (sub-box no-convergence 207, rotation/refused 82, genuine rotation
+   16); hexagon 431 (sub-box no-convergence 192, box rotation/refused 105,
+   triangle Gram refused 126+3); heptagon sample 54/100 (box 33+3,
+   triangle 17). COLLIER has per box/triangle CalcDg/Dgm/Dgr/Dgx/Dgy/Dgp/
+   Dgpf/Dpv/Dpv1/Dpv1o/Dpv2 (and C analogues) chosen by error estimate in
+   CalcDred (reductionD.F90 l.543 "choose reduction scheme", l.1203 "choose
+   most promising expansion scheme"). Plan: (A) triangle small-Gram
+   expansion = gram.rs generalized to 2 momenta (divisor a = 2(l+|k|) + 4 - N;
+   2x2 second adjugate d_il d_kj - d_ij d_kl per the paper, verify by the
+   identity test; aux 3-point plan with boosted bubbles; expansion workspace
+   marks refused triangles too). (B) intermediate-Gram boxes: measure det X,
+   max X~_0j, max Z~ on the non-converged boxes, then port sect. 3.5
+   (small Gram + small modified Cayley, paper l.2550; COLLIER CalcDgy) or
+   3.3 (modified Cayley reduction, l.1872). Paper source: scratchpad
+   dd2006-src/x/paper.tex (arXiv e-print hep-ph/0509141).
 3d. **Next: small-Gram box reduction** (hep-ph/0509141 sect. 3.4, Eqs.
    (recurGram1)/(recurGram2), arXiv source in the paper; COLLIER's scheme).
    For a box with momenta p1..p3: pick j maximizing |Xadj_0j| and (k,l)
