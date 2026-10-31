@@ -453,17 +453,53 @@ fn near_degenerate_boxes_are_rescued_at_higher_precision() {
     }
 }
 
-#[test]
-fn inaccurate_binary64_pentagons_are_caught_and_rescued() {
-    // gg -> Hgg top-loop pentagon at sqrt(s) = 1 TeV (stability study point
-    // pentagon-r5 #0). Its Gram system passes the conditioning gates, yet the
-    // binary64 recursion loses ~1e-4 (condition number ~130, rank 5). The
-    // facade's loop-rotation test must catch it; the rescued array must match
-    // a 256-bit direct evaluation.
+/// Facade result of a top-loop pentagon (sqrt(s) = 1 TeV) and its E/A
+/// against a 256-bit direct evaluation.
+fn physical_pentagon(shifts: &[[f64; 4]; 5]) -> (iregi_rust::BatchResult<f64>, iregi_rust::DirectExecutionStats, f64) {
     use iregi_rust::TensorEngineExecution;
     use symbolica::domains::float::{Float, RealLike};
-    // Point #1569: the binary64 recursion produces a nonfinite coefficient;
-    // the lane must still be rescued (no conditioning estimate available).
+    let mt2 = 173.0f64 * 173.0;
+    let values = row(shifts, &[(mt2, 0.0); 5], 1000.0);
+    let settings = ReductionSettings::new(5, 5);
+    let plan = TensorReductionPlan::new(settings.clone()).unwrap();
+    let mut workspace = TensorWorkspace::new(&plan, 0.0f64).unwrap();
+    let result = workspace
+        .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: values.clone() })
+        .unwrap();
+    assert_eq!(result.statuses[0], LaneStatus::Success);
+    let TensorEngineExecution::Direct(stats) = workspace.engine_execution() else {
+        panic!("expected the direct engine");
+    };
+    let stats = stats.clone();
+    assert_eq!(stats.rotation_rows, 1, "{stats:?}");
+    let lifted: Vec<Complex<Float>> = values
+        .iter()
+        .map(|z| Complex::new(Float::with_val(256, z.re), Float::with_val(256, z.im)))
+        .collect();
+    let mut reference = DirectReductionPlan::new(settings).unwrap().workspace(Float::new(256)).unwrap();
+    reference.set_stability_threshold(Float::with_val(256, 2f64.powi(-216)));
+    let reference = reference
+        .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: lifted })
+        .unwrap();
+    let reference: Vec<Complex<f64>> = reference
+        .lane(0)
+        .unwrap()
+        .iter()
+        .map(|z| Complex::new(z.re.to_f64(), z.im.to_f64()))
+        .collect();
+    let error = general_array_error(&result.basis, 4 - 2 * 5, 1000.0, result.lane(0).unwrap(), &reference);
+    (result, stats, error)
+}
+
+#[test]
+fn physical_pentagons_stay_accurate_in_binary64() {
+    // gg -> Hgg top-loop pentagons (stability study points pentagon-r5 #0 and
+    // #1569). Their gluon legs have binary64 invariants of ~1e-10 against
+    // m_t^2 = 3e4. The general B0 expression cancelled like m^2/p^2 there
+    // (E/A 1e-4 in #0) and the generated D0 returned NaN (#1569), so both
+    // lanes used to be rescued at 106 bits. With oneloopmaster's small-momentum
+    // B0 and invariants snapped to zero within their own rounding they stay in
+    // binary64 and agree with 256 bits.
     let points: [[[f64; 4]; 5]; 2] = [
         [
             [0.0, 0.0, 0.0, 0.0],
@@ -481,38 +517,28 @@ fn inaccurate_binary64_pentagons_are_caught_and_rescued() {
         ],
     ];
     for shifts in points {
-        let mt2 = 173.0f64 * 173.0;
-        let values = row(&shifts, &[(mt2, 0.0); 5], 1000.0);
-        let settings = ReductionSettings::new(5, 5);
-        let plan = TensorReductionPlan::new(settings.clone()).unwrap();
-        let mut workspace = TensorWorkspace::new(&plan, 0.0f64).unwrap();
-        let result = workspace
-            .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: values.clone() })
-            .unwrap();
-        assert_eq!(result.statuses[0], LaneStatus::Success);
-        assert!(result.fallback_used[0]);
-        let TensorEngineExecution::Direct(stats) = workspace.engine_execution() else {
-            panic!("expected the direct engine");
-        };
-        assert_eq!(stats.rotation_rows, 1, "{stats:?}");
-        let lifted: Vec<Complex<Float>> = values
-            .iter()
-            .map(|z| Complex::new(Float::with_val(256, z.re), Float::with_val(256, z.im)))
-            .collect();
-        let mut reference = DirectReductionPlan::new(settings).unwrap().workspace(Float::new(256)).unwrap();
-        reference.set_stability_threshold(Float::with_val(256, 2f64.powi(-216)));
-        let reference = reference
-            .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: lifted })
-            .unwrap();
-        let reference: Vec<Complex<f64>> = reference
-            .lane(0)
-            .unwrap()
-            .iter()
-            .map(|z| Complex::new(z.re.to_f64(), z.im.to_f64()))
-            .collect();
-        let error = general_array_error(&result.basis, 4 - 2 * 5, 1000.0, result.lane(0).unwrap(), &reference);
-        assert!(error <= 1e-14, "E/A = {error:e}");
+        let (result, stats, error) = physical_pentagon(&shifts);
+        assert!(!result.fallback_used[0], "{stats:?}");
+        assert!(error <= 1e-12, "E/A = {error:e}");
     }
+}
+
+#[test]
+fn inaccurate_binary64_pentagons_are_caught_and_rescued() {
+    // Point pentagon-r5 #212: its box Gram systems pass the binary64 gate of
+    // rotation-tested plans, yet the recursion keeps only ~2.5e-9. The
+    // facade's loop-rotation test must catch it; the rescued array must match
+    // a 256-bit direct evaluation.
+    let shifts = [
+        [0.0, 0.0, 0.0, 0.0],
+        [500.0, 0.0, 0.0, 500.0],
+        [1000.0, 0.0, 0.0, 0.0],
+        [664.7752755465025, -264.68605966338976, 196.959906569897, 59.360769105269235],
+        [366.1961747737811, -226.26921095725032, 197.98348258528515, -209.05602888970952],
+    ];
+    let (result, stats, error) = physical_pentagon(&shifts);
+    assert!(result.fallback_used[0], "{stats:?}");
+    assert!(error <= 1e-14, "E/A = {error:e}");
 }
 
 #[test]
@@ -556,4 +582,83 @@ fn gram_free_pentagon_is_stable_in_binary64() {
         .collect();
     let error = general_array_error(&direct.basis, 4 - 2 * 5, 1000.0, direct.lane(0).unwrap(), &reference);
     assert!(error <= 1e-11, "E/A = {error:e}");
+}
+
+/// Cartesian array of a direct evaluation at 256 bits (accepting
+/// conditioning down to 2^-216), rounded to binary64.
+fn direct_256(n: usize, rank: u16, values: &[Complex<f64>]) -> (Vec<iregi_rust::basis::Monomial>, Vec<Complex<f64>>) {
+    use symbolica::domains::float::{Float, RealLike};
+    let lifted: Vec<Complex<Float>> = values
+        .iter()
+        .map(|z| Complex::new(Float::with_val(256, z.re), Float::with_val(256, z.im)))
+        .collect();
+    let mut workspace = DirectReductionPlan::new(ReductionSettings::new(n, rank))
+        .unwrap()
+        .workspace(Float::new(256))
+        .unwrap();
+    workspace.set_stability_threshold(Float::with_val(256, 2f64.powi(-216)));
+    let result = workspace
+        .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: lifted })
+        .unwrap();
+    let array = result
+        .lane(0)
+        .unwrap()
+        .iter()
+        .map(|z| Complex::new(z.re.to_f64(), z.im.to_f64()))
+        .collect();
+    (result.basis.clone(), array)
+}
+
+#[test]
+fn seven_point_rank_seven_heptagon_matches_high_precision() {
+    // gg -> ggggg top-loop heptagon at sqrt(s) = 1 TeV (stability study point
+    // heptagon-r7 #0). The thin identity over six of the seven members (the
+    // best-conditioned choice per lane) reduces it to six hexagons.
+    let shifts = [
+        [0.0, 0.0, 0.0, 0.0],
+        [500.0, 0.0, 0.0, 500.0],
+        [1000.0, 0.0, 0.0, 0.0],
+        [908.1355877778915, 66.9766183664414, 52.69764788265707, 34.29519984990652],
+        [607.9858386731116, 213.22343582276903, -153.34551353846933, 196.30740896744675],
+        [533.5298788231431, 156.90681517490697, -114.13194173864258, 225.19380685096203],
+        [270.01829905083963, 130.41975484643868, -236.33633415496422, -6.760660196794646],
+    ];
+    let mt2 = 173.0f64 * 173.0;
+    let values = row(&shifts, &[(mt2, 0.0); 7], 1000.0);
+    let (basis, reference) = direct_256(7, 7, &values);
+    // (COLLIER and original IREGI cross-check heptagons in the stability
+    // study; the old rank-0 seven-point wrapper takes minutes per point.)
+    assert_eq!(basis.len(), 330);
+
+    // Binary64 facade (direct engine, loop-rotation test, precision rescue).
+    let plan = TensorReductionPlan::new(ReductionSettings::new(7, 7)).unwrap();
+    let mut workspace = TensorWorkspace::new(&plan, 0.0f64).unwrap();
+    let result = workspace
+        .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: values.clone() })
+        .unwrap();
+    assert_eq!(result.statuses[0], LaneStatus::Success);
+    let error = general_array_error(&basis, 4 - 2 * 7, 1000.0, result.lane(0).unwrap(), &reference);
+    assert!(error <= 1e-12, "binary64 E/A = {error:e}");
+
+    // Relabelled propagators (a different thin system, origin and pinch
+    // order) give the same integral at 256 bits.
+    for shift in [1, 3] {
+        let rotated_shifts: Vec<[f64; 4]> = (0..7).map(|i| shifts[(i + shift) % 7]).collect();
+        let rotated = row(&rotated_shifts, &[(mt2, 0.0); 7], 1000.0);
+        let (_, array) = direct_256(7, 7, &rotated);
+        let error = general_array_error(&basis, 4 - 2 * 7, 1000.0, &array, &reference);
+        assert!(error <= 1e-15, "rotation by {shift}: E/A = {error:e}");
+    }
+
+    // The scalar heptagon stays in binary64 (no rescue).
+    let (scalar_basis, scalar) = direct_256(7, 0, &values);
+    let plan = TensorReductionPlan::new(ReductionSettings::new(7, 0)).unwrap();
+    let mut workspace = TensorWorkspace::new(&plan, 0.0f64).unwrap();
+    let result = workspace
+        .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values })
+        .unwrap();
+    assert_eq!(result.statuses[0], LaneStatus::Success);
+    assert!(!result.fallback_used[0]);
+    let error = general_array_error(&scalar_basis, 4 - 2 * 7, 1000.0, result.lane(0).unwrap(), &scalar);
+    assert!(error <= 1e-13, "scalar binary64 E/A = {error:e}");
 }

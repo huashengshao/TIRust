@@ -89,7 +89,19 @@ const RESCUE_HEADROOM: u32 = 40;
 const RESCUE_MARGIN: u32 = 8;
 
 /// Largest accepted E/A between a binary64 lane and its rotated copy.
-const ROTATION_TOLERANCE: f64 = 1.0 / (1u64 << 30) as f64;
+const ROTATION_TOLERANCE: f64 = 1.0 / (1u64 << 34) as f64;
+/// Binary64 conditioning gate of plans with the loop-rotation test (N >= 5,
+/// uniform powers). The test checks every accepted lane a posteriori, so the
+/// a priori gate only removes hopeless lanes: on physical gg->Hgg pentagons
+/// and gg->gggg hexagons (stability-20261030) the default `1e-12` refused
+/// lanes of which most were good to 1e-10, while `1e-15` keeps the
+/// accepted tail at <= 1e-9 before the rotation test.
+const ROTATION_GATE: f64 = 1e-15;
+
+/// Whether the binary64 pass runs the loop-rotation test.
+fn rotation_tested(settings: &ReductionSettings) -> bool {
+    settings.propagators >= 5 && settings.powers.iter().all(|&power| power == settings.powers[0])
+}
 
 /// The batch with every lane's propagators rotated by one (shifts and squared
 /// masses; the loop momentum is relabelled, the integral is unchanged).
@@ -237,6 +249,9 @@ where
             .direct
             .workspace_with_masters(prototype.clone(), masters_for(options))?;
         direct.set_profiling(options.profiling);
+        if rotation_tested(plan.direct.settings()) {
+            direct.set_stability_threshold(from_binary64(&prototype, ROTATION_GATE));
+        }
         Ok(Self {
             plan,
             direct,
@@ -425,7 +440,7 @@ where
         let mut conditions = self.direct.last_conditions().to_vec();
         let settings = self.plan.direct.settings();
         let n = settings.propagators;
-        if n >= 5 && settings.powers.iter().all(|&power| power == settings.powers[0]) {
+        if rotation_tested(settings) {
             let check = self.direct.reduce_batch(&rotated(batch, n))?;
             self.last.master_rows += self.direct.last_master_rows();
             let rotated_profile = self.direct.last_profile();

@@ -157,7 +157,7 @@ Ok(())
 
 For binary64 workspaces `TensorReductionPlan::new` selects the direct numerical
 engine whenever the request is in its domain (unit powers or one raised power up
-to 5, `h<=3` up to four points, Cartesian shifts, `Preserve`, PV/Hybrid, N<=6);
+to 5, `h<=3` up to four points, Cartesian shifts, `Preserve`, PV/Hybrid, N<=7 (unit powers at N=7));
 `engine_kind()` reports `Direct`, and `engine_execution()` reports direct
 successes, fallback rows and the fallback's own detail. Lanes it cannot reduce
 reliably are rerun on the symbolic engine; `TensorReductionPlan::new_without_direct`

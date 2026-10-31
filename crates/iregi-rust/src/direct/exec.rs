@@ -121,6 +121,9 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     /// Per lane of the most recent call: `failed_condition` of lanes refused
     /// on conditioning, `None` otherwise.
     lane_conditions: Vec<Option<f64>>,
+    /// `8 * 2^-precision`: a squared distance below this multiple of its
+    /// sum of squared components is zero within its own rounding.
+    rounding: T,
     profiling: bool,
     profile: DirectProfile,
 }
@@ -289,6 +292,10 @@ where
             stability_threshold,
             failed_condition: None,
             lane_conditions: Vec::new(),
+            rounding: {
+                let half = prototype.one() / &prototype.from_usize(2);
+                (0..prototype.get_precision()).fold(prototype.from_usize(8), |acc, _| acc * &half)
+            },
             profiling: false,
             profile: DirectProfile::default(),
             base_plan: plan.clone(),
@@ -354,14 +361,24 @@ where
         for i in 0..n {
             for j in 0..n {
                 let mut value = self.zero.clone();
+                let mut size = self.prototype.zero();
                 for a in 0..4 {
                     let delta = csub(&self.shifts[i][a], &self.shifts[j][a]);
                     let square = cmul(&delta, &delta);
+                    size += cnorm2(&square).sqrt();
                     value = if a == 0 {
                         cadd(&value, &square)
                     } else {
                         csub(&value, &square)
                     };
+                }
+                // A (numerically lightlike) invariant within its own rounding
+                // error of zero is zero: replacing it perturbs the inputs by
+                // no more than their working-precision representation does,
+                // and it keeps scalar masters on their exact massless-leg
+                // branches (the general ones cancel like m^2/p^2 there).
+                if cnorm2(&value).sqrt() <= size * &self.rounding {
+                    value = self.zero.clone();
                 }
                 self.distances[i * n + j] = value;
             }
@@ -1038,53 +1055,75 @@ where
                 }
                 SubsetKind::Relation(_) => {}
                 SubsetKind::Hexagon => {
+                    // Thin identity sum_i w_i D_i = 1 (column 0) or q^mu
+                    // (column mu+1) over six members: the 5x5 system of their
+                    // four momentum components and f row. A seven-point lane
+                    // drops the member whose remaining six give the best
+                    // conditioned system (its weight is zero).
                     let weights = subset.hexagon.unwrap() as usize;
+                    let size = members.len();
                     let half = self.prototype.one() / &self.prototype.from_usize(2);
-                    for column in 0..5 {
-                        let member = members[column + 1];
-                        for mu in 0..4 {
-                            self.matrix[mu * 5 + column] =
-                                csub(&self.shifts[member][mu], &self.shifts[origin][mu]);
-                        }
-                        self.matrix[4 * 5 + column] =
-                            cadd(&csub(d(origin, member), &self.masses[member]), &self.masses[origin]);
-                    }
-                    for row in 0..5 {
+                    let drops: Vec<usize> = if size == 6 { vec![usize::MAX] } else { (0..size).collect() };
+                    let mut best: Option<(T, Vec<C<T>>, usize)> = None;
+                    for drop in drops {
+                        let chosen: Vec<usize> = (0..size).filter(|&k| k != drop).collect();
+                        let origin = members[chosen[0]];
                         for column in 0..5 {
-                            self.rhs[row * 5 + column] = if column == 0 {
-                                if row == 4 { self.one.clone() } else { self.zero.clone() }
-                            } else if row == 4 {
-                                csub(&self.zero, &self.shifts[origin][column - 1])
-                            } else if row == column - 1 {
-                                let sign = if row == 0 { half.clone() } else { -half.clone() };
-                                C::new(sign, self.prototype.zero())
-                            } else {
-                                self.zero.clone()
-                            };
+                            let member = members[chosen[column + 1]];
+                            for mu in 0..4 {
+                                self.matrix[mu * 5 + column] =
+                                    csub(&self.shifts[member][mu], &self.shifts[origin][mu]);
+                            }
+                            self.matrix[4 * 5 + column] =
+                                cadd(&csub(d(origin, member), &self.masses[member]), &self.masses[origin]);
+                        }
+                        for row in 0..5 {
+                            for column in 0..5 {
+                                self.rhs[row * 5 + column] = if column == 0 {
+                                    if row == 4 { self.one.clone() } else { self.zero.clone() }
+                                } else if row == 4 {
+                                    csub(&self.zero, &self.shifts[origin][column - 1])
+                                } else if row == column - 1 {
+                                    let sign = if row == 0 { half.clone() } else { -half.clone() };
+                                    C::new(sign, self.prototype.zero())
+                                } else {
+                                    self.zero.clone()
+                                };
+                            }
+                        }
+                        let Some(quality) = solve_in_place(&mut self.matrix[..25], &mut self.rhs[..25], 5, 5) else {
+                            continue;
+                        };
+                        if best.as_ref().is_none_or(|(relative, _, _)| quality.relative_determinant > *relative) {
+                            best = Some((quality.relative_determinant, self.rhs[..25].to_vec(), drop));
                         }
                     }
-                    let quality = solve_in_place(&mut self.matrix[..25], &mut self.rhs[..25], 5, 5)
-                        .ok_or_else(|| GeometryFailure::Unstable(format!("singular six-point coordinate system for {members:?}")));
-                    if quality.is_err() {
+                    let Some((relative, solution, drop)) = best else {
                         // Exactly singular pivot: conditioning zero.
                         self.failed_condition = Some(0.0);
-                    }
-                    let quality = quality?;
-                    if quality.relative_determinant < threshold {
-                        self.failed_condition = Some(quality.relative_determinant.to_f64());
+                        return Err(GeometryFailure::Unstable(format!(
+                            "singular six-point coordinate system for {members:?}"
+                        )));
+                    };
+                    if relative < threshold {
+                        self.failed_condition = Some(relative.to_f64());
                         return Err(GeometryFailure::Unstable(format!(
                             "ill-conditioned six-point coordinate system: relative determinant {:e}",
-                            quality.relative_determinant
+                            relative
                         )));
                     }
+                    let chosen: Vec<usize> = (0..size).filter(|&k| k != drop).collect();
                     for column in 0..5 {
                         let mut sum = self.zero.clone();
                         for i in 0..5 {
-                            let value = self.rhs[i * 5 + column].clone();
+                            let value = solution[i * 5 + column].clone();
                             sum = cadd(&sum, &value);
-                            self.geometry[weights + 6 * column + i + 1] = value;
+                            self.geometry[weights + size * column + chosen[i + 1]] = value;
                         }
-                        self.geometry[weights + 6 * column] = csub(&self.zero, &sum);
+                        self.geometry[weights + size * column + chosen[0]] = csub(&self.zero, &sum);
+                        if drop != usize::MAX {
+                            self.geometry[weights + size * column + drop] = self.zero.clone();
+                        }
                     }
                 }
             }

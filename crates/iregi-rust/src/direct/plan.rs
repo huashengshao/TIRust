@@ -20,7 +20,7 @@ use crate::{
 };
 
 /// Largest point count handled by the direct engine.
-pub(crate) const MAX_PROPAGATORS: usize = 6;
+pub(crate) const MAX_PROPAGATORS: usize = 7;
 /// Largest tensor rank handled by the direct engine.
 pub(crate) const MAX_RANK: u16 = 8;
 /// Largest power of the (single) dotted propagator.
@@ -293,7 +293,8 @@ pub(crate) struct Subset {
     pub geometry_base: u32,
     pub pv: Option<PvGeometry>,
     pub pentagon: Option<PentagonGeometry>,
-    /// Hexagon thin weights `w[column][i]`, 5 columns x 6 members.
+    /// Thin weights `w[column][i]` of a six- or seven-point subset, 5 columns
+    /// x `members.len()` (a seven-point lane gives one member weight zero).
     pub hexagon: Option<u32>,
     /// Value index receiving the scalar master, for PV subsets.
     pub master: Option<u32>,
@@ -450,6 +451,13 @@ impl DirectPlanData {
                 "direct engine handles dimension shifts 0..={MAX_SHIFT}"
             )));
         }
+        if n == 7 && dotted > 0 {
+            // The seven-point thin system picks its six members per lane;
+            // its mass-derivative jets are not implemented.
+            return Err(ReductionError::Unsupported(
+                "direct engine handles seven propagators with unit powers".into(),
+            ));
+        }
         if settings.dimension_shift > 0 && n > 4 {
             // A shifted scalar pentagon is a genuine master, not reducible
             // to four-dimensional boxes.
@@ -547,7 +555,7 @@ impl DirectPlanData {
                 continue;
             }
             match size {
-                6 | 5 => {
+                7 | 6 | 5 => {
                     let dd = if size == 5 { dd_rank(mask, moment) } else { -1 };
                     if moment > dd {
                         for member in members(mask) {
@@ -636,7 +644,7 @@ impl DirectPlanData {
             let size = member_list.len();
             let kind = match (relation_for(mask), size) {
                 (Some(relation), _) => SubsetKind::Relation(relation),
-                (None, 6) => SubsetKind::Hexagon,
+                (None, 6 | 7) => SubsetKind::Hexagon,
                 (None, 5) => SubsetKind::Pentagon,
                 _ => SubsetKind::Pv,
             };
@@ -736,7 +744,7 @@ impl DirectPlanData {
                 }
                 SubsetKind::Hexagon => {
                     subset.hexagon = Some(geometry_base);
-                    geometry_count += 30;
+                    geometry_count += 5 * size as u32;
                 }
                 SubsetKind::Relation(_) => {
                     if coefficient >= 0 {
@@ -1160,6 +1168,7 @@ impl DirectPlanData {
                 }
                 SubsetKind::Hexagon => {
                     let weights = subset.hexagon.unwrap();
+                    let size = subset.members.len();
                     let base = subset.moment_base.unwrap();
                     for (index, e) in tensor_basis(subset.moment_rank as u16).iter().enumerate() {
                         let (column, rest) = match e.0.iter().position(|&x| x != 0) {
@@ -1177,7 +1186,7 @@ impl DirectPlanData {
                             .map(|(i, &member)| {
                                 builder.term(
                                     child_moment(without(subset.mask, member), rest),
-                                    weights + (6 * column + i) as u32,
+                                    weights + (size * column + i) as u32,
                                     rational(1, 1),
                                 )
                             })
@@ -1255,8 +1264,8 @@ mod tests {
     }
 
     #[test]
-    fn plans_cover_one_to_six_points() {
-        for n in 1..=6 {
+    fn plans_cover_one_to_seven_points() {
+        for n in 1..=7 {
             for rank in 0..=6 {
                 let plan = DirectPlanData::new(ReductionSettings::new(n, rank)).unwrap();
                 assert_eq!(plan.output.len(), plan.basis.len());
