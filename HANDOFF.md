@@ -372,6 +372,22 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    stability capture 005 (binary64-only facade at 2^-34 and 2^-20, build
    50acff0 = code of ffb2716; commit 193415e), report pages 1-5 timing, 6-8
    stability. Capture 005 matches the probe numbers above.
+3j. **Triangle expansion and the small-Gram/small-Cayley scheme.** gram.rs
+   generalized to 2 momenta (2x2 second adjugate d_il d_kj - d_ij d_kl, divisor
+   a = 2(l+|k|) + 4 - N, aux 3-point plans with boosted bubbles) and, when the
+   plain expansion does not converge, sect. 3.5 (recurGramCayley1/2; COLLIER
+   CalcDgy): metric coefficients from Zadj_kl relations with Y_k0 and Delta
+   corrections, momentum ones from Xtilde_ij with (2(P+5-N) - 4 eps) C(1,k)
+   (mul_dimension, a = p + 4 - nm); two ranks per order. Alone it converged on
+   15 of 370 refused r6 boxes (<= 3.8e-12), exactly those boost 12 gained.
+   Boosts tried adaptively 8 then 12 (aux triangle gate = threshold^2 refuses
+   more high-rank triangles at 12). Binary64-only kept (probe64e): r4 9997,
+   r6 9990, pentagon 4748, hexagon 1602, heptagon 47/100; max kept unchanged.
+   Best-effort estimates can be very conservative (r4 #3865: estimate 1.7e-8,
+   true 1.3e-13) but did not understate. Still open: ~120 r6 boxes and the
+   sub-box/triangle cases where neither expansion converges (COLLIER's
+   Dgp/Dgpf small-momentum, Dgr/Dgm/Dgx variants; sect. 3.3 needs numerically
+   integrated D_{00..0}); per-method error estimates as in CalcDred.
 3i. **Best-effort arrays with accuracy estimates (user request).** BatchResult
    gained `estimated_errors: Vec<Option<f64>>` and `best_effort: Vec<bool>`
    (empty = not provided; all 34 struct literals updated), `estimated_error`,

@@ -914,7 +914,7 @@ where
                     }
                     if subset.coefficient_rank >= 1 && momenta > 0 {
                         let size = momenta;
-                        if self.gram_top.is_some() && size == 3 && Some(subset.mask) == top_mask {
+                        if self.gram_top.is_some() && (2..=3).contains(&size) && Some(subset.mask) == top_mask {
                             // Auxiliary expansion executor: no Gram system.
                             self.gram_top_active = true;
                             continue;
@@ -976,8 +976,8 @@ where
                             quality.relative_determinant.clone()
                         };
                         if condition.clone().pow(power) < threshold {
-                            if gram && size == 3 {
-                                // Small-Gram expansion, injected in the lane loop.
+                            if gram && (2..=3).contains(&size) {
+                                // Small-Gram expansion (box or triangle), injected in the lane loop.
                                 let estimate = condition.clone().pow(power).to_f64();
                                 self.failed_condition =
                                     Some(self.failed_condition.map_or(estimate, |f: f64| f.min(estimate)));

@@ -121,11 +121,12 @@ const CHECKED_GATE: f64 = 1e-30;
 /// two bits at most 2.4 times it (the binary64 tail without the retry).
 const CHECKED_MARGIN_BITS: i32 = 2;
 /// Extra triangle ranks of the small-Gram expansion retry (each adds a
-/// correction of order Delta / (Zadj f)_j). On the gate-refused
-/// stability-20261030 rank-6 boxes the expansion converged on 9, 155, 239
-/// lanes with 4, 6, 8 and on no more with 10-16; every converged lane agreed
-/// with 256 bits to E/A <= 3.4e-11.
-const GRAM_BOOST: u16 = 8;
+/// correction of order Delta / (Zadj f)_j; the small-Cayley variant gains one
+/// order per two ranks). On the gate-refused stability-20261030 boxes the
+/// expansions converged on 22 of 34 rank-4 and 239 of 370 rank-6 lanes with
+/// 8, and on 34 and 254 with 12 (15 of them by the small-Cayley variant);
+/// every converged lane agreed with 256 bits to E/A <= 3.4e-11.
+const GRAM_BOOST: u16 = 12;
 
 /// Whether the binary64 pass runs the loop-rotation test.
 fn rotation_tested(settings: &ReductionSettings) -> bool {
