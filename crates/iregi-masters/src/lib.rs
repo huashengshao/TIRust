@@ -577,6 +577,7 @@ where
                 .evaluate_batch(&self.input_workspace, &mut self.output_workspace, valid)
                 .map_err(MasterError::Evaluation)?,
         }
+        self.repair_small_momentum_b0(row_width, result_width)?;
         self.restore_bubble_scale(input, row_width, result_width)?;
         for (prepared, &lane) in self.valid_lanes.iter().enumerate() {
             let point = &input[lane * row_width..(lane + 1) * row_width];
@@ -807,6 +808,57 @@ where
         rows: usize,
     ) -> Result<MasterBatch<T>, MasterError> {
         self.evaluate_real_dual_batch(input, rows, |value| &value.values)
+    }
+
+    /// Ordinary B0 lanes with `0 < |p²| <= max(m²)/16`: the general
+    /// expression cancels like `max(m²)/p²` there (a numerically lightlike
+    /// leg next to a top mass keeps two digits in binary64). Re-evaluate them
+    /// at `p² = 0` exactly and add oneloopmaster's cancellation-free momentum
+    /// shift to the finite part; poles do not depend on `p²`. Dual jets keep
+    /// the general expression.
+    fn repair_small_momentum_b0(&mut self, row_width: usize, result_width: usize) -> Result<(), MasterError> {
+        if self.family != ScalarIntegral::B0 || self.components != 1 {
+            return Ok(());
+        }
+        let half = self.prototype.one() / self.prototype.from_i64(2);
+        let tolerance = (0..self.prototype.get_precision() + 4).fold(self.prototype.one(), |acc, _| acc * &half);
+        let zero = Complex::new(self.prototype.zero(), self.prototype.zero());
+        let mut selected = Vec::new();
+        let mut zeroed = Vec::new();
+        for prepared in 0..self.valid_lanes.len() {
+            let point = &self.input_workspace[prepared * row_width..(prepared + 1) * row_width];
+            if point[0].is_zero() {
+                continue;
+            }
+            if let Some(shift) = oneloop::b0_momentum_shift(&point[0], &point[1], &point[2], &tolerance) {
+                selected.push((prepared, shift));
+                zeroed.push(zero.clone());
+                zeroed.extend_from_slice(&point[1..]);
+            }
+        }
+        if selected.is_empty() {
+            return Ok(());
+        }
+        let mut values = vec![zero; selected.len() * result_width];
+        match &mut self.evaluator {
+            PreparedMaster::Symbolica(evaluator) => evaluator
+                .evaluate_batch(&zeroed, &mut values, selected.len())
+                .map_err(|error| MasterError::Evaluation(error.to_string()))?,
+            #[cfg(feature = "native-batch")]
+            PreparedMaster::Rust(evaluator) => evaluator
+                .evaluate_batch(&zeroed, &mut values, selected.len())
+                .map_err(MasterError::Evaluation)?,
+            #[cfg(feature = "native-f64-abc")]
+            PreparedMaster::Selected(evaluator) => evaluator
+                .evaluate_batch(&zeroed, &mut values, selected.len())
+                .map_err(MasterError::Evaluation)?,
+        }
+        for (k, (prepared, shift)) in selected.into_iter().enumerate() {
+            let finite = &values[k * result_width];
+            self.output_workspace[prepared * result_width] =
+                Complex::new(finite.re.clone() + &shift.re, finite.im.clone() + &shift.im);
+        }
+        Ok(())
     }
 
     fn restore_bubble_scale(
