@@ -43,9 +43,42 @@ where
     );
 }
 
+/// Phase timings of one stability-study point (`POINTS=file INTEGRAL=id INDEX=k`).
+fn profile_point(path: &str) {
+    let points: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let id = std::env::var("INTEGRAL").unwrap();
+    let index: usize = std::env::var("INDEX").unwrap().parse().unwrap();
+    let integral = points["integrals"].as_array().unwrap().iter().find(|i| i["id"] == id.as_str()).unwrap();
+    let n = integral["n"].as_u64().unwrap() as usize;
+    let rank = integral["rank"].as_u64().unwrap() as u16;
+    let mu = integral["mu"].as_f64().unwrap();
+    let masses: Vec<f64> = integral["masses_squared"].as_array().unwrap().iter().map(|m| m.as_f64().unwrap()).collect();
+    let point: Vec<Vec<f64>> = integral["points"][index].as_array().unwrap().iter()
+        .map(|s| s.as_array().unwrap().iter().map(|x| x.as_f64().unwrap()).collect()).collect();
+    fn lane<R: NativeFloat>(lift: impl Fn(f64) -> R, point: &[Vec<f64>], masses: &[f64], mu: f64) -> KinematicsBatch<R> {
+        let mut values = Vec::new();
+        for shift in point {
+            values.extend(shift.iter().map(|&x| Complex::new(lift(x), lift(0.0))));
+        }
+        values.extend(masses.iter().map(|&m| Complex::new(lift(m), lift(0.0))));
+        values.push(Complex::new(lift(mu), lift(0.0)));
+        KinematicsBatch { rows: 1, components: 1, values }
+    }
+    let plan = DirectReductionPlan::new(ReductionSettings::new(n, rank)).unwrap();
+    profile("f64", plan.workspace(0.0f64).unwrap(), lane(|x| x, &point, &masses, mu), 1e-12, 5);
+    profile("dd", plan.workspace(DoubleFloat::from(0.0)).unwrap(), lane(DoubleFloat::from, &point, &masses, mu),
+        DoubleFloat::from(2f64.powi(-66)), 5);
+    profile("256", plan.workspace(Float::new(256)).unwrap(), lane(|x| Float::with_val(256, x), &point, &masses, mu),
+        Float::with_val(256, 2f64.powi(-216)), 3);
+}
+
 fn main() {
     if std::env::var_os("DILOG_COST").is_some() {
         dilog_cost();
+        return;
+    }
+    if let Some(path) = std::env::var_os("POINTS") {
+        profile_point(path.to_str().unwrap());
         return;
     }
     let args: Vec<String> = std::env::args().collect();
@@ -116,7 +149,28 @@ pub fn dilog_cost() {
         }
         println!("  cost: oneloopmaster {ours:?}, Symbolica polylog {:?}", started.elapsed() / 20);
     }
+    // Native double-double kernel against the 160-bit route on the grid.
+    let mut worst = (0.0f64, (0.0, 0.0));
+    for &(re, im) in &points {
+        let z = Complex::new(DoubleFloat::from(re), DoubleFloat::from(im));
+        let ours = <DoubleFloat as NativeFloat>::dilog(&z);
+        let reference = oneloop::double_dilog_via_float(&z);
+        let difference = (ours.re - reference.re).to_f64().hypot((ours.im - reference.im).to_f64());
+        let scale = reference.re.to_f64().hypot(reference.im.to_f64()).max(1e-300);
+        if difference / scale > worst.0 || !(difference / scale).is_finite() {
+            worst = (difference / scale, (re, im));
+        }
+        if im == 0.0 && ours.im.to_f64().is_sign_negative() != reference.im.to_f64().is_sign_negative() {
+            println!("  double-double sign of zero differs at {re}");
+        }
+    }
+    println!("double-double native vs 160-bit route: worst relative difference {:.2e} at {:?}", worst.0, worst.1);
     let z = Complex::new(DoubleFloat::from(0.3), DoubleFloat::from(0.2));
+    let started = Instant::now();
+    for _ in 0..200 {
+        std::hint::black_box(oneloop::double_dilog_via_float(std::hint::black_box(&z)));
+    }
+    println!("double-double via 160 bits: {:?}", started.elapsed() / 200);
     let started = Instant::now();
     for _ in 0..200 {
         std::hint::black_box(<DoubleFloat as NativeFloat>::dilog(std::hint::black_box(&z)));
