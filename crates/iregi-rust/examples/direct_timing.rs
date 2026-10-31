@@ -2,7 +2,7 @@
 //! protocol, so one runner can interleave TIRust, IREGI and COLLIER blocks.
 //!
 //! stdin:
-//!   BENCH id n rank h mu batch warmup repeats iterations
+//!   BENCH id n rank h mu batch warmup repeats iterations [contract]
 //!   p0 p1 p2 p3 (m2re,m2im) power          (n rows per lane, lane-major)
 //!   QUIT
 //! stdout: `READY TIRUST_BENCHMARK_V1`, then one `RESULT {json}` per request
@@ -12,7 +12,10 @@
 //! `workspace_engine`). Plans and workspaces are cached per request shape;
 //! construction and the first call are reported separately and never timed
 //! as warm calls. Each block times `iterations` complete `reduce_batch` calls,
-//! including result construction and destruction. Profiling is off.
+//! including result construction and destruction. Profiling is off. With
+//! `contract`, each timed call also contracts every lane's array with fixed
+//! complex coefficients per moment (all four Laurent slots), as an amplitude
+//! with a numerator polynomial would, so the block includes the contraction.
 use std::{
     collections::HashMap,
     error::Error,
@@ -60,7 +63,7 @@ fn main() -> Fallible<()> {
             break;
         }
         let header: Vec<&str> = line.split_whitespace().collect();
-        if header.len() != 10 || header[0] != "BENCH" {
+        if !(header.len() == 10 || header.len() == 11 && header[10] == "contract") || header[0] != "BENCH" {
             return Err(format!("invalid header: {line}").into());
         }
         let id = header[1].to_string();
@@ -72,6 +75,7 @@ fn main() -> Fallible<()> {
         let warmup: usize = header[7].parse()?;
         let repeats: usize = header[8].parse()?;
         let iterations: usize = header[9].parse()?;
+        let contract = header.len() == 11;
         if n == 0 || batch == 0 || repeats == 0 || iterations == 0 {
             return Err("invalid request dimensions".into());
         }
@@ -141,11 +145,36 @@ fn main() -> Fallible<()> {
         for _ in 0..warmup {
             black_box(prepared.workspace.reduce_batch(black_box(&batch_input))?);
         }
+        // Fixed numerator coefficients c_m = (1/(m+1), 1/(m+2)).
+        let coefficients: Vec<(f64, f64)> = (0..rank as usize + 1)
+            .flat_map(|r| std::iter::repeat_n(r, (r + 1) * (r + 2) * (r + 3) / 6))
+            .enumerate()
+            .map(|(m, _)| (1.0 / (m as f64 + 1.0), 1.0 / (m as f64 + 2.0)))
+            .collect();
+        let contracted = |result: &iregi_rust::BatchResult<f64>| -> [(f64, f64); 4] {
+            let mut sum = [(0.0, 0.0); 4];
+            for lane in 0..result.rows() {
+                if let Ok(values) = result.lane(lane) {
+                    for (m, &(cr, ci)) in coefficients.iter().enumerate() {
+                        for (slot, total) in sum.iter_mut().enumerate() {
+                            let z = values[4 * m + slot];
+                            total.0 += cr * z.re - ci * z.im;
+                            total.1 += cr * z.im + ci * z.re;
+                        }
+                    }
+                }
+            }
+            sum
+        };
         let mut times = Vec::with_capacity(repeats);
         for _ in 0..repeats {
             let started = Instant::now();
             for _ in 0..iterations {
-                black_box(prepared.workspace.reduce_batch(black_box(&batch_input))?);
+                let result = prepared.workspace.reduce_batch(black_box(&batch_input))?;
+                if contract {
+                    black_box(contracted(&result));
+                }
+                black_box(result);
             }
             times.push(started.elapsed().as_nanos() as f64 / iterations as f64);
         }

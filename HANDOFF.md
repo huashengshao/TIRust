@@ -216,6 +216,39 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    D_{00..0}); then the same for the hexagon's sub-boxes.
    Native double-double dilog (0769821): the 106-bit rescue of a physical
    pentagon costs 4.8 ms (was 8.2); a hexagon handled at 106 bits ~21 ms.
+3e. **31 October 2026 session (commits a5cd37c, 514e3cf, bc90c69; read first).**
+   The small-Gram expansion (3d) was started and dropped: on refused physical
+   pentagon boxes |Delta|/max|Ymodadj_0j| has median 0.24 (>1 for 10%), so
+   sect. 3.4 converges too slowly. Root cause of the inaccurate binary64
+   N=5/6 lanes instead: (i) oneloopmaster's generated B0 cancels like m^2/p^2
+   for tiny nonzero p^2 (gluon legs p^2 ~ 1e-10 vs m_t^2: 5.8e-3 error), fixed
+   by `dependencies/oneloopmaster/src/native/small_momentum.rs` + iregi-masters
+   central repair (PATCHES.md "Small-momentum B0"); (ii) generated D0 NaN at
+   such p^2: the direct engine now snaps squared distances within 8u of their
+   own rounding to exact zero (`read_lane`); (iii) rotation-tested plans
+   (N>=5) gate binary64 at 1e-15 (was 1e-12), rotation tolerance 2^-34.
+   Probes: examples/subset_accuracy.rs (per-subset E/A, THRESH env),
+   master_probe.rs, n7_probe.rs. 500 pentagons: binary64 keeps 457 (was ~21%).
+   N=7 direct engine (thin identity over the best 6 of 7 members; unit powers);
+   test `seven_point_rank_seven_heptagon_matches_high_precision`.
+   Stability study: heptagon-r7 (500 pts, appended), COLLIER driver N,R<=7,
+   NinjaRS + contracted random-numerator metric in run.py/summarize.py;
+   capture 003 = target/stability-20261030/capture003 (build-003.json).
+   NinjaRS reference build: target/reference/ninjars (source = upstream
+   41a4c00 + branch serde-json-float-roundtrip 16bd20a; bin/ has both
+   binaries). Upstream PR branches prepared in the scratchpad clone
+   (oneloopmaster: native-arbitrary-precision-dilog, small-momentum-b0; PR
+   texts pr-*.md); pre-existing upstream failures: oneloopmaster
+   `euclidean_c0_preserves_primal_and_zero_seeds` (+4 C0 integration tests to
+   recheck on main), NinjaRS `templates_do_not_depend_on_process_history`
+   (libtest output parsing). MRE: validation/mre/collier-dd-small-invariants
+   (DD wrong by 0.30 with p^2 ~ 1e-10). Pending: IREGI MREs (PV rank>N box
+   r6 #0; IBP hexagon #0, pentagon #27), COLLIER-style regulators (stash
+   "regulators WIP": src/regulators.rs, TensorWorkspace::set_regulators;
+   verify the pi^2/6 Collier normalization against COLLIER's massless box
+   D0: finite 0.50481+0.08492i, dIR1 0.13433-0.20944i, dIR2 -0.13333 at
+   s=10, t=-3, mu^2=2), timing capture 003 with NinjaRS (case-bench) and an
+   N7R7 row, report update.
 3d. **Next: small-Gram box reduction** (hep-ph/0509141 sect. 3.4, Eqs.
    (recurGram1)/(recurGram2), arXiv source in the paper; COLLIER's scheme).
    For a box with momenta p1..p3: pick j maximizing |Xadj_0j| and (k,l)
