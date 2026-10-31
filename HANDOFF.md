@@ -293,6 +293,12 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    working precision (bb6ee20; upstream branch d926e91); found by upstream's
    native_256_bits_matches_oneloop (C0 arguments with a 2-bit cancelled real
    part).
+   Upstream PRs (opened 31 Oct): oneloopmaster #13 native dilog (branch
+   native-arbitrary-precision-dilog, d926e91) and #14 small-momentum B0
+   (small-momentum-b0, 956c1bb); NinjaRS #11 serde_json float_roundtrip and
+   #12 determinism-test parsing. Upstream main 7b3f43c has 33 failing tests in
+   this environment (cargo test --no-fail-fast --features generated-evaluators);
+   both oneloopmaster branches add none.
    Engine gaps found: exactly singular six-point thin systems and null-
    hyperplane boxes (singular Gram, affinely independent) have no route.
 3d. **Next: small-Gram box reduction** (hep-ph/0509141 sect. 3.4, Eqs.
