@@ -342,7 +342,7 @@
 ))
 // Same-session direct-engine campaign (30 October 2026): TIRust public
 // binary64 default versus original IREGI and COLLIER, interleaved per block.
-#let direct-campaign = data.at("direct_engine_20261030_capture002", default: data.at("direct_engine_20261030", default: none))
+#let direct-campaign = data.at("direct_engine_20261030_capture003", default: data.at("direct_engine_20261030_capture002", default: data.at("direct_engine_20261030", default: none)))
 #let direct-first-capture = data.at("direct_engine_20261030", default: none)
 #let de-sci(x) = {
   if x == none { [n/a] } else if x == 0 { [0] } else {
@@ -427,6 +427,52 @@
     )
   ]
 }
+// TIRust with the contraction of a dense numerator versus NinjaRS, which
+// integrates that numerator directly (capture 003 on).
+#let de-ninja-cell(record, batch) = {
+  table.cell(fill: if record == none { pending } else if record.accepted { pale } else { amber }, {
+    set par(leading: 0.3em, justify: false)
+    if record == none {
+      text(size: 8pt, fill: luma(90))[Outside API (rank > N+2, dotted or D≠4)]
+    } else {
+      let t = if record.timing_us == none { none } else { record.timing_us.median / batch }
+      text(size: 10pt, weight: "bold", de-time(t))
+      if batch > 1 { text(size: 6.5pt)[ /point] }
+      linebreak()
+      text(size: 6.5pt, fill: luma(70))[
+        #record.at("ninjars_engine", default: "fast") engine
+        #if record.at("fast_failed_lanes", default: 0) > 0 [(fast: #record.fast_failed_lanes Unstable lanes)] ·
+        #if record.relative_error == none [no value] else [contracted E/A #de-sci(record.relative_error)]
+      ]
+    }
+  })
+}
+#let de-ninja-table(rows, batch) = {
+  let key = "batch" + str(batch)
+  let rows = rows.filter(r => r.at(key).at("ninjars", default: none) != none or r.table == "ordinary")
+  figure(kind: table, caption: [TIRust (array and contraction with a dense random numerator) against NinjaRS
+    (integrand reduction of that numerator); #if batch == 1 [single point] else [batch of 32, time per point]])[
+    #table(
+      columns: (1.05fr, 1fr, 1fr, 1.25fr, 0.95fr),
+      inset: (x: 5pt, y: 5pt), stroke: table-stroke, align: left + horizon,
+      fill: (x, y) => if y == 0 { navy } else { none },
+      table.header(..([Input], [TIRust (array only)], [TIRust (array + contraction)], [NinjaRS], [TIRust (contracted) / NinjaRS]).map(h => text(fill: white, size: 8.5pt, weight: "bold", h))),
+      ..rows.map(row => {
+        let b = row.at(key)
+        let contracted = b.at("tirust_contracted", default: none)
+        let ninja = b.at("ninjars", default: none)
+        (
+          table.cell(de-label(row)),
+          de-engine-cell(b.tirust, batch),
+          de-engine-cell(contracted, batch),
+          de-ninja-cell(ninja, batch),
+          de-ratio-cell(b.ratios.at("tirust_contracted_over_ninjars", default: none),
+            contracted != none and contracted.accepted and ninja != none and ninja.accepted),
+        )
+      }).flatten(),
+    )
+  ]
+}
 #let direct-engine-pages(snapshot) = {
   let env = snapshot.environment
   [= Direct numerical engine: same-session comparison]
@@ -442,7 +488,7 @@
   ]
   v(0.3em)
   text(size: 8.5pt)[
-    *Protocol.* All three codes ran in one session on CPU #env.cpu (#env.cpu_model), one pinned core,
+    *Protocol.* All codes ran in one session on CPU #env.cpu (#env.cpu_model), one pinned core,
     load average #env.loadavg_start.join(" / ") at start. For every row and batch size each
     candidate got a fresh process; a pilot fixed the calls per block (≈20 ms); then
     #env.rounds.batch1 (batch 1) or #env.rounds.batch32 (batch 32) rounds ran one block per candidate in
@@ -452,16 +498,41 @@
     original IREGI). IREGI uses its fastest mode with a complete finite array within E/A≤10#super[−3].
     COLLIER uses the archived selected public configuration. Rejected or nonfinite outputs are shown
     amber with diagnostic times and never enter a ratio. Builds: TIRust release (thin LTO), Fortran
-    `-O3`, all baseline x86-64; binary SHA-256 in `validation/benchmark/direct-engine-20261030/summary-002.json`.
+    `-O3`, all baseline x86-64; binary SHA-256 in #raw("validation/benchmark/direct-engine-20261030/summary-" + (if snapshot.rows.any(r => r.batch1.at("ninjars", default: none) != none) { "003" } else { "002" }) + ".json").
     TIRust source: commit #raw(snapshot.at("tirust_source_commit", default: snapshot.tirust_git_head).slice(0, 7)).
-    This is the second capture of the day (after lightlike support, a hand-written negative-Källén C0,
-    IR-free two-slot kernels and fixed-length jet kernels); the first capture
-    (TIRust #raw(direct-first-capture.snapshot.tirust_git_head.slice(0, 7))) remains bound unchanged in the report data.
+    This capture (003, 31 October) adds an N7R7 row (the opening shifts and masses plus
+    q#sub[6] = (1/4, 3/8, 1/8, 5/8), m#sub[6]#super[2] = 4; reference: TIRust at 256 bits confirmed by quad IREGI IBP to
+    6.3×10#super[−17], quad PV fails, COLLIER returns NaN, `validation/mre/collier-n7-nan`) and NinjaRS. TIRust's N≥5 rows
+    are slower than in capture 002 (N5R5 141 against 65 µs, N6R6 555 against 216 µs): every binary64 lane now also runs
+    the loop-rotation test and the Gram-free pentagon reduction, which keep physical pentagons accurate in binary64
+    (stability section); N7R7 runs at higher precision after the rotation test. Captures 001
+    (TIRust #raw(direct-first-capture.snapshot.tirust_git_head.slice(0, 7))) and 002 remain bound unchanged in the report data.
   ]
   v(0.3em)
   de-table(snapshot.rows, 1)
   pagebreak()
   de-table(snapshot.rows, 32)
+  if snapshot.rows.any(r => r.batch1.at("ninjars", default: none) != none) {
+    pagebreak()
+    text(size: 8.5pt)[
+      *TIRust and NinjaRS.* NinjaRS (#link("https://github.com/alphal00p/ninjars")[alphal00p/ninjars], a Rust port of
+      Ninja's integrand reduction) integrates a given numerator, not the tensor array. Each row therefore gets a
+      dense random numerator of its rank, and TIRust is timed with the contraction of its complete array with it
+      inside every timed call. This is not like for like: TIRust's array serves every numerator of the topology,
+      NinjaRS repeats its reduction per numerator. NinjaRS runs `case-bench` on the same lanes (pinned, one fresh
+      process and ≈20 ms block per round, interleaved with the other candidates). Its fast engine, like original Ninja,
+      marks cuts whose two momenta span a Euclidean plane `Unstable`; the opening inputs (spatial unit vectors) have
+      such planes throughout, so these rows use NinjaRS's generic engine, as its documentation prescribes. E/A of
+      NinjaRS: its lane-0 value against the reference array contracted exactly with the same numerator. On the
+      N6R6 and N7R7 rows NinjaRS's generic engine fails its lane-0 cut construction (`CutFailed`, singular
+      parameter; the opening points contain coplanar quadruples such as 0, e#sub[x], e#sub[y], e#sub[x]+e#sub[y]),
+      so those times have no accepted value.
+      Reference build: upstream 41a4c00 with the serde_json `float_roundtrip` repair (upstream pull request),
+      without which NinjaRS reads about 3% of binary64 inputs one ulp off.
+    ]
+    de-ninja-table(snapshot.rows, 1)
+    de-ninja-table(snapshot.rows, 32)
+  }
   v(0.3em)
   let cross = snapshot.rows.map(r => r.batch32.tirust_iregi_cross_error_lanes).filter(x => x != none)
   text(size: 8.5pt)[
@@ -476,7 +547,7 @@
 }
 // Binary64 stability study (30 October 2026): cumulative accuracy profiles
 // in the style of Hirschi and Peraro, arXiv:1604.01363, figs. 2-4.
-#let stability-campaign = data.at("stability_20261030_capture002", default: data.at("stability_20261030", default: none))
+#let stability-campaign = data.at("stability_20261030_capture003", default: data.at("stability_20261030_capture002", default: data.at("stability_20261030", default: none)))
 #let stability-first-capture = data.at("stability_20261030", default: none)
 #let st-style = (
   "tirust": (paint: rgb("#1a9850"), thickness: 1.7pt),
@@ -485,8 +556,10 @@
   "iregi-pv": (paint: rgb("#fc8d59"), thickness: 1.1pt, dash: "dashed"),
   "collier-coli": (paint: rgb("#2c7fb8"), thickness: 1.1pt),
   "collier-dd": (paint: rgb("#7570b3"), thickness: 1.1pt, dash: "dashed"),
+  "ninjars": (paint: rgb("#e7298a"), thickness: 1.3pt, dash: "dotted"),
 )
-#let st-plot(integral, grid, width: 6.6cm, height: 4.3cm) = {
+#let st-plot(integral, grid, width: 6.6cm, height: 4.3cm, codes: none) = {
+  let codes = if codes == none { integral.codes } else { codes }
   let x0 = -17.0
   let x1 = 0.0
   let ymin = calc.floor(calc.log(1 / integral.with_reference, base: 10))
@@ -510,7 +583,7 @@
     place(dx: 0.12cm - height / 2, dy: oy + height / 2 - 0.15cm, rotate(-90deg,
       box(width: height, height: 0.3cm, align(center + horizon, text(size: 6pt)[fraction with E/A > Δ]))))
     place(dx: ox + px(-3) - 1pt, dy: oy, rect(width: 2pt, height: height, fill: luma(205), stroke: none))
-    for code in integral.codes {
+    for code in codes {
       let pts = ()
       for (x, f) in grid.zip(code.curve) {
         if f == none { continue }
@@ -574,6 +647,19 @@
     #v(2pt)
     #st-legend(snapshot.integrals.at(0).codes)
   ]
+  if snapshot.integrals.at(0).at("contracted_codes", default: none) != none {
+    v(0.2em)
+    figure(caption: [Contracted dense random numerator: fraction of points with
+      |I − I#sub[ref]|/max|I#sub[ref]| > Δ over the finite part, the (UV + IR) single pole and the double pole,
+      I = Σ#sub[α] c#sub[α] ∫ q#super[α] with c#sub[α] = (u + i v)/μ#super[|α|], u, v uniform in [−1, 1], fixed per point.
+      The array codes contract their arrays; NinjaRS (alphal00p/ninjars, integrand reduction, binary64 fast engine;
+      lanes it marks Unstable count as without value) reduces the numerator directly.])[
+      #grid(columns: 2, column-gutter: 4pt, row-gutter: 2pt,
+        ..snapshot.integrals.map(integral => st-plot(integral, snapshot.grid_log10, codes: integral.contracted_codes)))
+      #v(2pt)
+      #st-legend(snapshot.integrals.at(0).contracted_codes)
+    ]
+  }
   v(0.2em)
   let codes = snapshot.integrals.at(0).codes
   block(breakable: false, figure(kind: table, caption: [Per-point E/A: median, 99th percentile and the number of points worse than
@@ -592,16 +678,21 @@
     )
   ])
   text(size: 8.5pt)[
-    *Findings.* On the boxes TIRust's binary64 arrays match COLLIER's accuracy; original IREGI's PV mode
-    fails on every rank-6 box (rank above N) and its IBP mode has rare large outliers. On the pentagon and the
-    hexagon COLLIER (both branches) stays accurate on every point, IREGI PV is mostly accurate with a tail,
-    and IREGI IBP fails often (on the hexagon almost always). TIRust returns an accurate array on every point.
-    Its binary64 path now reduces pentagons without a Gram inverse (Denner–Dittmaier: only the modified Cayley
-    determinant is inverted) and keeps about a fifth of the physical pentagons; the others and all hexagons are
-    refused because of rank-5 box Gram systems and rerun at higher precision, mostly 106 bits (milliseconds
-    instead of microseconds). A small-Gram box expansion, as in COLLIER, is the next step. The first capture
-    (TIRust #raw(if stability-first-capture != none { stability-first-capture.snapshot.tirust_git_head.slice(0, 7) } else { "" }), before the Gram-free
-    pentagon and the native double-double dilogarithm) remains bound unchanged in the report data.
+    *Findings (capture 003).* TIRust's default returns an accurate array on every point of all five
+    integrals (worst E/A 9.6×10#super[−9] on the rank-4 box, ≤3.4×10#super[−10] elsewhere). Its binary64
+    pass alone now keeps 86% of the physical pentagons (capture 002: 21%) and a quarter of the hexagons
+    (capture 002: none). Two oneloopmaster master issues, not Gram conditioning, had made those lanes
+    inaccurate: the generated B0 cancels like m#super[2]/p#super[2] for the binary64 invariants of
+    massless legs (p#super[2] ≈ 10#super[−10] against m#sub[t]#super[2]; repaired with a cancellation-free
+    small-momentum B0), and the generated D0 returned NaN there (invariants within their own rounding
+    error of zero are now exactly zero). Heptagons (direct engine since this capture: the thin identity over
+    the best six of seven propagators) are still rescued almost always, mostly at 256 bits. COLLIER (both
+    branches) stays accurate everywhere. Original IREGI's PV fails on every rank-6 box and on every
+    heptagon, its IBP on the hexagons and heptagons (E/A up to 10#super[97]), all reported as successful
+    (minimal reproducers in `validation/mre`). NinjaRS, reducing the contracted numerator, returns a value
+    on every point with tails beyond 10#super[−3] on a few hexagons and heptagons. Heptagon references
+    are confirmed by COLLIER COLI and DD (≤10#super[−9]) instead of quad IREGI, which fails there in both
+    modes; COLLIER's heptagon curves are therefore conditioned on that agreement (5 of 500 points excluded).
   ]
   v(0.2em)
   let rescued = snapshot.integrals.map(i => (i.id, i.codes.at(0).at("rescued_by_bits", default: (:))))
@@ -636,7 +727,7 @@
     hexagon, and quad PV keeps only 10#super[−12]–10#super[−10] on some hexagon points, where COLLIER (independent
     of both) agrees with the 256-bit array instead. Below the confirmation level Δ is not independently verified.
     TIRust lanes rescued at 256 bits equal the reference after rounding (Δ = 0). This capture: TIRust
-    #raw(snapshot.tirust_git_head.slice(0, 7)). Binaries and the TIRust commit are in `validation/benchmark/stability-20261030/summary-002.json`; reproduce with
+    #raw(snapshot.tirust_git_head.slice(0, 7)). Binaries and the TIRust commit are in #raw("validation/benchmark/stability-20261030/summary-" + (if snapshot.integrals.at(0).at("contracted_codes", default: none) != none { "003" } else { "002" }) + ".json"); reproduce with
     #raw("make-points.py"), #raw("build.py"), #raw("run.py") and #raw("summarize.py") in that directory.
   ]
 }

@@ -249,6 +249,38 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    D0: finite 0.50481+0.08492i, dIR1 0.13433-0.20944i, dIR2 -0.13333 at
    s=10, t=-3, mu^2=2), timing capture 003 with NinjaRS (case-bench) and an
    N7R7 row, report update.
+   Status at 08:30Z: COLLIER-style regulators done (ce84d10, test against
+   COLLIER's massless box). Stability capture 003 done and summarized
+   (summary-003.json, b556032): pentagons 86% binary64, hexagons 24%,
+   heptagons rescued (next optimization target); heptagon references by
+   COLLIER COLI+DD (quad IREGI fails there). Timing capture 003 running
+   (target/direct-engine-20261030/capture003, CPU 188, build-003.json at
+   ba4aa16; NinjaRS via case-bench, generic engine on the Euclidean opening
+   rows; N7R7 row q_6=(1/4,3/8,1/8,5/8)). Report code for both captures is in
+   docs/benchmark.typ (uncommitted until sealed). Then: summarize timing
+   (summarize.py capture003 summary-003.json build-003.json), publish.py
+   bind --capture 003 in both dirs, typst compile --root . --creation-timestamp
+   1793318400 (twice, cmp), publish.py seal ... --capture 003, check, push.
+   NinjaRS PR https://github.com/alphal00p/ninjars/pull/11 (float_roundtrip);
+   branch determinism-child-output (c636f94, worktree
+   target/reference/ninjars/source-determinism) to test and open. oneloopmaster
+   PRs NOT opened: dilog branch fails upstream test native_256_bits_matches_oneloop
+   (results with ~10-bit precision at 256 bits under symbolica-dev f514a7f:
+   argument precision from cancellation tracking?); B0 branch fails the same
+   43-line set as dilog minus that test; rerun pristine main suite
+   (scratchpad upstream/main-full.sh lacked env) to confirm pre-existing.
+   Report sealed with both captures 003 (78 pages; stability section from p. 6,
+   contracted/NinjaRS figure p. 7; timing tables incl. NinjaRS after the
+   direct-engine section). Timing capture 003: TIRust faster than IREGI on all
+   rows and than COLLIER on all ordinary rows; against NinjaRS (TIRust array +
+   contraction) 1.5x slower on N1R0, ~1 on N2R1 (NinjaRS fast engine), 0.02-0.2
+   on N3-N5 (NinjaRS generic engine: opening points have Euclidean cut planes),
+   0.40 N6R6 and 0.57-0.76 N7R7 (NinjaRS lane-0 CutFailed there, no accepted
+   value). TIRust N5R5/N6R6 slower than capture 002 (rotation test + Gram-free
+   pentagon). Timing inputs for capture 003: inputs-003.json (inputs.json stays
+   bound).
+   Engine gaps found: exactly singular six-point thin systems and null-
+   hyperplane boxes (singular Gram, affinely independent) have no route.
 3d. **Next: small-Gram box reduction** (hep-ph/0509141 sect. 3.4, Eqs.
    (recurGram1)/(recurGram2), arXiv source in the paper; COLLIER's scheme).
    For a box with momenta p1..p3: pick j maximizing |Xadj_0j| and (k,l)
