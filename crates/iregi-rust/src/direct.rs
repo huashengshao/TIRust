@@ -150,6 +150,13 @@ where
         self.executor.enable_gram_expansion_everywhere(boost, aux_threshold);
     }
 
+    /// COLLIER-style a priori method choice: boxes and triangles whose
+    /// Passarino-Veltman estimate 2^-52 w^r exceeds 2^-36 are computed by the
+    /// small-Gram expansions or the alternative PV reduction (unchecked).
+    pub fn enable_estimated_method_choice(&mut self, boost: u16, aux_threshold: T) {
+        self.executor.enable_estimated_method_choice(boost, aux_threshold);
+    }
+
     pub fn enable_alternative_pv(&mut self) {
         self.executor.enable_alternative_pv();
     }
@@ -164,5 +171,11 @@ where
     /// use it to choose a working precision for a retry.
     pub fn last_conditions(&self) -> &[Option<f64>] {
         self.executor.last_conditions()
+    }
+
+    /// Per lane of the most recent call: some box or triangle was computed by
+    /// the small-Gram expansions or the alternative PV reduction.
+    pub fn last_gram_lanes(&self) -> &[bool] {
+        self.executor.last_gram_lanes()
     }
 }

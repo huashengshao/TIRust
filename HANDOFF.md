@@ -372,6 +372,17 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    stability capture 005 (binary64-only facade at 2^-34 and 2^-20, build
    50acff0 = code of ffb2716; commit 193415e), report pages 1-5 timing, 6-8
    stability. Capture 005 matches the probe numbers above.
+3u. **Step (3): a priori method choice in the main pass.** Rotation-tested
+   plans with N <= 7 and R <= 7: boxes/triangles whose PV estimate
+   2^-52 w^r exceeds 2^-36 are computed by expansions / alternative PV in the
+   main binary64 pass (exec gram_estimated; refusals keep their old path);
+   lanes that used them are accepted at tolerance/4 (lane_gram flags).
+   Nested triangle choice only while rank + boost <= 17. Without these bounds
+   the N8/N10 tests grew to 68 GB (killed); run tests under ulimit -v 64 GB.
+   Probe64o: pentagon certified 4989 (tail 4.4e-11, default 5.0e-11, was
+   1.4e-10), hexagon 1908 (2.0e-10), heptagon 86/100 (default 1.0e-11).
+   Next: timing capture (main pass now does more work for N 5-7), then a
+   stability capture for the report; coefficients-only aux plans.
 3t. **Overnight progress.** Report published with captures 008/009
    (6510fd7; binary64-only certified r4 9999, r6 9997, pentagon 4989,
    hexagon 1909, heptagon 441/495, nothing above 3e-6). N = 8 supported:

@@ -549,9 +549,10 @@ fn inaccurate_binary64_pentagons_are_caught_and_rescued() {
         [366.1961747737811, -226.26921095725032, 197.98348258528515, -209.05602888970952],
     ];
     let (result, stats, error) = physical_pentagon(&shifts);
+    // The a priori (COLLIER-style) method choice now computes its boxes by
+    // the expansions or the alternative PV reduction in the main pass; the
+    // retries would recover it otherwise. Either way it stays binary64.
     assert!(!result.fallback_used[0], "{stats:?}");
-    assert_eq!(stats.rotation_failures, 1, "{stats:?}");
-    assert!(stats.expansion_successes >= 1, "{stats:?}");
     assert!(error <= 1e-10, "E/A = {error:e}");
 }
 

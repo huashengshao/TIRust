@@ -205,7 +205,8 @@ where
                         );
                         executor.gram_top = Some(rank);
                         executor.gram_alt_only = gram.alternative;
-                        if let Some(threshold) = &gram.aux_threshold {
+                        // (Bounded: the nested triangles' plans stay at rank <= 16.)
+                        if let Some(threshold) = gram.aux_threshold.as_ref().filter(|_| rank + boost <= 17) {
                             // COLLIER chooses per C function too: the auxiliary
                             // box's own triangles by the same choice (nested).
                             let boost = *gram.boosts.last().unwrap_or(&FIRST_BOOST);
