@@ -343,6 +343,12 @@ pub(crate) struct DirectPlanData {
     /// triangle can thus be computed elsewhere and injected (partial rescue).
     pub coefficient_ranges: Vec<(u32, u32)>,
     pub coefficient_counts: Vec<u32>,
+    /// Per PV subset mask: value index of `C(lambda, kappa)` (the small-Gram
+    /// expansion fills a refused box from its triangles through these).
+    pub coefficient_lookup: HashMap<u8, HashMap<(u16, Vec<u16>), u32>>,
+    /// Extra coefficient ranks of the top subset's pinches (see
+    /// `with_top_child_boost`); variants keep it.
+    pub top_child_boost: u16,
 }
 
 struct Builder {
@@ -510,6 +516,22 @@ impl DirectPlanData {
         relation_masks: &[u8],
         lightlike_masks: &[u8],
     ) -> Result<Self, ReductionError> {
+        Self::with_profile_boost(settings, relation_masks, lightlike_masks, 0)
+    }
+
+    /// Plan whose top subset's pinches carry `boost` more coefficient ranks
+    /// than the top's recursion needs: the small-Gram expansion of a box
+    /// reaches its rank-`r` coefficients from triangles of rank `r + boost`.
+    pub fn with_top_child_boost(settings: ReductionSettings, boost: u16) -> Result<Self, ReductionError> {
+        Self::with_profile_boost(settings, &[], &[], boost)
+    }
+
+    pub fn with_profile_boost(
+        settings: ReductionSettings,
+        relation_masks: &[u8],
+        lightlike_masks: &[u8],
+        boost: u16,
+    ) -> Result<Self, ReductionError> {
         Self::supported(&settings)?;
         let lambda_shift = settings.dimension_shift as u16;
         let jet = settings
@@ -586,10 +608,11 @@ impl DirectPlanData {
                     }
                     let coefficient = coefficient_need.get(&mask).copied().unwrap_or(-1);
                     if coefficient >= 1 && size >= 2 {
+                        let extra = if mask == top { i32::from(boost) } else { 0 };
                         for member in members(mask) {
                             let child = without(mask, member);
                             let need = coefficient_need.entry(child).or_insert(-1);
-                            *need = (*need).max(coefficient - 1);
+                            *need = (*need).max(coefficient - 1 + extra);
                         }
                     }
                 }
@@ -1245,6 +1268,8 @@ impl DirectPlanData {
             unit_finite,
             coefficient_ranges,
             coefficient_counts,
+            coefficient_lookup: layouts.into_iter().map(|(mask, layout)| (mask, layout.lookup)).collect(),
+            top_child_boost: boost,
         })
     }
 }

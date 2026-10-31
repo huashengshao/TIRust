@@ -1237,6 +1237,8 @@ fn engine_execution(execution: &TensorEngineExecution, py: Python<'_>) -> PyResu
             output.set_item("rotation_failures", direct.rotation_failures)?;
             output.set_item("checked_rows", direct.checked_rows)?;
             output.set_item("checked_successes", direct.checked_successes)?;
+            output.set_item("expansion_rows", direct.expansion_rows)?;
+            output.set_item("expansion_successes", direct.expansion_successes)?;
             output.set_item("fallback_preparation_error", direct.fallback_preparation_error.clone())?;
             if let Some(child) = &direct.fallback {
                 output.set_item("fallback", engine_execution(child, py)?)?;

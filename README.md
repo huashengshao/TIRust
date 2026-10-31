@@ -163,7 +163,9 @@ successes, fallback rows and the fallback's own detail. Binary64 lanes are
 checked by conditioning gates and, for four or more propagators with equal
 powers, a loop-rotation test (the same integral with relabelled propagators,
 tolerance the requested accuracy, 2^-34 by default). Lanes the a priori gate
-refuses are evaluated again below it and kept when the rotated copy agrees.
+refuses are evaluated again below it, then with refused boxes computed by
+the small-Gram expansion of Denner and Dittmaier (hep-ph/0509141; triangles to
+eight ranks higher, still binary64), and kept when the rotated copy agrees.
 By default, boxes and triangles refused inside a lane are computed in
 double-double, and lanes still refused are rerun by the direct engine at 106,
 256 or 512 bits, then on the symbolic engine.

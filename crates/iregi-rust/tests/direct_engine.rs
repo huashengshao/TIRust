@@ -403,9 +403,12 @@ fn lightlike_and_massless_kinematics_match_the_symbolic_engine() {
 #[test]
 fn near_degenerate_boxes_are_rescued_at_higher_precision() {
     // Shifts 0, e_x, e_y, e_x+e_y+delta e_z: nearly coplanar. Binary64
-    // refuses the Gram system; the facade reruns the lane by the direct engine
-    // at the precision its conditioning calls for. The independent check is a
-    // 512-bit direct evaluation of the same exactly lifted inputs.
+    // refuses the Gram system. For delta = 1/64 and 1/1024 (rank 4) the
+    // binary64 small-Gram expansion keeps the lane (E/A 6e-14 and 3e-14; the
+    // binary64 PV recursion is off by up to 1e-4); for delta = 2^-24 (rank 6)
+    // it does not, and the facade reruns the lane by the direct engine at the
+    // precision its conditioning calls for (512 bits). The independent check
+    // is a 512-bit direct evaluation of the same exactly lifted inputs.
     use iregi_rust::TensorEngineExecution;
     use symbolica::domains::float::{Float, RealLike};
     let masses = [(1.0, 0.0), (2.0, 0.0), (3.0, 0.0), (3.0, 0.0)];
@@ -426,13 +429,20 @@ fn near_degenerate_boxes_are_rescued_at_higher_precision() {
             .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: values.clone() })
             .unwrap();
         assert_eq!(result.statuses[0], LaneStatus::Success);
-        assert!(result.fallback_used[0]);
         let TensorEngineExecution::Direct(stats) = workspace.engine_execution() else {
             panic!("expected the direct engine");
         };
         assert_eq!(stats.symbolic_rows, 0, "{stats:?}");
-        let accepted = stats.precision_rescue.last().unwrap();
-        assert_eq!((accepted.bits, accepted.successes), (bits, 1), "{stats:?}");
+        // Either the binary64 small-Gram expansion (checked by the rotated
+        // copy) or the precision rescue at the tier the conditioning calls for.
+        let tolerance = if result.fallback_used[0] {
+            let accepted = stats.precision_rescue.last().unwrap();
+            assert_eq!((accepted.bits, accepted.successes), (bits, 1), "{stats:?}");
+            1e-14
+        } else {
+            assert_eq!(stats.expansion_successes, 1, "{stats:?}");
+            1e-10
+        };
         let lifted: Vec<Complex<Float>> = values
             .iter()
             .map(|z| Complex::new(Float::with_val(512, z.re), Float::with_val(512, z.im)))
@@ -449,7 +459,7 @@ fn near_degenerate_boxes_are_rescued_at_higher_precision() {
             .map(|z| Complex::new(z.re.to_f64(), z.im.to_f64()))
             .collect();
         let error = array_error(&result.basis, 4, 3.0, result.lane(0).unwrap(), &reference);
-        assert!(error <= 1e-14, "rank {rank} delta {delta:e}: E/A = {error:e}");
+        assert!(error <= tolerance, "rank {rank} delta {delta:e}: E/A = {error:e}");
     }
 }
 
@@ -665,11 +675,12 @@ fn gate_refused_binary64_box_is_kept_by_the_rotation_check() {
 }
 
 #[test]
-fn disabled_precision_rescue_returns_inaccurate_binary64_lanes_unstable() {
-    // gg -> HH rank-4 box (box-r4 #5046): binary64 keeps only E/A 1.1e-3 and
-    // its rotated copy differs by 1.4e-3. With the rescue disabled the lane
-    // is refused, never rerun, with the reason in its diagnostics; by default
-    // it is rescued at higher precision.
+fn small_gram_box_is_kept_in_binary64_by_the_expansion() {
+    // gg -> HH rank-4 box (box-r4 #5046, small Higgs pT): the PV recursion
+    // keeps only E/A 1.1e-3 in binary64, below its gate or not. The small-Gram
+    // expansion (Denner-Dittmaier) gets the box from its triangles in
+    // binary64; the rotated copy agrees, so the lane stays binary64 with the
+    // precision rescue disabled.
     use iregi_rust::PrecisionRescue;
     let shifts = [
         [0.0, 0.0, 0.0, 0.0],
@@ -677,10 +688,34 @@ fn disabled_precision_rescue_returns_inaccurate_binary64_lanes_unstable() {
         [1000.0, 0.0, 0.0, 0.0],
         [499.9999999999999, 8.840408903567376, -6.981798561273453, -483.99184048831603],
     ];
+    let (result, stats, notes, error) = physical_box(&shifts, 4, PrecisionRescue::Disabled);
+    assert_eq!(result.statuses[0], LaneStatus::Success, "{notes:?}");
+    assert!(!result.fallback_used[0], "{stats:?}");
+    assert_eq!((stats.checked_rows, stats.checked_successes), (1, 0), "{stats:?}");
+    assert_eq!((stats.expansion_rows, stats.expansion_successes), (1, 1), "{stats:?}");
+    let error = error.unwrap();
+    assert!(error <= 1e-10, "E/A = {error:e}");
+}
+
+#[test]
+fn disabled_precision_rescue_returns_inaccurate_binary64_lanes_unstable() {
+    // gg -> HH rank-4 box (box-r4 #8739): binary64 PV keeps E/A 1.2e-9 below
+    // its gate, and the small-Gram expansion does not converge, so nothing in
+    // binary64 meets the default request 2^-34. With the rescue disabled the
+    // lane is refused, never rerun, with the reason in its diagnostics; by
+    // default it is rescued at higher precision.
+    use iregi_rust::PrecisionRescue;
+    let shifts = [
+        [0.0, 0.0, 0.0, 0.0],
+        [500.0, 0.0, 0.0, 500.0],
+        [1000.0, 0.0, 0.0, 0.0],
+        [499.99999999999994, 3.270999215852638, -7.550202940230169, 484.05298780163656],
+    ];
     let (result, stats, notes, _) = physical_box(&shifts, 4, PrecisionRescue::Disabled);
     assert!(matches!(result.statuses[0], LaneStatus::Unstable(_)), "{:?}", result.statuses[0]);
     assert!(!result.fallback_used[0], "{stats:?}");
     assert_eq!((stats.checked_rows, stats.checked_successes), (1, 0), "{stats:?}");
+    assert_eq!((stats.expansion_rows, stats.expansion_successes), (1, 0), "{stats:?}");
     assert!(stats.precision_rescue.is_empty() && stats.symbolic_rows == 0, "{stats:?}");
     assert!(notes.iter().any(|note| note.contains("precision rescue disabled")), "{notes:?}");
     let (result, stats, _, error) = physical_box(&shifts, 4, PrecisionRescue::Automatic);

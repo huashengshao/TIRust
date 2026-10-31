@@ -134,6 +134,15 @@ where
         self.executor.disable_partial_rescue();
     }
 
+    /// Boxes refused by their Gram gate are computed in this workspace's
+    /// precision by the small-Gram expansion from triangles `boost` ranks
+    /// higher (Denner-Dittmaier); lanes it does not converge on are refused.
+    /// The expansion is not checked here: callers verify the lanes (the
+    /// public facade by the loop-rotation test).
+    pub fn enable_gram_expansion(&mut self, boost: u16) {
+        self.executor.enable_gram_expansion(boost);
+    }
+
     pub fn set_stability_threshold(&mut self, threshold: T) {
         self.executor.set_stability_threshold(threshold);
     }

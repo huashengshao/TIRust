@@ -93,6 +93,7 @@ DirectEngineExecution = TypedDict("DirectEngineExecution", {
     "fallback_rows": int, "fallback_successes": int,
     "precision_rescue": list[DirectRescueTier], "symbolic_rows": int,
     "rotation_rows": int, "rotation_failures": int, "checked_rows": int, "checked_successes": int,
+    "expansion_rows": int, "expansion_successes": int,
     "fallback_preparation_error": str | None, "fallback": NotRequired["EngineExecution"],
 })
 EngineExecution: TypeAlias = DirectEngineExecution | MassTaylorEngineExecution | LegacyNoOpEngineExecution | GenericEngineExecution | PackedEngineExecution | HybridEngineExecution | CertifiedEngineExecution | AffinePowerEngineExecution

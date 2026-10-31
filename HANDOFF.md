@@ -348,6 +348,26 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    disabled); run.py/summarize.py use them from capture 005 (codes
    tirust-binary64, tirust-binary64-r20); capture 004's "binary64" curve is
    the old derivation (default without a full rescue, partial DD included).
+3g. **Small-Gram box expansion implemented (31 October, after 8d7af86).**
+   `direct/exec/gram.rs`: Denner-Dittmaier eqs. (recurGram1)/(recurGram2)
+   (arXiv source read; COLLIER CalcDg as cross-check) in the engine's
+   C(lambda, kappa) normalization with the (D-4) term kept (div_dimension,
+   a = 2(lambda + |kappa|)); second adjugate = -eps eps Z (sign fixed by the
+   paper's identities, unit test). Auxiliary 4-point executor per box rank:
+   plan `with_top_child_boost(settings, boost)` (triangles boost ranks
+   higher, top box at its own rank <= MAX_RANK), `gram_top` mode skips the
+   box Gram system and the gathers, fills the box by passes t = 0..G (Delta
+   terms from pass t-1; D0 = master), stops on growth, refuses if the last
+   relative change > 2^-30. Parent executors with `enable_gram_expansion`
+   mark gate-refused boxes (any position) and inject (like partial rescue).
+   Hybrid: second binary64 retry after the checked one (gate as main, boost
+   GRAM_BOOST = 8), kept by the rotation test at tolerance/4; stats
+   expansion_rows/successes. Gate-refused stability boxes: converged 22/34
+   (r4) and 239/370 (r6, saturates at boost 8), every converged lane <= 3.4e-11
+   against 256 bits. Binary64-only kept (probe, scratchpad probe64c): r4
+   9995, r6 9976, pentagon 4694, hexagon 1569 (of 2000), heptagon 46/100;
+   default full rescues r4 5, r6 24. Coplanar test box: delta 1/64, 1/1024
+   now binary64 (E/A 6e-14, 3e-14), 2^-24 still 512 bits.
 3d. **Next: small-Gram box reduction** (hep-ph/0509141 sect. 3.4, Eqs.
    (recurGram1)/(recurGram2), arXiv source in the paper; COLLIER's scheme).
    For a box with momenta p1..p3: pick j maximizing |Xadj_0j| and (k,l)

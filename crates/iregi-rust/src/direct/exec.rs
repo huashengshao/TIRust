@@ -8,6 +8,8 @@
 
 use std::{collections::HashMap, sync::Arc, time::Instant};
 
+mod gram;
+
 use iregi_masters::{MasterEvaluator, MasterExecutionPolicy, NativeFloat, ScalarIntegral};
 use symbolica::{domains::float::Complex, evaluate::EvaluationDomain};
 
@@ -73,6 +75,15 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     /// Partial rescue (binary64 only) and the subsets it serves on this lane.
     partial: Option<Box<PartialRescue>>,
     external: Vec<usize>,
+    /// Small-Gram expansion of refused boxes (`gram.rs`) and the boxes it
+    /// serves on this lane.
+    gram: Option<Box<gram::GramRescue<T>>>,
+    gram_external: Vec<usize>,
+    /// Auxiliary executor of the expansion: its top box is filled from its
+    /// triangles up to this rank instead of its Gram system, and lanes
+    /// return no moments.
+    gram_top: Option<u16>,
+    gram_top_active: bool,
     /// Plan variant of the current lane.
     plan: Arc<DirectPlanData>,
     base_plan: Arc<DirectPlanData>,
@@ -237,6 +248,10 @@ where
         Ok(Self {
             partial: None,
             external: Vec::new(),
+            gram: None,
+            gram_external: Vec::new(),
+            gram_top: None,
+            gram_top_active: false,
             values: vec![lzero(&zero); plan.value_count],
             geometry: vec![zero.clone(); plan.geometry_count.max(1)],
             distances: vec![zero.clone(); plan.settings.propagators * plan.settings.propagators],
@@ -254,7 +269,9 @@ where
                 .iter()
                 .map(|terms| terms.iter().map(|(_, _, c)| prototype.from_rational(c)).collect())
                 .collect(),
-            binomials: (0..=usize::from(plan.settings.rank))
+            // Coefficient ranks may exceed the tensor rank (boosted pinches).
+            binomials: (0..=usize::from(plan.settings.rank)
+                .max(plan.subsets.iter().map(|subset| subset.coefficient_rank.max(0) as usize).max().unwrap_or(0)))
                 .map(|j| {
                     (0..=j)
                         .map(|k| {
@@ -563,6 +580,13 @@ where
         self.partial = None;
     }
 
+    /// Boxes refused by their Gram gate are computed by the small-Gram
+    /// expansion from triangles `boost` ranks higher (binary64 lanes keep
+    /// their precision; the caller checks the result a posteriori).
+    pub(crate) fn enable_gram_expansion(&mut self, boost: u16) {
+        self.gram = Some(Box::new(gram::GramRescue::new(boost)));
+    }
+
     /// Coefficient values of the top subset of the current lane's variant,
     /// when it is a PV subset.
     pub(crate) fn top_coefficients(&self) -> Option<Vec<L4<T>>> {
@@ -786,10 +810,11 @@ where
             self.plan = plan.clone();
             self.constants = constants.clone();
         } else {
-            let plan = Arc::new(DirectPlanData::with_profile(
+            let plan = Arc::new(DirectPlanData::with_profile_boost(
                 self.base_plan.settings.clone(),
                 &self.relation_profile,
                 &self.lightlike_profile,
+                self.base_plan.top_child_boost,
             )?);
             let constants: Arc<Vec<T>> = Arc::new(
                 plan.constants
@@ -826,6 +851,8 @@ where
     fn geometry(&mut self) -> Result<(), GeometryFailure> {
         self.failed_condition = None;
         self.external.clear();
+        self.gram_external.clear();
+        self.gram_top_active = false;
         let plan = self.plan.clone();
         let n = plan.settings.propagators;
         let threshold = self.stability_threshold.clone();
@@ -840,6 +867,7 @@ where
         }
         let top_mask = plan.subsets.last().map(|subset| subset.mask);
         let partial = self.partial.is_some() && plan.jet.is_none() && plan.lambda_shift == 0;
+        let gram = self.gram.is_some() && plan.jet.is_none() && plan.lambda_shift == 0;
         for (subset_id, subset) in plan.subsets.iter().enumerate() {
             let members = &subset.members;
             let origin = members[0];
@@ -886,6 +914,11 @@ where
                     }
                     if subset.coefficient_rank >= 1 && momenta > 0 {
                         let size = momenta;
+                        if self.gram_top.is_some() && size == 3 && Some(subset.mask) == top_mask {
+                            // Auxiliary expansion executor: no Gram system.
+                            self.gram_top_active = true;
+                            continue;
+                        }
                         // Kinematic scale of the recursion: Gram, f and m0^2.
                         let mut scale = cnorm2(&self.masses[origin]).sqrt();
                         for i in 0..size {
@@ -943,6 +976,14 @@ where
                             quality.relative_determinant.clone()
                         };
                         if condition.clone().pow(power) < threshold {
+                            if gram && size == 3 {
+                                // Small-Gram expansion, injected in the lane loop.
+                                let estimate = condition.clone().pow(power).to_f64();
+                                self.failed_condition =
+                                    Some(self.failed_condition.map_or(estimate, |f: f64| f.min(estimate)));
+                                self.gram_external.push(subset_id);
+                                continue;
+                            }
                             if partial && (2..=3).contains(&size) && Some(subset.mask) != top_mask {
                                 // Computed in double-double and injected.
                                 let estimate = condition.clone().pow(power).to_f64();
@@ -1840,7 +1881,13 @@ where
         let skip: Vec<(u32, u32)> = if program_is_moments {
             Vec::new()
         } else {
-            self.external.iter().map(|&id| plan.coefficient_ranges[id]).collect()
+            let top = (self.gram_top_active).then(|| plan.subsets.len() - 1);
+            self.external
+                .iter()
+                .chain(&self.gram_external)
+                .chain(top.iter())
+                .map(|&id| plan.coefficient_ranges[id])
+                .collect()
         };
         for (index, instruction) in program.iter().enumerate() {
             if !skip.is_empty() && skip.iter().any(|&(a, b)| a <= index as u32 && (index as u32) < b) {
@@ -2178,6 +2225,15 @@ where
                     continue;
                 }
             }
+            if !self.gram_external.is_empty() {
+                let n = self.plan.settings.propagators;
+                let mu = batch.values[row * (5 * n + 1) + 5 * n].clone();
+                if let Err(error) = self.inject_gram(&mu) {
+                    self.lane_conditions[row] = self.failed_condition;
+                    statuses.push(LaneStatus::Unstable(error));
+                    continue;
+                }
+            }
             if let Some(unit) = plan.unit_finite {
                 self.values[unit as usize] = [self.zero.clone(), self.zero.clone(), self.zero.clone(), self.one.clone()];
             }
@@ -2186,6 +2242,18 @@ where
             self.run_program(false);
             if let Some(started) = started {
                 self.profile.recurrence += started.elapsed();
+            }
+            if let Some(target) = self.gram_top {
+                // Auxiliary expansion executor: coefficients only.
+                let outcome = if self.gram_top_active { self.expand_top(target) } else { Ok(()) };
+                statuses.push(match outcome {
+                    Ok(()) => LaneStatus::Success,
+                    Err(error) => {
+                        self.lane_conditions[row] = Some(0.0);
+                        LaneStatus::Unstable(error)
+                    }
+                });
+                continue;
             }
             let started = self.timer();
             match self.plan.jet {

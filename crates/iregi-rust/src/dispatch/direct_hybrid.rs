@@ -120,6 +120,12 @@ const CHECKED_GATE: f64 = 1e-30;
 /// such lanes accepted at the plain tolerance reached E/A 6.6 times it, with
 /// two bits at most 2.4 times it (the binary64 tail without the retry).
 const CHECKED_MARGIN_BITS: i32 = 2;
+/// Extra triangle ranks of the small-Gram expansion retry (each adds a
+/// correction of order Delta / (Zadj f)_j). On the gate-refused
+/// stability-20261030 rank-6 boxes the expansion converged on 9, 155, 239
+/// lanes with 4, 6, 8 and on no more with 10-16; every converged lane agreed
+/// with 256 bits to E/A <= 3.4e-11.
+const GRAM_BOOST: u16 = 8;
 
 /// Whether the binary64 pass runs the loop-rotation test.
 fn rotation_tested(settings: &ReductionSettings) -> bool {
@@ -243,6 +249,10 @@ pub struct DirectExecutionStats {
     /// binary64 below it, and those kept by the rotation check.
     pub checked_rows: usize,
     pub checked_successes: usize,
+    /// Lanes still refused, evaluated in binary64 with refused boxes by the
+    /// small-Gram expansion, and those kept by the rotation check.
+    pub expansion_rows: usize,
+    pub expansion_successes: usize,
     pub fallback_preparation_error: Option<String>,
     pub fallback: Option<Box<TensorEngineExecution>>,
 }
@@ -263,8 +273,10 @@ pub(crate) struct DirectHybridWorkspace<T: NativeFloat> {
     accuracy_bits: Option<u32>,
     profiling: bool,
     precision_rescue: PrecisionRescue,
-    /// Binary64 workspace of the checked retry, prepared on first use.
+    /// Binary64 workspaces of the checked retry and of the small-Gram
+    /// expansion retry, prepared on first use.
     checked: Option<Box<DirectWorkspace<T>>>,
+    expanded: Option<Box<DirectWorkspace<T>>>,
     rescue: RescueWorkspaces,
     fallback: Option<Box<TensorWorkspace<T>>>,
     last: DirectExecutionStats,
@@ -314,6 +326,7 @@ where
             profiling: options.profiling,
             precision_rescue: options.precision_rescue,
             checked: None,
+            expanded: None,
             rescue: RescueWorkspaces::default(),
             fallback: None,
             last: DirectExecutionStats::default(),
@@ -365,7 +378,7 @@ where
     pub(crate) fn set_profiling(&mut self, enabled: bool) -> Result<(), ReductionError> {
         self.profiling = enabled;
         self.direct.set_profiling(enabled);
-        if let Some(workspace) = &mut self.checked {
+        for workspace in self.checked.iter_mut().chain(self.expanded.iter_mut()) {
             workspace.set_profiling(enabled);
         }
         if let Some(workspace) = &mut self.rescue.double {
@@ -561,21 +574,31 @@ where
         tolerance: f64,
         result: &mut BatchResult<T>,
         profile: &mut ExecutionProfile,
+        expansion: bool,
     ) -> Result<(), ReductionError> {
         let n = self.plan.direct.settings().propagators;
-        if self.checked.is_none() {
+        let slot = if expansion { &mut self.expanded } else { &mut self.checked };
+        if slot.is_none() {
             let mut workspace = self
                 .plan
                 .direct
                 .workspace_with_masters(self.prototype.clone(), masters_for(self.options))?;
-            workspace.set_stability_threshold(from_binary64(&self.prototype, CHECKED_GATE));
-            workspace.set_profiling(self.profiling);
-            if self.precision_rescue == PrecisionRescue::Automatic {
-                workspace.enable_partial_rescue(rescue_threshold(RESCUE_BITS[0]));
+            if expansion {
+                // The a priori gate decides which boxes are expanded.
+                if rotation_tested(self.plan.direct.settings()) {
+                    workspace.set_stability_threshold(from_binary64(&self.prototype, ROTATION_GATE));
+                }
+                workspace.enable_gram_expansion(GRAM_BOOST);
+            } else {
+                workspace.set_stability_threshold(from_binary64(&self.prototype, CHECKED_GATE));
+                if self.precision_rescue == PrecisionRescue::Automatic {
+                    workspace.enable_partial_rescue(rescue_threshold(RESCUE_BITS[0]));
+                }
             }
-            self.checked = Some(Box::new(workspace));
+            workspace.set_profiling(self.profiling);
+            *slot = Some(Box::new(workspace));
         }
-        let workspace = self.checked.as_mut().unwrap();
+        let workspace = slot.as_mut().unwrap();
         let width = batch.values.len() / batch.rows.max(1);
         let mut values = Vec::with_capacity(lanes.len() * width);
         for &lane in lanes {
@@ -596,7 +619,11 @@ where
         profile.arguments += child.geometry;
         profile.scalar_masters += child.masters;
         profile.reduction += child.recurrence + child.gather + child.output;
-        self.last.checked_rows += lanes.len();
+        if expansion {
+            self.last.expansion_rows += lanes.len();
+        } else {
+            self.last.checked_rows += lanes.len();
+        }
         let required = tolerance * 2f64.powi(-CHECKED_MARGIN_BITS);
         let stride = result.basis.len() * 4 * result.components;
         let width_lane = 5 * n + 1;
@@ -614,16 +641,21 @@ where
                         result.statuses[lane] = LaneStatus::Success;
                         result.primal_envelopes[lane] = first.primal_envelopes[k].clone();
                         result.primal_envelope_errors[lane] = first.primal_envelope_errors[k].clone();
-                        self.last.checked_successes += 1;
-                        self.diagnostics[lane].push(format!(
-                            "binary64 below the conditioning gate: kept, rotated copy agrees to E/A {difference:e}"
-                        ));
+                        let stage = if expansion {
+                            self.last.expansion_successes += 1;
+                            "binary64 small-Gram expansion"
+                        } else {
+                            self.last.checked_successes += 1;
+                            "binary64 below the conditioning gate"
+                        };
+                        self.diagnostics[lane]
+                            .push(format!("{stage}: kept, rotated copy agrees to E/A {difference:e}"));
                         continue;
                     }
-                    format!("below the gate the rotated copy differs by E/A {difference:e}")
+                    format!("{stage} the rotated copy differs by E/A {difference:e}", stage = if expansion { "small-Gram expansion:" } else { "below the gate" })
                 }
-                (LaneStatus::Success, status) => format!("below the gate the rotated copy is refused ({status:?})"),
-                (status, _) => format!("below the gate refused again ({status:?})"),
+                (LaneStatus::Success, status) => format!("{} the rotated copy is refused ({status:?})", if expansion { "small-Gram expansion:" } else { "below the gate" }),
+                (status, _) => format!("{} ({status:?})", if expansion { "small-Gram expansion refused" } else { "below the gate refused again" }),
             };
             if let LaneStatus::Unstable(previous) = &result.statuses[lane] {
                 result.statuses[lane] = LaneStatus::Unstable(format!("{previous}; {note}"));
@@ -721,7 +753,13 @@ where
         };
         if !checked.is_empty() {
             checked.sort_unstable();
-            self.checked_retry(batch, &checked, tolerance, &mut result, &mut profile)?;
+            checked.dedup();
+            self.checked_retry(batch, &checked, tolerance, &mut result, &mut profile, false)?;
+            // Lanes still refused: refused boxes by the small-Gram expansion.
+            checked.retain(|&lane| result.statuses[lane] != LaneStatus::Success);
+            if !checked.is_empty() {
+                self.checked_retry(batch, &checked, tolerance, &mut result, &mut profile, true)?;
+            }
         }
         let retry: Vec<usize> = result
             .statuses
