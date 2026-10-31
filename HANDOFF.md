@@ -372,6 +372,34 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    stability capture 005 (binary64-only facade at 2^-34 and 2^-20, build
    50acff0 = code of ffb2716; commit 193415e), report pages 1-5 timing, 6-8
    stability. Capture 005 matches the probe numbers above.
+3p. **Why COLLIER is more stable in binary64, and the plan (user request).**
+   Diagnosis (evidence in 3k-3o): not the masters (repaired), not the input
+   handling (snapping fixed), not the N>=5 reductions (refusals sit in
+   sub-boxes/triangles). The main reason is method coverage per
+   sub-function: COLLIER computes every C and D function with the best of
+   ~10 methods (CalcCred/CalcDred: pv, pv2, g, gy, gp, gpf, gr, gm, gx),
+   chosen by a priori error estimates and carried down to triangles and
+   bubbles; TIRust uses PV (Gram inversion) for every box and triangle,
+   switching only after a refusal, and has no method choice for the
+   triangles inside an auxiliary box calculation, where 163/179 flagged
+   hexagons and 54/61 flagged pentagons still fail. Plan, in order:
+   (1) general R: MAX_RANK (plan.rs:25, a plain check; plan combinatorics
+       already use Integer) -> lift (exec.rs:285 binomials u64 product needs
+       u128/Integer above ~20; gathers/MonomialTable cost C(R+4,4) moments);
+       coefficients-only plan constructor for auxiliary plans (no gathers),
+       so boosted triangles (ranks to ~20) and nested plans are possible.
+   (2) nested method choice: auxiliary box executors run the per-subset
+       choice for their own triangles (exclude the aux top from the
+       everywhere check), auxiliary triangle executors for bubbles.
+   (3) a priori estimates per method (port CalcDred/CalcCred formulas:
+       err_pv, err_pv2, err_g, err_gy) to choose before evaluating, with the
+       rotation test kept as the check; faster and fewer refusals.
+   (4) general N (user: at least N = 8): MAX_PROPAGATORS = 7 (plan.rs:23),
+       masks u8 (N = 8 fits; beyond needs u16), subset kinds (None, 6 | 7)
+       -> Hexagon thin identity "best six of seven" (exec geometry) must
+       generalize (drop N-6 members, or COLLIER-style N -> N-1 reduction,
+       hep-ph/0509141 sect. 7 / reductionTN.F90); N = 7 forbids dots
+       (plan.rs:466). R = 8 is already supported.
 3o. **Per-box method choice stage (COLLIER-style), after 5ed9887.** Stage 3
    of the binary64 retries (every lane still refused on a conditioning
    estimate, incl. main-pass rotation failures): boxes/triangles with
