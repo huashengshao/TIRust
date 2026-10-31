@@ -399,17 +399,24 @@ where
                     let delta = csub(&self.shifts[i][a], &self.shifts[j][a]);
                     let square = cmul(&delta, &delta);
                     size += cnorm2(&square).sqrt();
+                    // The difference of two represented shifts carries their
+                    // representation error u (|q_ia| + |q_ja|), which enters
+                    // the square as 2 |delta| u (|q_ia| + |q_ja|).
+                    let spread = cnorm2(&self.shifts[i][a]).sqrt() + cnorm2(&self.shifts[j][a]).sqrt();
+                    size += cnorm2(&delta).sqrt() * &spread * &self.prototype.from_usize(2);
                     value = if a == 0 {
                         cadd(&value, &square)
                     } else {
                         csub(&value, &square)
                     };
                 }
-                // A (numerically lightlike) invariant within its own rounding
-                // error of zero is zero: replacing it perturbs the inputs by
-                // no more than their working-precision representation does,
-                // and it keeps scalar masters on their exact massless-leg
-                // branches (the general ones cancel like m^2/p^2 there).
+                // A (numerically lightlike) invariant within the rounding error
+                // of its represented inputs is zero: replacing it perturbs the
+                // inputs by no more than their working-precision representation
+                // does, and it keeps scalar masters on their exact massless-leg
+                // branches (the general ones cancel like m^2/p^2 there, and
+                // oneloopmaster's binary64 D0 returns NaN for two opposite legs
+                // at ~1e-10 against m^2 = 3e4).
                 if cnorm2(&value).sqrt() <= size * &self.rounding {
                     value = self.zero.clone();
                 }

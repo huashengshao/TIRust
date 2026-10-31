@@ -278,9 +278,14 @@ pub(crate) struct DirectHybridWorkspace<T: NativeFloat> {
     /// expansion retry, prepared on first use.
     checked: Option<Box<DirectWorkspace<T>>>,
     expanded: Option<Box<DirectWorkspace<T>>>,
+    /// Binary64 workspace without any gate, for best-effort arrays of lanes
+    /// no other binary64 stage computed.
+    open: Option<Box<DirectWorkspace<T>>>,
     /// Per lane of the current call: the best binary64 array computed for a
     /// lane its checks refused, with the E/A between it and its rotated copy.
-    candidates: Vec<Option<(Vec<Complex<T>>, f64)>>,
+    /// Every binary64 array computed for a refused lane, with the E/A to its
+    /// rotated copy (NaN: no rotated copy).
+    candidates: Vec<Vec<(Vec<Complex<T>>, f64)>>,
     rescue: RescueWorkspaces,
     fallback: Option<Box<TensorWorkspace<T>>>,
     last: DirectExecutionStats,
@@ -331,6 +336,7 @@ where
             precision_rescue: options.precision_rescue,
             checked: None,
             expanded: None,
+            open: None,
             candidates: Vec::new(),
             rescue: RescueWorkspaces::default(),
             fallback: None,
@@ -658,9 +664,7 @@ where
                             .push(format!("{stage}: kept, rotated copy agrees to E/A {difference:e}"));
                         continue;
                     }
-                    if self.candidates[lane].as_ref().is_none_or(|(_, best)| difference < *best) {
-                        self.candidates[lane] = Some((a.to_vec(), difference));
-                    }
+                    self.candidates[lane].push((a.to_vec(), difference));
                     format!("{stage} the rotated copy differs by E/A {difference:e}", stage = if expansion { "small-Gram expansion:" } else { "below the gate" })
                 }
                 (LaneStatus::Success, status) => format!("{} the rotated copy is refused ({status:?})", if expansion { "small-Gram expansion:" } else { "below the gate" }),
@@ -682,7 +686,7 @@ where
         result.estimated_errors = vec![None; batch.rows];
         result.best_effort = vec![false; batch.rows];
         self.candidates.clear();
-        self.candidates.resize(batch.rows, None);
+        self.candidates.resize(batch.rows, Vec::new());
         let mut direct_profile = self.direct.last_profile();
         self.last = DirectExecutionStats {
             input_rows: batch.rows,
@@ -735,8 +739,7 @@ where
                         result.estimated_errors[lane] = Some(difference);
                         continue;
                     }
-                    self.candidates[lane] =
-                        Some((result.values[lane * stride..(lane + 1) * stride].to_vec(), difference));
+                    self.candidates[lane].push((result.values[lane * stride..(lane + 1) * stride].to_vec(), difference));
                     // Rounding estimate ~ amplification * 2^-53.
                     conditions[lane] = Some(2f64.powi(-53) / difference);
                     format!("loop-rotation test: binary64 arrays differ by E/A {difference:e}")
@@ -865,20 +868,131 @@ where
                 }
             }
         }
-        // Refused lanes keep their best binary64 array, flagged (COLLIER-style)
-        // with the estimated error from its rotated copy.
+        // Refused lanes keep a binary64 array, flagged (COLLIER-style) with an
+        // estimated error. Lanes without one so far get the expansion stage,
+        // then one evaluation without any gate (each with its rotated copy),
+        // then the binary64 symbolic engine.
         let stride = result.basis.len() * 4 * result.components;
+        let width = batch.values.len() / batch.rows.max(1);
+        let unresolved = |result: &BatchResult<T>, candidates: &[Vec<(Vec<Complex<T>>, f64)>]| -> Vec<usize> {
+            (0..batch.rows)
+                .filter(|&lane| matches!(result.statuses[lane], LaneStatus::Unstable(_)) && candidates[lane].is_empty())
+                .collect()
+        };
+        for stage in 0..2 {
+            let missing = unresolved(&result, &self.candidates);
+            if missing.is_empty() {
+                break;
+            }
+            let slot = if stage == 0 { &mut self.expanded } else { &mut self.open };
+            if slot.is_none() {
+                let mut workspace = self
+                    .plan
+                    .direct
+                    .workspace_with_masters(self.prototype.clone(), masters_for(self.options))?;
+                if stage == 0 {
+                    if rotation_tested(self.plan.direct.settings()) {
+                        workspace.set_stability_threshold(from_binary64(&self.prototype, ROTATION_GATE));
+                    }
+                    workspace.enable_gram_expansion(GRAM_BOOST);
+                } else {
+                    workspace.set_stability_threshold(self.prototype.zero());
+                }
+                workspace.set_profiling(self.profiling);
+                *slot = Some(Box::new(workspace));
+            }
+            let workspace = slot.as_mut().unwrap();
+            let mut values = Vec::with_capacity(missing.len() * width);
+            for &lane in &missing {
+                values.extend_from_slice(&batch.values[lane * width..(lane + 1) * width]);
+            }
+            let sub = KinematicsBatch { rows: missing.len(), components: batch.components, values };
+            // The integral does not depend on the order of its propagators:
+            // the gate-free stage tries every cyclic relabelling (the others
+            // may avoid an exactly singular subsystem of this order).
+            let orders = if stage == 0 { 2 } else { n.max(2) };
+            let mut evaluations = Vec::with_capacity(orders);
+            let mut relabelled = sub;
+            for order in 0..orders {
+                if order > 0 {
+                    relabelled = rotated(&relabelled, n);
+                }
+                evaluations.push(workspace.reduce_batch(&relabelled)?);
+            }
+            for (k, &lane) in missing.iter().enumerate() {
+                let mu = batch.values[lane * width + 5 * n].re.to_f64();
+                let good: Vec<&[Complex<T>]> = evaluations
+                    .iter()
+                    .filter(|evaluation| evaluation.statuses[k] == LaneStatus::Success)
+                    .map(|evaluation| &evaluation.values[k * stride..(k + 1) * stride])
+                    .collect();
+                for (i, a) in good.iter().enumerate() {
+                    // E/A to the next successful order (NaN: the only one).
+                    let difference = if good.len() > 1 {
+                        lane_difference(&result.basis, a, good[(i + 1) % good.len()], mu)
+                    } else {
+                        f64::NAN
+                    };
+                    self.candidates[lane].push((a.to_vec(), difference));
+                    if stage == 0 {
+                        // The expansion stage keeps its first order only.
+                        break;
+                    }
+                }
+            }
+        }
+        let missing = unresolved(&result, &self.candidates);
+        // (Not for seven points: their symbolic plans are too large to prepare.)
+        if !missing.is_empty() && n <= 6 {
+            let mut values = Vec::with_capacity(missing.len() * width);
+            for &lane in &missing {
+                values.extend_from_slice(&batch.values[lane * width..(lane + 1) * width]);
+            }
+            let sub = KinematicsBatch { rows: missing.len(), components: batch.components, values };
+            if let Ok(fallback) = self.fallback_workspace() {
+                if let Ok(symbolic) = fallback.reduce_batch(&sub) {
+                    for (k, &lane) in missing.iter().enumerate() {
+                        result.fallback_used[lane] = true;
+                        if symbolic.statuses[k] == LaneStatus::Success {
+                            let a = symbolic.values[k * stride..(k + 1) * stride].to_vec();
+                            self.candidates[lane].push((a, f64::NAN));
+                        }
+                    }
+                }
+            }
+        }
         for lane in 0..batch.rows {
             if result.statuses[lane] == LaneStatus::Success {
                 continue;
             }
-            if let Some((values, difference)) = self.candidates[lane].take() {
-                result.values[lane * stride..(lane + 1) * stride].clone_from_slice(&values);
-                result.best_effort[lane] = true;
-                result.estimated_errors[lane] = Some(difference);
-                self.diagnostics[lane]
-                    .push(format!("best-effort binary64 array returned, estimated E/A {difference:e}"));
-            }
+            let candidates = std::mem::take(&mut self.candidates[lane]);
+            let key = |d: f64| if d.is_nan() { f64::INFINITY } else { d };
+            let Some(best) = (0..candidates.len()).min_by(|&a, &b| key(candidates[a].1).total_cmp(&key(candidates[b].1)))
+            else {
+                continue;
+            };
+            let mu = batch.values[lane * width + 5 * n].re.to_f64();
+            let (values, own) = &candidates[best];
+            // The rotated copy can share the chosen array's error: the
+            // nearest array of another binary64 stage bounds the estimate
+            // from below.
+            let cross = (0..candidates.len())
+                .filter(|&other| other != best)
+                .map(|other| lane_difference(&result.basis, values, &candidates[other].0, mu))
+                .fold(f64::INFINITY, f64::min);
+            let estimate = match (own.is_nan(), cross.is_finite()) {
+                (false, true) => own.max(cross),
+                (false, false) => *own,
+                (true, true) => cross,
+                (true, false) => f64::NAN,
+            };
+            result.values[lane * stride..(lane + 1) * stride].clone_from_slice(values);
+            result.best_effort[lane] = true;
+            result.estimated_errors[lane] = (!estimate.is_nan()).then_some(estimate);
+            self.diagnostics[lane].push(match result.estimated_errors[lane] {
+                Some(estimate) => format!("best-effort binary64 array returned, estimated E/A {estimate:e}"),
+                None => "best-effort binary64 array returned (no estimate)".into(),
+            });
         }
         if let Some(started) = started {
             profile.total = started.elapsed();

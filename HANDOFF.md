@@ -372,6 +372,26 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    stability capture 005 (binary64-only facade at 2^-34 and 2^-20, build
    50acff0 = code of ffb2716; commit 193415e), report pages 1-5 timing, 6-8
    stability. Capture 005 matches the probe numbers above.
+3k. **Alternative PV, array for every lane, wider snapping (after 11efdbd).**
+   (1) gram.rs: last resort when both expansions fail = alternative PV
+   (sect. 3.2, PValtrec1/2, COLLIER CalcDpv2): metric coefficients divide by
+   Delta once per two ranks, momentum ones by det X; exact. Forced on the
+   gate-refused boxes it was >10x better than binary64 PV on 310/370 r6 and
+   17/34 r4 lanes, never worse. (2) direct_hybrid: all candidates kept;
+   estimate = max(own rotation E/A, E/A to the nearest other stage's array)
+   (the min-difference choice alone understated hexagon errors up to 100x);
+   lanes without an array get the expansion stage, then the gate-free
+   workspace over every cyclic propagator order, then (N <= 6) the binary64
+   symbolic engine. (3) read_lane snapping now includes the representation
+   error of the shifts: |p^2| <= 8u (sum |d_a|^2 + 2 sum |d_a| (|q_ia|+|q_ja|)).
+   The unsnapped ~1e-10 invariants of massless legs between large shifts made
+   oneloopmaster's binary64 D0 return NaN (MRE: examples/master_probe D0
+   1.6916601452976465e-10 15624.999999999956 -2.6193447411060333e-10 1e6
+   478321.0969658119 517226.6469296405 29929 29929 29929 29929 1e6 -> NaN in
+   both binary64 kernels, finite in DD/256; upstream fix + PR still to do).
+   Probe (probe64h): binary64-only certified r4 9997, r6 9990, pentagon
+   4868, hexagon 1740, heptagon 73/100; every other lane has a best-effort
+   array (none worse than 1.7e-4); no lane without an array.
 3j. **Triangle expansion and the small-Gram/small-Cayley scheme.** gram.rs
    generalized to 2 momenta (2x2 second adjugate d_il d_kj - d_ij d_kl, divisor
    a = 2(l+|k|) + 4 - N, aux 3-point plans with boosted bubbles) and, when the

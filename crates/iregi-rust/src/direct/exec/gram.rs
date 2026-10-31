@@ -25,7 +25,10 @@
 //! coefficient from triangles of the same rank; each further pass puts the
 //! previous pass into the `Delta` terms and gains a factor `Delta /
 //! (Zadj f)_j`. With triangles of rank `r + G` the rank-`r` coefficients
-//! carry `G` corrections. The scalar `D0` is the master itself.
+//! carry `G` corrections. The scalar `D0` is the master itself. When it
+//! does not converge, the expansion for small Gram and small modified Cayley
+//! determinants (sect. 3.5) is tried, then the alternative PV reduction
+//! through the modified Cayley matrix (sect. 3.2), which is exact.
 
 use std::collections::HashMap;
 
@@ -463,9 +466,98 @@ where
             }
             previous = Some(cur);
         }
+        // Alternative PV reduction (hep-ph/0509141 sect. 3.2, eqs. (PValtrec1),
+        // (PValtrec2); COLLIER's CalcDpv2), the last resort when neither
+        // expansion converges: the modified Cayley matrix X instead of Z, so
+        // metric coefficients divide by Delta once per two ranks and momentum
+        // coefficients by det X (Passarino-Veltman divides by the Gram matrix at
+        // every rank). Exact up to rounding; triangles of rank target - 1. With
+        // r_n = Shat_n(l, k') - 2 k'_n C(l+1, k'-e_n) and Q = 2l + |k'|:
+        //   2 Delta ((Q+5-N) - 2 eps) C(l+1, k') = det X C(l, k') + Delta C0(l, k')
+        //       - sum_n X~_0n r_n,
+        //   det X C(0, k'+e_i) = X~_i0 [2 ((Q+5-N) - 2 eps) C(1, k') - C0(0, k')]
+        //       + sum_n X~_in r_n.
+        let alt_pv = || -> Result<HashMap<Key, L4<T>>, String> {
+            let mut det_x = cmul(&cscale(&m02, &two), &delta);
+            for a in 0..nm {
+                for b in 0..nm {
+                    det_x = csub(&det_x, &cmul(&cmul(&f[a], &f[b]), &adj[a][b]));
+                }
+            }
+            if cnorm2(&det_x).is_zero() || cnorm2(&delta).is_zero() {
+                return Err("alternative PV: singular modified Cayley or Gram matrix".into());
+            }
+            let inv_det_x = cinv(&det_x);
+            let inv_two_delta = cinv(&cscale(&delta, &two));
+            let xt0 = |n: usize| csub(&zero, &adjf[n]);
+            let xtm: Vec<Vec<C<T>>> = (0..nm)
+                .map(|i| {
+                    (0..nm)
+                        .map(|j| {
+                            let mut v = cscale(&cmul(&m02, &adj[i][j]), &two);
+                            for n1 in 0..nm {
+                                for m1 in 0..nm {
+                                    if let Some(w) = second_adjugate(&z, nm, i, n1, j, m1) {
+                                        v = cadd(&v, &cmul(&w, &cmul(&f[n1], &f[m1])));
+                                    }
+                                }
+                            }
+                            v
+                        })
+                        .collect()
+                })
+                .collect();
+            let mut cur: HashMap<Key, L4<T>> = HashMap::new();
+            cur.insert((0, [0, 0, 0]), d0.clone());
+            let get = |map: &HashMap<Key, L4<T>>, key: Key| -> Result<L4<T>, String> {
+                map.get(&key).cloned().ok_or_else(|| format!("alternative PV: coefficient {key:?} missing"))
+            };
+            for q in 0..target {
+                for lambda in 0..=q / 2 {
+                    for kappa in compositions(q - 2 * lambda, nm) {
+                        let mut rhs: Vec<L4<T>> = Vec::with_capacity(nm);
+                        for n1 in 0..nm {
+                            let mut value = shat_of(n1, lambda, kappa)?.clone();
+                            if let Some(less) = sub(kappa, n1) {
+                                lfma(&mut value, &csub(&zero, &real(2 * kappa[n1] as usize)), &get(&cur, (lambda + 1, less))?);
+                            }
+                            rhs.push(value);
+                        }
+                        let c0 = spz.get(&(lambda, kappa)).ok_or("alternative PV: C0 outside the triangle ranks")?;
+                        let mut acc = lzero(&zero);
+                        lfma(&mut acc, &det_x, &get(&cur, (lambda, kappa))?);
+                        lfma(&mut acc, &delta, c0);
+                        for n1 in 0..nm {
+                            lfma(&mut acc, &csub(&zero, &xt0(n1)), &rhs[n1]);
+                        }
+                        let mut metric: L4<T> = std::array::from_fn(|slot| cmul(&acc[slot], &inv_two_delta));
+                        let a = self.prototype.from_usize(q as usize + 4 - nm);
+                        div_dimension(&mut metric, &(self.prototype.one() / &a));
+                        cur.insert((lambda + 1, kappa), metric.clone());
+                        if lambda == 0 {
+                            mul_dimension(&mut metric, &a);
+                            let mut bracket = lzero(&zero);
+                            lfma(&mut bracket, &real(2), &metric);
+                            lfma(&mut bracket, &csub(&zero, &real(1)), c0);
+                            let first = (0..nm).find(|&i| kappa[i] > 0).unwrap_or(nm);
+                            for i in 0..nm.min(first + 1) {
+                                let mut acc = lzero(&zero);
+                                lfma(&mut acc, &xt0(i), &bracket);
+                                for n1 in 0..nm {
+                                    lfma(&mut acc, &xtm[i][n1], &rhs[n1]);
+                                }
+                                let out: L4<T> = std::array::from_fn(|slot| cmul(&acc[slot], &inv_det_x));
+                                cur.insert((0, add(kappa, i)), out);
+                            }
+                        }
+                    }
+                }
+            }
+            Ok(cur)
+        };
         let chosen = match chosen {
             Some(map) if last_change <= EXPANSION_TOLERANCE => map,
-            _ => {
+            _ => 'gc: {
                 // Small (Zadj f)_j as well (Xtilde >> Zadj f): the expansion
                 // for small Gram and small modified Cayley determinants
                 // (hep-ph/0509141, eqs. (recurGramCayley1), (recurGramCayley2);
@@ -497,7 +589,7 @@ where
                     }
                 }
                 if cnorm2(&xt[gi][gj]).is_zero() || child_rank < target + 1 {
-                    return Err(format!("small-Gram expansion did not converge (last relative change {last_change:e})"));
+                    break 'gc alt_pv()?;
                 }
                 let inv_xt = cinv(&xt[gi][gj]);
                 let y0 = |j: usize| csub(&zero, &adjf[j]);
@@ -596,11 +688,9 @@ where
                 }
                 match gc_chosen {
                     Some(map) if gc_change <= EXPANSION_TOLERANCE => map,
-                    _ => {
-                        return Err(format!(
-                            "small-Gram expansion did not converge (last relative change {last_change:e}; with small Cayley determinant {gc_change:e})"
-                        ))
-                    }
+                    _ => alt_pv().map_err(|error| format!(
+                            "small-Gram expansion did not converge (last relative change {last_change:e}; with small Cayley determinant {gc_change:e}); {error}"
+                        ))?,
                 }
             }
         };

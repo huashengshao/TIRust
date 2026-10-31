@@ -44,6 +44,23 @@ fn error<T: RealLike, U: RealLike>(
     Some(if s > 0.0 { e / s } else { e })
 }
 
+/// E/A of any array the lane returned (certified or best-effort).
+fn any_error<U: RealLike>(a: &BatchResult<f64>, lane: usize, b: &BatchResult<U>, mu: f64) -> Option<f64> {
+    let values = a.lane_with_estimate(lane)?.values;
+    let y = b.lane(lane).ok()?;
+    let (mut e, mut s) = (0.0f64, 0.0f64);
+    for (m, monomial) in a.basis.iter().enumerate() {
+        let w = mu.powi(i32::from(monomial.0.iter().sum::<u16>()));
+        for slot in 0..4 {
+            let (u, v) = (&values[4 * m + slot], &y[4 * m + slot]);
+            let (vr, vi) = (v.re.to_f64(), v.im.to_f64());
+            e = e.max((u.re - vr).hypot(u.im - vi) / w);
+            s = s.max(vr.hypot(vi) / w);
+        }
+    }
+    Some(if s > 0.0 { e / s } else { e })
+}
+
 fn rotated(values: &[Complex<f64>], rows: usize, n: usize) -> Vec<Complex<f64>> {
     let width = 5 * n + 1;
     let mut out = Vec::with_capacity(values.len());
@@ -158,6 +175,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "open_rotated": {"error": error(&c, lane, &r, lane, mu), "difference": error(&b, lane, &c, lane, mu)},
                 "partial": {"error": error(&p, lane, &r, lane, mu), "refusal": message(&p)},
                 "binary64": {"error": error(&f64only, lane, &r, lane, mu), "refusal": message(&f64only),
+                             "any_error": any_error(&f64only, lane, &r, mu), "estimated_error": f64only.estimated_error(lane),
                              "fallback_used": f64only.fallback_used[lane], "diagnostics": only64_notes.get(lane)},
                 "default": {"error": error(&fdefault, lane, &r, lane, mu), "refusal": message(&fdefault),
                             "fallback_used": fdefault.fallback_used[lane]},
