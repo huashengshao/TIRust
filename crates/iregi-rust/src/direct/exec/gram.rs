@@ -205,6 +205,12 @@ where
                         );
                         executor.gram_top = Some(rank);
                         executor.gram_alt_only = gram.alternative;
+                        if let Some(threshold) = &gram.aux_threshold {
+                            // COLLIER chooses per C function too: the auxiliary
+                            // box's own triangles by the same choice (nested).
+                            let boost = *gram.boosts.last().unwrap_or(&FIRST_BOOST);
+                            executor.enable_gram_expansion_everywhere(boost, threshold.clone());
+                        }
                         entry.insert(executor)
                     }
                 };
