@@ -372,6 +372,13 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    stability capture 005 (binary64-only facade at 2^-34 and 2^-20, build
    50acff0 = code of ffb2716; commit 193415e), report pages 1-5 timing, 6-8
    stability. Capture 005 matches the probe numbers above.
+3s. **Overnight instructions (user, 31 Oct ~21:10Z, going to bed).** When
+   capture 009 finishes (scratchpad capture009.sh, background waiter): bind
+   and publish 008 and 009 like 007 (bind --capture 008, then 009; findings
+   text for 009 from summary-009.json; compile twice, cmp, seal 008 and 009,
+   check-benchmark-report --preserve-from 6f6e7d3, commit, push). Then work on
+   plan step (4): N >= 8 (at least N = 8, R = 8; R is already 32). Follow the
+   quota protocol (pause below 5% of the 5-hour window, wake after reset).
 3r. **Step (2) done: nested method choice.** Auxiliary box executors of the
    everywhere stage get the same per-function choice for their own triangles
    (GramRescue::everywhere passes itself down; the aux top excluded from the
