@@ -847,3 +847,41 @@ fn ranks_above_eight_match_high_precision() {
         assert!(error <= 1e-10, "N{n} R{rank}: E/A = {error:e}");
     }
 }
+
+#[test]
+fn eight_point_rank_eight_matches_high_precision() {
+    // N = 8 (the thin identity keeps the best-conditioned six of eight
+    // members), rank 8, in binary64 against the direct engine at 256 bits.
+    let shifts = [
+        [0.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+        [0.5, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 1.0, 0.0],
+        [0.25, 0.375, 0.125, 0.625],
+        [0.375, 0.125, 0.625, 0.25],
+    ];
+    let masses = [(1.0, 0.0), (2.0, 0.0), (3.0, 0.0), (4.0, 0.0), (2.0, 0.0), (3.0, 0.0), (4.0, 0.0), (5.0, 0.0)];
+    let values = row(&shifts, &masses, 3.0);
+    let result = DirectReductionPlan::new(ReductionSettings::new(8, 8))
+        .unwrap()
+        .workspace(0.0f64)
+        .unwrap()
+        .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: values.clone() })
+        .unwrap();
+    assert_eq!(result.statuses[0], LaneStatus::Success);
+    let (_, reference) = direct_256(8, 8, &values);
+    // The bare binary64 engine (no checks) keeps ~8e-9 on this point.
+    let error = general_array_error(&result.basis, 4 - 2 * 8, 3.0, result.lane(0).unwrap(), &reference);
+    assert!(error <= 1e-7, "E/A = {error:e}");
+    // The public facade checks it (loop-rotation test) and rescues as needed.
+    let plan = TensorReductionPlan::new(ReductionSettings::new(8, 8)).unwrap();
+    let facade = TensorWorkspace::new(&plan, 0.0f64)
+        .unwrap()
+        .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values })
+        .unwrap();
+    assert_eq!(facade.statuses[0], LaneStatus::Success);
+    let error = general_array_error(&facade.basis, 4 - 2 * 8, 3.0, facade.lane(0).unwrap(), &reference);
+    assert!(error <= 1e-11, "facade E/A = {error:e}");
+}

@@ -157,7 +157,7 @@ Ok(())
 
 For binary64 workspaces `TensorReductionPlan::new` selects the direct numerical
 engine whenever the request is in its domain (unit powers or one raised power up
-to 5, `h<=3` up to four points, Cartesian shifts, `Preserve`, PV/Hybrid, N<=7 (unit powers at N=7), rank <= 32);
+to 5, `h<=3` up to four points, Cartesian shifts, `Preserve`, PV/Hybrid, N<=8 (unit powers at N>=7), rank <= 32);
 `engine_kind()` reports `Direct`, and `engine_execution()` reports direct
 successes, fallback rows and the fallback's own detail. Binary64 lanes are
 checked by conditioning gates and, for four or more propagators with equal

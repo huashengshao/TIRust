@@ -20,7 +20,7 @@ use crate::{
 };
 
 /// Largest point count handled by the direct engine.
-pub(crate) const MAX_PROPAGATORS: usize = 7;
+pub(crate) const MAX_PROPAGATORS: usize = 8;
 /// Largest tensor rank handled by the direct engine.
 pub(crate) const MAX_RANK: u16 = 32;
 /// Largest power of the (single) dotted propagator.
@@ -463,7 +463,7 @@ impl DirectPlanData {
                 "direct engine handles dimension shifts 0..={MAX_SHIFT}"
             )));
         }
-        if n == 7 && dotted > 0 {
+        if n >= 7 && dotted > 0 {
             // The seven-point thin system picks its six members per lane;
             // its mass-derivative jets are not implemented.
             return Err(ReductionError::Unsupported(
@@ -583,7 +583,7 @@ impl DirectPlanData {
                 continue;
             }
             match size {
-                7 | 6 | 5 => {
+                8 | 7 | 6 | 5 => {
                     let dd = if size == 5 { dd_rank(mask, moment) } else { -1 };
                     if moment > dd {
                         for member in members(mask) {
@@ -673,7 +673,7 @@ impl DirectPlanData {
             let size = member_list.len();
             let kind = match (relation_for(mask), size) {
                 (Some(relation), _) => SubsetKind::Relation(relation),
-                (None, 6 | 7) => SubsetKind::Hexagon,
+                (None, 6..=8) => SubsetKind::Hexagon,
                 (None, 5) => SubsetKind::Pentagon,
                 _ => SubsetKind::Pv,
             };

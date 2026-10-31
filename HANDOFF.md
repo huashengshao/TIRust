@@ -372,6 +372,14 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    stability capture 005 (binary64-only facade at 2^-34 and 2^-20, build
    50acff0 = code of ffb2716; commit 193415e), report pages 1-5 timing, 6-8
    stability. Capture 005 matches the probe numbers above.
+3t. **Overnight progress.** Report published with captures 008/009
+   (6510fd7; binary64-only certified r4 9999, r6 9997, pentagon 4989,
+   hexagon 1909, heptagon 441/495, nothing above 3e-6). N = 8 supported:
+   MAX_PROPAGATORS 8, thin identity keeps the best six of N (dropped members
+   as bit sets, C(8,2) = 28 candidates), dots still forbidden for N >= 7;
+   test eight_point_rank_eight_matches_high_precision (bare binary64 7.8e-9,
+   facade <= 1e-11 vs 256 bits). Next for general N: subset masks are u8
+   (plan.rs members(mask) iterates 0..8) -> u16 for N up to 16.
 3s. **Overnight instructions (user, 31 Oct ~21:10Z, going to bed).** When
    capture 009 finishes (scratchpad capture009.sh, background waiter): bind
    and publish 008 and 009 like 007 (bind --capture 008, then 009; findings
