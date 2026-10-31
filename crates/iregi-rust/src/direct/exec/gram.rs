@@ -52,19 +52,26 @@ pub(crate) struct GramRescue<T: NativeFloat> {
     boosts: Vec<u16>,
     /// Alternative PV reduction only (no expansions).
     alternative: bool,
+    /// Gate of the auxiliary executors' triangles (default: the parent's
+    /// threshold squared).
+    aux_threshold: Option<T>,
 }
 
 impl<T: NativeFloat> GramRescue<T> {
     pub(crate) fn new(boost: u16) -> Self {
         let mut boosts = vec![boost.min(FIRST_BOOST), boost];
         boosts.dedup();
-        Self { executors: HashMap::new(), boosts, alternative: false }
+        Self { executors: HashMap::new(), boosts, alternative: false, aux_threshold: None }
+    }
+
+    pub(crate) fn everywhere(boost: u16, aux_threshold: T) -> Self {
+        Self { aux_threshold: Some(aux_threshold), ..Self::new(boost) }
     }
 
     /// The alternative PV reduction alone: triangles of the box's own rank
     /// suffice (boost 1 keeps the expansion bookkeeping valid).
     pub(crate) fn alternative() -> Self {
-        Self { executors: HashMap::new(), boosts: vec![1], alternative: true }
+        Self { executors: HashMap::new(), boosts: vec![1], alternative: true, aux_threshold: None }
     }
 }
 
@@ -72,6 +79,39 @@ impl<T: NativeFloat> GramRescue<T> {
 const FIRST_BOOST: u16 = 8;
 
 type Key = (u16, [u16; 3]);
+
+/// COLLIER-style indicator of a box or triangle: `w = max_j |(Zadj f)_j| /
+/// |Delta|` (`None` if it vanishes or is not finite). Passarino-Veltman
+/// rounding grows roughly like `w^r`, the alternative PV reduction's like
+/// `w^ceil(r/2)`, and `1/w` is the small-Gram expansion parameter.
+pub(super) fn gram_indicator<T: NativeFloat>(z: &[[C<T>; 3]; 3], f: &[C<T>; 3], nm: usize) -> Option<f64> {
+    let zero = czero(&z[0][0].re);
+    let adj = |i: usize, j: usize| -> C<T> {
+        if nm == 2 {
+            return match (i, j) {
+                (0, 0) => z[1][1].clone(),
+                (1, 1) => z[0][0].clone(),
+                _ => csub(&zero, &z[j][i]),
+            };
+        }
+        let (a, b, c, d) = ((j + 1) % 3, (j + 2) % 3, (i + 1) % 3, (i + 2) % 3);
+        csub(&cmul(&z[a][c], &z[b][d]), &cmul(&z[a][d], &z[b][c]))
+    };
+    let mut delta = zero.clone();
+    for j in 0..nm {
+        delta = cadd(&delta, &cmul(&z[0][j], &adj(j, 0)));
+    }
+    let mut largest = 0.0f64;
+    for j in 0..nm {
+        let mut value = zero.clone();
+        for m in 0..nm {
+            value = cadd(&value, &cmul(&adj(j, m), &f[m]));
+        }
+        largest = largest.max(cnorm2(&value).to_f64().sqrt());
+    }
+    let w = largest / cnorm2(&delta).to_f64().sqrt();
+    (largest > 0.0 && w.is_finite()).then_some(w)
+}
 
 /// Largest a priori error estimate of the alternative PV stage (the binary64
 /// retries accept rotated copies within 2^-36).
@@ -160,7 +200,9 @@ where
                         // Its triangles carry `boost` extra ranks whose errors
                         // enter only Delta-suppressed terms (COLLIER relaxes them
                         // likewise); the caller's a posteriori check decides.
-                        executor.set_stability_threshold(self.stability_threshold.clone() * &self.stability_threshold);
+                        executor.set_stability_threshold(
+                            gram.aux_threshold.clone().unwrap_or_else(|| self.stability_threshold.clone() * &self.stability_threshold),
+                        );
                         executor.gram_top = Some(rank);
                         executor.gram_alt_only = gram.alternative;
                         entry.insert(executor)

@@ -281,6 +281,9 @@ pub(crate) struct DirectHybridWorkspace<T: NativeFloat> {
     /// ... and of the alternative-PV retry (refused boxes and triangles by
     /// the modified Cayley reduction only).
     alternative: Option<Box<DirectWorkspace<T>>>,
+    /// ... and of the stage computing every box and triangle by the
+    /// expansions or the alternative PV reduction (COLLIER's per-box choice).
+    everywhere: Option<Box<DirectWorkspace<T>>>,
     /// Binary64 workspace without any gate, for best-effort arrays of lanes
     /// no other binary64 stage computed.
     open: Option<Box<DirectWorkspace<T>>>,
@@ -340,6 +343,7 @@ where
             checked: None,
             expanded: None,
             alternative: None,
+            everywhere: None,
             open: None,
             candidates: Vec::new(),
             rescue: RescueWorkspaces::default(),
@@ -599,7 +603,8 @@ where
         let slot = match stage {
             0 => &mut self.checked,
             1 => &mut self.expanded,
-            _ => &mut self.alternative,
+            2 => &mut self.alternative,
+            _ => &mut self.everywhere,
         };
         if slot.is_none() {
             let mut workspace = self
@@ -611,7 +616,10 @@ where
                 if rotation_tested(self.plan.direct.settings()) {
                     workspace.set_stability_threshold(from_binary64(&self.prototype, ROTATION_GATE));
                 }
-                if stage == 2 {
+                if stage == 3 {
+                    let gate = if rotation_tested(self.plan.direct.settings()) { ROTATION_GATE } else { 1e-12 };
+                    workspace.enable_gram_expansion_everywhere(GRAM_BOOST, from_binary64(&self.prototype, gate));
+                } else if stage == 2 {
                     workspace.enable_alternative_pv();
                 } else {
                     workspace.enable_gram_expansion(GRAM_BOOST);
@@ -801,6 +809,18 @@ where
                 if !checked.is_empty() {
                     self.checked_retry(batch, &checked, tolerance, &mut result, &mut profile, 2)?;
                 }
+
+            }
+        }
+        // Every lane still refused on a conditioning estimate (gate or
+        // rotation test): every box and triangle by the expansions or the
+        // alternative PV reduction, as COLLIER chooses its method per box.
+        if checkable {
+            let rest: Vec<usize> = (0..batch.rows)
+                .filter(|&lane| matches!(result.statuses[lane], LaneStatus::Unstable(_)) && conditions[lane].is_some())
+                .collect();
+            if !rest.is_empty() {
+                self.checked_retry(batch, &rest, tolerance, &mut result, &mut profile, 3)?;
             }
         }
         let retry: Vec<usize> = result
