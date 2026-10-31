@@ -187,6 +187,11 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    confirmed reference). The first capture (877cf47; 7 pentagons where a
    nonfinite binary64 coefficient bypassed the rescue, fixed in 7226962)
    stays under target/stability-20261030/capture-877cf47.
+   **Capture 002 (TIRust 3d3d152: Gram-free pentagon + native DD dilog),
+   shown in the report, bound as `stability_20261030_capture002`:** binary64
+   keeps 1069/5000 pentagons (was 31) with worst E/A 1.8e-9; pentagon rescues
+   mostly at 106 bits (3636 vs 295 at 256; was 3038/1931), hexagons 1564 at
+   106 / 430 at 256 (was 410/1584); boxes unchanged.
 3c. **Done (first part): Gram-free pentagons.** `plan.rs` gives every
    unjetted pentagon whose box children are not degenerate a coefficient
    layout E(lambda, kappa) over its four momenta up to rank min(r, 5), built by
@@ -209,6 +214,23 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    box reduction (hep-ph/0509141 sects. 3.4-3.6, COLLIER's expansions) or the
    Cayley-based reduction of sect. 3.3 (needs numerically integrated
    D_{00..0}); then the same for the hexagon's sub-boxes.
+   Native double-double dilog (0769821): the 106-bit rescue of a physical
+   pentagon costs 4.8 ms (was 8.2); a hexagon handled at 106 bits ~21 ms.
+3d. **Next: small-Gram box reduction** (hep-ph/0509141 sect. 3.4, Eqs.
+   (recurGram1)/(recurGram2), arXiv source in the paper; COLLIER's scheme).
+   For a box with momenta p1..p3: pick j maximizing |Xadj_0j| and (k,l)
+   maximizing |Zadj_kl| per lane (fold the choice into geometry entries, the
+   instructions stay structural). Level 0: all box coefficients up to rank
+   R_max = r + K with every Delta^(3) term dropped; level t recomputes ranks
+   <= R_max - t using level t-1 values in the Delta terms (separate value
+   slots per level); the requested rank r comes from level K, accurate to
+   O(Delta^(K+1)). Needs triangle coefficients up to R_max + 2 (S^(P+2)),
+   S^P_{00...} = 2 C(0) + 2 m0^2 D, Shat = S without f D, the (D-4) terms via
+   PostOp::DivideDimension. Select per lane by a plan variant (as relation /
+   lightlike variants): boxes whose Gram gate fails switch to the expansion
+   when |Xadj_0j| is not small; both small -> rescue as now. Validate box
+   by box against the 256-bit engine on the stability points, then rerun
+   the study (expect the pentagon/hexagon binary64 refusals to drop).
    Original plan (kept):  Gram-free 5- and 6-point reduction so physical N=5/6 lanes stay in
    binary64. Denner-Dittmaier hep-ph/0212259 Eq. (2.17)/(2.19)
    (E_P = -sum_i detY_i/detY D_P(i) + 2 sum_ij Zhat_ij/detY p_j^a Delta_aP(i)

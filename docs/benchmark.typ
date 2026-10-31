@@ -476,7 +476,8 @@
 }
 // Binary64 stability study (30 October 2026): cumulative accuracy profiles
 // in the style of Hirschi and Peraro, arXiv:1604.01363, figs. 2-4.
-#let stability-campaign = data.at("stability_20261030", default: none)
+#let stability-campaign = data.at("stability_20261030_capture002", default: data.at("stability_20261030", default: none))
+#let stability-first-capture = data.at("stability_20261030", default: none)
 #let st-style = (
   "tirust": (paint: rgb("#1a9850"), thickness: 1.7pt),
   "tirust-binary64": (paint: rgb("#1a9850"), thickness: 0.9pt, dash: "dashed"),
@@ -594,10 +595,13 @@
     *Findings.* On the boxes TIRust's binary64 arrays match COLLIER's accuracy; original IREGI's PV mode
     fails on every rank-6 box (rank above N) and its IBP mode has rare large outliers. On the pentagon and the
     hexagon COLLIER (both branches) stays accurate on every point, IREGI PV is mostly accurate with a tail,
-    and IREGI IBP fails often (on the hexagon almost always). TIRust returns an accurate array on every point,
-    but on physical pentagons and hexagons only through its precision rescue: its binary64 pentagon recursion
-    (moments through the inverse Gram matrix) is refused on nearly all of them, so those lanes cost
-    milliseconds instead of microseconds. A Gram-free five-point reduction (Denner–Dittmaier) is the next step.
+    and IREGI IBP fails often (on the hexagon almost always). TIRust returns an accurate array on every point.
+    Its binary64 path now reduces pentagons without a Gram inverse (Denner–Dittmaier: only the modified Cayley
+    determinant is inverted) and keeps about a fifth of the physical pentagons; the others and all hexagons are
+    refused because of rank-5 box Gram systems and rerun at higher precision, mostly 106 bits (milliseconds
+    instead of microseconds). A small-Gram box expansion, as in COLLIER, is the next step. The first capture
+    (TIRust #raw(if stability-first-capture != none { stability-first-capture.snapshot.tirust_git_head.slice(0, 7) } else { "" }), before the Gram-free
+    pentagon and the native double-double dilogarithm) remains bound unchanged in the report data.
   ]
   v(0.2em)
   let rescued = snapshot.integrals.map(i => (i.id, i.codes.at(0).at("rescued_by_bits", default: (:))))
@@ -631,7 +635,8 @@
     (every array is off by 6.3×10#super[−17]), quad PV fails on the rank-6 box (rank above N), quad IBP on the
     hexagon, and quad PV keeps only 10#super[−12]–10#super[−10] on some hexagon points, where COLLIER (independent
     of both) agrees with the 256-bit array instead. Below the confirmation level Δ is not independently verified.
-    TIRust lanes rescued at 256 bits equal the reference after rounding (Δ = 0). Binaries and the TIRust commit are in `validation/benchmark/stability-20261030/summary.json`; reproduce with
+    TIRust lanes rescued at 256 bits equal the reference after rounding (Δ = 0). This capture: TIRust
+    #raw(snapshot.tirust_git_head.slice(0, 7)). Binaries and the TIRust commit are in `validation/benchmark/stability-20261030/summary-002.json`; reproduce with
     #raw("make-points.py"), #raw("build.py"), #raw("run.py") and #raw("summarize.py") in that directory.
   ]
 }
