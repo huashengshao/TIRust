@@ -85,6 +85,9 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     gram_top: Option<u16>,
     /// Auxiliary executor of the alternative-PV stage: skip the expansions.
     gram_alt_only: bool,
+    /// Every box and triangle by the expansions or the alternative PV
+    /// reduction, whatever its Gram conditioning (COLLIER chooses per box).
+    gram_everywhere: bool,
     gram_top_active: bool,
     /// Plan variant of the current lane.
     plan: Arc<DirectPlanData>,
@@ -254,6 +257,7 @@ where
             gram_external: Vec::new(),
             gram_top: None,
             gram_alt_only: false,
+            gram_everywhere: false,
             gram_top_active: false,
             values: vec![lzero(&zero); plan.value_count],
             geometry: vec![zero.clone(); plan.geometry_count.max(1)],
@@ -597,6 +601,14 @@ where
         self.gram = Some(Box::new(gram::GramRescue::new(boost)));
     }
 
+    /// Every box and triangle (refused or not) by the small-Gram expansions,
+    /// else the alternative PV reduction; their own triangles gated at
+    /// `aux_threshold`.
+    pub(crate) fn enable_gram_expansion_everywhere(&mut self, boost: u16, aux_threshold: T) {
+        self.gram = Some(Box::new(gram::GramRescue::everywhere(boost, aux_threshold)));
+        self.gram_everywhere = true;
+    }
+
     /// Refused boxes and triangles by the alternative PV reduction alone.
     pub(crate) fn enable_alternative_pv(&mut self) {
         self.gram = Some(Box::new(gram::GramRescue::alternative()));
@@ -929,6 +941,28 @@ where
                     }
                     if subset.coefficient_rank >= 1 && momenta > 0 {
                         let size = momenta;
+                        if gram && self.gram_everywhere && (2..=3).contains(&size) {
+                            // COLLIER's per-box choice: off Passarino-Veltman
+                            // where its estimate is worse (w > 2) and the
+                            // adjugates do not vanish.
+                            let zero = self.zero.clone();
+                            let z: [[C<T>; 3]; 3] = std::array::from_fn(|i| {
+                                std::array::from_fn(|j| {
+                                    if i >= size || j >= size {
+                                        return zero.clone();
+                                    }
+                                    let (mi, mj) = (members[i + 1], members[j + 1]);
+                                    csub(&cadd(d(origin, mi), d(origin, mj)), d(mi, mj))
+                                })
+                            });
+                            let f: [C<T>; 3] = std::array::from_fn(|i| {
+                                if i < size { self.geometry[geometry.f as usize + i].clone() } else { zero.clone() }
+                            });
+                            if gram::gram_indicator(&z, &f, size).is_some_and(|w| w > 2.0) {
+                                self.gram_external.push(subset_id);
+                                continue;
+                            }
+                        }
                         if self.gram_top.is_some() && (2..=3).contains(&size) && Some(subset.mask) == top_mask {
                             // Auxiliary expansion executor: no Gram system.
                             self.gram_top_active = true;

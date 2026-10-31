@@ -372,6 +372,31 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    stability capture 005 (binary64-only facade at 2^-34 and 2^-20, build
    50acff0 = code of ffb2716; commit 193415e), report pages 1-5 timing, 6-8
    stability. Capture 005 matches the probe numbers above.
+3o. **Per-box method choice stage (COLLIER-style), after 5ed9887.** Stage 3
+   of the binary64 retries (every lane still refused on a conditioning
+   estimate, incl. main-pass rotation failures): boxes/triangles with
+   gram_indicator w = max|Zadj f|/|Delta| > 2 (and non-vanishing adjugates)
+   go to the expansions / alternative PV even if PV would pass; aux triangle
+   gate = main gate (1e-12; 1e-15 for N>=5). Probe64l: certified r4 9999,
+   r6 9997, pentagon 4939, hexagon 1821, heptagon 78/100; pentagon #212 now
+   binary64 (tests updated; refused example = box-r4 #7388, true 3.4e-11,
+   estimate 1.7e-11). NEXT (biggest remaining gap): the auxiliary box
+   executors' own triangles are refused ("small-Gram expansion of [..]:
+   ill-conditioned Gram matrix for [3 members]") in 163/179 hexagon and
+   54/61 pentagon flagged lanes. COLLIER applies its method menu to C
+   functions too. Needs nested gram in aux executors (exclude the aux top
+   from the everywhere check) and aux plans above MAX_RANK = 8 (boosted
+   triangle ranks reach 17): a coefficients-only plan constructor without
+   gathers, or lift MAX_RANK for aux plans.
+3n. **In progress (user: binary64 as good as COLLIER, use COLLIER's methods).**
+   Capture 008 (5ed9887, stability) running/finished -> publish like 007
+   (publish.py LATER "008" and typst id list already prepared, uncommitted).
+   Next idea under test: COLLIER picks the method per box/triangle by error
+   estimate even when PV would pass; TIRust only for refused ones. Stage
+   "all boxes/triangles by expansion-or-alternative-PV" (parent threshold 1,
+   aux triangle gate = normal gate) as a further binary64 retry; compare by
+   probe (scratchpad probe64*). Then per-subset choice by COLLIER's estimates
+   (reductionD.F90 CalcDred: err_pv, err_pv2, x_g/u_g, x_gy/y_gy).
 3m. **Alternative-PV retry stage (method choice a posteriori).** Flagged
    N>=5 lanes sit in an intermediate regime (x_g ~ 0.03-0.2, Zadjf/Delta ~
    4-30, momenta >> m_t: COLLIER's small-momentum expansions do not apply).

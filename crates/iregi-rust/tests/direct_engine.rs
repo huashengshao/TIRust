@@ -536,9 +536,11 @@ fn physical_pentagons_stay_accurate_in_binary64() {
 #[test]
 fn inaccurate_binary64_pentagons_are_caught_and_rescued() {
     // Point pentagon-r5 #212: its box Gram systems pass the binary64 gate of
-    // rotation-tested plans, yet the recursion keeps only ~2.5e-9. The
-    // facade's loop-rotation test must catch it; the rescued array must match
-    // a 256-bit direct evaluation.
+    // rotation-tested plans, yet the PV recursion keeps only ~2.5e-9. The
+    // facade's loop-rotation test catches it; the binary64 retry that
+    // computes its boxes by the small-Gram expansions or the alternative PV
+    // reduction (COLLIER's per-box choice) recovers it in binary64, checked
+    // against a 256-bit direct evaluation.
     let shifts = [
         [0.0, 0.0, 0.0, 0.0],
         [500.0, 0.0, 0.0, 500.0],
@@ -547,8 +549,10 @@ fn inaccurate_binary64_pentagons_are_caught_and_rescued() {
         [366.1961747737811, -226.26921095725032, 197.98348258528515, -209.05602888970952],
     ];
     let (result, stats, error) = physical_pentagon(&shifts);
-    assert!(result.fallback_used[0], "{stats:?}");
-    assert!(error <= 1e-14, "E/A = {error:e}");
+    assert!(!result.fallback_used[0], "{stats:?}");
+    assert_eq!(stats.rotation_failures, 1, "{stats:?}");
+    assert!(stats.expansion_successes >= 1, "{stats:?}");
+    assert!(error <= 1e-10, "E/A = {error:e}");
 }
 
 #[test]
@@ -701,25 +705,23 @@ fn small_gram_box_is_kept_in_binary64_by_the_expansion() {
 
 #[test]
 fn disabled_precision_rescue_returns_inaccurate_binary64_lanes_unstable() {
-    // gg -> HH rank-4 box (box-r4 #3865): binary64 PV keeps E/A 1.6e-8 below
-    // its gate, and neither small-Gram expansion converges, so nothing in
-    // binary64 meets the default request 2^-34. With the rescue disabled the
-    // lane is refused, never rerun, with the reason in its diagnostics; by
-    // default it is rescued at higher precision.
+    // gg -> HH rank-4 box (box-r4 #7388): binary64 PV is off by 0.19 below its
+    // gate; the best binary64 array (small-Gram expansion) is good to 3.4e-11
+    // but its rotated copy agrees only to 1.7e-11, above the acceptance level
+    // 2^-36, so binary64 cannot certify it. With the rescue disabled the lane
+    // is refused, never rerun, with the reason in its diagnostics; by default
+    // it is rescued at higher precision.
     use iregi_rust::PrecisionRescue;
     let shifts = [
         [0.0, 0.0, 0.0, 0.0],
         [500.0, 0.0, 0.0, 500.0],
         [1000.0, 0.0, 0.0, 0.0],
-        [500.00000000000006, -22.328515992949068, -43.30788068586052, -481.66468091822134],
+        [499.99999999999994, 6.764774508368483, 2.1676952729399956, -484.07079949430533],
     ];
     let (result, stats, notes, _) = physical_box(&shifts, 4, PrecisionRescue::Disabled);
     assert!(matches!(result.statuses[0], LaneStatus::Unstable(_)), "{:?}", result.statuses[0]);
     assert!(!result.fallback_used[0], "{stats:?}");
-    assert_eq!((stats.checked_rows, stats.checked_successes), (1, 0), "{stats:?}");
-    // Both expansion stages (small-Gram expansions, then the alternative PV
-    // reduction alone) ran and refused.
-    assert_eq!((stats.expansion_rows, stats.expansion_successes), (2, 0), "{stats:?}");
+    assert_eq!(stats.checked_successes + stats.expansion_successes, 0, "{stats:?}");
     // Still reported, COLLIER-style: the best binary64 array, uncertified,
     // with its estimated error (the E/A to its rotated copy). The estimate may
     // be conservative (here the returned array is far better than its copy)
@@ -743,20 +745,19 @@ fn disabled_precision_rescue_returns_inaccurate_binary64_lanes_unstable() {
 
 #[test]
 fn precision_rescue_switches_on_an_existing_workspace() {
-    // Pentagon-r5 #212 (binary64 keeps ~2.5e-9, caught by the loop-rotation
-    // test): the same workspace refuses it with the rescue disabled and
-    // rescues it again once re-enabled.
+    // Box-r4 #7388 (binary64 cannot certify it, see above): the same
+    // workspace refuses it with the rescue disabled and rescues it again once
+    // re-enabled.
     use iregi_rust::PrecisionRescue;
     let shifts = [
         [0.0, 0.0, 0.0, 0.0],
         [500.0, 0.0, 0.0, 500.0],
         [1000.0, 0.0, 0.0, 0.0],
-        [664.7752755465025, -264.68605966338976, 196.959906569897, 59.360769105269235],
-        [366.1961747737811, -226.26921095725032, 197.98348258528515, -209.05602888970952],
+        [499.99999999999994, 6.764774508368483, 2.1676952729399956, -484.07079949430533],
     ];
     let mt2 = 173.0f64 * 173.0;
-    let batch = KinematicsBatch { rows: 1, components: 1, values: row(&shifts, &[(mt2, 0.0); 5], 1000.0) };
-    let plan = TensorReductionPlan::new(ReductionSettings::new(5, 5)).unwrap();
+    let batch = KinematicsBatch { rows: 1, components: 1, values: row(&shifts, &[(mt2, 0.0); 4], 1000.0) };
+    let plan = TensorReductionPlan::new(ReductionSettings::new(4, 4)).unwrap();
     let mut workspace = TensorWorkspace::new(&plan, 0.0f64).unwrap();
     assert_eq!(workspace.precision_rescue(), PrecisionRescue::Automatic);
     workspace.set_precision_rescue(PrecisionRescue::Disabled);
@@ -767,8 +768,8 @@ fn precision_rescue_switches_on_an_existing_workspace() {
     let rescued = workspace.reduce_batch(&batch).unwrap();
     assert_eq!(rescued.statuses[0], LaneStatus::Success);
     assert!(rescued.fallback_used[0]);
-    let (_, reference) = direct_256(5, 5, &batch.values);
-    let error = general_array_error(&rescued.basis, 4 - 2 * 5, 1000.0, rescued.lane(0).unwrap(), &reference);
+    let (_, reference) = direct_256(4, 4, &batch.values);
+    let error = general_array_error(&rescued.basis, 4 - 2 * 4, 1000.0, rescued.lane(0).unwrap(), &reference);
     assert!(error <= 1e-14, "E/A = {error:e}");
 }
 
