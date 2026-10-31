@@ -378,8 +378,10 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    MAX_PROPAGATORS 8, thin identity keeps the best six of N (dropped members
    as bit sets, C(8,2) = 28 candidates), dots still forbidden for N >= 7;
    test eight_point_rank_eight_matches_high_precision (bare binary64 7.8e-9,
-   facade <= 1e-11 vs 256 bits). Next for general N: subset masks are u8
-   (plan.rs members(mask) iterates 0..8) -> u16 for N up to 16.
+   facade <= 1e-11 vs 256 bits). Then general N: subset masks u16,
+   MAX_PROPAGATORS 12 (thin identity over C(N,6) choices; cost grows fast),
+   sizes >= 6 are Hexagon kind; test ten_point_integral_matches_high_precision
+   (N10 R4 bare binary64 <= 1e-8 vs 256 bits).
 3s. **Overnight instructions (user, 31 Oct ~21:10Z, going to bed).** When
    capture 009 finishes (scratchpad capture009.sh, background waiter): bind
    and publish 008 and 009 like 007 (bind --capture 008, then 009; findings

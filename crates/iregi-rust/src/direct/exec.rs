@@ -50,12 +50,12 @@ pub struct DirectProfile {
 enum GeometryFailure {
     /// Singular or ill-conditioned Gram system of this subset; it may be
     /// affinely dependent and reducible by a denominator identity.
-    Singular(u8, String),
+    Singular(u16, String),
     /// A relation or lightlike assumption of the current variant does not
     /// hold on this lane.
     Relation(String),
     /// A bubble with (numerically) lightlike or vanishing momentum.
-    Lightlike(u8),
+    Lightlike(u16),
     Unstable(String),
 }
 
@@ -93,10 +93,10 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     plan: Arc<DirectPlanData>,
     base_plan: Arc<DirectPlanData>,
     /// Variants keyed by their minimal degenerate subsets.
-    variants: HashMap<(Vec<u8>, Vec<u8>), (Arc<DirectPlanData>, Arc<Vec<T>>)>,
-    lightlike_profile: Vec<u8>,
+    variants: HashMap<(Vec<u16>, Vec<u16>), (Arc<DirectPlanData>, Arc<Vec<T>>)>,
+    lightlike_profile: Vec<u16>,
     base_constants: Arc<Vec<T>>,
-    relation_profile: Vec<u8>,
+    relation_profile: Vec<u16>,
     prototype: T,
     zero: C<T>,
     one: C<T>,
@@ -136,7 +136,7 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     /// Per-lane IBP memo of raised-power scalars, keyed by packed powers.
     ibp_memo: HashMap<u64, L4<T>>,
     /// Per-lane inverse modified Cayley matrices, keyed by subset mask.
-    rinv_memo: HashMap<u8, Vec<C<T>>>,
+    rinv_memo: HashMap<u16, Vec<C<T>>>,
     /// `(-2)^h` of dimension-shifted gathers.
     gather_scale: T,
     /// The current lane's masters have no IR poles (two-slot kernels).
@@ -812,21 +812,21 @@ where
     }
 
     /// Minimal support of the affine relation of a singular subset.
-    fn relation_support(&self, mask: u8) -> Result<u8, String> {
-        let members: Vec<usize> = (0..8).filter(|&i| mask & (1 << i) != 0).collect();
+    fn relation_support(&self, mask: u16) -> Result<u16, String> {
+        let members: Vec<usize> = (0..16).filter(|&i| mask & (1 << i) != 0).collect();
         let weights = self.affine_relation(&members)?;
         let largest = weights
             .iter()
             .map(cnorm2)
             .fold(self.prototype.zero(), |a, b| if b > a { b } else { a });
         let cut = largest * &self.binary_tolerance(80);
-        let mut support = 0u8;
+        let mut support = 0u16;
         for (weight, &member) in weights.iter().zip(&members) {
             if cnorm2(weight) > cut {
                 support |= 1 << member;
             }
         }
-        let support_members: Vec<usize> = (0..8).filter(|&i| support & (1 << i) != 0).collect();
+        let support_members: Vec<usize> = (0..16).filter(|&i| support & (1 << i) != 0).collect();
         self.affine_relation(&support_members)?;
         Ok(support)
     }
@@ -1647,7 +1647,7 @@ where
     }
 
     /// Inverse of the modified Cayley matrix `R_ij = d_ij - m_i^2 - m_j^2`.
-    fn cayley_inverse(&mut self, mask: u8) -> Result<Vec<C<T>>, String> {
+    fn cayley_inverse(&mut self, mask: u16) -> Result<Vec<C<T>>, String> {
         if let Some(inverse) = self.rinv_memo.get(&mask) {
             return Ok(inverse.clone());
         }
@@ -1694,7 +1694,7 @@ where
         }
         let n = self.plan.settings.propagators;
         let power = |packed: u64, i: usize| (packed >> (4 * i)) & 15;
-        let mask: u8 = (0..n).filter(|&i| power(powers, i) > 0).fold(0, |m, i| m | (1 << i));
+        let mask: u16 = (0..n).filter(|&i| power(powers, i) > 0).fold(0, |m, i| m | (1 << i));
         if mask == 0 {
             return Ok(lzero(&self.zero));
         }
@@ -1756,7 +1756,7 @@ where
                 if mask & (1 << dotted) == 0 {
                     continue;
                 }
-                let unit: u64 = (0..8).filter(|&i| mask & (1 << i) != 0).map(|i| 1u64 << (4 * i)).sum();
+                let unit: u64 = (0..16).filter(|&i| mask & (1 << i) != 0).map(|i| 1u64 << (4 * i)).sum();
                 for order in 1..k_len {
                     let value = self.ibp(unit + ((order as u64) << (4 * dotted)))?;
                     self.values_jet[order - 1][index as usize] = value;
