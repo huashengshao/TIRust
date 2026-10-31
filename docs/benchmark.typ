@@ -342,7 +342,9 @@
 ))
 // Same-session direct-engine campaign (30 October 2026): TIRust public
 // binary64 default versus original IREGI and COLLIER, interleaved per block.
-#let direct-campaign = data.at("direct_engine_20261030_capture003", default: data.at("direct_engine_20261030_capture002", default: data.at("direct_engine_20261030", default: none)))
+// The latest bound capture of each campaign is shown; earlier ones stay in the data.
+#let direct-campaign-id = ("004", "003", "002").find(id => ("direct_engine_20261030_capture" + id) in data)
+#let direct-campaign = if direct-campaign-id != none { data.at("direct_engine_20261030_capture" + direct-campaign-id) } else { data.at("direct_engine_20261030", default: none) }
 #let direct-first-capture = data.at("direct_engine_20261030", default: none)
 #let de-sci(x) = {
   if x == none { [n/a] } else if x == 0 { [0] } else {
@@ -484,7 +486,7 @@
     constant-one denominator identity; a dotted propagator is a Taylor jet in its squared mass with
     master derivatives from the IBP relation; D=6 uses #raw("C(λ+h,κ)·(−2)^h"). Lanes with
     ill-conditioned systems, and for N≥5 lanes failing a loop-rotation test, are rerun by the same direct engine
-    at 106/256/512 bits (added after these timing captures; see the stability section), then by the symbolic engine.
+    at 106/256/512 bits (see the stability section), then by the symbolic engine.
   ]
   v(0.3em)
   text(size: 8.5pt)[
@@ -498,15 +500,18 @@
     original IREGI). IREGI uses its fastest mode with a complete finite array within E/A≤10#super[−3].
     COLLIER uses the archived selected public configuration. Rejected or nonfinite outputs are shown
     amber with diagnostic times and never enter a ratio. Builds: TIRust release (thin LTO), Fortran
-    `-O3`, all baseline x86-64; binary SHA-256 in #raw("validation/benchmark/direct-engine-20261030/summary-" + (if snapshot.rows.any(r => r.batch1.at("ninjars", default: none) != none) { "003" } else { "002" }) + ".json").
+    `-O3`, all baseline x86-64; binary SHA-256 in #raw("validation/benchmark/direct-engine-20261030/summary" + (if direct-campaign-id == none { "" } else { "-" + direct-campaign-id }) + ".json").
     TIRust source: commit #raw(snapshot.at("tirust_source_commit", default: snapshot.tirust_git_head).slice(0, 7)).
-    This capture (003, 31 October) adds an N7R7 row (the opening shifts and masses plus
-    q#sub[6] = (1/4, 3/8, 1/8, 5/8), m#sub[6]#super[2] = 4; reference: TIRust at 256 bits confirmed by quad IREGI IBP to
-    6.3×10#super[−17], quad PV fails, COLLIER returns NaN, `validation/mre/collier-n7-nan`) and NinjaRS. TIRust's N≥5 rows
-    are slower than in capture 002 (N5R5 141 against 65 µs, N6R6 555 against 216 µs): every binary64 lane now also runs
-    the loop-rotation test and the Gram-free pentagon reduction, which keep physical pentagons accurate in binary64
-    (stability section); N7R7 runs at higher precision after the rotation test. Captures 001
-    (TIRust #raw(direct-first-capture.snapshot.tirust_git_head.slice(0, 7))) and 002 remain bound unchanged in the report data.
+    This capture (004, 31 October) repeats capture 003 after the double-double partial rescue and the
+    double-double-first precision rescue (stability section); both act only on lanes the binary64 checks
+    refuse, which the opening inputs do not have, and TIRust's times agree with capture 003 to a few percent
+    (separate sessions; no ratio across them). Capture 003 added the N7R7 row (the opening shifts and masses
+    plus q#sub[6] = (1/4, 3/8, 1/8, 5/8), m#sub[6]#super[2] = 4; reference: TIRust at 256 bits confirmed by
+    quad IREGI IBP to 6.3×10#super[−17], quad PV fails, COLLIER returns NaN, `validation/mre/collier-n7-nan`)
+    and NinjaRS. TIRust's N≥5 rows include the loop-rotation test and the Gram-free pentagon reduction,
+    which keep physical pentagons accurate in binary64 (capture 002, without them: N5R5 65 µs, N6R6 216 µs).
+    Captures 001 (TIRust #raw(direct-first-capture.snapshot.tirust_git_head.slice(0, 7))), 002 and 003
+    remain bound unchanged in the report data.
   ]
   v(0.3em)
   de-table(snapshot.rows, 1)
@@ -547,11 +552,13 @@
 }
 // Binary64 stability study (30 October 2026): cumulative accuracy profiles
 // in the style of Hirschi and Peraro, arXiv:1604.01363, figs. 2-4.
-#let stability-campaign = data.at("stability_20261030_capture003", default: data.at("stability_20261030_capture002", default: data.at("stability_20261030", default: none)))
+#let stability-campaign-id = ("004", "003", "002").find(id => ("stability_20261030_capture" + id) in data)
+#let stability-campaign = if stability-campaign-id != none { data.at("stability_20261030_capture" + stability-campaign-id) } else { data.at("stability_20261030", default: none) }
 #let stability-first-capture = data.at("stability_20261030", default: none)
 #let st-style = (
   "tirust": (paint: rgb("#1a9850"), thickness: 1.7pt),
   "tirust-binary64": (paint: rgb("#1a9850"), thickness: 0.9pt, dash: "dashed"),
+  "tirust-binary64-r20": (paint: rgb("#a6d96a"), thickness: 1.1pt, dash: "dash-dotted"),
   "iregi-ibp": (paint: rgb("#d7301f"), thickness: 1.1pt),
   "iregi-pv": (paint: rgb("#fc8d59"), thickness: 1.1pt, dash: "dashed"),
   "collier-coli": (paint: rgb("#2c7fb8"), thickness: 1.1pt),
@@ -640,8 +647,12 @@
   figure(caption: [Cumulative binary64 stability profiles (fraction of points with E/A > Δ).
     TIRust (default) is the public binary64 API: lanes its own checks refuse (conditioning gates; for N≥5 a
     loop-rotation test comparing two binary64 evaluations) are rerun by the direct engine at 106, 256 or 512
-    bits before results are returned. "TIRust binary64 only" shows the binary64 arrays with those refusals
-    as missing. IREGI and COLLIER are binary64 throughout.])[
+    bits before results are returned. #if snapshot.integrals.at(0).codes.any(c => c.code == "tirust-binary64-r20") [
+    "TIRust binary64 only" is the same facade with the precision rescue disabled (every lane in binary64; refused
+    lanes count as missing), at the default accuracy request 2#super[−34] and at 2#super[−20].] else [
+    The second TIRust curve takes the default path's array unless the lane was rerun at higher precision; refused
+    lanes count as missing. From capture 004 on, boxes and triangles refused inside such a lane are computed in
+    double-double (partial rescue), so this curve is not binary64 only there.] IREGI and COLLIER are binary64 throughout.])[
     #grid(columns: 2, column-gutter: 4pt, row-gutter: 2pt,
       ..snapshot.integrals.map(integral => st-plot(integral, snapshot.grid_log10)))
     #v(2pt)
@@ -678,21 +689,26 @@
     )
   ])
   text(size: 8.5pt)[
-    *Findings (capture 003).* TIRust's default returns an accurate array on every point of all five
-    integrals (worst E/A 9.6×10#super[−9] on the rank-4 box, ≤3.4×10#super[−10] elsewhere). Its binary64
-    pass alone now keeps 86% of the physical pentagons (capture 002: 21%) and a quarter of the hexagons
-    (capture 002: none). Two oneloopmaster master issues, not Gram conditioning, had made those lanes
-    inaccurate: the generated B0 cancels like m#super[2]/p#super[2] for the binary64 invariants of
-    massless legs (p#super[2] ≈ 10#super[−10] against m#sub[t]#super[2]; repaired with a cancellation-free
-    small-momentum B0), and the generated D0 returned NaN there (invariants within their own rounding
-    error of zero are now exactly zero). Heptagons (direct engine since this capture: the thin identity over
-    the best six of seven propagators) are still rescued almost always, mostly at 256 bits. COLLIER (both
-    branches) stays accurate everywhere. Original IREGI's PV fails on every rank-6 box and on every
-    heptagon, its IBP on the hexagons and heptagons (E/A up to 10#super[97]), all reported as successful
-    (minimal reproducers in `validation/mre`). NinjaRS, reducing the contracted numerator, returns a value
-    on every point with tails beyond 10#super[−3] on a few hexagons and heptagons. Heptagon references
-    are confirmed by COLLIER COLI and DD (≤10#super[−9]) instead of quad IREGI, which fails there in both
-    modes; COLLIER's heptagon curves are therefore conditioned on that agreement (5 of 500 points excluded).
+    *Findings (capture 004, TIRust a43a524).* TIRust's default returns an accurate array on every point
+    of all five integrals (worst E/A 9.6×10#super[−9] on the rank-4 box, ≤3.4×10#super[−10] elsewhere).
+    Since capture 003 the binary64 pass computes boxes and triangles that its Gram gates refuse inside a
+    lane in double-double and injects their coefficients (partial rescue), and the precision rescue starts
+    at double-double, checked by a rotated double-double copy for N≥5. Full reruns at higher precision
+    dropped from 682 to 38 pentagons, from 1506 to 36 hexagons and from 494 to 54 heptagons; top-level
+    boxes (34 and 370 lanes, almost all at 106 bits) are unchanged. The second TIRust curve ("default
+    without a full rescue") therefore contains double-double sub-boxes. A binary64-only mode (precision
+    rescue disabled) and a binary64 retry below the conditioning gate, accepted by the rotation test, were
+    added after this capture (commit 8d7af86) and enter the next one. Capture 003 found the two oneloopmaster
+    master issues behind most inaccurate binary64 pentagon and hexagon lanes (B0 cancelling like
+    m#super[2]/p#super[2] at the binary64 invariants of massless legs, and a NaN D0), both repaired.
+    COLLIER (both branches) stays accurate everywhere. Original IREGI's PV fails on every rank-6 box and
+    on every heptagon, its IBP on the hexagons and heptagons (E/A up to 10#super[97]), all reported as
+    successful (minimal reproducers in `validation/mre`). NinjaRS, reducing the contracted numerator,
+    returns a value on every point with tails beyond 10#super[−3] on one rank-6 box and a few hexagons and
+    heptagons. Heptagon references are confirmed by COLLIER COLI and DD (≤10#super[−9]) instead of quad
+    IREGI, which fails there in both modes; COLLIER's heptagon curves are therefore conditioned on that
+    agreement (5 of 500 points excluded). The same rule now confirms the six hexagon points that capture
+    003 excluded.
   ]
   v(0.2em)
   let rescued = snapshot.integrals.map(i => (i.id, i.codes.at(0).at("rescued_by_bits", default: (:))))
@@ -727,7 +743,7 @@
     hexagon, and quad PV keeps only 10#super[−12]–10#super[−10] on some hexagon points, where COLLIER (independent
     of both) agrees with the 256-bit array instead. Below the confirmation level Δ is not independently verified.
     TIRust lanes rescued at 256 bits equal the reference after rounding (Δ = 0). This capture: TIRust
-    #raw(snapshot.tirust_git_head.slice(0, 7)). Binaries and the TIRust commit are in #raw("validation/benchmark/stability-20261030/summary-" + (if snapshot.integrals.at(0).at("contracted_codes", default: none) != none { "003" } else { "002" }) + ".json"); reproduce with
+    #raw(snapshot.tirust_git_head.slice(0, 7)). Binaries and the TIRust commit are in #raw("validation/benchmark/stability-20261030/summary" + (if stability-campaign-id == none { "" } else { "-" + stability-campaign-id }) + ".json"); reproduce with
     #raw("make-points.py"), #raw("build.py"), #raw("run.py") and #raw("summarize.py") in that directory.
   ]
 }
