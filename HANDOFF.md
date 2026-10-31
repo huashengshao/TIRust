@@ -279,6 +279,20 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    value). TIRust N5R5/N6R6 slower than capture 002 (rotation test + Gram-free
    pentagon). Timing inputs for capture 003: inputs-003.json (inputs.json stays
    bound).
+   Heptagon speed-up (next): on 30 physical heptagons every binary64 lane is
+   refused by some box/triangle Gram gate (35 boxes + 35 triangles per lane,
+   conditioning 1e-3..1e-4; even with gate 1e-15). Gate open: E/A 1e-13..1e-7
+   (16/29 <= 1e-10). Plan A (preferred): partial rescue, i.e. evaluate only
+   the refused subsets (their coefficient programs and masters) at 106 bits
+   and feed the rounded coefficients into the binary64 program (thin
+   identities and the Gram-free pentagon above them are stable). Plan B:
+   looser gate for N=7 relying on the rotation test; first measure whether the
+   rotation difference tracks the true error (it cannot see master-error
+   amplification, as both evaluations share the masters).
+   oneloopmaster dilog fix: Float::dilog lifts both argument parts to the
+   working precision (bb6ee20; upstream branch d926e91); found by upstream's
+   native_256_bits_matches_oneloop (C0 arguments with a 2-bit cancelled real
+   part).
    Engine gaps found: exactly singular six-point thin systems and null-
    hyperplane boxes (singular Gram, affinely independent) have no route.
 3d. **Next: small-Gram box reduction** (hep-ph/0509141 sect. 3.4, Eqs.
