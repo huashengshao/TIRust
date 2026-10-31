@@ -171,6 +171,15 @@ selects native IREGI, OneLOop, or MadLoop normalization. `TensorWeights` makes
 multinomial weights explicit. `ContractionPlan` accepts ordinary monomial
 coefficients and accounts for these choices.
 
+UV and IR poles stay separate. `TensorWorkspace::set_regulators` (CLI
+`--mu-uv2/--mu-ir2/--delta-uv/--delta-ir1/--delta-ir2/--collier-normalization`,
+Python `workspace.set_regulators(...)`) adds COLLIER's regulator parameters:
+separate UV and IR scales instead of each lane's mu^2, numerical pole values
+added to the finite slot, and optionally COLLIER's c(eps) normalization of the
+IR double pole (with `Convention::OneLoop`). The default changes nothing. The
+massless on-shell box reproduces COLLIER 1.2.10 to 1e-11 at two IR scales
+(`crates/iregi-rust/tests/regulators.rs`).
+
 Results retain their convention, tensor weights and complete Dual layout.
 Contraction rejects incompatible metadata before evaluating coefficients.
 

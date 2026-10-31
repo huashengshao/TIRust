@@ -114,6 +114,23 @@ struct NumericArgs {
     /// Independent verification precision; defaults to twice --rescue-bits.
     #[arg(long,requires="rescue",value_parser=clap::value_parser!(u32).range(2..))]
     verification_bits: Option<u32>,
+    /// COLLIER-style UV scale mu_UV^2 (default: each lane's mu^2).
+    #[arg(long)]
+    mu_uv2: Option<f64>,
+    /// COLLIER-style IR scale mu_IR^2 (default: each lane's mu^2).
+    #[arg(long)]
+    mu_ir2: Option<f64>,
+    /// Numerical value of the UV pole added to the finite slot (COLLIER Delta_UV).
+    #[arg(long, default_value_t = 0.0, allow_hyphen_values = true)]
+    delta_uv: f64,
+    /// Numerical values of the IR poles (COLLIER Delta_IR^(1), Delta_IR^(2)).
+    #[arg(long, default_value_t = 0.0, allow_hyphen_values = true)]
+    delta_ir1: f64,
+    #[arg(long, default_value_t = 0.0, allow_hyphen_values = true)]
+    delta_ir2: f64,
+    /// COLLIER's c(eps) normalization of the IR double pole (requires --convention one-loop).
+    #[arg(long)]
+    collier_normalization: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -121,6 +138,7 @@ struct NumericPolicy {
     output_bits: u32,
     accuracy_bits: u32,
     rescue: Option<RescueSettings>,
+    regulators: iregi_rust::Regulators,
 }
 
 impl NumericArgs {
@@ -165,6 +183,18 @@ impl NumericArgs {
             output_bits,
             accuracy_bits,
             rescue,
+            regulators: iregi_rust::Regulators {
+                mu_uv_squared: self.mu_uv2,
+                mu_ir_squared: self.mu_ir2,
+                delta_uv: self.delta_uv,
+                delta_ir1: self.delta_ir1,
+                delta_ir2: self.delta_ir2,
+                normalization: if self.collier_normalization {
+                    iregi_rust::RegulatorNormalization::Collier
+                } else {
+                    iregi_rust::RegulatorNormalization::Convention
+                },
+            },
         })
     }
 }
@@ -177,6 +207,7 @@ impl NumericPolicy {
                 "working_bits":settings.working_bits,"verification_bits":settings.verification_bits})),
             "verification_scope":if self.rescue.is_some(){"tensor_moments"}else{"none"},
             "input_promotion":"exactly promotes the already parsed output-domain input; does not recover decimal digits rounded during input parsing",
+            "regulators":self.regulators,
             "scope":"tensor coefficients at the exactly represented input; numerator evaluation and contraction use output precision and are not independently verified by tensor rescue"})
     }
 }
@@ -187,6 +218,7 @@ enum NumericalWorkspace<T: RescueScalar> {
         workspace: TensorRescueWorkspace<T>,
         algorithm_used: Algorithm,
         preparation_notes: Vec<String>,
+        regulators: iregi_rust::Regulators,
     },
 }
 
@@ -205,12 +237,14 @@ where
                 workspace,
                 algorithm_used,
                 preparation_notes,
+                regulators: policy.regulators,
             })
         } else {
             let mut workspace = TensorWorkspace::new(plan, prototype).map_err(|e| e.to_string())?;
             workspace
                 .set_accuracy_precision(policy.accuracy_bits)
                 .map_err(|e| e.to_string())?;
+            workspace.set_regulators(policy.regulators);
             Ok(Self::Ordinary(workspace))
         }
     }
@@ -218,7 +252,10 @@ where
     fn reduce_batch(&mut self, batch: &KinematicsBatch<T>) -> CliResult<BatchResult<T>> {
         match self {
             Self::Ordinary(workspace) => workspace.reduce_batch(batch),
-            Self::Verified { workspace, .. } => workspace.reduce_batch(batch),
+            Self::Verified { workspace, regulators, .. } => workspace.reduce_batch(batch).and_then(|mut result| {
+                regulators.apply(batch, &mut result)?;
+                Ok(result)
+            }),
         }
         .map_err(|e| e.to_string())
     }

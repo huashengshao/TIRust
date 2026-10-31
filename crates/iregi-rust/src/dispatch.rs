@@ -620,6 +620,8 @@ pub struct TensorWorkspace<T: NativeFloat> {
     engine: WorkspaceEngine<T>,
     requested_master_policy: MasterExecutionPolicy,
     notes: Vec<String>,
+    /// COLLIER-style UV/IR scales and pole values applied to every result.
+    regulators: crate::Regulators,
 }
 
 impl<T: NativeFloat> TensorWorkspace<T>
@@ -646,6 +648,7 @@ where
                     engine: WorkspaceEngine::Direct(Box::new(workspace)),
                     requested_master_policy: options.master_policy,
                     notes: plan.preparation_notes().to_vec(),
+                    regulators: crate::Regulators::default(),
                 });
             }
             let fallback = direct.fallback()?;
@@ -657,6 +660,7 @@ where
                 engine: WorkspaceEngine::LegacyNoOp(Box::new(workspace)),
                 requested_master_policy: options.master_policy,
                 notes: plan.preparation_notes().to_vec(),
+                regulators: crate::Regulators::default(),
             });
         }
         if let OrdinaryPlan::CertifiedTensor(checked) = &plan.ordinary {
@@ -671,6 +675,7 @@ where
                 },
                 requested_master_policy: options.master_policy,
                 notes: plan.preparation_notes().to_vec(),
+                regulators: crate::Regulators::default(),
             });
         }
         options
@@ -688,6 +693,7 @@ where
                 engine: WorkspaceEngine::MassTaylor(workspace),
                 requested_master_policy: options.master_policy,
                 notes: mass.preparation_notes().to_vec(),
+                regulators: crate::Regulators::default(),
             });
         }
         if matches!(&plan.ordinary, OrdinaryPlan::AffinePower(_)) {
@@ -732,6 +738,7 @@ where
             engine,
             requested_master_policy: options.master_policy,
             notes: plan.preparation_notes().to_vec(),
+            regulators: crate::Regulators::default(),
         })
     }
 
@@ -756,6 +763,7 @@ where
                 engine: WorkspaceEngine::LegacyNoOp(Box::new(workspace)),
                 requested_master_policy: options.master_policy,
                 notes: plan.preparation_notes().to_vec(),
+                regulators: crate::Regulators::default(),
             });
         }
         if let OrdinaryPlan::CertifiedTensor(checked) = &plan.ordinary {
@@ -772,6 +780,7 @@ where
                 },
                 requested_master_policy: options.master_policy,
                 notes,
+                regulators: crate::Regulators::default(),
             });
         }
         options
@@ -790,6 +799,7 @@ where
                 engine: WorkspaceEngine::MassTaylor(workspace),
                 requested_master_policy: options.master_policy,
                 notes: mass.preparation_notes().to_vec(),
+                regulators: crate::Regulators::default(),
             });
         }
         if affine_power_eligible(plan.settings()) {
@@ -807,6 +817,7 @@ where
                 engine: WorkspaceEngine::AffinePower(workspace),
                 requested_master_policy: options.master_policy,
                 notes,
+                regulators: crate::Regulators::default(),
             });
         }
         let generic = plan.generic_plan()?;
@@ -823,6 +834,7 @@ where
             engine: WorkspaceEngine::Generic(workspace),
             requested_master_policy: options.master_policy,
             notes,
+            regulators: crate::Regulators::default(),
         })
     }
 
@@ -847,6 +859,7 @@ where
             engine: WorkspaceEngine::AffinePower(workspace),
             requested_master_policy: options.master_policy,
             notes,
+            regulators: crate::Regulators::default(),
         })
     }
 
@@ -868,6 +881,7 @@ where
             engine: WorkspaceEngine::Generic(workspace),
             requested_master_policy: options.master_policy,
             notes,
+            regulators: crate::Regulators::default(),
         })
     }
 
@@ -1118,7 +1132,27 @@ where
         }
     }
 
+    /// COLLIER-style regulators (separate UV and IR scales, numerical pole
+    /// values; see [`crate::Regulators`]) applied to every later result,
+    /// checked against the result's convention.
+    pub fn set_regulators(&mut self, regulators: crate::Regulators) {
+        self.regulators = regulators;
+    }
+
+    pub fn regulators(&self) -> crate::Regulators {
+        self.regulators
+    }
+
     pub fn reduce_batch(
+        &mut self,
+        batch: &KinematicsBatch<T>,
+    ) -> Result<BatchResult<T>, ReductionError> {
+        let mut result = self.reduce_batch_unregulated(batch)?;
+        self.regulators.apply(batch, &mut result)?;
+        Ok(result)
+    }
+
+    fn reduce_batch_unregulated(
         &mut self,
         batch: &KinematicsBatch<T>,
     ) -> Result<BatchResult<T>, ReductionError> {

@@ -172,6 +172,16 @@ class Workspace:
         ...
     @property
     def preparation_notes(self) -> list[str]: ...
+    def set_regulators(
+        self,
+        *,
+        mu_uv2: float | None = None,
+        mu_ir2: float | None = None,
+        delta_uv: float = 0.0,
+        delta_ir1: float = 0.0,
+        delta_ir2: float = 0.0,
+        collier_normalization: bool = False,
+    ) -> None: ...
     def reduce_batch(self, batch: KinematicsBatch | Sequence[Sequence[NumericInput]]) -> BatchResult: ...
     def contract(self, result: BatchResult, *, monomials: Sequence[Monomial],
         coefficients: Sequence[Sequence[NumericInput]]) -> ContractionResult: ...

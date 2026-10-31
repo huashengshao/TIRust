@@ -32,6 +32,7 @@ pub mod ibp;
 mod invariant_certificate;
 pub mod plan;
 pub mod pv;
+pub mod regulators;
 pub mod rescue;
 pub mod scalar;
 pub mod snapping;
@@ -55,6 +56,7 @@ pub use dispatch::{
 pub use execution::{ExecutionProfile, ExecutionStats, Workspace, reduce_batch};
 pub use invariant_certificate::ExactInvariantScalar;
 pub use plan::ReductionPlan;
+pub use regulators::{RegulatorNormalization, Regulators};
 pub use rescue::{
     PrecisionRescueWorkspace, RescueScalar, RescueSettings, RescueStats, RescueStatus,
     RescueTrigger,

@@ -520,6 +520,39 @@ impl PyWorkspace {
         }
     }
 
+    /// COLLIER-style regulators applied to every later result: separate UV
+    /// and IR scales (default: each lane's mu^2), numerical pole values added
+    /// to the finite slot, and optionally COLLIER's c(eps) normalization of
+    /// the IR double pole (requires convention="oneloop").
+    #[pyo3(signature = (*, mu_uv2=None, mu_ir2=None, delta_uv=0.0, delta_ir1=0.0, delta_ir2=0.0, collier_normalization=false))]
+    fn set_regulators(
+        &mut self,
+        mu_uv2: Option<f64>,
+        mu_ir2: Option<f64>,
+        delta_uv: f64,
+        delta_ir1: f64,
+        delta_ir2: f64,
+        collier_normalization: bool,
+    ) {
+        let regulators = iregi_rust::Regulators {
+            mu_uv_squared: mu_uv2,
+            mu_ir_squared: mu_ir2,
+            delta_uv,
+            delta_ir1,
+            delta_ir2,
+            normalization: if collier_normalization {
+                iregi_rust::RegulatorNormalization::Collier
+            } else {
+                iregi_rust::RegulatorNormalization::Convention
+            },
+        };
+        match &mut self.inner {
+            Workspaces::F64(engine) => engine.workspace.set_regulators(regulators),
+            Workspaces::Dd(engine) => engine.workspace.set_regulators(regulators),
+            Workspaces::Float(engine) => engine.workspace.set_regulators(regulators),
+        }
+    }
+
     /// Evaluate one genuine Rust batch; failed lanes keep independent diagnostics.
     fn reduce_batch(
         &mut self,
