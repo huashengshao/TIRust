@@ -277,6 +277,9 @@ pub(crate) struct DirectHybridWorkspace<T: NativeFloat> {
     /// expansion retry, prepared on first use.
     checked: Option<Box<DirectWorkspace<T>>>,
     expanded: Option<Box<DirectWorkspace<T>>>,
+    /// Per lane of the current call: the best binary64 array computed for a
+    /// lane its checks refused, with the E/A between it and its rotated copy.
+    candidates: Vec<Option<(Vec<Complex<T>>, f64)>>,
     rescue: RescueWorkspaces,
     fallback: Option<Box<TensorWorkspace<T>>>,
     last: DirectExecutionStats,
@@ -327,6 +330,7 @@ where
             precision_rescue: options.precision_rescue,
             checked: None,
             expanded: None,
+            candidates: Vec::new(),
             rescue: RescueWorkspaces::default(),
             fallback: None,
             last: DirectExecutionStats::default(),
@@ -639,6 +643,7 @@ where
                     if difference <= required {
                         result.values[lane * stride..(lane + 1) * stride].clone_from_slice(a);
                         result.statuses[lane] = LaneStatus::Success;
+                        result.estimated_errors[lane] = Some(difference);
                         result.primal_envelopes[lane] = first.primal_envelopes[k].clone();
                         result.primal_envelope_errors[lane] = first.primal_envelope_errors[k].clone();
                         let stage = if expansion {
@@ -651,6 +656,9 @@ where
                         self.diagnostics[lane]
                             .push(format!("{stage}: kept, rotated copy agrees to E/A {difference:e}"));
                         continue;
+                    }
+                    if self.candidates[lane].as_ref().is_none_or(|(_, best)| difference < *best) {
+                        self.candidates[lane] = Some((a.to_vec(), difference));
                     }
                     format!("{stage} the rotated copy differs by E/A {difference:e}", stage = if expansion { "small-Gram expansion:" } else { "below the gate" })
                 }
@@ -670,6 +678,10 @@ where
     ) -> Result<BatchResult<T>, ReductionError> {
         let started = self.profiling.then(std::time::Instant::now);
         let mut result = self.direct.reduce_batch(batch)?;
+        result.estimated_errors = vec![None; batch.rows];
+        result.best_effort = vec![false; batch.rows];
+        self.candidates.clear();
+        self.candidates.resize(batch.rows, None);
         let mut direct_profile = self.direct.last_profile();
         self.last = DirectExecutionStats {
             input_rows: batch.rows,
@@ -719,8 +731,11 @@ where
                         mu,
                     );
                     if difference <= tolerance {
+                        result.estimated_errors[lane] = Some(difference);
                         continue;
                     }
+                    self.candidates[lane] =
+                        Some((result.values[lane * stride..(lane + 1) * stride].to_vec(), difference));
                     // Rounding estimate ~ amplification * 2^-53.
                     conditions[lane] = Some(2f64.powi(-53) / difference);
                     format!("loop-rotation test: binary64 arrays differ by E/A {difference:e}")
@@ -847,6 +862,21 @@ where
                         self.diagnostics[lane].push(format!("fallback preparation failed: {note}"));
                     }
                 }
+            }
+        }
+        // Refused lanes keep their best binary64 array, flagged (COLLIER-style)
+        // with the estimated error from its rotated copy.
+        let stride = result.basis.len() * 4 * result.components;
+        for lane in 0..batch.rows {
+            if result.statuses[lane] == LaneStatus::Success {
+                continue;
+            }
+            if let Some((values, difference)) = self.candidates[lane].take() {
+                result.values[lane * stride..(lane + 1) * stride].clone_from_slice(&values);
+                result.best_effort[lane] = true;
+                result.estimated_errors[lane] = Some(difference);
+                self.diagnostics[lane]
+                    .push(format!("best-effort binary64 array returned, estimated E/A {difference:e}"));
             }
         }
         if let Some(started) = started {

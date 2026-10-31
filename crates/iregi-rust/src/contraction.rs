@@ -512,6 +512,7 @@ mod tests {
             analytic_used: vec![false],
             primal_envelopes: vec![None; 1],
             primal_envelope_errors: vec![None; 1],
+            estimated_errors: Vec::new(), best_effort: Vec::new(),
         };
         let numerator = NumeratorBatch {
             rows: 1,
@@ -566,6 +567,7 @@ mod tests {
             analytic_used: vec![false],
             primal_envelopes: vec![None; 1],
             primal_envelope_errors: vec![None; 1],
+            estimated_errors: Vec::new(), best_effort: Vec::new(),
         };
         let numerator = NumeratorBatch {
             rows: 1,
@@ -633,6 +635,7 @@ mod tests {
             analytic_used: vec![false, false, true],
             primal_envelopes: vec![None; 3],
             primal_envelope_errors: vec![None; 3],
+            estimated_errors: Vec::new(), best_effort: Vec::new(),
         };
         for (row, values) in [[-5., 14.], [-7., 18.], [-11., 26.]].iter().enumerate() {
             for (term, &position) in plan.positions.iter().enumerate() {
@@ -682,6 +685,7 @@ mod tests {
             analytic_used: vec![false; 3],
             primal_envelopes: vec![None; 3],
             primal_envelope_errors: vec![None; 3],
+            estimated_errors: Vec::new(), best_effort: Vec::new(),
         };
         let numerator = NumeratorBatch {
             rows: 3,
@@ -738,6 +742,7 @@ mod tests {
             analytic_used: Vec::new(),
             primal_envelopes: vec![None; 0],
             primal_envelope_errors: vec![None; 0],
+            estimated_errors: Vec::new(), best_effort: Vec::new(),
         };
         assert_eq!(
             workspace
@@ -767,6 +772,7 @@ mod tests {
             analytic_used: vec![false; 2],
             primal_envelopes: vec![None; 2],
             primal_envelope_errors: vec![None; 2],
+            estimated_errors: Vec::new(), best_effort: Vec::new(),
         };
         let result = workspace
             .contract_batch(
@@ -812,6 +818,7 @@ mod tests {
             analytic_used: vec![false],
             primal_envelopes: vec![None; 1],
             primal_envelope_errors: vec![None; 1],
+            estimated_errors: Vec::new(), best_effort: Vec::new(),
         };
         let numerator = NumeratorBatch {
             rows: 1,
@@ -855,6 +862,7 @@ mod tests {
             analytic_used: vec![false],
             primal_envelopes: vec![None; 1],
             primal_envelope_errors: vec![None; 1],
+            estimated_errors: Vec::new(), best_effort: Vec::new(),
         };
         let result = workspace
             .contract_typed_dual_batch(&moments, &[coefficient])

@@ -411,6 +411,7 @@ fn generic_thin_complete_result_layout_rejects_malformed_buffers_and_shapes() {
                 statuses: vec![LaneStatus::Success, LaneStatus::Unstable("demanded child failed".into()), LaneStatus::Success],
                 fallback_used: vec![false, true, false], analytic_used: vec![true, true, false],
                 primal_envelopes: vec![None; 3], primal_envelope_errors: vec![None; 3],
+                estimated_errors: Vec::new(), best_effort: Vec::new(),
             };
             validate_result_layout(&result, &basis, components, &metadata, 3).unwrap();
             assert_eq!(result.lane(0).unwrap().len(), outputs * components);

@@ -1625,6 +1625,7 @@ where
             analytic_used: vec![false; batch.rows],
             primal_envelopes: if self.policy.retain_primal_envelopes { vec![None; batch.rows] } else { Vec::new() },
             primal_envelope_errors: if self.policy.retain_primal_envelopes { vec![None; batch.rows] } else { Vec::new() },
+            estimated_errors: Vec::new(), best_effort: Vec::new(),
         };
         self.valid_lanes.clear();
         self.successful_lanes.clear();

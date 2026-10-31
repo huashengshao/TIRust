@@ -16,7 +16,8 @@ fn dotted_source()->CoupledQuadratureBatch<f64>{
         component_amplitudes:Some(amplitudes[row*width..(row+1)*width].to_vec()),
         output_components:Some(values[row*width..(row+1)*width].to_vec()),routes:vec![PrimalEnvelopeRoute::Ordinary]})).collect();
     let result=BatchResult{basis,metadata,components,values,statuses:vec![LaneStatus::Success;2],
-        fallback_used:vec![true,false],analytic_used:vec![false,true],primal_envelopes:envelopes,primal_envelope_errors:vec![None;2]};
+        fallback_used:vec![true,false],analytic_used:vec![false,true],primal_envelopes:envelopes,primal_envelope_errors:vec![None;2],
+        estimated_errors: Vec::new(), best_effort: Vec::new(),};
     let mut context=QuadratureErrorContext::missing(2);
     for row in 0..2{context.install_dense(&result,row,53,53,&[c(0.);8],QuadratureErrorOrigin::KnownNoQuadrature).unwrap();}
     CoupledQuadratureBatch::new(result,context).unwrap()

@@ -669,6 +669,8 @@ fn gate_refused_binary64_box_is_kept_by_the_rotation_check() {
         assert!(!result.fallback_used[0], "{stats:?}");
         assert_eq!((stats.checked_rows, stats.checked_successes), (1, 1), "{stats:?}");
         assert!(stats.precision_rescue.is_empty(), "{stats:?}");
+        let estimate = result.estimated_error(0).expect("measured by the rotation check");
+        assert!(estimate <= 2f64.powi(-36), "estimate {estimate:e}");
         let error = error.unwrap();
         assert!(error <= 1e-11, "E/A = {error:e}");
     }
@@ -716,6 +718,16 @@ fn disabled_precision_rescue_returns_inaccurate_binary64_lanes_unstable() {
     assert!(!result.fallback_used[0], "{stats:?}");
     assert_eq!((stats.checked_rows, stats.checked_successes), (1, 0), "{stats:?}");
     assert_eq!((stats.expansion_rows, stats.expansion_successes), (1, 0), "{stats:?}");
+    // Still reported, COLLIER-style: the best binary64 array, uncertified,
+    // with its estimated error (rotated copy), close to the true one.
+    let lane = result.lane_with_estimate(0).expect("best-effort array");
+    assert!(!lane.certified && result.is_best_effort(0));
+    let estimate = lane.estimated_error.expect("estimated error");
+    let mt2 = 173.0f64 * 173.0;
+    let (_, reference) = direct_256(4, 4, &row(&shifts, &[(mt2, 0.0); 4], 1000.0));
+    let error = general_array_error(&result.basis, 4 - 2 * 4, 1000.0, lane.values, &reference);
+    assert!(error <= 1e-7, "E/A = {error:e}");
+    assert!(estimate >= error / 10.0 && estimate <= error * 10.0, "estimate {estimate:e} vs E/A {error:e}");
     assert!(stats.precision_rescue.is_empty() && stats.symbolic_rows == 0, "{stats:?}");
     assert!(notes.iter().any(|note| note.contains("precision rescue disabled")), "{notes:?}");
     let (result, stats, _, error) = physical_box(&shifts, 4, PrecisionRescue::Automatic);

@@ -157,7 +157,8 @@ impl<T:NativeFloat> ThinSixWorkspace<T> where Complex<T>:EvaluationDomain {
         let mut result=BatchResult{basis:self.basis.clone(),components:self.components,metadata:self.metadata.clone(),
             values:vec![zero.clone();output_len],
             statuses:vec![LaneStatus::Success;batch.rows],fallback_used:vec![false;batch.rows],analytic_used:vec![false;batch.rows],
-            primal_envelopes:vec![None;batch.rows],primal_envelope_errors:vec![None;batch.rows]};
+            primal_envelopes:vec![None;batch.rows],primal_envelope_errors:vec![None;batch.rows],
+            estimated_errors: Vec::new(), best_effort: Vec::new(),};
         let mut active=Vec::new();
         for (lane,row) in batch.values.chunks_exact(input_width).enumerate() {
             if let Some(status)=validate_input_row(row,&self.layout,self.components) {result.statuses[lane]=status;} else {active.push(lane);}

@@ -230,6 +230,7 @@ mod tests {
             basis:basis.clone(),components:3,metadata:metadata.clone(),values:vec![c(1.0);24],
             statuses:vec![LaneStatus::Success;2],fallback_used:vec![false;2],analytic_used:vec![false;2],
             primal_envelopes:vec![],primal_envelope_errors:vec![],
+            estimated_errors: Vec::new(), best_effort: Vec::new(),
         };
         let mut context=QuadratureErrorContext::missing(2);
         let first=[1.,2.,3.,2.,4.,6.,3.,6.,9.,4.,8.,12.].map(c);
@@ -293,7 +294,8 @@ mod tests {
         let metadata=ResultMetadata::new(Convention::IregiNative,TensorWeights::Components,None);
         let result=crate::BatchResult{basis:basis.clone(),components:1,metadata:metadata.clone(),
             values:vec![c(1.);12],statuses:vec![LaneStatus::Success;3],fallback_used:vec![false;3],analytic_used:vec![false;3],
-            primal_envelopes:vec![],primal_envelope_errors:vec![]};
+            primal_envelopes:vec![],primal_envelope_errors:vec![],
+            estimated_errors: Vec::new(), best_effort: Vec::new(),};
         let mut context=QuadratureErrorContext::missing(3);
         context.install_dense(&result,0,53,40,&[c(1.);4],QuadratureErrorOrigin::PropagatedEuclidean).unwrap();
         context.install_dense(&result,1,53,40,&[c(2.);4],QuadratureErrorOrigin::PropagatedEuclidean).unwrap();

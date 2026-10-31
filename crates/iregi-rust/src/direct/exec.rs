@@ -2346,6 +2346,7 @@ where
             analytic_used: vec![false; rows],
             primal_envelopes: vec![None; rows],
             primal_envelope_errors: vec![None; rows],
+            estimated_errors: Vec::new(), best_effort: Vec::new(),
         })
     }
 }

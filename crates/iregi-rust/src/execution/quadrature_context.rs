@@ -193,7 +193,8 @@ mod tests {
             metadata:ResultMetadata::new(Convention::IregiNative,TensorWeights::Components,shape),
             values:(0..rows*8*4).map(|n|Complex::new(Float::with_val(192,(n+1)as i64),Float::with_val(160,0))).collect(),
             statuses:vec![LaneStatus::Success;rows],fallback_used:vec![false;rows],analytic_used:vec![false;rows],
-            primal_envelopes:vec![],primal_envelope_errors:vec![]}
+            primal_envelopes:vec![],primal_envelope_errors:vec![],
+            estimated_errors: Vec::new(), best_effort: Vec::new(),}
     }
     fn errors()->Vec<Complex<Float>> {(0..32).map(|n|Complex::new(Float::with_val(256,n as i64),Float::with_val(256,0))).collect()}
 

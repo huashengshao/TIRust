@@ -481,6 +481,7 @@ where
             analytic_used: vec![false; input.rows],
             primal_envelopes: if self.policy.retain_primal_envelopes { vec![None; input.rows] } else { Vec::new() },
             primal_envelope_errors: if self.policy.retain_primal_envelopes { vec![None; input.rows] } else { Vec::new() },
+            estimated_errors: Vec::new(), best_effort: Vec::new(),
         };
         self.diagnostics.resize_with(input.rows, Vec::new);
         self.chart_attempts.resize(input.rows, false);

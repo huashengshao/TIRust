@@ -320,6 +320,7 @@ fn coupled_fixture() -> AffinePowerResult<Float> {
         analytic_used: vec![true],
         primal_envelopes: vec![None],
         primal_envelope_errors: vec![None],
+        estimated_errors: Vec::new(), best_effort: Vec::new(),
     };
     let errors: Vec<_> = (0..32)
         .map(|i| Complex::new(Float::with_val(256, i + 2), Float::with_val(256, 0)))

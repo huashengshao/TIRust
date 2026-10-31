@@ -18,7 +18,8 @@ fn joint_fixture(layout:&DottedLayout,rows:usize,origin:QuadratureErrorOrigin)->
         component_amplitudes:Some(amplitudes[row*width..(row+1)*width].to_vec()),
         output_components:Some(values[row*width..(row+1)*width].to_vec()),routes:vec![PrimalEnvelopeRoute::Ordinary]})).collect();
     let result=BatchResult{basis,metadata,components,values,statuses:vec![LaneStatus::Success;rows],fallback_used:vec![false;rows],
-        analytic_used:vec![false;rows],primal_envelopes:envelopes,primal_envelope_errors:vec![None;rows]};
+        analytic_used:vec![false;rows],primal_envelopes:envelopes,primal_envelope_errors:vec![None;rows],
+        estimated_errors: Vec::new(), best_effort: Vec::new(),};
     let mut context=QuadratureErrorContext::missing(rows);
     let errors:Vec<_>=(0..width).map(|i|c(if origin==QuadratureErrorOrigin::KnownNoQuadrature{0.}else{(i+1)as f64*1e-16})).collect();
     for row in 0..rows{context.install_dense(&result,row,53,53,&errors,origin).unwrap();}

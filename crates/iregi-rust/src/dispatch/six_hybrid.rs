@@ -508,6 +508,7 @@ mod tests {
             analytic_used: vec![false; rows],
             primal_envelopes,
             primal_envelope_errors: vec![None; rows],
+            estimated_errors: Vec::new(), best_effort: Vec::new(),
         }
     }
     fn outcome(result: BatchResult<f64>) -> FallbackOutcome<f64> {

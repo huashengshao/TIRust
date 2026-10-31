@@ -906,19 +906,48 @@ impl PyBatchResult {
         output.set_item("total_seconds", profile.total.as_secs_f64())?;
         Ok(Some(output.unbind()))
     }
-    fn lane(&self, py: Python<'_>, row: usize) -> PyResult<Py<PyAny>> {
-        check_lane(self.statuses_ref(), row)?;
+    /// The lane's moments. With best_effort=True a lane refused by its
+    /// checks returns its best uncertified array when it kept one (see
+    /// `best_effort` and `estimated_errors`), like a COLLIER result whose
+    /// accuracy flag is set.
+    #[pyo3(signature = (row, *, best_effort=false))]
+    fn lane(&self, py: Python<'_>, row: usize, best_effort: bool) -> PyResult<Py<PyAny>> {
+        if !best_effort || row >= self.rows() {
+            check_lane(self.statuses_ref(), row)?;
+        }
         match &self.result {
-            Results::F64(value) => tensor_lane(value, row, self.shape.as_deref(), py),
-            Results::Dd(value) => tensor_lane(value, row, self.shape.as_deref(), py),
-            Results::Float(value) => tensor_lane(value, row, self.shape.as_deref(), py),
+            Results::F64(value) => tensor_lane(value, row, self.shape.as_deref(), py, best_effort),
+            Results::Dd(value) => tensor_lane(value, row, self.shape.as_deref(), py, best_effort),
+            Results::Float(value) => tensor_lane(value, row, self.shape.as_deref(), py, best_effort),
+        }
+    }
+    /// Per lane: estimated relative error (E/A) of its array where TIRust
+    /// measured one (difference to the integral with relabelled
+    /// propagators; an estimate, not a bound), else None.
+    #[getter]
+    fn estimated_errors(&self) -> Vec<Option<f64>> {
+        let rows = self.rows();
+        match &self.result {
+            Results::F64(value) => (0..rows).map(|row| value.estimated_error(row)).collect(),
+            Results::Dd(value) => (0..rows).map(|row| value.estimated_error(row)).collect(),
+            Results::Float(value) => (0..rows).map(|row| value.estimated_error(row)).collect(),
+        }
+    }
+    /// Per lane: refused by its checks but holding a best-effort array.
+    #[getter]
+    fn best_effort(&self) -> Vec<bool> {
+        let rows = self.rows();
+        match &self.result {
+            Results::F64(value) => (0..rows).map(|row| value.is_best_effort(row)).collect(),
+            Results::Dd(value) => (0..rows).map(|row| value.is_best_effort(row)).collect(),
+            Results::Float(value) => (0..rows).map(|row| value.is_best_effort(row)).collect(),
         }
     }
     fn lanes(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let values = (0..self.rows())
             .map(|row| {
                 if self.statuses_ref()[row] == LaneStatus::Success {
-                    self.lane(py, row)
+                    self.lane(py, row, false)
                 } else {
                     Ok(py.None())
                 }
@@ -1052,10 +1081,17 @@ fn tensor_lane<T: PythonNumber>(
     row: usize,
     shape: Option<&[Vec<usize>]>,
     py: Python<'_>,
+    best_effort: bool,
 ) -> PyResult<Py<PyAny>> {
-    let values = result
-        .lane(row)
-        .map_err(|status| crate::LaneError::new_err(format!("lane {row}: {status:?}")))?;
+    let values = if best_effort {
+        result.lane_with_estimate(row).map(|lane| lane.values).ok_or_else(|| {
+            crate::LaneError::new_err(format!("lane {row}: {:?} (no best-effort array)", result.statuses[row]))
+        })?
+    } else {
+        result
+            .lane(row)
+            .map_err(|status| crate::LaneError::new_err(format!("lane {row}: {status:?}")))?
+    };
     let moments = values
         .chunks_exact(4 * result.components)
         .map(|moment| {

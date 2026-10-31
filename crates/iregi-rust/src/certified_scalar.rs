@@ -469,6 +469,7 @@ where
             analytic_used: vec![false; rows],
             primal_envelopes: Vec::new(),
             primal_envelope_errors: Vec::new(),
+            estimated_errors: Vec::new(), best_effort: Vec::new(),
         };
         let n = self.plan.settings.propagators;
         let gram_width = product(n * (n + 1) / 2, self.components)?;

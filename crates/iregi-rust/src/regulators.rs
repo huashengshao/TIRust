@@ -120,7 +120,8 @@ impl Regulators {
         let pi2_6 = pi.clone() * &pi / &prototype.from_usize(6);
         let deltas = [self.delta_uv, self.delta_ir1, self.delta_ir2].map(|x| exact(&prototype, x));
         for row in 0..batch.rows {
-            if result.statuses[row] != LaneStatus::Success {
+            // Best-effort arrays of refused lanes get the same convention.
+            if result.statuses[row] != LaneStatus::Success && !result.is_best_effort(row) {
                 continue;
             }
             let mu = batch.values[(row + 1) * width - 1].re.clone();

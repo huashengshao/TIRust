@@ -190,6 +190,7 @@ where
             statuses: vec![LaneStatus::Unstable("checked pentagon input not certified".into()); input.rows],
             fallback_used: vec![false; input.rows], analytic_used: vec![false; input.rows],
             primal_envelopes: vec![None; input.rows], primal_envelope_errors: vec![None; input.rows],
+            estimated_errors: Vec::new(), best_effort: Vec::new(),
         };
         self.diagnostics.resize_with(input.rows, Vec::new);
         let mut lanes = Vec::with_capacity(input.rows);

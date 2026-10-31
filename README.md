@@ -172,7 +172,14 @@ double-double, and lanes still refused are rerun by the direct engine at 106,
 `TensorWorkspaceOptions::precision_rescue = PrecisionRescue::Disabled` (or
 `TensorWorkspace::set_precision_rescue`; CLI `--no-precision-rescue`; Python
 `workspace.set_precision_rescue(False)`) keeps every lane in binary64: refused
-lanes are returned `Unstable`, with the reason in `last_diagnostics()`. A looser
+lanes are returned `Unstable`, with the reason in `last_diagnostics()`, and,
+like COLLIER's results with their accuracy flag set, they keep the best binary64
+array computed for them when one exists: `BatchResult::lane_with_estimate`
+returns it uncertified with its estimated relative error (`estimated_errors`:
+the E/A between the array and its loop-rotated copy, an estimate, not a bound;
+also given for lanes that passed the rotation test). CLI: `estimated_error` and
+`best_effort_moments` per sample; Python: `estimated_errors`, `best_effort` and
+`lane(row, best_effort=True)`. A looser
 accuracy request (`set_accuracy_precision(bits)`, tolerance 2^(19-bits)) lets
 the binary64-only path keep more lanes. `TensorReductionPlan::new_without_direct`
 selects the symbolic dispatch explicitly. `DoubleFloat`, `Float` and Dual

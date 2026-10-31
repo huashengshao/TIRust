@@ -622,7 +622,7 @@
     text(size: 8pt, weight: "bold")[#if code.median == none [—] else [#de-sci(code.median)]]
     linebreak()
     text(size: 6.3pt, fill: luma(70))[p99 #de-sci(code.p99) · >10#super[−3]: #worse/#total
-      #if code.no_array > 0 [· no array #code.no_array] #if code.flagged > 0 and code.code != "tirust" and code.code != "tirust-binary64" [· flagged #code.flagged]]
+      #if code.no_array > 0 [· no array #code.no_array] #if code.flagged > 0 and not code.code.starts-with("tirust") [· flagged #code.flagged] #if code.at("best_effort", default: 0) > 0 [· best-effort #code.best_effort]]
   })
 }
 #let stability-pages(snapshot) = {
@@ -647,7 +647,11 @@
   figure(caption: [Cumulative binary64 stability profiles (fraction of points with E/A > Δ).
     TIRust (default) is the public binary64 API: lanes its own checks refuse (conditioning gates; for N≥5 a
     loop-rotation test comparing two binary64 evaluations) are rerun by the direct engine at 106, 256 or 512
-    bits before results are returned. #if snapshot.integrals.at(0).codes.any(c => c.code == "tirust-binary64-r20") [
+    bits before results are returned. #if snapshot.integrals.at(0).codes.any(c => c.at("best_effort", default: none) != none) [
+    "TIRust binary64 only" is the same facade with the precision rescue disabled (every lane in binary64), at the
+    default accuracy request 2#super[−34] and at 2#super[−20]; a lane its checks refuse is scored by the best
+    binary64 array it kept, uncertified and flagged like COLLIER's flagged lanes (table: best-effort), and counts
+    as missing only without one.] else if snapshot.integrals.at(0).codes.any(c => c.code == "tirust-binary64-r20") [
     "TIRust binary64 only" is the same facade with the precision rescue disabled (every lane in binary64; refused
     lanes count as missing), at the default accuracy request 2#super[−34] and at 2#super[−20].] else [
     The second TIRust curve takes the default path's array unless the lane was rerun at higher precision; refused

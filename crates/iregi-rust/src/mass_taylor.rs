@@ -347,7 +347,8 @@ impl<T:NativeFloat> MassTaylorWorkspace<T>where Complex<T>:EvaluationDomain {
         let zero=Complex::new(self.prototype.zero(),self.prototype.zero());
         let mut result=BatchResult{basis:source.basis.clone(),metadata,components:user,values:vec![zero.clone();mul(rows,width)?],
             statuses:source.statuses.clone(),fallback_used:source.fallback_used.clone(),analytic_used:source.analytic_used.clone(),
-            primal_envelopes:vec![None;rows],primal_envelope_errors:vec![None;rows]};
+            primal_envelopes:vec![None;rows],primal_envelope_errors:vec![None;rows],
+            estimated_errors: Vec::new(), best_effort: Vec::new(),};
         let mut context=QuadratureErrorContext::missing(rows);let mut selected_rows=Vec::new();let mut selected_errors=Vec::new();let mut origins=Vec::new();
         let projection_parameters=add(self.plan.parameter_count(),mul(outputs,2)?)?;
         let mut input=KinematicsBatch{rows:0,components:user,values:Vec::new()};
@@ -442,7 +443,8 @@ fn scatter_checked_dotted<T:NativeFloat>(source:Option<CoupledQuadratureBatch<T>
     let zero=Complex::new(prototype.zero(),prototype.zero());
     let mut result=BatchResult{basis:basis.to_vec(),metadata:metadata.clone(),components,values:vec![zero;mul(rows,width)?],
         statuses:statuses.to_vec(),fallback_used:vec![false;rows],analytic_used:vec![false;rows],
-        primal_envelopes:vec![None;rows],primal_envelope_errors:vec![None;rows]};
+        primal_envelopes:vec![None;rows],primal_envelope_errors:vec![None;rows],
+        estimated_errors: Vec::new(), best_effort: Vec::new(),};
     let mut context=QuadratureErrorContext::missing(rows);
     for row in 0..rows{if accepted.binary_search(&row).is_err(){
         let reason=format!("checked regular MassTaylor row rejected: {:?}",result.statuses[row]);
@@ -501,7 +503,8 @@ fn scatter_admitted_joint<T:NativeFloat>(source:CoupledQuadratureBatch<T>,rows:u
     let zero=Complex::new(prototype.zero(),prototype.zero());
     let mut result=BatchResult{basis:source_result.basis.clone(),metadata:source_result.metadata().clone(),components:source_result.components,
         values:vec![zero;mul(rows,width)?],statuses:vec![LaneStatus::Unstable("mass-Taylor joint row not admitted".into());rows],
-        fallback_used:vec![false;rows],analytic_used:vec![false;rows],primal_envelopes:vec![None;rows],primal_envelope_errors:vec![None;rows]};
+        fallback_used:vec![false;rows],analytic_used:vec![false;rows],primal_envelopes:vec![None;rows],primal_envelope_errors:vec![None;rows],
+        estimated_errors: Vec::new(), best_effort: Vec::new(),};
     let mut context=QuadratureErrorContext::missing(rows);
     for(row,reason)in rejected.iter().enumerate(){if let Some(reason)=reason{
         result.statuses[row]=LaneStatus::Unstable(reason.clone());result.primal_envelope_errors[row]=Some(reason.clone());

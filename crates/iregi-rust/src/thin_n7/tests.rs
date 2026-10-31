@@ -644,6 +644,7 @@ fn successful_children(parent_rows: usize) -> BatchResult<f64> {
         analytic_used: vec![false; rows],
         primal_envelopes,
         primal_envelope_errors: vec![None; rows],
+        estimated_errors: Vec::new(), best_effort: Vec::new(),
     }
 }
 

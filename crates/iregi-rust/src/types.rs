@@ -203,6 +203,26 @@ pub struct BatchResult<T: FloatLike> {
     pub analytic_used: Vec<bool>,
     pub(crate) primal_envelopes: Vec<Option<PrimalEnvelope<T>>>,
     pub(crate) primal_envelope_errors: Vec<Option<String>>,
+    /// Per lane, where the engine measured one: estimated relative error of
+    /// the lane's values (E/A over the whole array, moments weighted by
+    /// mu^-rank), from the difference to the same integral with relabelled
+    /// propagators. An estimate, not a bound. Empty when the engine gives none.
+    pub estimated_errors: Vec<Option<f64>>,
+    /// Lanes whose status is not `Success` but whose values hold the best
+    /// array the engine computed: uncertified, like a COLLIER result whose
+    /// accuracy flag is set (see `estimated_errors`). Empty: none.
+    pub best_effort: Vec<bool>,
+}
+
+/// A lane's array with its accuracy information (`BatchResult::lane_with_estimate`).
+#[derive(Clone, Copy, Debug)]
+pub struct LaneEstimate<'a, T: FloatLike> {
+    pub values: &'a [Complex<T>],
+    /// Estimated relative error (E/A), if the engine measured one.
+    pub estimated_error: Option<f64>,
+    /// `true` for lanes that passed every check (status `Success`); `false`
+    /// for a refused lane's best-effort array.
+    pub certified: bool,
 }
 
 /// Immutable interpretation of a tensor result's stored coefficients.
@@ -254,6 +274,33 @@ impl<T: FloatLike> BatchResult<T> {
         }
         let width = self.basis.len() * 4 * self.components;
         Ok(&self.values[row * width..(row + 1) * width])
+    }
+
+    /// Estimated relative error (E/A) of lane `row`, where measured.
+    pub fn estimated_error(&self, row: usize) -> Option<f64> {
+        self.estimated_errors.get(row).copied().flatten()
+    }
+
+    /// Whether lane `row` failed its checks but kept a best-effort array.
+    pub fn is_best_effort(&self, row: usize) -> bool {
+        self.best_effort.get(row).copied().unwrap_or(false)
+    }
+
+    /// The lane's array with its accuracy information: every successful lane
+    /// (`certified`), and refused lanes that kept a best-effort array
+    /// (`!certified`, normally with an estimated error). `None` when the lane
+    /// has no array (invalid input, master failure, no evaluation).
+    pub fn lane_with_estimate(&self, row: usize) -> Option<LaneEstimate<'_, T>> {
+        let certified = self.statuses[row] == LaneStatus::Success;
+        if !certified && !self.is_best_effort(row) {
+            return None;
+        }
+        let width = self.basis.len() * 4 * self.components;
+        Some(LaneEstimate {
+            values: &self.values[row * width..(row + 1) * width],
+            estimated_error: self.estimated_error(row),
+            certified,
+        })
     }
 }
 
@@ -432,6 +479,7 @@ mod primal_envelope_tests {
             statuses: vec![LaneStatus::Success; rows],
             fallback_used: vec![false; rows], analytic_used: vec![false; rows],
             primal_envelopes: envelopes, primal_envelope_errors: vec![None; rows],
+            estimated_errors: Vec::new(), best_effort: Vec::new(),
         }
     }
 
@@ -563,6 +611,7 @@ mod primal_envelope_tests {
             basis, metadata, components: 1, values: vec![value; 4],
             statuses: vec![LaneStatus::Success], fallback_used: vec![false], analytic_used: vec![false],
             primal_envelopes: vec![Some(envelope)], primal_envelope_errors: vec![None],
+            estimated_errors: Vec::new(), best_effort: Vec::new(),
         };
         let mut target = source.clone();
         target.inherit_primal_envelope(0, &source, 0, PrimalEnvelopeRoute::Analytic);
@@ -618,7 +667,8 @@ mod primal_envelope_tests {
             output_components:Some(values.clone()),routes:vec![PrimalEnvelopeRoute::Ordinary]};
         let mut result=BatchResult {basis,components:3,metadata,values,statuses:vec![LaneStatus::Success],
             fallback_used:vec![false],analytic_used:vec![false],primal_envelopes:vec![Some(envelope)],
-            primal_envelope_errors:vec![None]};
+            primal_envelope_errors:vec![None],
+            estimated_errors: Vec::new(), best_effort: Vec::new(),};
         let amplitudes=result.validated_component_amplitudes(0,256,53).unwrap();
         assert_eq!(amplitudes[1].re.get_precision(),80);
         result.values[1].re=Float::with_val(64,3);

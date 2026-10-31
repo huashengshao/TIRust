@@ -225,8 +225,16 @@ class BatchResult:
         ...
     @property
     def profile(self) -> dict[str, float] | None: ...
-    def lane(self, row: int) -> tuple[Laurent, ...]:
-        """Return complete moments; raise LaneError for failed lanes."""
+    def lane(self, row: int, *, best_effort: bool = False) -> tuple[Laurent, ...]:
+        """Return complete moments; raise LaneError for failed lanes. With
+        best_effort=True a refused lane returns its best uncertified array when
+        it kept one (see best_effort and estimated_errors)."""
+    @property
+    def estimated_errors(self) -> list[float | None]:
+        """Estimated relative error (E/A) per lane where measured, else None."""
+    @property
+    def best_effort(self) -> list[bool]:
+        """Lanes refused by their checks that kept a best-effort array."""
         ...
     def lanes(self) -> tuple[tuple[Laurent, ...] | None, ...]: ...
     def __len__(self) -> int: ...

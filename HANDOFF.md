@@ -372,6 +372,18 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    stability capture 005 (binary64-only facade at 2^-34 and 2^-20, build
    50acff0 = code of ffb2716; commit 193415e), report pages 1-5 timing, 6-8
    stability. Capture 005 matches the probe numbers above.
+3i. **Best-effort arrays with accuracy estimates (user request).** BatchResult
+   gained `estimated_errors: Vec<Option<f64>>` and `best_effort: Vec<bool>`
+   (empty = not provided; all 34 struct literals updated), `estimated_error`,
+   `is_best_effort`, `lane_with_estimate` -> LaneEstimate {values,
+   estimated_error, certified}. The binary64 hybrid records the rotation E/A
+   of accepted rotation-tested lanes and keeps per refused lane the candidate
+   array with the smallest rotation E/A (main pass, checked retry, expansion
+   retry), written back at the end with best_effort = true. Regulators apply to
+   best-effort lanes too. CLI `estimated_error`, `best_effort_moments`; Python
+   `estimated_errors`, `best_effort`, `lane(row, best_effort=True)`. Box r4
+   #8739: estimate 1.22e-9 vs true 1.22e-9. Stability driver/run.py/summarize
+   score best-effort arrays (flagged) from the next capture (006).
 3h. **In progress (user: "port COLLIER's remaining binary64 methods").**
    Remaining binary64-only refusals at 2^-34 (scratchpad probe64c, code
    ffb2716): box r6 24 (expansion no-convergence 17, rotation 7); pentagon

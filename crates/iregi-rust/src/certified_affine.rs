@@ -294,6 +294,7 @@ where
             } else {
                 Vec::new()
             },
+            estimated_errors: Vec::new(), best_effort: Vec::new(),
         };
         let selected = self.guard.select_batch(input);
         self.certificate_stats.evaluated_rows = self.guard.evaluated_rows();

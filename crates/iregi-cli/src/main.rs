@@ -765,9 +765,19 @@ where
             }
             Err(status) => {
                 all_success = false;
-                json!({"id":sample.id,"status":"failed","reason":format!("{status:?}"),"fallback_used":result.fallback_used[row],"analytic_used":result.analytic_used[row]})
+                let mut value = json!({"id":sample.id,"status":"failed","reason":format!("{status:?}"),"fallback_used":result.fallback_used[row],"analytic_used":result.analytic_used[row]});
+                // A refused lane's best uncertified array (COLLIER-style flag).
+                if let Some(lane) = result.lane_with_estimate(row) {
+                    value["best_effort_moments"] = json!(lane
+                        .values
+                        .chunks_exact(4)
+                        .map(|poles| poles.iter().map(|v| format_complex(v, prototype.get_precision())).collect::<Vec<_>>())
+                        .collect::<Vec<_>>());
+                }
+                value
             }
             };
+            value["estimated_error"] = json!(result.estimated_error(row));
             value["precision_rescue"] = workspace.lane_rescue(row);
             value
         })

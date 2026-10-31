@@ -46,6 +46,20 @@ fn moments_text(result: &BatchResult<Float>, lane: usize) -> Value {
 }
 
 fn moments<T: RealLike>(result: &BatchResult<T>, lane: usize) -> Value {
+    let mut entry = moments_only(result, lane);
+    entry["estimated_error"] = json!(result.estimated_error(lane));
+    if let Some(best) = result.lane_with_estimate(lane).filter(|best| !best.certified) {
+        // A refused lane's best uncertified array (COLLIER-style flag).
+        entry["best_effort_moments"] = json!(best
+            .values
+            .chunks_exact(4)
+            .map(|poles| poles.iter().map(|z| [z.re.to_f64(), z.im.to_f64()]).collect::<Vec<_>>())
+            .collect::<Vec<_>>());
+    }
+    entry
+}
+
+fn moments_only<T: RealLike>(result: &BatchResult<T>, lane: usize) -> Value {
     match result.lane(lane) {
         Ok(values) => {
             let count = result.basis.len();

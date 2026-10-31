@@ -207,6 +207,7 @@ where
             analytic_used: vec![false; batch.rows],
             primal_envelopes: vec![None; batch.rows],
             primal_envelope_errors: vec![None; batch.rows],
+            estimated_errors: Vec::new(), best_effort: Vec::new(),
         };
         let layout = InputLayout {
             shifts: 0..28,
