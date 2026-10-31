@@ -1,14 +1,14 @@
 {
  "schema_version": 1,
- "recorded_utc": "2026-10-31T20:14:44.026730+00:00",
+ "recorded_utc": "2026-10-31T22:18:54.248035+00:00",
  "status": "passed_stability_study_report_rebuild",
  "scope": "Binary64 stability study (TIRust, original IREGI, COLLIER against a confirmed high-precision reference) and the direct-engine precision rescue; all previous records unchanged.",
  "report_artifacts": {
-  "HANDOFF.md": "b3941eadae7d071481fe76d4ad7bdda27291c79ecd7be3c8302fdf1ef1ae488f",
-  "README.md": "f9187be2f47e48b36b613aead3666742a9a5e75acdbf23baf5e159bd84fba8f8",
+  "HANDOFF.md": "1e90e8e6871730739099c1b1f91b28349ab650607fc375f1ee5065f131838f52",
+  "README.md": "da513aefdfdd491e9e9b20c181cb0ba487b56f9ba31157f64e645b633db7bef9",
   "docs/algebra-reuse.typ": "c4b1b2449f07d6e2d68cb707986b27165e7fae5c2775c8edb8fc1a5fce8a2e43",
-  "docs/benchmark.pdf": "086ef6d8937a0326674863fccae5aa2c173bec639a94a4b7be549cbbde2a5d2c",
-  "docs/benchmark.typ": "76f79a8037c0f64ae8ccf18845f6c950197b8752fb9e5b68033e4112228f96e5",
+  "docs/benchmark.pdf": "630f5d36f8aa09627f3908c8d4d448f42faf1c90550430796033b6427985fc62",
+  "docs/benchmark.typ": "e844bd7ae96f2fb69c4a188eaacddc357405a0ff22987aef9f07d9da99e95731",
   "docs/checkpoints/rank6-current-20261026.md": "c80623ebea605ce88b78ac1478857202ab15bb3d99aa5af5a9bad04d177a3fe5",
   "docs/checkpoints/rank6-dual-precision-boundary-20261026.md": "6338ef15664907acf4aa7bcf172b1dd52f36d65c08a17e7ce33c4115077b6f55",
   "docs/checkpoints/rank6-dual-resource-boundaries-20261026.md": "c4520d220257784e1399afd3b27aebaf1b17fd016c3d750e7a9b5a9f804b7ca4",
@@ -33,7 +33,7 @@
   "docs/data/rank6-functional-completion-saved-replays-20261026.json": "2eafcee7593304e626814ef72182e54814a3ac0db89bc6bde12d5a34903d6d56",
   "docs/data/rank6-generalized-followup-20261026.json": "23d9edad5d4e4f4a89a3f612e1b808161c49956f3e6be7edb7c7d2e958a3c0a5",
   "docs/data/rank6-ordinary-closure-and-dual-route-20261026.json": "ce82c600c323ac682caaa667c9f6260055c84211cfab8705b0a44167396282ac",
-  "docs/data/results.json": "3c6718ccd570a8b833ce01d6d954ddfc83b2ca6e3cd29b65c87dfc2b4c97bf82",
+  "docs/data/results.json": "b1e00159455b5bc5d26be70f5ec029ef98f7df533a272ac660546a92b2c14c08",
   "scripts/build-benchmark-report.sh": "2ccb0a7980c2f366199ad3a6a4ef86333fc3754f2400e52d1a651941e13408f0",
   "scripts/check-benchmark-report.py": "ed5ac011874fb36a4fc8417e551bd0107d3da0b439565c43b18d719e35a4d003",
   "validation/benchmark/opening-collier-20261026/manifest.json": "f5c87288d38db4eb70a4dced6ee91619100838d1d053461e453b20ef7193100f",
@@ -66,7 +66,7 @@
  "byte_identical_rebuild": true,
  "page_count": 78,
  "render_check": "Root inspected actual pages1-4; all-binary64 large cells, measured error and mode labels fit; pentagons unflagged; nonfinite N6 and refused dotted diagnostic durations explicit; no clipping.",
- "source_ledger_count": 463,
+ "source_ledger_count": 467,
  "source_ledger": [
   {
    "key": "n6_specialized_diagnostic",
@@ -2382,6 +2382,26 @@
    "key": "stability_20261030_build007",
    "source": "validation/benchmark/stability-20261030/build-007.json",
    "sha256": "34a6a401f43239225ac95601d04d7bf4c84af214c001061cb8614bc975230c57"
+  },
+  {
+   "key": "stability_20261030_capture008",
+   "source": "validation/benchmark/stability-20261030/summary-008.json",
+   "sha256": "8fbbf8fb36c609894acb940426f59cbde4cd5e7745a007c88326fd2a04cd84d3"
+  },
+  {
+   "key": "stability_20261030_build008",
+   "source": "validation/benchmark/stability-20261030/build-008.json",
+   "sha256": "db7d013fed6e44c5d4636a554ad9afb0fb83d2f2aa67822a05b5c2e7c8b27999"
+  },
+  {
+   "key": "stability_20261030_capture009",
+   "source": "validation/benchmark/stability-20261030/summary-009.json",
+   "sha256": "e9ea5ff73e55a9f3b88273b2dd139da2a896ff7a73dc8955fbc668ad47744403"
+  },
+  {
+   "key": "stability_20261030_build009",
+   "source": "validation/benchmark/stability-20261030/build-009.json",
+   "sha256": "c246811750708029f518c47843e936d7b674c7134f8aef588c41bcfa90eecc7f"
   }
  ],
  "independent_arithmetic_review": {
@@ -35159,6 +35179,26 @@
   "new_result_records": [
    "stability_20261030_capture007",
    "stability_20261030_build007"
+  ],
+  "campaign": "validation/benchmark/stability-20261030",
+  "note": "All listed artifacts rehashed; historical result members preserved byte-for-byte."
+ },
+ "stability_checkpoint_20261030_capture008": {
+  "base_commit": "2d5f385161bf40431690c1f72cfe475ec1d83865",
+  "previous_proof_sha256": "4754ea46319e9566d7d22ce79f9da0a6f23c544e97e187988c729ed887c44caa",
+  "new_result_records": [
+   "stability_20261030_capture008",
+   "stability_20261030_build008"
+  ],
+  "campaign": "validation/benchmark/stability-20261030",
+  "note": "All listed artifacts rehashed; historical result members preserved byte-for-byte."
+ },
+ "stability_checkpoint_20261030_capture009": {
+  "base_commit": "2d5f385161bf40431690c1f72cfe475ec1d83865",
+  "previous_proof_sha256": "c06b5ce3055b9a80db731ca6bd52683f5d8d18552637985d77b08cd5ed4dd326",
+  "new_result_records": [
+   "stability_20261030_capture009",
+   "stability_20261030_build009"
   ],
   "campaign": "validation/benchmark/stability-20261030",
   "note": "All listed artifacts rehashed; historical result members preserved byte-for-byte."
