@@ -20,7 +20,7 @@ use crate::{
 };
 
 /// Largest point count handled by the direct engine.
-pub(crate) const MAX_PROPAGATORS: usize = 8;
+pub(crate) const MAX_PROPAGATORS: usize = 12;
 /// Largest tensor rank handled by the direct engine.
 pub(crate) const MAX_RANK: u16 = 32;
 /// Largest power of the (single) dotted propagator.
@@ -188,7 +188,7 @@ pub(crate) enum SubsetKind {
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
 pub(crate) struct RelationGeometry {
-    pub mask: u8,
+    pub mask: u16,
     pub members: Vec<usize>,
     /// Geometry offset of the identity weights, one per member.
     pub weights: u32,
@@ -285,7 +285,7 @@ pub(crate) struct GatherKappa {
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
 pub(crate) struct Subset {
-    pub mask: u8,
+    pub mask: u16,
     pub members: Vec<usize>,
     pub kind: SubsetKind,
     pub coefficient_rank: i32,
@@ -345,7 +345,7 @@ pub(crate) struct DirectPlanData {
     pub coefficient_counts: Vec<u32>,
     /// Per PV subset mask: value index of `C(lambda, kappa)` (the small-Gram
     /// expansion fills a refused box from its triangles through these).
-    pub coefficient_lookup: HashMap<u8, HashMap<(u16, Vec<u16>), u32>>,
+    pub coefficient_lookup: HashMap<u16, HashMap<(u16, Vec<u16>), u32>>,
     /// Extra coefficient ranks of the top subset's pinches (see
     /// `with_top_child_boost`); variants keep it.
     pub top_child_boost: u16,
@@ -420,12 +420,12 @@ pub(crate) fn compositions(total: u16, count: usize) -> Vec<Vec<u16>> {
     result
 }
 
-fn without(mask: u8, member: usize) -> u8 {
-    mask & !(1u8 << member)
+fn without(mask: u16, member: usize) -> u16 {
+    mask & !(1u16 << member)
 }
 
-fn members(mask: u8) -> Vec<usize> {
-    (0..8).filter(|&i| mask & (1 << i) != 0).collect()
+fn members(mask: u16) -> Vec<usize> {
+    (0..16).filter(|&i| mask & (1 << i) != 0).collect()
 }
 
 /// Per-PV-subset coefficient layout.
@@ -504,7 +504,7 @@ impl DirectPlanData {
     /// constant-one denominator identity instead of its singular Gram system.
     pub fn with_relations(
         settings: ReductionSettings,
-        relation_masks: &[u8],
+        relation_masks: &[u16],
     ) -> Result<Self, ReductionError> {
         Self::with_profile(settings, relation_masks, &[])
     }
@@ -513,8 +513,8 @@ impl DirectPlanData {
     /// closed-form coefficients for the lightlike bubbles `lightlike_masks`.
     pub fn with_profile(
         settings: ReductionSettings,
-        relation_masks: &[u8],
-        lightlike_masks: &[u8],
+        relation_masks: &[u16],
+        lightlike_masks: &[u16],
     ) -> Result<Self, ReductionError> {
         Self::with_profile_boost(settings, relation_masks, lightlike_masks, 0)
     }
@@ -528,8 +528,8 @@ impl DirectPlanData {
 
     pub fn with_profile_boost(
         settings: ReductionSettings,
-        relation_masks: &[u8],
-        lightlike_masks: &[u8],
+        relation_masks: &[u16],
+        lightlike_masks: &[u16],
         boost: u16,
     ) -> Result<Self, ReductionError> {
         Self::supported(&settings)?;
@@ -539,7 +539,7 @@ impl DirectPlanData {
             .iter()
             .position(|&p| p > 1)
             .map(|d| (d, usize::from(settings.powers[d])));
-        let relation_for = |mask: u8| -> Option<usize> {
+        let relation_for = |mask: u16| -> Option<usize> {
             if mask.count_ones() >= 6 {
                 return None;
             }
@@ -549,11 +549,11 @@ impl DirectPlanData {
         let rank = settings.rank;
         let basis = tensor_basis(rank);
         let monomials = MonomialTable::new(rank);
-        let top: u8 = ((1u16 << n) - 1) as u8;
+        let top: u16 = ((1u16 << n) - 1) as u16;
         // Gram-free pentagon rank: not for dotted propagators (no geometry
         // jets of X^-1 yet) or when a box child is degenerate (it supplies
         // moments by its identity, not PV coefficients).
-        let dd_rank = |mask: u8, moment: i32| -> i32 {
+        let dd_rank = |mask: u16, moment: i32| -> i32 {
             if moment < 0 || jet.is_some() {
                 return -1;
             }
@@ -564,10 +564,10 @@ impl DirectPlanData {
         };
 
         // Propagate rank needs from the top topology to its pinches.
-        let mut coefficient_need: HashMap<u8, i32> = HashMap::new();
-        let mut moment_need: HashMap<u8, i32> = HashMap::new();
+        let mut coefficient_need: HashMap<u16, i32> = HashMap::new();
+        let mut moment_need: HashMap<u16, i32> = HashMap::new();
         moment_need.insert(top, i32::from(rank));
-        let mut masks: Vec<u8> = (1..=top).filter(|m| m & !top == 0).collect();
+        let mut masks: Vec<u16> = (1..=top).filter(|m| m & !top == 0).collect();
         masks.sort_by_key(|m| std::cmp::Reverse(m.count_ones()));
         for &mask in &masks {
             let size = mask.count_ones() as usize;
@@ -583,7 +583,7 @@ impl DirectPlanData {
                 continue;
             }
             match size {
-                8 | 7 | 6 | 5 => {
+                5..=16 => {
                     let dd = if size == 5 { dd_rank(mask, moment) } else { -1 };
                     if moment > dd {
                         for member in members(mask) {
@@ -621,7 +621,7 @@ impl DirectPlanData {
 
         // Mass derivatives of a master reach every pinch of it by IBP.
         if let Some((dotted, _)) = jet {
-            let parents: Vec<u8> = coefficient_need
+            let parents: Vec<u16> = coefficient_need
                 .iter()
                 .filter(|&(&mask, &need)| need >= 0 && mask & (1 << dotted) != 0)
                 .map(|(&mask, _)| mask)
@@ -646,12 +646,12 @@ impl DirectPlanData {
         // Subsets in increasing size, so children precede parents.
         masks.reverse();
         let mut subsets = Vec::new();
-        let mut subset_index: HashMap<u8, usize> = HashMap::new();
+        let mut subset_index: HashMap<u16, usize> = HashMap::new();
         let mut value_count: u32 = 0;
         let mut geometry_count: u32 = 0;
-        let mut layouts: HashMap<u8, CoefficientLayout> = HashMap::new();
+        let mut layouts: HashMap<u16, CoefficientLayout> = HashMap::new();
         // D(0) of a Gram-free pentagon in its own momentum basis.
-        let mut shifted_layouts: HashMap<u8, HashMap<(u16, Vec<u16>), u32>> = HashMap::new();
+        let mut shifted_layouts: HashMap<u16, HashMap<(u16, Vec<u16>), u32>> = HashMap::new();
         let mut unit_finite = None;
         let mut relations = Vec::new();
         for &relation in relation_masks {
@@ -673,7 +673,7 @@ impl DirectPlanData {
             let size = member_list.len();
             let kind = match (relation_for(mask), size) {
                 (Some(relation), _) => SubsetKind::Relation(relation),
-                (None, 6..=8) => SubsetKind::Hexagon,
+                (None, 6..=16) => SubsetKind::Hexagon,
                 (None, 5) => SubsetKind::Pentagon,
                 _ => SubsetKind::Pv,
             };
@@ -1132,7 +1132,7 @@ impl DirectPlanData {
 
         // Pentagon and hexagon Cartesian moment recursions.
         let mut moment_program = Vec::new();
-        let child_moment = |mask: u8, exponents: [u16; 4]| -> u32 {
+        let child_moment = |mask: u16, exponents: [u16; 4]| -> u32 {
             let child = &subsets[subset_index[&mask]];
             let rank: u16 = exponents.iter().sum();
             debug_assert!(i32::from(rank) <= child.moment_rank);

@@ -885,3 +885,32 @@ fn eight_point_rank_eight_matches_high_precision() {
     let error = general_array_error(&facade.basis, 4 - 2 * 8, 3.0, facade.lane(0).unwrap(), &reference);
     assert!(error <= 1e-11, "facade E/A = {error:e}");
 }
+
+#[test]
+fn ten_point_integral_matches_high_precision() {
+    // General N (up to 12): a ten-point rank-4 integral, bare binary64
+    // against 256 bits.
+    let mut shifts = Vec::new();
+    let mut masses = Vec::new();
+    // Pseudo-random points in general position (binary-exact components).
+    let mut state = 12345u64;
+    let mut next = || {
+        state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        ((state >> 40) % 1024) as f64 / 1024.0
+    };
+    for k in 0..10u32 {
+        shifts.push([next(), next(), next(), next()]);
+        masses.push((1.0 + f64::from(k % 4), 0.0));
+    }
+    let values = row(&shifts, &masses, 3.0);
+    let result = DirectReductionPlan::new(ReductionSettings::new(10, 4))
+        .unwrap()
+        .workspace(0.0f64)
+        .unwrap()
+        .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: values.clone() })
+        .unwrap();
+    assert_eq!(result.statuses[0], LaneStatus::Success, "{:?}", result.statuses[0]);
+    let (_, reference) = direct_256(10, 4, &values);
+    let error = general_array_error(&result.basis, 4 - 2 * 10, 3.0, result.lane(0).unwrap(), &reference);
+    assert!(error <= 1e-8, "E/A = {error:e}");
+}

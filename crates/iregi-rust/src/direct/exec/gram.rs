@@ -333,12 +333,12 @@ where
         }
 
         // Triangle values: the pinch of member `i + 1` and of the origin.
-        let lookup = |mask: u8| plan.coefficient_lookup.get(&mask);
+        let lookup = |mask: u16| plan.coefficient_lookup.get(&mask);
         let mask = subset.mask;
         let children: Vec<&HashMap<(u16, Vec<u16>), u32>> = (0..nm)
-            .map(|i| lookup(mask & !(1u8 << members[i + 1])).ok_or("small-Gram expansion: missing pinch"))
+            .map(|i| lookup(mask & !(1u16 << members[i + 1])).ok_or("small-Gram expansion: missing pinch"))
             .collect::<Result<_, _>>()?;
-        let zero_child = lookup(mask & !(1u8 << origin)).ok_or("small-Gram expansion: missing triangle")?;
+        let zero_child = lookup(mask & !(1u16 << origin)).ok_or("small-Gram expansion: missing triangle")?;
         let child_rank = children
             .iter()
             .chain(std::iter::once(&zero_child))
@@ -810,7 +810,7 @@ mod tests {
                                 lhs += w.re * e2[m][k];
                             }
                         }
-                        let rhs = adj2(i, l) * f64::from(u8::from(j == k)) - adj2(i, j) * f64::from(u8::from(l == k));
+                        let rhs = adj2(i, l) * f64::from(u16::from(j == k)) - adj2(i, j) * f64::from(u16::from(l == k));
                         assert!((lhs - rhs).abs() < 1e-12, "N=2 i{i} j{j} l{l} k{k}: {lhs} vs {rhs}");
                     }
                 }
@@ -832,7 +832,7 @@ mod tests {
                                 lhs += w.re * entries[m][k];
                             }
                         }
-                        let rhs = adj(i, l) * f64::from(u8::from(j == k)) - adj(i, j) * f64::from(u8::from(l == k));
+                        let rhs = adj(i, l) * f64::from(u16::from(j == k)) - adj(i, j) * f64::from(u16::from(l == k));
                         assert!((lhs - rhs).abs() < 1e-12, "i{i} j{j} l{l} k{k}: {lhs} vs {rhs}");
                     }
                 }
