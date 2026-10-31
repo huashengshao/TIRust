@@ -945,7 +945,8 @@ where
                     }
                     if subset.coefficient_rank >= 1 && momenta > 0 {
                         let size = momenta;
-                        if gram && self.gram_everywhere && (2..=3).contains(&size) {
+                        let aux_top = self.gram_top.is_some() && Some(subset.mask) == top_mask;
+                        if gram && self.gram_everywhere && !aux_top && (2..=3).contains(&size) {
                             // COLLIER's per-box choice: off Passarino-Veltman
                             // where its estimate is worse (w > 2) and the
                             // adjugates do not vanish.

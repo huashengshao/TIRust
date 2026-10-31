@@ -372,6 +372,14 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    stability capture 005 (binary64-only facade at 2^-34 and 2^-20, build
    50acff0 = code of ffb2716; commit 193415e), report pages 1-5 timing, 6-8
    stability. Capture 005 matches the probe numbers above.
+3r. **Step (2) done: nested method choice.** Auxiliary box executors of the
+   everywhere stage get the same per-function choice for their own triangles
+   (GramRescue::everywhere passes itself down; the aux top excluded from the
+   everywhere check). Probe64m: certified pentagon 4989/5000 (flagged 11,
+   worst 2.1e-10), hexagon 1909/2000 (flagged 91, worst 1.9e-6); tails
+   unchanged. Remaining refusals: "rotated copy differs" (near-miss). Capture
+   009 launched for the report (stability, publish.py "009" + typst id list to
+   add; 008 bound too).
 3q. **Step (1) started: MAX_RANK 8 -> 32** (plan.rs; exec binomials by
    Pascal's rule in T, multinomial as u128 product of binomials; test
    ranks_above_eight_match_high_precision: R12 triangle, R10 box <= 1e-10 vs
