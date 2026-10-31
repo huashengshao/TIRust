@@ -372,6 +372,13 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    stability capture 005 (binary64-only facade at 2^-34 and 2^-20, build
    50acff0 = code of ffb2716; commit 193415e), report pages 1-5 timing, 6-8
    stability. Capture 005 matches the probe numbers above.
+3q. **Step (1) started: MAX_RANK 8 -> 32** (plan.rs; exec binomials by
+   Pascal's rule in T, multinomial as u128 product of binomials; test
+   ranks_above_eight_match_high_precision: R12 triangle, R10 box <= 1e-10 vs
+   256 bits). Still to do for (1): coefficients-only aux plans (no gathers).
+   Then (2) nested method choice, (3) a priori estimates, (4) N >= 8.
+   Capture 008 (5ed9887) still to publish (publish.py "008" + typst id list
+   prepared, uncommitted).
 3p. **Why COLLIER is more stable in binary64, and the plan (user request).**
    Diagnosis (evidence in 3k-3o): not the masters (repaired), not the input
    handling (snapping fixed), not the N>=5 reductions (refusals sit in
