@@ -372,6 +372,23 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    stability capture 005 (binary64-only facade at 2^-34 and 2^-20, build
    50acff0 = code of ffb2716; commit 193415e), report pages 1-5 timing, 6-8
    stability. Capture 005 matches the probe numbers above.
+3v. **1 Nov: a priori choice moved to a retry; third-order rotation check.**
+   Timing capture 005 (first attempt, 37932c4) showed the main-pass choice
+   tripping on every opening point N5R5-N7R7 (estimate 2^-52 w^r pessimistic;
+   PV accurate there) at ~13 ms per evaluation: facade N5R5 143 us -> 25.8 ms.
+   Now: main pass PV with estimate flags only (exec `estimate_flags`,
+   `last_estimate_lanes`, cost < 1%); refused flagged lanes get retry stage 4
+   (the method choice, kept at tolerance/4) before stages 0-3. Lanes the
+   rotation test accepts within NEAR_MARGIN_BITS = 4 of the tolerance (main
+   pass and every retry stage) are evaluated in a third cyclic order that
+   must agree too (pentagon #3593: difference 2.4e-11, E/A 1.4e-10; third
+   order 1.4e-10). Test near_miss_rotation_agreement_is_checked_in_a_third_order.
+   Facade (idle CPU): N5R5 149 us, N6R6 567 us, N7R7 3.2 ms (third order
+   runs: difference 7e-12 vs true 2.0e-11; plain path 2.1 ms).
+   COLLIER drivers (stability and timing) read accuracy flags after the whole
+   batch, i.e. the last lane's flags for every lane (captures <= 009: COLLIER
+   "flagged" counts in multiples of the chunk); fixed in a92f88e (each lane
+   evaluated once more, untimed, before its diagnostics are read).
 3u. **Step (3): a priori method choice in the main pass.** Rotation-tested
    plans with N <= 7 and R <= 7: boxes/triangles whose PV estimate
    2^-52 w^r exceeds 2^-36 are computed by expansions / alternative PV in the

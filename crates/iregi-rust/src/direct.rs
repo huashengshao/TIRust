@@ -157,6 +157,13 @@ where
         self.executor.enable_estimated_method_choice(boost, aux_threshold);
     }
 
+    /// Evaluate the a priori estimate of `enable_estimated_method_choice`
+    /// per lane without acting on it (every box and triangle by PV); see
+    /// `last_estimate_lanes`.
+    pub fn enable_estimate_flags(&mut self) {
+        self.executor.enable_estimate_flags();
+    }
+
     pub fn enable_alternative_pv(&mut self) {
         self.executor.enable_alternative_pv();
     }
@@ -177,5 +184,11 @@ where
     /// the small-Gram expansions or the alternative PV reduction.
     pub fn last_gram_lanes(&self) -> &[bool] {
         self.executor.last_gram_lanes()
+    }
+
+    /// Per lane of the most recent call: some box or triangle exceeds the a
+    /// priori estimate (with `enable_estimate_flags`).
+    pub fn last_estimate_lanes(&self) -> &[bool] {
+        self.executor.last_estimate_lanes()
     }
 }

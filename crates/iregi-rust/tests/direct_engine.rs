@@ -481,7 +481,7 @@ fn physical_pentagon(shifts: &[[f64; 4]; 5]) -> (iregi_rust::BatchResult<f64>, i
         panic!("expected the direct engine");
     };
     let stats = stats.clone();
-    assert_eq!(stats.rotation_rows, 1, "{stats:?}");
+    assert!(stats.rotation_rows >= 1, "{stats:?}");
     let lifted: Vec<Complex<Float>> = values
         .iter()
         .map(|z| Complex::new(Float::with_val(256, z.re), Float::with_val(256, z.im)))
@@ -554,6 +554,27 @@ fn inaccurate_binary64_pentagons_are_caught_and_rescued() {
     // retries would recover it otherwise. Either way it stays binary64.
     assert!(!result.fallback_used[0], "{stats:?}");
     assert!(error <= 1e-10, "E/A = {error:e}");
+}
+
+#[test]
+fn near_miss_rotation_agreement_is_checked_in_a_third_order() {
+    // Point pentagon-r5 #3593: its rotated copy agrees to E/A 2.4e-11, within
+    // the 2^-34 tolerance, yet both orders are off by 1.4e-10. A third cyclic
+    // order disagrees (1.4e-10), the lane counts as refused, and the a priori
+    // method choice (its PV estimate exceeds the request) recovers it in
+    // binary64, checked against a 256-bit direct evaluation.
+    let shifts = [
+        [0.0, 0.0, 0.0, 0.0],
+        [500.0, 0.0, 0.0, 500.0],
+        [1000.0, 0.0, 0.0, 0.0],
+        [725.7843019435895, -79.77048581979159, -224.92821240564447, -135.048946373676],
+        [325.22044734818576, -72.2647783614848, -201.63414806243065, 244.72394961845808],
+    ];
+    let (result, stats, error) = physical_pentagon(&shifts);
+    assert_eq!(stats.rotation_rows, 2, "{stats:?}");
+    assert_eq!(stats.rotation_failures, 1, "{stats:?}");
+    assert!(!result.fallback_used[0], "{stats:?}");
+    assert!(error <= 1e-12, "E/A = {error:e}");
 }
 
 #[test]
