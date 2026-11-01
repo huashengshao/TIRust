@@ -676,6 +676,33 @@ fn physical_box(
 }
 
 #[test]
+fn binary64_boxes_are_checked_by_the_rotation_test() {
+    // gg -> HH rank-4 box (stability point box-r4 #3987): its Gram systems
+    // pass the binary64 gate, yet PV keeps only E/A 9.6e-9, which the gate
+    // alone certified. Boxes now get the loop-rotation test too; whatever
+    // binary64 path then keeps the lane meets the request, with the
+    // precision rescue disabled or not.
+    use iregi_rust::PrecisionRescue;
+    let shifts = [
+        [0.0, 0.0, 0.0, 0.0],
+        [500.0, 0.0, 0.0, 500.0],
+        [1000.0, 0.0, 0.0, 0.0],
+        [499.9999999999999, 45.62548441928373, -38.99226376963953, -480.3882997509668],
+    ];
+    for rescue in [PrecisionRescue::Disabled, PrecisionRescue::Automatic] {
+        let (result, stats, notes, error) = physical_box(&shifts, 4, rescue);
+        assert!(stats.rotation_rows >= 1, "{stats:?}");
+        if rescue == PrecisionRescue::Automatic {
+            assert_eq!(result.statuses[0], LaneStatus::Success, "{notes:?}");
+        }
+        if result.statuses[0] == LaneStatus::Success {
+            let error = error.unwrap();
+            assert!(error <= 2f64.powi(-34), "E/A = {error:e}, {notes:?}");
+        }
+    }
+}
+
+#[test]
 fn gate_refused_binary64_box_is_kept_by_the_rotation_check() {
     // gg -> HH rank-6 box (stability point box-r6 #759): the a priori Gram
     // gate refuses it (estimate 3.8e-17), yet binary64 keeps E/A 3.8e-12.

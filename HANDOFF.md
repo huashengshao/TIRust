@@ -372,6 +372,17 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    stability capture 005 (binary64-only facade at 2^-34 and 2^-20, build
    50acff0 = code of ffb2716; commit 193415e), report pages 1-5 timing, 6-8
    stability. Capture 005 matches the probe numbers above.
+3w. **Boxes get the rotation test (N >= 4, equal powers).** Capture 010
+   showed 86 rank-4 and 49 rank-6 boxes certified by the gate alone beyond
+   2^-34 (up to 9.6e-9). rotation_probe on all 20000 boxes: the test refuses
+   85 and 49 of them (13 + 17 accurate lanes refused, recovered by retries).
+   Box gate now ROTATION_GATE; a priori method choice stays N 5-7. Probe
+   (probe64s): certified 9998 / 9996 as before, over-tolerance 1 (6.7e-11) /
+   0; default worst 6.7e-11 / 5.7e-11 (was 9.6e-9 / 3.4e-10). Facade cost
+   (idle CPU): N4R4 37 us, N4R6 62 us (was 16, 24; COLLIER 50, 265).
+   lane_difference uses squared magnitudes (hypot was ~1/4 of the box
+   overhead). Test binary64_boxes_are_checked_by_the_rotation_test.
+   Next (user, 1 Nov): hexagons/heptagons still trail COLLIER in binary64.
 3v. **1 Nov: a priori choice moved to a retry; third-order rotation check.**
    Timing capture 005 (first attempt, 37932c4) showed the main-pass choice
    tripping on every opening point N5R5-N7R7 (estimate 2^-52 w^r pessimistic;
