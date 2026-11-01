@@ -35,8 +35,8 @@ fn error<T: RealLike, U: RealLike>(a: &BatchResult<T>, b: &BatchResult<U>, mu: f
         for slot in 0..4 {
             let (u, v) = (&x[4 * m + slot], &y[4 * m + slot]);
             let (vr, vi) = (v.re.to_f64(), v.im.to_f64());
-            e = e.max(w * (u.re.to_f64() - vr).hypot(u.im.to_f64() - vi));
-            s = s.max(w * vr.hypot(vi));
+            e = e.max((u.re.to_f64() - vr).hypot(u.im.to_f64() - vi) / w);
+            s = s.max(vr.hypot(vi) / w);
         }
     }
     if std::env::var("DETAIL").is_ok() {
@@ -81,6 +81,18 @@ fn main() {
     }
     let mut open = plan.workspace(0.0f64).unwrap();
     open.set_stability_threshold(0.0);
+    // Every box/triangle by the small-Gram expansions (alternative PV as
+    // their last resort), by the alternative PV alone, and by the a priori
+    // method choice.
+    let mut expanded = plan.workspace(0.0f64).unwrap();
+    expanded.enable_gram_expansion(12);
+    expanded.set_stability_threshold(1.0);
+    let mut alternative = plan.workspace(0.0f64).unwrap();
+    alternative.enable_alternative_pv();
+    alternative.set_stability_threshold(1.0);
+    let mut estimated = plan.workspace(0.0f64).unwrap();
+    estimated.enable_estimated_method_choice(12, 1e-15);
+    estimated.set_stability_threshold(1e-15);
     let bits = 256;
     let mut wide = plan.workspace(Float::new(bits)).unwrap();
     wide.set_stability_threshold(Float::with_val(bits, 2f64.powi(-(bits as i32 - 40))));
@@ -89,8 +101,10 @@ fn main() {
             .map(|s| s.as_array().unwrap().iter().map(number).collect()).collect();
         for members in subsets(n, size) {
             let mut values = Vec::new();
+            // TRANSLATE: shifts relative to the first member (zero origin).
+            let origin: Vec<f64> = if std::env::var("TRANSLATE").is_ok() { point[members[0]].clone() } else { vec![0.0; 4] };
             for &i in &members {
-                values.extend(point[i].iter().map(|&x| Complex::new(x, 0.0)));
+                values.extend(point[i].iter().zip(&origin).map(|(&x, &o)| Complex::new(x - o, 0.0)));
             }
             values.extend(members.iter().map(|&i| Complex::new(masses[i], 0.0)));
             values.push(Complex::new(mu, 0.0));
@@ -103,8 +117,11 @@ fn main() {
             let reference = wide.reduce_batch(&lifted).unwrap();
             let a = gated.reduce_batch(&batch).unwrap();
             let b = open.reduce_batch(&batch).unwrap();
+            let x = expanded.reduce_batch(&batch).unwrap();
+            let y = alternative.reduce_batch(&batch).unwrap();
+            let z = estimated.reduce_batch(&batch).unwrap();
             // Optional independent reference: the symbolic engine at 128 bits.
-            let double = {
+            let double = if std::env::var("DD").is_err() { (None, None) } else {
                 use symbolica::domains::float::DoubleFloat;
                 let input = KinematicsBatch { rows: 1, components: 1, values: batch.values.iter().map(|z| Complex::new(DoubleFloat::from(z.re), DoubleFloat::from(z.im))).collect() };
                 let mut ws = plan.workspace(DoubleFloat::from(0.0)).unwrap();
@@ -123,6 +140,9 @@ fn main() {
             println!("{}", json!({
                 "index": index, "members": members,
                 "gated": error(&a, &reference, mu), "open": error(&b, &reference, mu),
+                "expanded": error(&x, &reference, mu), "alternative": error(&y, &reference, mu),
+                "estimated": error(&z, &reference, mu), "estimated_gram": estimated.last_gram_lanes().first().copied(),
+                "expanded_status": x.statuses[0].clone().err_message(), "alternative_status": y.statuses[0].clone().err_message(),
                 "gate": a.statuses[0].clone().err_message(),
                 "dd_vs_256": double.0, "open_vs_dd": double.1, "symbolic_vs_256": symbolic.map(|s| s.0), "open_vs_symbolic": symbolic.map(|s| s.1),
                 "reference": format!("{:?}", reference.statuses[0]).chars().take(80).collect::<String>(),

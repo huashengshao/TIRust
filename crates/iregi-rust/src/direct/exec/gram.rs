@@ -32,6 +32,8 @@
 
 use std::collections::HashMap;
 
+use crate::direct::plan::FastMap;
+
 use iregi_masters::NativeFloat;
 use symbolica::{domains::float::Complex, evaluate::EvaluationDomain};
 
@@ -205,6 +207,11 @@ where
                         );
                         executor.gram_top = Some(rank);
                         executor.gram_alt_only = gram.alternative;
+                        executor.gram_extra_ranks = gram
+                            .boosts
+                            .iter()
+                            .find(|&&next| next > boost)
+                            .map_or(0, |&next| next - boost);
                         // (Bounded: the nested triangles' plans stay at rank <= 16.)
                         if let Some(threshold) = gram.aux_threshold.as_ref().filter(|_| rank + boost <= 17) {
                             // COLLIER chooses per C function too: the auxiliary
@@ -336,7 +343,7 @@ where
         // Triangle values: the pinch of member `i + 1` and of the origin.
         let lookup = |mask: u16| plan.coefficient_lookup.get(&mask);
         let mask = subset.mask;
-        let children: Vec<&HashMap<(u16, Vec<u16>), u32>> = (0..nm)
+        let children: Vec<&FastMap<(u16, Vec<u16>), u32>> = (0..nm)
             .map(|i| lookup(mask & !(1u16 << members[i + 1])).ok_or("small-Gram expansion: missing pinch"))
             .collect::<Result<_, _>>()?;
         let zero_child = lookup(mask & !(1u16 << origin)).ok_or("small-Gram expansion: missing triangle")?;
@@ -350,7 +357,7 @@ where
             return Err("small-Gram expansion: triangles below the requested rank".into());
         }
         let values = &self.values;
-        let value = |layout: &HashMap<(u16, Vec<u16>), u32>, lambda: u16, kappa: Vec<u16>| -> Result<&L4<T>, String> {
+        let value = |layout: &FastMap<(u16, Vec<u16>), u32>, lambda: u16, kappa: Vec<u16>| -> Result<&L4<T>, String> {
             layout
                 .get(&(lambda, kappa))
                 .map(|&index| &values[index as usize])
@@ -358,7 +365,7 @@ where
         };
         // Shifted pinch-zero values C0(lambda, kappa) in the box basis
         // (Denner, Eq. (2.9); as the PV program's `spz` instructions).
-        let mut spz: HashMap<Key, L4<T>> = HashMap::new();
+        let mut spz: FastMap<Key, L4<T>> = FastMap::default();
         for r in 0..=child_rank {
             for lambda in 0..=r / 2 {
                 for kappa in compositions(r - 2 * lambda, nm) {
@@ -387,7 +394,7 @@ where
         }
         // Shat_n(lambda, kappa) = triangle without member n+1 (if kappa_n = 0)
         // minus the shifted pinch zero.
-        let mut shat: HashMap<(usize, u16, [u16; 3]), L4<T>> = HashMap::new();
+        let mut shat: FastMap<(usize, u16, [u16; 3]), L4<T>> = FastMap::default();
         for (&(lambda, kappa), c0) in &spz {
             for m in 0..nm {
                 let mut out: L4<T> = std::array::from_fn(|slot| csub(&zero, &c0[slot]));
@@ -422,15 +429,18 @@ where
         // Passes: t = 0 drops every Delta term; pass t has metric coefficients
         // up to rank R + 1 - t and momentum coefficients up to R - t.
         let passes = child_rank - target;
-        let mut previous: Option<HashMap<Key, L4<T>>> = None;
+        let mut previous: Option<FastMap<Key, L4<T>>> = None;
         let mut last_change = f64::INFINITY;
-        let mut chosen: Option<HashMap<Key, L4<T>>> = None;
+        // Observed change ratio per pass (convergence rate), for deciding
+        // whether a larger boost would converge.
+        let mut ratio = 1.0f64;
+        let mut chosen: Option<FastMap<Key, L4<T>>> = None;
         for t in 0..=passes {
             let metric_rank = child_rank + 1 - t;
             let momentum_rank = child_rank - t;
-            let mut cur: HashMap<Key, L4<T>> = HashMap::new();
+            let mut cur: FastMap<Key, L4<T>> = FastMap::default();
             cur.insert((0, [0, 0, 0]), d0.clone());
-            let get = |map: &HashMap<Key, L4<T>>, key: Key| -> Result<L4<T>, String> {
+            let get = |map: &FastMap<Key, L4<T>>, key: Key| -> Result<L4<T>, String> {
                 map.get(&key).cloned().ok_or_else(|| format!("small-Gram expansion: coefficient {key:?} missing"))
             };
             for r in 1..=metric_rank {
@@ -517,6 +527,9 @@ where
                     // Diverging: keep the previous pass.
                     break;
                 }
+                if last_change.is_finite() && last_change > 0.0 {
+                    ratio = (change / last_change).min(1.0);
+                }
                 last_change = change;
                 chosen = Some(cur.clone());
                 if change <= f64::EPSILON {
@@ -539,7 +552,7 @@ where
         //       - sum_n X~_0n r_n,
         //   det X C(0, k'+e_i) = X~_i0 [2 ((Q+5-N) - 2 eps) C(1, k') - C0(0, k')]
         //       + sum_n X~_in r_n.
-        let alt_pv = || -> Result<HashMap<Key, L4<T>>, String> {
+        let alt_pv = || -> Result<FastMap<Key, L4<T>>, String> {
             let mut det_x = cmul(&cscale(&m02, &two), &delta);
             for a in 0..nm {
                 for b in 0..nm {
@@ -569,9 +582,9 @@ where
                         .collect()
                 })
                 .collect();
-            let mut cur: HashMap<Key, L4<T>> = HashMap::new();
+            let mut cur: FastMap<Key, L4<T>> = FastMap::default();
             cur.insert((0, [0, 0, 0]), d0.clone());
-            let get = |map: &HashMap<Key, L4<T>>, key: Key| -> Result<L4<T>, String> {
+            let get = |map: &FastMap<Key, L4<T>>, key: Key| -> Result<L4<T>, String> {
                 map.get(&key).cloned().ok_or_else(|| format!("alternative PV: coefficient {key:?} missing"))
             };
             for q in 0..target {
@@ -665,21 +678,26 @@ where
                     }
                 }
                 if cnorm2(&xt[gi][gj]).is_zero() || child_rank < target + 1 {
+                    let extra = i32::from(self.gram_extra_ranks);
+                    if extra > 0 && last_change * ratio.powi(extra) <= EXPANSION_TOLERANCE {
+                        return Err("small-Gram expansion did not converge; a larger boost follows".into());
+                    }
                     break 'gc alt_pv()?;
                 }
                 let inv_xt = cinv(&xt[gi][gj]);
                 let y0 = |j: usize| csub(&zero, &adjf[j]);
                 let gc_passes = (child_rank - 1 - target) / 2;
-                let mut previous: Option<HashMap<Key, L4<T>>> = None;
+                let mut previous: Option<FastMap<Key, L4<T>>> = None;
                 let mut gc_change = f64::INFINITY;
-                let mut gc_chosen: Option<HashMap<Key, L4<T>>> = None;
+                let mut gc_ratio = 1.0f64;
+                let mut gc_chosen: Option<FastMap<Key, L4<T>>> = None;
                 let mut momentum_rank = child_rank + 1;
                 for t in 0..=gc_passes {
                     let metric_rank = if t == 0 { child_rank + 1 } else { momentum_rank };
                     momentum_rank = metric_rank - 2;
-                    let mut cur: HashMap<Key, L4<T>> = HashMap::new();
+                    let mut cur: FastMap<Key, L4<T>> = FastMap::default();
                     cur.insert((0, [0, 0, 0]), d0.clone());
-                    let get = |map: &HashMap<Key, L4<T>>, key: Key| -> Result<L4<T>, String> {
+                    let get = |map: &FastMap<Key, L4<T>>, key: Key| -> Result<L4<T>, String> {
                         map.get(&key).cloned().ok_or_else(|| format!("small-Gram/Cayley expansion: coefficient {key:?} missing"))
                     };
                     for r in 2..=metric_rank {
@@ -754,6 +772,9 @@ where
                         if !change.is_finite() || (t >= 2 && change > gc_change) {
                             break;
                         }
+                        if gc_change.is_finite() && gc_change > 0.0 {
+                            gc_ratio = (change / gc_change).min(1.0);
+                        }
                         gc_change = change;
                         gc_chosen = Some(cur.clone());
                         if change <= f64::EPSILON {
@@ -762,8 +783,19 @@ where
                     }
                     previous = Some(cur);
                 }
+                // A larger boost adds `extra` passes of the small-Gram
+                // expansion and `extra / 2` of the small-Cayley variant.
+                let extra = i32::from(self.gram_extra_ranks);
+                let retry = extra > 0
+                    && (last_change * ratio.powi(extra) <= EXPANSION_TOLERANCE
+                        || gc_change * gc_ratio.powi(extra / 2) <= EXPANSION_TOLERANCE);
                 match gc_chosen {
                     Some(map) if gc_change <= EXPANSION_TOLERANCE => map,
+                    _ if retry => {
+                        return Err(format!(
+                            "small-Gram expansion did not converge (last relative change {last_change:e}; with small Cayley determinant {gc_change:e}); a larger boost follows"
+                        ));
+                    }
                     _ => alt_pv().map_err(|error| format!(
                             "small-Gram expansion did not converge (last relative change {last_change:e}; with small Cayley determinant {gc_change:e}); {error}"
                         ))?,

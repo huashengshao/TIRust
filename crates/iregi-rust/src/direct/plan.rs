@@ -19,6 +19,45 @@ use crate::{
     basis::{Monomial, tensor_basis},
 };
 
+/// Fx-style hasher for small integer keys: the coefficient lookups of the
+/// small-Gram expansions were dominated by the default SipHash.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct FastHasher(u64);
+
+impl std::hash::Hasher for FastHasher {
+    fn write(&mut self, bytes: &[u8]) {
+        for &byte in bytes {
+            self.add(u64::from(byte));
+        }
+    }
+    fn write_u8(&mut self, value: u8) {
+        self.add(u64::from(value));
+    }
+    fn write_u16(&mut self, value: u16) {
+        self.add(u64::from(value));
+    }
+    fn write_u32(&mut self, value: u32) {
+        self.add(u64::from(value));
+    }
+    fn write_u64(&mut self, value: u64) {
+        self.add(value);
+    }
+    fn write_usize(&mut self, value: usize) {
+        self.add(value as u64);
+    }
+    fn finish(&self) -> u64 {
+        self.0
+    }
+}
+
+impl FastHasher {
+    fn add(&mut self, word: u64) {
+        self.0 = (self.0.rotate_left(5) ^ word).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+    }
+}
+
+pub(crate) type FastMap<K, V> = HashMap<K, V, std::hash::BuildHasherDefault<FastHasher>>;
+
 /// Largest point count handled by the direct engine.
 pub(crate) const MAX_PROPAGATORS: usize = 12;
 /// Largest tensor rank handled by the direct engine.
@@ -345,7 +384,7 @@ pub(crate) struct DirectPlanData {
     pub coefficient_counts: Vec<u32>,
     /// Per PV subset mask: value index of `C(lambda, kappa)` (the small-Gram
     /// expansion fills a refused box from its triangles through these).
-    pub coefficient_lookup: HashMap<u16, HashMap<(u16, Vec<u16>), u32>>,
+    pub coefficient_lookup: FastMap<u16, FastMap<(u16, Vec<u16>), u32>>,
     /// Extra coefficient ranks of the top subset's pinches (see
     /// `with_top_child_boost`); variants keep it.
     pub top_child_boost: u16,
@@ -430,7 +469,7 @@ fn members(mask: u16) -> Vec<usize> {
 
 /// Per-PV-subset coefficient layout.
 struct CoefficientLayout {
-    lookup: HashMap<(u16, Vec<u16>), u32>,
+    lookup: FastMap<(u16, Vec<u16>), u32>,
     spz: HashMap<(u16, Vec<u16>), u32>,
 }
 
@@ -699,7 +738,7 @@ impl DirectPlanData {
                     geometry_count += length;
                     let momenta = size - 1;
                     let mut layout = CoefficientLayout {
-                        lookup: HashMap::new(),
+                        lookup: FastMap::default(),
                         spz: HashMap::new(),
                     };
                     for r in 0..=coefficient.max(0) as u16 {
@@ -749,7 +788,7 @@ impl DirectPlanData {
                         geometry_count += 21;
                         subset.coefficient_rank = dd;
                         let mut layout = CoefficientLayout {
-                            lookup: HashMap::new(),
+                            lookup: FastMap::default(),
                             spz: HashMap::new(),
                         };
                         let mut shifted = HashMap::new();
