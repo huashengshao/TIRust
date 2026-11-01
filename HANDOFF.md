@@ -389,6 +389,20 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    batch, i.e. the last lane's flags for every lane (captures <= 009: COLLIER
    "flagged" counts in multiples of the chunk); fixed in a92f88e (each lane
    evaluated once more, untimed, before its diagnostics are read).
+   Published: timing capture 005 and stability capture 010 (both 022f72c).
+   Stability 010: default worst pentagon/hexagon 5.0e-11, heptagon 3.4e-11
+   (009: up to 1.5e-10), boxes unchanged (r4 9.6e-9, r6 3.4e-10). Binary64
+   only certified r4 9998, r6 9996, pentagon 4983, hexagon 1895, heptagon
+   436/495; certified lanes above 2^-34: pentagon/hexagon 0 (009: 5, 4),
+   heptagon 1 (#377, alternative PV, three orders agree at 7.9e-12, E/A
+   2.3e-10), boxes 86 (r4) and 49 (r6) up to 9.6e-9: N = 4 lanes are
+   certified by the conditioning gate alone (no rotation test) -> open item.
+   COLLIER per-lane flags: unflagged COLLIER lanes all <= 5.5e-11.
+   Timing 005: within 8% of 004 for N3-N6; N7R7 batch 1 3.2 ms (third order),
+   batch 32 1.34 s vs 107 ms: the third order refuses 11 lanes 004 accepted
+   (8 above tolerance, lane 26 E/A 1.2e-9 at rotation difference 6.3e-12;
+   examples/rotation_probe on inputs-003), 12 lanes rescued instead of 1.
+   On these heptagons orders 0/1 and 0/6 share most of their error.
 3u. **Step (3): a priori method choice in the main pass.** Rotation-tested
    plans with N <= 7 and R <= 7: boxes/triangles whose PV estimate
    2^-52 w^r exceeds 2^-36 are computed by expansions / alternative PV in the
