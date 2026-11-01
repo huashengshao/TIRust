@@ -157,6 +157,9 @@ fn estimate_choice(settings: &ReductionSettings) -> bool {
 /// heptagons: none, their stability lanes are nearly all refused anyway and
 /// the opening N7R7 point would pay 13 ms for a choice that fails).
 const UPGRADE_AGREEMENT: f64 = 1.0 / (1u64 << 40) as f64;
+/// Refused lanes the per-box choice kept with an agreement worse than this
+/// also try every box and triangle with w > 2 off PV (kept if better).
+const HARDER_AGREEMENT: f64 = 1.0 / (1u64 << 48) as f64;
 
 /// Whether the binary64 pass runs the loop-rotation test. Boxes too: on
 /// stability-20261030 the conditioning gate alone certified 86 of 10000
@@ -1014,8 +1017,26 @@ where
             Vec::new()
         };
         if !estimated.is_empty() {
+            let refused: Vec<bool> = estimated.iter().map(|&lane| result.statuses[lane] != LaneStatus::Success).collect();
             self.checked_retry(batch, &estimated, tolerance, &mut result, &mut profile, 4)?;
             checked.retain(|&lane| result.statuses[lane] != LaneStatus::Success);
+            // Lanes the pass refused and the choice kept without a clear
+            // agreement: every box and triangle with w > 2 off PV as well,
+            // kept where its rotated copy agrees better.
+            if n >= 5 {
+                let harder: Vec<usize> = estimated
+                    .iter()
+                    .zip(&refused)
+                    .filter(|&(&lane, &was)| {
+                        was && result.statuses[lane] == LaneStatus::Success
+                            && result.estimated_errors[lane].is_some_and(|e| e > HARDER_AGREEMENT)
+                    })
+                    .map(|(&lane, _)| lane)
+                    .collect();
+                if !harder.is_empty() {
+                    self.checked_retry(batch, &harder, tolerance, &mut result, &mut profile, 3)?;
+                }
+            }
         }
         if !checked.is_empty() {
             checked.sort_unstable();

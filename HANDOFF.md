@@ -403,6 +403,12 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    Next ideas: compare the expansion with the alternative PV per box
    (COLLIER keeps the better error estimate), higher boosts only for boxes
    whose expansion converges slowly, COLLIER's Cgy/Dgy order selection.
+4b. **w > 2 upgrade for refused lanes kept by the choice (1 Nov).** Lanes the
+   main pass refused and stage 4 kept with rotation agreement > 2^-48 also
+   run stage 3 (every box/triangle with w > 2 off PV), kept where it agrees
+   better. Probe64h48: hexagon median 6.2e-14 -> 3.8e-14 (COLLIER 2.1e-14),
+   p90 2.5e-12 -> 1.6e-12; heptagon median 1.8e-13 -> 7.2e-14 (COLLIER
+   8.3e-14); tails and certified unchanged (2^-44: hexagon 4.1e-14).
 4a. **Upgrade retry for flagged accepted lanes; boxes in the choice (1 Nov).**
    Box binary64 tail was PV-accepted main-pass lanes (r4 p99 5.2e-12, DD
    2.1e-13). Main pass computes estimate flags again (N 4-7); accepted lanes
