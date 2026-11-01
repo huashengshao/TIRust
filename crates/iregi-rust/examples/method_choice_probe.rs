@@ -69,6 +69,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     println!("direct plain {:?}/call, with estimate flags {:?}/call, flagged {:?}",
         a / calls as u32, b / calls as u32, flagged.last_estimate_lanes());
+    // One workspace alternating between the lane and its rotated copy, and
+    // two workspaces (one per order).
+    let width = batch.values.len();
+    let mut values = Vec::with_capacity(width);
+    for i in 0..n {
+        let j = (i + 1) % n;
+        values.extend_from_slice(&batch.values[4 * j..4 * j + 4]);
+    }
+    for i in 0..n {
+        values.push(batch.values[4 * n + (i + 1) % n]);
+    }
+    values.push(batch.values[5 * n]);
+    let turned = KinematicsBatch { rows: 1, components: 1, values };
+    let mut one = plan.workspace(0.0f64)?;
+    one.set_stability_threshold(1e-15);
+    let mut other = plan.workspace(0.0f64)?;
+    other.set_stability_threshold(1e-15);
+    one.reduce_batch(&batch)?;
+    other.reduce_batch(&turned)?;
+    let (mut a, mut b) = (std::time::Duration::ZERO, std::time::Duration::ZERO);
+    for _ in 0..calls {
+        let start = Instant::now();
+        std::hint::black_box(one.reduce_batch(&batch)?);
+        std::hint::black_box(one.reduce_batch(&turned)?);
+        a += start.elapsed();
+        let start = Instant::now();
+        std::hint::black_box(one.reduce_batch(&batch)?);
+        std::hint::black_box(other.reduce_batch(&turned)?);
+        b += start.elapsed();
+    }
+    println!("both orders: one workspace {:?}/call, two workspaces {:?}/call", a / calls as u32, b / calls as u32);
     let facade = TensorReductionPlan::new(ReductionSettings::new(n, rank))?;
     let mut workspace = TensorWorkspace::new(&facade, 0.0f64)?;
     let result = workspace.reduce_batch(&batch)?;

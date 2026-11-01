@@ -1,8 +1,8 @@
 //! Binary64 default: the direct numerical engine with per-lane fallback.
 //!
 //! The direct engine evaluates the validated PV recurrence numerically. With
-//! five or more propagators (pentagon Gram recursions, whose rounding a
-//! conditioning estimate predicts poorly) every binary64 lane is evaluated a
+//! four or more propagators and equal powers (Gram recursions, whose rounding
+//! a conditioning estimate predicts poorly) every binary64 lane is evaluated a
 //! second time with its propagators rotated, the same integral through
 //! different Gram systems, as in MadLoop's loop-direction test; a relative
 //! difference above the requested accuracy (2^-34 by default) or a refused
@@ -110,7 +110,7 @@ const RESCUE_MARGIN: u32 = 8;
 
 /// Largest accepted E/A between a binary64 lane and its rotated copy.
 const ROTATION_TOLERANCE: f64 = 1.0 / (1u64 << 34) as f64;
-/// Binary64 conditioning gate of plans with the loop-rotation test (N >= 5,
+/// Binary64 conditioning gate of plans with the loop-rotation test (N >= 4,
 /// uniform powers). The test checks every accepted lane a posteriori, so the
 /// a priori gate only removes hopeless lanes: on physical gg->Hgg pentagons
 /// and gg->gggg hexagons (stability-20261030) the default `1e-12` refused
@@ -146,12 +146,15 @@ const NEAR_MARGIN_BITS: i32 = 4;
 /// per lane against 0.07-2 ms; on stability-20261030 no PV lane the rotation
 /// test accepted was improved by them.
 fn estimate_choice(settings: &ReductionSettings) -> bool {
-    rotation_tested(settings) && settings.propagators <= 7 && settings.rank <= 7
+    rotation_tested(settings) && (5..=7).contains(&settings.propagators) && settings.rank <= 7
 }
 
-/// Whether the binary64 pass runs the loop-rotation test.
+/// Whether the binary64 pass runs the loop-rotation test. Boxes too: on
+/// stability-20261030 the conditioning gate alone certified 86 of 10000
+/// rank-4 and 49 of 10000 rank-6 boxes beyond the tolerance (up to E/A
+/// 9.6e-9); the rotation test refuses 85 and 49 of them.
 fn rotation_tested(settings: &ReductionSettings) -> bool {
-    settings.propagators >= 5 && uniform_powers(settings)
+    settings.propagators >= 4 && uniform_powers(settings)
 }
 
 /// Whether lanes refused by the a priori gate get the checked retry.
@@ -189,6 +192,42 @@ fn lane_difference<T: NativeFloat>(
     b: &[Complex<T>],
     mu: f64,
 ) -> f64 {
+    // Squared magnitudes and weights mu^-2r (no hypot or division per
+    // entry: this test runs on every lane); `robust_lane_difference` if a
+    // square overflows.
+    let mut inverse = [0.0f64; 33];
+    let step = 1.0 / (mu * mu);
+    let mut weight = 1.0;
+    for slot in &mut inverse {
+        *slot = weight;
+        weight *= step;
+    }
+    let (mut error, mut amplitude) = (0.0f64, 0.0f64);
+    for (m, monomial) in basis.iter().enumerate() {
+        let rank = monomial.rank() as usize;
+        let Some(&weight) = inverse.get(rank) else {
+            return robust_lane_difference(basis, a, b, mu);
+        };
+        for slot in 0..4 {
+            let (x, y) = (&a[4 * m + slot], &b[4 * m + slot]);
+            let (xr, xi, yr, yi) = (x.re.to_f64(), x.im.to_f64(), y.re.to_f64(), y.im.to_f64());
+            let (dr, di) = (xr - yr, xi - yi);
+            error = error.max((dr * dr + di * di) * weight);
+            amplitude = amplitude.max((yr * yr + yi * yi) * weight);
+        }
+    }
+    if !(error.is_finite() && amplitude.is_finite() && amplitude > f64::MIN_POSITIVE) {
+        return robust_lane_difference(basis, a, b, mu);
+    }
+    (error / amplitude).sqrt()
+}
+
+fn robust_lane_difference<T: NativeFloat>(
+    basis: &[Monomial],
+    a: &[Complex<T>],
+    b: &[Complex<T>],
+    mu: f64,
+) -> f64 {
     let (mut error, mut amplitude) = (0.0f64, 0.0f64);
     for (m, monomial) in basis.iter().enumerate() {
         let weight = mu.powi(monomial.rank() as i32);
@@ -203,7 +242,7 @@ fn lane_difference<T: NativeFloat>(
 }
 
 /// Headroom of the double-double tier. Its acceptance is checked a
-/// posteriori by the loop-rotation test for N >= 5 (`RESCUE_ROTATION_TOLERANCE`):
+/// posteriori by the loop-rotation test for N >= 4 (`RESCUE_ROTATION_TOLERANCE`):
 /// on physical gg -> ggggg heptagons the conditioning estimate called for 256
 /// bits, while the 106-bit direct engine with no gate at all agreed with 256
 /// bits to E/A <= 1.7e-23 (30 points).
@@ -263,7 +302,7 @@ pub struct DirectExecutionStats {
     pub precision_rescue: Vec<DirectRescueTier>,
     /// Lanes passed on to the symbolic engine.
     pub symbolic_rows: usize,
-    /// Binary64 lanes re-evaluated with rotated propagators (N >= 5), and
+    /// Binary64 lanes re-evaluated with rotated propagators (N >= 4, equal powers), and
     /// those whose rotated copy disagreed or was refused.
     pub rotation_rows: usize,
     pub rotation_failures: usize,
@@ -812,7 +851,7 @@ where
         let n = settings.propagators;
         let (tested, checkable) = (rotation_tested(settings), rotation_checkable(settings));
         let tolerance = self.rotation_tolerance();
-        // Lanes refused by the a priori gate (N >= 5: or whose rotated copy
+        // Lanes refused by the a priori gate (N >= 4: or whose rotated copy
         // was), for the checked binary64 retry.
         let mut checked: Vec<usize> = Vec::new();
         if checkable {
