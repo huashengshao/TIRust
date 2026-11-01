@@ -134,7 +134,11 @@ program collier_opening_double_reference
       call system_clock(finish)
       times(repeat)=real(finish-start,kind(1d0))*1d9/real(rate,kind(1d0))/iterations
       ! All output/status validation is deliberately outside the kernel timer.
+      ! COLLIER's flags and tensor_error describe only its last call, so each
+      ! lane is evaluated once more (untimed) before its diagnostics are read.
       do lane=1,batch
+        call prepare_lane(lane)
+        call tensor_call(lane)
         call collect_diagnostics(lane)
         stable(lane)=stable(lane).and.all(ieee_is_finite(real(result(:,:,lane)))).and. &
                                     all(ieee_is_finite(aimag(result(:,:,lane))))
