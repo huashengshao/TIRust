@@ -343,7 +343,7 @@
 // Same-session direct-engine campaign (30 October 2026): TIRust public
 // binary64 default versus original IREGI and COLLIER, interleaved per block.
 // The latest bound capture of each campaign is shown; earlier ones stay in the data.
-#let direct-campaign-id = ("007", "006", "005", "004", "003", "002").find(id => ("direct_engine_20261030_capture" + id) in data)
+#let direct-campaign-id = ("008", "007", "006", "005", "004", "003", "002").find(id => ("direct_engine_20261030_capture" + id) in data)
 #let direct-campaign = if direct-campaign-id != none { data.at("direct_engine_20261030_capture" + direct-campaign-id) } else { data.at("direct_engine_20261030", default: none) }
 #let direct-first-capture = data.at("direct_engine_20261030", default: none)
 #let de-sci(x) = {
@@ -502,9 +502,10 @@
     amber with diagnostic times and never enter a ratio. Builds: TIRust release (thin LTO), Fortran
     `-O3`, all baseline x86-64; binary SHA-256 in #raw("validation/benchmark/direct-engine-20261030/summary" + (if direct-campaign-id == none { "" } else { "-" + direct-campaign-id }) + ".json").
     TIRust source: commit #raw(snapshot.at("tirust_source_commit", default: snapshot.tirust_git_head).slice(0, 7)).
-    This capture (007, 1 November) repeats capture 006 after the binary64 retry changes of the stability
-    section, which act only on refused lanes: every row agrees with capture 006 within 6% (separate
-    sessions; no ratio across them; the 0.4 µs N1R0 call within 9%). Since capture 006 the undotted box
+    This capture (008, 1 November) repeats capture 006 after the binary64 retry changes of the stability
+    section (captures 007 and 008), which act only on refused lanes: every row agrees with capture 006
+    within 10% and with capture 007 within 7% (separate sessions, load average 170 at start; no ratio across
+    them). Since capture 006 the undotted box
     rows take two binary64 evaluations (the loop-rotation test; N4R4 35.6 µs, capture 005: 16.6 µs; N4R6
     58.0 µs, 24.3 µs), still below COLLIER's; the dotted boxes (unequal powers) keep one. In N7R7 batch 32
     the 12 lanes refused by the rotation test (a third cyclic order, since capture 005; 8 of them were off by
@@ -516,7 +517,7 @@
     quad IREGI IBP to 6.3×10#super[−17], quad PV fails, COLLIER returns NaN, `validation/mre/collier-n7-nan`)
     and NinjaRS. TIRust's undotted N≥4 rows include the loop-rotation test (boxes since capture 006), the N≥5 rows the Gram-free pentagon reduction,
     which keep physical pentagons accurate in binary64 (capture 002, without them: N5R5 65 µs, N6R6 216 µs).
-    Captures 001 (TIRust #raw(direct-first-capture.snapshot.tirust_git_head.slice(0, 7))) to 006 remain
+    Captures 001 (TIRust #raw(direct-first-capture.snapshot.tirust_git_head.slice(0, 7))) to 007 remain
     bound unchanged in the report data.
   ]
   v(0.3em)
@@ -558,7 +559,7 @@
 }
 // Binary64 stability study (30 October 2026): cumulative accuracy profiles
 // in the style of Hirschi and Peraro, arXiv:1604.01363, figs. 2-4.
-#let stability-campaign-id = ("012", "011", "010", "009", "008", "007", "006", "005", "004", "003", "002").find(id => ("stability_20261030_capture" + id) in data)
+#let stability-campaign-id = ("013", "012", "011", "010", "009", "008", "007", "006", "005", "004", "003", "002").find(id => ("stability_20261030_capture" + id) in data)
 #let stability-campaign = if stability-campaign-id != none { data.at("stability_20261030_capture" + stability-campaign-id) } else { data.at("stability_20261030", default: none) }
 #let stability-first-capture = data.at("stability_20261030", default: none)
 #let st-style = (
@@ -699,29 +700,31 @@
     )
   ])
   text(size: 8.5pt)[
-    *Findings (capture 012, TIRust #raw(snapshot.tirust_git_head.slice(0, 7))).* TIRust's default returns an
+    *Findings (capture 013, TIRust #raw(snapshot.tirust_git_head.slice(0, 7))).* TIRust's default returns an
     accurate array on every point of all five integrals, worst E/A 6.7×10#super[−11] (rank-4 box; capture 010:
     9.6×10#super[−9]) and ≤5.7×10#super[−11] elsewhere. "TIRust binary64 only" (precision rescue disabled)
     reports every point with a binary64 array, as COLLIER does: lanes that pass TIRust's checks are certified,
     the others return their best binary64 array flagged with an estimated error, so its curves have no
-    plateau. At the default request (2#super[−34] ≈ 5.8×10#super[−11]) binary64 certifies 9999/10000 rank-4
-    and 10000/10000 rank-6 boxes, 4987/5000 pentagons, 1939/2000 hexagons and 467/495 heptagons (capture
+    plateau. At the default request (2#super[−34] ≈ 5.8×10#super[−11]) binary64 certifies 9998/10000 rank-4
+    and 9996/10000 rank-6 boxes, 4983/5000 pentagons, 1939/2000 hexagons and 468/495 heptagons (capture
     010: 9998, 9996, 4983, 1895, 436); no array is worse than 1.2×10#super[−9] (capture 010:
     3×10#super[−6]). Two certified lanes exceed the request (a rank-4 box at 6.7×10#super[−11], a heptagon
     at 2.3×10#super[−10]). Since capture 010 boxes get the loop-rotation test too (before, the conditioning
     gate alone certified 86 rank-4 and 49 rank-6 boxes beyond the request), an expansion that has not
     converged tries the next larger boost before the alternative PV reduction, and every lane the binary64
-    pass refuses is first retried with COLLIER's per-box choice. *Why hexagons and heptagons still trail
-    COLLIER in binary64* (median 8.1×10#super[−14] against 2.1×10#super[−14]; heptagons 2.1×10#super[−13]
-    against 8.3×10#super[−14]; capture 011: 1.3×10#super[−13] and 5.9×10#super[−13]): with every box and
+    pass refuses is first retried with COLLIER's per-box choice, in which a converged expansion yields to the
+    alternative PV reduction where the two agree within the expansion's remaining change. *Why hexagons and
+    heptagons still trail COLLIER in binary64* (median 6.3×10#super[−14] against 2.1×10#super[−14];
+    heptagons 1.8×10#super[−13] against 8.3×10#super[−14]; capture 011: 1.3×10#super[−13] and
+    5.9×10#super[−13]): with every box and
     triangle computed exactly, binary64 hexagons reach a median of 1.2×10#super[−15], so the pentagon and
     six-point reductions are not the cause; with only the boxes and triangles whose a priori PV estimate
     exceeds the request computed exactly, 2.0×10#super[−14] (COLLIER's level). Lanes the binary64 pass
     accepts (Passarino-Veltman for every box) are at median 2.4×10#super[−14]; the others, about three
     quarters of the hexagons, are kept by the per-box choice (small-Gram expansions, sects. 3.4, 3.5 of
-    hep-ph/0509141, or the alternative PV reduction, sect. 3.2), at median 9.9×10#super[−14]: TIRust's
-    expansions do not yet reach COLLIER's accuracy on these boxes (stopping them later improves the median
-    but worsens the tail). Before capture 012 most of those lanes were kept by PV below the gate, at median
+    hep-ph/0509141, or the alternative PV reduction, sect. 3.2), less accurately: TIRust's expansions do
+    not yet reach COLLIER's accuracy on these boxes (stopping them later improves the median but worsens
+    the tail). Before capture 012 most of those lanes were kept by PV below the gate, at median
     2.8×10#super[−13]. COLLIER (both
     branches) returns an accurate array on every point (worst 1.3×10#super[−9], DD pentagons); its flags are
     read per lane, and every unflagged COLLIER lane is within 5.5×10#super[−11]. Original IREGI's PV fails
@@ -731,7 +734,7 @@
     box and a few hexagons and heptagons. Heptagon references are confirmed by COLLIER COLI and DD
     (≤10#super[−9]) instead of quad IREGI, which fails there in both modes; COLLIER's heptagon curves are
     therefore conditioned on that agreement (5 of 500 points excluded); six hexagon points are confirmed the
-    same way. Captures 001-011 remain bound unchanged in the report data.
+    same way. Captures 001-012 remain bound unchanged in the report data.
   ]
   v(0.2em)
   let rescued = snapshot.integrals.map(i => (i.id, i.codes.at(0).at("rescued_by_bits", default: (:))))
