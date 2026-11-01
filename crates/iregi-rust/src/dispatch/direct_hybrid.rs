@@ -1101,7 +1101,12 @@ where
         // refused (gate or rotation test), before the other retries: on
         // stability-20261030 hexagons the lanes it keeps reach E/A median
         // 3.7e-14 against 2.8e-13 for PV below the gate.
-        let estimated: Vec<usize> = if choice_enabled {
+        // With the precision rescue on, refused heptagon (and larger) lanes go
+        // to it directly: their binary64 retries rarely succeed there (3 of
+        // 495 stability heptagons) and cost the opening N7R7 batch of 32
+        // about 0.6 s of 1.3 s.
+        let binary64_retries = !(self.precision_rescue == PrecisionRescue::Automatic && n >= 7);
+        let estimated: Vec<usize> = if choice_enabled && binary64_retries {
             (0..batch.rows)
                 .filter(|&lane| match &result.statuses[lane] {
                     LaneStatus::Unstable(_) => true,
@@ -1160,7 +1165,7 @@ where
         // Every lane still refused on a conditioning estimate (gate or
         // rotation test): every box and triangle by the expansions or the
         // alternative PV reduction, as COLLIER chooses its method per box.
-        if checkable {
+        if checkable && binary64_retries {
             let rest: Vec<usize> = (0..batch.rows)
                 .filter(|&lane| matches!(result.statuses[lane], LaneStatus::Unstable(_)) && conditions[lane].is_some())
                 .collect();
