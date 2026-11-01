@@ -383,6 +383,31 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    lane_difference uses squared magnitudes (hypot was ~1/4 of the box
    overhead). Test binary64_boxes_are_checked_by_the_rotation_test.
    Next (user, 1 Nov): hexagons/heptagons still trail COLLIER in binary64.
+3x. **Why hexagons/heptagons trail COLLIER in binary64 (1 Nov).**
+   - With every box and triangle exact (double-double, dev switch), binary64
+     hexagons reach median 1.2e-15 (COLLIER 9.2e-15): the pentagon and the
+     thin six-point identity are not the problem; boxes (with their
+     triangles) carry the whole error.
+   - Boxes of 40 stability hexagons (600, rank 4, zero origin; subset_accuracy
+     TRANSLATE=1, COLLIER via scratch collier_subsets.py): PV p90 9.8e-13,
+     p99 1.6e-9; COLLIER 1.2e-13 / 4.2e-11; TIRust's a priori per-box choice
+     1.8e-13 / 1.7e-11. TIRust uses PV for every box of a lane the rotation
+     test accepts; COLLIER chooses per box.
+   - Worst triangles: one massless leg, the other two virtualities nearly
+     equal (small Gram, small Zadj f, small det X; fac_g > 1). The
+     small-Cayley expansion needed boost 12 but expand_top fell back to
+     alternative PV at boost 8 (3.5e-10; boost 12 gives 2.1e-14, COLLIER
+     4.5e-12). Fixed: a non-converged expansion reports failure when the
+     next boost is predicted (observed change ratio) to converge.
+   - Probe64t: hexagon certified 1895 -> 1931, p99 1.6e-9 -> 6.6e-11, worst
+     1.9e-6 -> 6.7e-9; heptagon 86 -> 89/100; pentagon 4983 -> 4986.
+   - Remaining: the hexagon median (1.3e-13 vs COLLIER 2.1e-14) needs the
+     per-box choice in the main pass; it costs ~10 ms per N5/N6 lane now
+     (w^r estimate trips on the opening points; COLLIER's PVEST2 estimate is
+     too lenient alone). Cost is in expand_top (hash maps, 9-13 passes up to
+     rank ~21: 2.5 ms per rank-12 triangle; nested triangle expansions double
+     it, without measurable accuracy gain). FastMap (Fx hasher) took 28%.
+     Next: dense coefficient storage in expand_top, then the main-pass choice.
 3v. **1 Nov: a priori choice moved to a retry; third-order rotation check.**
    Timing capture 005 (first attempt, 37932c4) showed the main-pass choice
    tripping on every opening point N5R5-N7R7 (estimate 2^-52 w^r pessimistic;

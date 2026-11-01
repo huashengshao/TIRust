@@ -85,6 +85,12 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     gram_top: Option<u16>,
     /// Auxiliary executor of the alternative-PV stage: skip the expansions.
     gram_alt_only: bool,
+    /// Auxiliary expansion executor: ranks the next larger boost adds (0 at
+    /// the largest). When neither expansion converges and their observed
+    /// convergence predicts that those ranks suffice, the executor reports
+    /// failure so that the next boost is tried; otherwise it falls back to
+    /// the alternative PV reduction.
+    gram_extra_ranks: u16,
     /// Every box and triangle by the expansions or the alternative PV
     /// reduction, whatever its Gram conditioning (COLLIER chooses per box).
     gram_everywhere: bool,
@@ -271,6 +277,7 @@ where
             gram_external: Vec::new(),
             gram_top: None,
             gram_alt_only: false,
+            gram_extra_ranks: 0,
             gram_everywhere: false,
             gram_estimated: false,
             estimate_flags: false,
