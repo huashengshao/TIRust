@@ -408,6 +408,25 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
      rank ~21: 2.5 ms per rank-12 triangle; nested triangle expansions double
      it, without measurable accuracy gain). FastMap (Fx hasher) took 28%.
      Next: dense coefficient storage in expand_top, then the main-pass choice.
+   - Tried and reverted (end-to-end worse although standalone subsets were
+     unchanged): expansion cost cuts (boosts 4, 8, 12 with predicted
+     retries; auxiliary box triangles by alternative PV instead of nested
+     expansions; N5R5 lane with the choice 10 ms -> 0.95 ms). Probe64v:
+     hexagon certified 1816 (worst 1.7e-4), heptagon 75/100.
+   - Committed state validated (cb1d354, probe64w): pentagon 4986, hexagon
+     1935 (worst array 3.2e-9), heptagon 90/100 (p99 1.2e-10, worst 4.1e-9);
+     always retrying the larger boost (probe64x) is slightly worse.
+   - Tried and reverted: the per-box choice in the main pass for N 6-7
+     (accepted at tolerance/4, plain PV retry for refused lanes). Probe64u:
+     hexagon certified 1931 -> 1722, worst 1.7e-4, median unchanged
+     (1.3e-13); default path lost 9 hexagon arrays; N6R6 facade 2.4 ms,
+     N7R7 12 ms. The hexagon median gap is not in the boxes the w^r estimate
+     flags; standalone boxes have the same PV median as COLLIER (2.8e-15 vs
+     2.6e-15) but p90 9.8e-13 vs 1.2e-13, and a hexagon's error follows its
+     worst of 15 boxes. Next idea: per-box a posteriori check or a more
+     accurate PV formulation for the moderate boxes (COLLIER's CalcDpv1 /
+     pivoted Zinv), measured with the dev switch "boxes exact only when
+     flagged" first.
 3v. **1 Nov: a priori choice moved to a retry; third-order rotation check.**
    Timing capture 005 (first attempt, 37932c4) showed the main-pass choice
    tripping on every opening point N5R5-N7R7 (estimate 2^-52 w^r pessimistic;
