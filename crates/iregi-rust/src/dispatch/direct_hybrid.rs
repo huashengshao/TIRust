@@ -161,6 +161,16 @@ const UPGRADE_AGREEMENT: f64 = 1.0 / (1u64 << 40) as f64;
 /// Refused lanes the per-box choice kept with an agreement worse than this
 /// also try every box and triangle with w > 2 off PV (kept if better).
 const HARDER_AGREEMENT: f64 = 1.0 / (1u64 << 48) as f64;
+/// Consensus of cyclic orders: at least this many other orders must agree
+/// with the kept one, each within the tolerance times 2^-CONSENSUS_MARGIN_BITS.
+/// On stability-20261030 (all cyclic orders, binary64, against 256 bits) this
+/// kept hexagon lanes at E/A median 1.3e-14, worst 4.2e-12, and certified
+/// none beyond the request; two partners instead kept 3 of the 32 opening
+/// N7R7 lanes, one at E/A 1.2e-10 with the orders agreeing to 3.3e-12
+/// (their orders share errors near 1e-10). Probe: hexagon median 3.8e-14 ->
+/// 2.7e-14, pentagon p99 5.9e-12 -> 3.9e-12, nothing certified beyond.
+const CONSENSUS_PARTNERS: usize = 3;
+const CONSENSUS_MARGIN_BITS: i32 = 4;
 
 /// Whether the binary64 pass runs the loop-rotation test. Boxes too: on
 /// stability-20261030 the conditioning gate alone certified 86 of 10000
@@ -845,6 +855,84 @@ where
         Ok(())
     }
 
+    /// Consensus of cyclic orders for refused lanes: every cyclic relabelling
+    /// of the propagators is evaluated in binary64 (the pass's own
+    /// configuration), and an order that at least `CONSENSUS_PARTNERS` other
+    /// orders agree with within `tolerance * 2^-CONSENSUS_MARGIN_BITS` is kept
+    /// (most partners, then the closest). The orders' Gram systems differ, so
+    /// their errors differ widely (a heptagon lane: 1.2e-9 in orders 0 and 1,
+    /// 7.7e-11..9.1e-11 in orders 2, 3, 6).
+    fn order_consensus(
+        &mut self,
+        batch: &KinematicsBatch<T>,
+        lanes: &[usize],
+        tolerance: f64,
+        result: &mut BatchResult<T>,
+    ) -> Result<(), ReductionError> {
+        let n = self.plan.direct.settings().propagators;
+        let width = batch.values.len() / batch.rows.max(1);
+        let mut values = Vec::with_capacity(lanes.len() * width);
+        for &lane in lanes {
+            values.extend_from_slice(&batch.values[lane * width..(lane + 1) * width]);
+        }
+        let mut sub = KinematicsBatch { rows: lanes.len(), components: batch.components, values };
+        let mut orders = Vec::with_capacity(n);
+        for k in 0..n {
+            if k > 0 {
+                sub = rotated(&sub, n);
+            }
+            orders.push(self.direct.reduce_batch(&sub)?);
+            self.last.master_rows += self.direct.last_master_rows();
+        }
+        self.last.checked_rows += lanes.len();
+        let required = tolerance * 2f64.powi(-CONSENSUS_MARGIN_BITS);
+        let stride = result.basis.len() * 4 * result.components;
+        let width_lane = 5 * n + 1;
+        for (j, &lane) in lanes.iter().enumerate() {
+            let mu = batch.values[lane * width_lane + 5 * n].re.to_f64();
+            let ok: Vec<usize> = (0..n).filter(|&k| orders[k].statuses[j] == LaneStatus::Success).collect();
+            let mut best: Option<(usize, f64, usize)> = None;
+            for &a in &ok {
+                let mut partners = Vec::new();
+                for &b in &ok {
+                    if a != b {
+                        let difference = lane_difference(
+                            &result.basis,
+                            &orders[a].values[j * stride..(j + 1) * stride],
+                            &orders[b].values[j * stride..(j + 1) * stride],
+                            mu,
+                        );
+                        if difference <= required {
+                            partners.push(difference);
+                        }
+                    }
+                }
+                if partners.len() >= CONSENSUS_PARTNERS {
+                    let worst = partners.iter().copied().fold(0.0f64, f64::max);
+                    let better = match best {
+                        None => true,
+                        Some((count, spread, _)) => partners.len() > count || (partners.len() == count && worst < spread),
+                    };
+                    if better {
+                        best = Some((partners.len(), worst, a));
+                    }
+                }
+            }
+            if let Some((count, spread, a)) = best {
+                result.values[lane * stride..(lane + 1) * stride].clone_from_slice(&orders[a].values[j * stride..(j + 1) * stride]);
+                result.statuses[lane] = LaneStatus::Success;
+                result.estimated_errors[lane] = Some(spread);
+                result.primal_envelopes[lane] = orders[a].primal_envelopes[j].clone();
+                result.primal_envelope_errors[lane] = orders[a].primal_envelope_errors[j].clone();
+                self.last.checked_successes += 1;
+                self.diagnostics[lane].push(format!(
+                    "binary64 cyclic orders: kept order {a}, {count} other orders agree to E/A {spread:e}"
+                ));
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn reduce_batch(
         &mut self,
         batch: &KinematicsBatch<T>,
@@ -865,6 +953,7 @@ where
         let settings = self.plan.direct.settings();
         let n = settings.propagators;
         let (tested, checkable) = (rotation_tested(settings), rotation_checkable(settings));
+        let choice_enabled = estimate_choice(settings);
         let tolerance = self.rotation_tolerance();
         // Lanes refused by the a priori gate (N >= 4: or whose rotated copy
         // was), for the checked binary64 retry.
@@ -995,13 +1084,24 @@ where
             reduction: direct_profile.recurrence + direct_profile.gather + direct_profile.output,
             total: Default::default(),
         };
+        // Consensus of cyclic orders first (five and six points; on heptagons
+        // it did not help, and the opening N7R7 batch paid 12% for it).
+        if tested && (5..=6).contains(&n) {
+            let refused: Vec<usize> = (0..batch.rows)
+                .filter(|&lane| matches!(result.statuses[lane], LaneStatus::Unstable(_)))
+                .collect();
+            if !refused.is_empty() {
+                self.order_consensus(batch, &refused, tolerance, &mut result)?;
+                checked.retain(|&lane| result.statuses[lane] != LaneStatus::Success);
+            }
+        }
         // COLLIER-style a priori method choice (boxes and triangles whose PV
         // estimate exceeds the request, or that the gate refuses, by the
         // expansions or the alternative PV) for every lane the binary64 pass
         // refused (gate or rotation test), before the other retries: on
         // stability-20261030 hexagons the lanes it keeps reach E/A median
         // 3.7e-14 against 2.8e-13 for PV below the gate.
-        let estimated: Vec<usize> = if estimate_choice(settings) {
+        let estimated: Vec<usize> = if choice_enabled {
             (0..batch.rows)
                 .filter(|&lane| match &result.statuses[lane] {
                     LaneStatus::Unstable(_) => true,

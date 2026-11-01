@@ -94,7 +94,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let orders: Vec<BatchResult<f64>> = (0..n).map(|order| workspace.reduce_batch(&lane(order))).collect::<Result<_, _>>()?;
         let truth: Vec<Option<f64>> = orders.iter().map(|r| error(r, &exact, mu)).collect();
         let against: Vec<Option<f64>> = orders.iter().map(|r| error(r, &orders[0], mu)).collect();
-        println!("{}", json!({"index": index, "error": truth, "difference_to_order0": against}));
+        let pairwise: Vec<Vec<Option<f64>>> = orders.iter().map(|a| orders.iter().map(|b| error(a, b, mu)).collect()).collect();
+        println!("{}", json!({"index": index, "error": truth, "difference_to_order0": against, "pairwise": pairwise}));
     }
     Ok(())
 }

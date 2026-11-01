@@ -403,6 +403,18 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    Next ideas: compare the expansion with the alternative PV per box
    (COLLIER keeps the better error estimate), higher boosts only for boxes
    whose expansion converges slowly, COLLIER's Cgy/Dgy order selection.
+4c. **Consensus of cyclic orders (2 Nov).** Orders differ widely in accuracy
+   (N7R7 lane 26: 1.2e-9 in orders 0, 1; 7.7e-11..9.1e-11 in 2, 3, 6).
+   Refused lanes (N 5-6) first evaluate all cyclic orders; an order with >= 3
+   others within tolerance/16 is kept (most partners, then closest). Two
+   partners was unsafe on the opening N7R7 lanes (kept one at 1.2e-10 with
+   agreement 3.3e-12). Probe64cons: hexagon median 3.8e-14 -> 2.7e-14
+   (COLLIER 2.1e-14), certified 1943; pentagon p90/p99 1.9e-13/3.9e-12.
+   N7R7 batch 32 (timing): 12 lanes refused by the rotation test, all
+   binary64 retries fail (expansions do not converge / disagree; removing
+   the aux gate made it 7.6 s), 9-12 rescued at 106 bits: ~1.1-1.3 s, of
+   which ~0.58 s rescue and ~0.58 s failed retries; COLLIER 0.15 s (lane 0
+   NaN). Open: make those lanes accurate in binary64 or the retries cheaper.
 4b. **w > 2 upgrade for refused lanes kept by the choice (1 Nov).** Lanes the
    main pass refused and stage 4 kept with rotation agreement > 2^-48 also
    run stage 3 (every box/triangle with w > 2 off PV), kept where it agrees
