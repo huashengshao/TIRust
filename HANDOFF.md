@@ -409,6 +409,10 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    better. Probe64h48: hexagon median 6.2e-14 -> 3.8e-14 (COLLIER 2.1e-14),
    p90 2.5e-12 -> 1.6e-12; heptagon median 1.8e-13 -> 7.2e-14 (COLLIER
    8.3e-14); tails and certified unchanged (2^-44: hexagon 4.1e-14).
+   Upgrade of accepted flagged lanes now boxes and pentagons only: in timing
+   capture 009 (32a79e2, not published) the N6R6 batch of 32 took 151.9 ms
+   against 17.3 ms (its perturbed lanes agree just above 2^-40), while the
+   upgrade did not change the stability hexagons.
 4a. **Upgrade retry for flagged accepted lanes; boxes in the choice (1 Nov).**
    Box binary64 tail was PV-accepted main-pass lanes (r4 p99 5.2e-12, DD
    2.1e-13). Main pass computes estimate flags again (N 4-7); accepted lanes

@@ -152,10 +152,11 @@ fn estimate_choice(settings: &ReductionSettings) -> bool {
 /// Accepted lanes where some box or triangle exceeds the a priori PV
 /// estimate are computed with the per-box choice too and take it where its
 /// rotated copy agrees better (boxes: every such lane, their binary64 tail
-/// was PV-accepted lanes at 1e-12..1e-11 against COLLIER DD's 1e-13; five and
-/// six points: lanes agreeing worse than this, sparing ordinary points;
-/// heptagons: none, their stability lanes are nearly all refused anyway and
-/// the opening N7R7 point would pay 13 ms for a choice that fails).
+/// was PV-accepted lanes at 1e-12..1e-11 against COLLIER DD's 1e-13;
+/// pentagons: lanes agreeing worse than this, sparing ordinary points; six
+/// and seven points: none, it did not improve the stability hexagons while
+/// the opening N6R6 batch of 32 took 8.8 times longer and the N7R7 point
+/// would pay 13 ms for a choice that fails).
 const UPGRADE_AGREEMENT: f64 = 1.0 / (1u64 << 40) as f64;
 /// Refused lanes the per-box choice kept with an agreement worse than this
 /// also try every box and triangle with w > 2 off PV (kept if better).
@@ -1008,7 +1009,7 @@ where
                     LaneStatus::Success => {
                         flagged[lane]
                             && (n == 4
-                                || (n <= 6 && result.estimated_errors[lane].is_some_and(|e| e > UPGRADE_AGREEMENT)))
+                                || (n == 5 && result.estimated_errors[lane].is_some_and(|e| e > UPGRADE_AGREEMENT)))
                     }
                     _ => false,
                 })
