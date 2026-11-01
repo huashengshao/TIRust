@@ -88,9 +88,14 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     /// Every box and triangle by the expansions or the alternative PV
     /// reduction, whatever its Gram conditioning (COLLIER chooses per box).
     gram_everywhere: bool,
-    /// A priori choice (main binary64 pass): a box or triangle leaves PV
-    /// when its estimate 2^-52 w^r exceeds 2^-36; refusals as before.
+    /// A priori choice: a box or triangle leaves PV when its estimate
+    /// 2^-52 w^r exceeds 2^-36; refusals as before.
     gram_estimated: bool,
+    /// Evaluate the same a priori estimate without acting on it: lanes where
+    /// some box or triangle exceeds it are only recorded (`lane_estimate`).
+    estimate_flags: bool,
+    /// The current lane's geometry found such a box or triangle.
+    estimate_tripped: bool,
     gram_top_active: bool,
     /// Plan variant of the current lane.
     plan: Arc<DirectPlanData>,
@@ -157,6 +162,9 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     /// Per lane of the most recent call: some box or triangle was computed
     /// by the expansions or the alternative PV reduction.
     lane_gram: Vec<bool>,
+    /// Per lane of the most recent call: some box or triangle exceeds the a
+    /// priori estimate (`estimate_flags` only).
+    lane_estimate: Vec<bool>,
     /// `8 * 2^-precision`: a squared distance below this multiple of its
     /// sum of squared components is zero within its own rounding.
     rounding: T,
@@ -265,6 +273,8 @@ where
             gram_alt_only: false,
             gram_everywhere: false,
             gram_estimated: false,
+            estimate_flags: false,
+            estimate_tripped: false,
             gram_top_active: false,
             values: vec![lzero(&zero); plan.value_count],
             geometry: vec![zero.clone(); plan.geometry_count.max(1)],
@@ -344,6 +354,7 @@ where
             failed_condition: None,
             lane_conditions: Vec::new(),
             lane_gram: Vec::new(),
+            lane_estimate: Vec::new(),
             rounding: {
                 let half = prototype.one() / &prototype.from_usize(2);
                 (0..prototype.get_precision()).fold(prototype.from_usize(8), |acc, _| acc * &half)
@@ -386,6 +397,10 @@ where
 
     pub(crate) fn last_gram_lanes(&self) -> &[bool] {
         &self.lane_gram
+    }
+
+    pub(crate) fn last_estimate_lanes(&self) -> &[bool] {
+        &self.lane_estimate
     }
 
     fn timer(&self) -> Option<Instant> {
@@ -629,6 +644,12 @@ where
     pub(crate) fn enable_estimated_method_choice(&mut self, boost: u16, aux_threshold: T) {
         self.gram = Some(Box::new(gram::GramRescue::everywhere(boost, aux_threshold)));
         self.gram_estimated = true;
+    }
+
+    /// Record, per lane, whether the a priori choice would leave PV for
+    /// some box or triangle, while computing every one by PV.
+    pub(crate) fn enable_estimate_flags(&mut self) {
+        self.estimate_flags = true;
     }
 
     /// Refused boxes and triangles by the alternative PV reduction alone.
@@ -902,6 +923,7 @@ where
         self.external.clear();
         self.gram_external.clear();
         self.gram_top_active = false;
+        self.estimate_tripped = false;
         let plan = self.plan.clone();
         let n = plan.settings.propagators;
         let threshold = self.stability_threshold.clone();
@@ -917,6 +939,7 @@ where
         let top_mask = plan.subsets.last().map(|subset| subset.mask);
         let partial = self.partial.is_some() && plan.jet.is_none() && plan.lambda_shift == 0;
         let gram = self.gram.is_some() && plan.jet.is_none() && plan.lambda_shift == 0;
+        let flags = self.estimate_flags && plan.jet.is_none() && plan.lambda_shift == 0;
         for (subset_id, subset) in plan.subsets.iter().enumerate() {
             let members = &subset.members;
             let origin = members[0];
@@ -964,7 +987,9 @@ where
                     if subset.coefficient_rank >= 1 && momenta > 0 {
                         let size = momenta;
                         let aux_top = self.gram_top.is_some() && Some(subset.mask) == top_mask;
-                        if gram && (self.gram_everywhere || self.gram_estimated) && !aux_top && (2..=3).contains(&size) {
+                        let choose = gram && (self.gram_everywhere || self.gram_estimated);
+                        let flag = flags && !self.estimate_tripped;
+                        if (choose || flag) && !aux_top && (2..=3).contains(&size) {
                             // COLLIER's per-box choice: off Passarino-Veltman
                             // where its estimate is worse (w > 2) and the
                             // adjugates do not vanish.
@@ -988,8 +1013,11 @@ where
                                 2f64.powi(-52) * w.powi(rank) > 2f64.powi(-36)
                             };
                             if gram::gram_indicator(&z, &f, size).is_some_and(switch) {
-                                self.gram_external.push(subset_id);
-                                continue;
+                                if choose {
+                                    self.gram_external.push(subset_id);
+                                    continue;
+                                }
+                                self.estimate_tripped = true;
                             }
                         }
                         if self.gram_top.is_some() && (2..=3).contains(&size) && Some(subset.mask) == top_mask {
@@ -2183,6 +2211,8 @@ where
         self.lane_conditions.resize(batch.rows, None);
         self.lane_gram.clear();
         self.lane_gram.resize(batch.rows, false);
+        self.lane_estimate.clear();
+        self.lane_estimate.resize(batch.rows, false);
         let settings = &base_plan.settings;
         for row in 0..batch.rows {
             let lane_values = values.len();
@@ -2247,6 +2277,7 @@ where
                     }
                 }
             }
+            self.lane_estimate[row] = self.estimate_tripped;
             if let Some(error) = failure {
                 self.lane_conditions[row] = self.failed_condition;
                 statuses.push(LaneStatus::Unstable(error));

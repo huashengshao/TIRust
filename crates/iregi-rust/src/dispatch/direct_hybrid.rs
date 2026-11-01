@@ -6,13 +6,20 @@
 //! second time with its propagators rotated, the same integral through
 //! different Gram systems, as in MadLoop's loop-direction test; a relative
 //! difference above the requested accuracy (2^-34 by default) or a refused
-//! rotated copy refuses the lane.
+//! rotated copy refuses the lane. A lane within `NEAR_MARGIN_BITS` of the
+//! tolerance is evaluated in a third cyclic order, which must agree too.
 //!
 //! Lanes the a priori conditioning gate refuses (four or more propagators,
 //! equal powers) are evaluated again in binary64 with the gate lowered to
 //! `CHECKED_GATE` and kept when their rotated copy agrees two bits better
 //! than the tolerance: the a posteriori test replaces the a priori bound,
 //! which is pessimistic for most such lanes.
+//!
+//! The binary64 pass also evaluates COLLIER's a priori PV estimate
+//! 2^-52 w^r per box and triangle (five to seven propagators, rank <= 7). A
+//! refused lane where some estimate exceeds the request is first evaluated
+//! again with those boxes and triangles off PV (the small-Gram expansions or
+//! the alternative PV reduction) and kept at the retries' stricter level.
 //!
 //! With [`PrecisionRescue::Automatic`] (the default) lanes still refused on
 //! conditioning are rerun by the same direct engine at higher precision:
@@ -127,6 +134,20 @@ const CHECKED_MARGIN_BITS: i32 = 2;
 /// 8, and on 34 and 254 with 12 (15 of them by the small-Cayley variant);
 /// every converged lane agreed with 256 bits to E/A <= 3.4e-11.
 const GRAM_BOOST: u16 = 12;
+/// A lane whose rotated copy agrees within this many bits of the tolerance is
+/// evaluated in a third cyclic order, which must agree with the first too.
+const NEAR_MARGIN_BITS: i32 = 4;
+/// Whether the binary64 pass flags lanes for the a priori method choice,
+/// retried on the flagged lanes the pass refuses. (Validated up to seven
+/// points and rank 7; larger plans would build many high-rank auxiliary
+/// plans.) The estimate 2^-52 w^r is pessimistic: it exceeds the request on
+/// every opening benchmark point from N5R5 to N7R7, where PV passes the
+/// rotation test (E/A 4e-14 to 7e-12) and the expansions would cost 13-40 ms
+/// per lane against 0.07-2 ms; on stability-20261030 no PV lane the rotation
+/// test accepted was improved by them.
+fn estimate_choice(settings: &ReductionSettings) -> bool {
+    rotation_tested(settings) && settings.propagators <= 7 && settings.rank <= 7
+}
 
 /// Whether the binary64 pass runs the loop-rotation test.
 fn rotation_tested(settings: &ReductionSettings) -> bool {
@@ -284,6 +305,9 @@ pub(crate) struct DirectHybridWorkspace<T: NativeFloat> {
     /// ... and of the stage computing every box and triangle by the
     /// expansions or the alternative PV reduction (COLLIER's per-box choice).
     everywhere: Option<Box<DirectWorkspace<T>>>,
+    /// ... and of the a priori method choice (COLLIER-style: boxes and
+    /// triangles whose PV estimate exceeds the request leave PV).
+    estimated: Option<Box<DirectWorkspace<T>>>,
     /// Binary64 workspace without any gate, for best-effort arrays of lanes
     /// no other binary64 stage computed.
     open: Option<Box<DirectWorkspace<T>>>,
@@ -328,12 +352,10 @@ where
         direct.set_profiling(options.profiling);
         if rotation_tested(plan.direct.settings()) {
             direct.set_stability_threshold(from_binary64(&prototype, ROTATION_GATE));
-            // COLLIER-style a priori method choice; the rotation test checks.
-            // (Validated up to seven points and rank 7; larger plans would
-            // build many high-rank auxiliary plans.)
-            let settings = plan.direct.settings();
-            if settings.propagators <= 7 && settings.rank <= 7 {
-                direct.enable_estimated_method_choice(GRAM_BOOST, from_binary64(&prototype, ROTATION_GATE));
+            // Lanes where COLLIER's a priori estimate would leave PV for some
+            // box or triangle are flagged for the method-choice retry.
+            if estimate_choice(plan.direct.settings()) {
+                direct.enable_estimate_flags();
             }
         }
         if options.precision_rescue == PrecisionRescue::Automatic {
@@ -351,6 +373,7 @@ where
             expanded: None,
             alternative: None,
             everywhere: None,
+            estimated: None,
             open: None,
             candidates: Vec::new(),
             rescue: RescueWorkspaces::default(),
@@ -603,15 +626,17 @@ where
         stage: u8,
     ) -> Result<(), ReductionError> {
         // 0: below the gate; 1: small-Gram expansions (alternative PV as
-        // their last resort); 2: alternative PV alone. Stages 1 and 2 count
-        // as expansion rows.
+        // their last resort); 2: alternative PV alone; 3: every box and
+        // triangle off PV where w > 2; 4: the a priori method choice. Stages
+        // 1 to 4 count as expansion rows.
         let expansion = stage >= 1;
         let n = self.plan.direct.settings().propagators;
         let slot = match stage {
             0 => &mut self.checked,
             1 => &mut self.expanded,
             2 => &mut self.alternative,
-            _ => &mut self.everywhere,
+            3 => &mut self.everywhere,
+            _ => &mut self.estimated,
         };
         if slot.is_none() {
             let mut workspace = self
@@ -623,7 +648,13 @@ where
                 if rotation_tested(self.plan.direct.settings()) {
                     workspace.set_stability_threshold(from_binary64(&self.prototype, ROTATION_GATE));
                 }
-                if stage == 3 {
+                if stage == 4 {
+                    let gate = from_binary64(&self.prototype, ROTATION_GATE);
+                    workspace.enable_estimated_method_choice(GRAM_BOOST, gate);
+                    if self.precision_rescue == PrecisionRescue::Automatic {
+                        workspace.enable_partial_rescue(rescue_threshold(RESCUE_BITS[0]));
+                    }
+                } else if stage == 3 {
                     let gate = if rotation_tested(self.plan.direct.settings()) { ROTATION_GATE } else { 1e-12 };
                     workspace.enable_gram_expansion_everywhere(GRAM_BOOST, from_binary64(&self.prototype, gate));
                 } else if stage == 2 {
@@ -669,15 +700,63 @@ where
         let required = tolerance * 2f64.powi(-CHECKED_MARGIN_BITS);
         let stride = result.basis.len() * 4 * result.components;
         let width_lane = 5 * n + 1;
-        for (k, &lane) in lanes.iter().enumerate() {
-            let note = match (&first.statuses[k], &second.statuses[k]) {
-                (LaneStatus::Success, LaneStatus::Success) => {
-                    let mu = batch.values[lane * width_lane + 5 * n].re.to_f64();
-                    let (a, b) = (
+        let mu = |k: usize| batch.values[lanes[k] * width_lane + 5 * n].re.to_f64();
+        let mut differences: Vec<Option<f64>> = (0..lanes.len())
+            .map(|k| {
+                (first.statuses[k] == LaneStatus::Success && second.statuses[k] == LaneStatus::Success).then(|| {
+                    lane_difference(
+                        &result.basis,
                         &first.values[k * stride..(k + 1) * stride],
                         &second.values[k * stride..(k + 1) * stride],
+                        mu(k),
+                    )
+                })
+            })
+            .collect();
+        // Near misses: a third cyclic order must agree with the first too
+        // (stability-20261030 hexagon #1208: kept by the expansion at a
+        // difference of 3.6e-12, E/A 2.0e-10).
+        let near: Vec<usize> = (0..lanes.len())
+            .filter(|&k| {
+                differences[k].is_some_and(|d| d <= required && d > required * 2f64.powi(-NEAR_MARGIN_BITS))
+            })
+            .collect();
+        let mut third_refused = vec![false; lanes.len()];
+        if !near.is_empty() && n >= 3 {
+            let mut values = Vec::with_capacity(near.len() * width);
+            for &k in &near {
+                values.extend_from_slice(&sub.values[k * width..(k + 1) * width]);
+            }
+            let near_batch = KinematicsBatch { rows: near.len(), components: batch.components, values };
+            let third = workspace.reduce_batch(&rotated(&rotated(&near_batch, n), n))?;
+            self.last.master_rows += workspace.last_master_rows();
+            let third_profile = workspace.last_profile();
+            profile.arguments += third_profile.geometry;
+            profile.scalar_masters += third_profile.masters;
+            profile.reduction += third_profile.recurrence + third_profile.gather + third_profile.output;
+            for (j, &k) in near.iter().enumerate() {
+                if third.statuses[j] == LaneStatus::Success {
+                    let difference = lane_difference(
+                        &result.basis,
+                        &first.values[k * stride..(k + 1) * stride],
+                        &third.values[j * stride..(j + 1) * stride],
+                        mu(k),
                     );
-                    let difference = lane_difference(&result.basis, a, b, mu);
+                    differences[k] = differences[k].map(|d| d.max(difference));
+                } else {
+                    third_refused[k] = true;
+                }
+            }
+        }
+        for (k, &lane) in lanes.iter().enumerate() {
+            let note = match (&first.statuses[k], &second.statuses[k]) {
+                (LaneStatus::Success, LaneStatus::Success) if third_refused[k] => {
+                    self.candidates[lane].push((first.values[k * stride..(k + 1) * stride].to_vec(), differences[k].unwrap_or(f64::NAN)));
+                    format!("{} a third order is refused", if expansion { "small-Gram expansion:" } else { "below the gate" })
+                }
+                (LaneStatus::Success, LaneStatus::Success) => {
+                    let a = &first.values[k * stride..(k + 1) * stride];
+                    let difference = differences[k].unwrap_or(f64::NAN);
                     if difference <= required {
                         result.values[lane * stride..(lane + 1) * stride].clone_from_slice(a);
                         result.statuses[lane] = LaneStatus::Success;
@@ -686,7 +765,11 @@ where
                         result.primal_envelope_errors[lane] = first.primal_envelope_errors[k].clone();
                         let stage = if expansion {
                             self.last.expansion_successes += 1;
-                            if stage == 2 { "binary64 alternative PV" } else { "binary64 small-Gram expansion" }
+                            match stage {
+                                2 => "binary64 alternative PV",
+                                4 => "binary64 a priori method choice",
+                                _ => "binary64 small-Gram expansion",
+                            }
                         } else {
                             self.last.checked_successes += 1;
                             "binary64 below the conditioning gate"
@@ -741,16 +824,13 @@ where
                 }
             }
         }
+        // Lanes where some box or triangle exceeds the a priori PV estimate.
+        let mut estimate_lanes: Vec<bool> = self.direct.last_estimate_lanes().to_vec();
         if tested {
-            // Lanes computed partly by the expansions are held to the retries'
-            // stricter level (their rotated copies share more of the error).
-            let gram_lanes: Vec<bool> = self.direct.last_gram_lanes().to_vec();
             let check = self.direct.reduce_batch(&rotated(batch, n))?;
-            let gram_lanes: Vec<bool> = gram_lanes
-                .iter()
-                .zip(self.direct.last_gram_lanes())
-                .map(|(a, b)| *a || *b)
-                .collect();
+            for (flag, rotated) in estimate_lanes.iter_mut().zip(self.direct.last_estimate_lanes()) {
+                *flag |= *rotated;
+            }
             self.last.master_rows += self.direct.last_master_rows();
             let rotated_profile = self.direct.last_profile();
             direct_profile.geometry += rotated_profile.geometry;
@@ -762,6 +842,9 @@ where
             let rotated_conditions = self.direct.last_conditions().to_vec();
             let stride = result.basis.len() * 4;
             let width = 5 * n + 1;
+            // Lanes accepted within NEAR_MARGIN_BITS of the tolerance, with
+            // their difference, for the third-order check.
+            let mut near: Vec<(usize, f64)> = Vec::new();
             for lane in 0..batch.rows {
                 if result.statuses[lane] != LaneStatus::Success {
                     continue;
@@ -774,13 +857,11 @@ where
                         &check.values[lane * stride..(lane + 1) * stride],
                         mu,
                     );
-                    let limit = if gram_lanes.get(lane).copied().unwrap_or(false) {
-                        tolerance * 2f64.powi(-CHECKED_MARGIN_BITS)
-                    } else {
-                        tolerance
-                    };
-                    if difference <= limit {
+                    if difference <= tolerance {
                         result.estimated_errors[lane] = Some(difference);
+                        if difference > tolerance * 2f64.powi(-NEAR_MARGIN_BITS) {
+                            near.push((lane, difference));
+                        }
                         continue;
                     }
                     self.candidates[lane].push((result.values[lane * stride..(lane + 1) * stride].to_vec(), difference));
@@ -800,6 +881,52 @@ where
                 self.last.rotation_failures += 1;
                 result.statuses[lane] = LaneStatus::Unstable(note);
             }
+            if !near.is_empty() && n >= 3 {
+                // Near misses: the two orders can share an error several
+                // times the tolerance (stability-20261030 pentagons: E/A
+                // 1.4e-10 at a difference of 2.4e-11). A third cyclic order
+                // must agree with the first as well.
+                let mut values = Vec::with_capacity(near.len() * width);
+                for &(lane, _) in &near {
+                    values.extend_from_slice(&batch.values[lane * width..(lane + 1) * width]);
+                }
+                let sub = KinematicsBatch { rows: near.len(), components: batch.components, values };
+                let third = self.direct.reduce_batch(&rotated(&rotated(&sub, n), n))?;
+                self.last.master_rows += self.direct.last_master_rows();
+                let third_profile = self.direct.last_profile();
+                direct_profile.geometry += third_profile.geometry;
+                direct_profile.masters += third_profile.masters;
+                direct_profile.recurrence += third_profile.recurrence;
+                direct_profile.gather += third_profile.gather;
+                direct_profile.output += third_profile.output;
+                self.last.rotation_rows += near.len();
+                for (k, &(lane, first)) in near.iter().enumerate() {
+                    estimate_lanes[lane] |= self.direct.last_estimate_lanes().get(k).copied().unwrap_or(false);
+                    let note = if third.statuses[k] == LaneStatus::Success {
+                        let mu = batch.values[lane * width + 5 * n].re.to_f64();
+                        let difference = lane_difference(
+                            &result.basis,
+                            &result.values[lane * stride..(lane + 1) * stride],
+                            &third.values[k * stride..(k + 1) * stride],
+                            mu,
+                        );
+                        if difference <= tolerance {
+                            result.estimated_errors[lane] = Some(first.max(difference));
+                            continue;
+                        }
+                        let difference = first.max(difference);
+                        conditions[lane] = Some(2f64.powi(-53) / difference);
+                        format!("loop-rotation test: a third order differs by E/A {difference:e}")
+                    } else {
+                        conditions[lane] = self.direct.last_conditions().get(k).copied().flatten().or(Some(0.0));
+                        format!("loop-rotation test: third order refused ({:?})", third.statuses[k])
+                    };
+                    self.candidates[lane].push((result.values[lane * stride..(lane + 1) * stride].to_vec(), first));
+                    result.estimated_errors[lane] = None;
+                    self.last.rotation_failures += 1;
+                    result.statuses[lane] = LaneStatus::Unstable(note);
+                }
+            }
         }
         self.diagnostics.clear();
         self.diagnostics.resize(batch.rows, Vec::new());
@@ -814,6 +941,19 @@ where
             reduction: direct_profile.recurrence + direct_profile.gather + direct_profile.output,
             total: Default::default(),
         };
+        // COLLIER-style a priori method choice for the flagged lanes the
+        // binary64 pass refused (gate or rotation test), before the other
+        // retries.
+        let estimated: Vec<usize> = (0..batch.rows)
+            .filter(|&lane| {
+                estimate_lanes.get(lane).copied().unwrap_or(false)
+                    && matches!(result.statuses[lane], LaneStatus::Unstable(_))
+            })
+            .collect();
+        if !estimated.is_empty() {
+            self.checked_retry(batch, &estimated, tolerance, &mut result, &mut profile, 4)?;
+            checked.retain(|&lane| result.statuses[lane] != LaneStatus::Success);
+        }
         if !checked.is_empty() {
             checked.sort_unstable();
             checked.dedup();
