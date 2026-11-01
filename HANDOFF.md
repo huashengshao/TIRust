@@ -403,6 +403,15 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    Next ideas: compare the expansion with the alternative PV per box
    (COLLIER keeps the better error estimate), higher boosts only for boxes
    whose expansion converges slowly, COLLIER's Cgy/Dgy order selection.
+3z. **Expansion vs alternative PV a posteriori (1 Nov).** A converged
+   expansion whose last pass still changed it by c > 64 u is compared with
+   the alternative PV; difference d <= 2c -> alternative PV kept (the
+   expansion's remaining error explains d), else the expansion. (The a
+   priori alternative-PV estimate w^ceil(r/2) misses small det X: 6e-13
+   predicted, 3.5e-10 actual on the worst triangle.) Probe64z: hexagon
+   median 8.1e-14 -> 6.3e-14 (COLLIER 2.1e-14), p99 5.1e-11 -> 6.6e-11,
+   certified 1939; heptagon median 2.1e-13 -> 1.8e-13, 92/100; pentagon p90
+   5.8e-13 -> 4.7e-13, certified 4987 -> 4983.
 3x. **Why hexagons/heptagons trail COLLIER in binary64 (1 Nov).**
    - With every box and triangle exact (double-double, dev switch), binary64
      hexagons reach median 1.2e-15 (COLLIER 9.2e-15): the pentagon and the
