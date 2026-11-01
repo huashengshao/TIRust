@@ -45,6 +45,11 @@ LATER = {
         "direct_engine_20261030_capture004": ("summary-004.json", True),
         "direct_engine_20261030_build004": ("build-004.json", True),
     },
+    # Capture 005 reuses inputs-003.json (bound with capture 003).
+    "005": {
+        "direct_engine_20261030_capture005": ("summary-005.json", True),
+        "direct_engine_20261030_build005": ("build-005.json", True),
+    },
 }
 
 
