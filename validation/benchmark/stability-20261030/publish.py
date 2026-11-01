@@ -77,6 +77,11 @@ LATER = {
         "stability_20261030_capture013": (HERE / "summary-013.json", True),
         "stability_20261030_build013": (HERE / "build-013.json", True),
     },
+    # Capture 014 (32a79e2) was not published.
+    "015": {
+        "stability_20261030_capture015": (HERE / "summary-015.json", True),
+        "stability_20261030_build015": (HERE / "build-015.json", True),
+    },
 }
 
 

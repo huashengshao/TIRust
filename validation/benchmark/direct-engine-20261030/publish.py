@@ -65,6 +65,11 @@ LATER = {
         "direct_engine_20261030_capture008": ("summary-008.json", True),
         "direct_engine_20261030_build008": ("build-008.json", True),
     },
+    # Capture 009 (32a79e2) was not published; capture 010 reuses inputs-003.json.
+    "010": {
+        "direct_engine_20261030_capture010": ("summary-010.json", True),
+        "direct_engine_20261030_build010": ("build-010.json", True),
+    },
 }
 
 
