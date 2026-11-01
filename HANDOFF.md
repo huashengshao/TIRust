@@ -396,7 +396,13 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    median 5.6e-13 -> 2.1e-13 (COLLIER 9.9e-14), worst 4.1e-9 -> 1.2e-10, 91
    of 100; pentagon 4987. The choice-retry lanes (1427) reach median 9.9e-14
    against 2.0e-14 with exact flagged subsets: expansion accuracy is the next
-   lever (EXPANSION_TOLERANCE 2^-30, boosts).
+   lever. Tried: EXPANSION_TOLERANCE 2^-36 / 2^-42 (hexagon median 6.2e-14
+   but p99 4.1e-10 / 1.6e-9, worst 1.5e-8 / 1.9e-6: more fallbacks to the
+   alternative PV) -> kept 2^-30. Published: timing 007 + stability 012
+   (076f894; hexagon median 8.1e-14, heptagon 2.1e-13, certified 1939, 467).
+   Next ideas: compare the expansion with the alternative PV per box
+   (COLLIER keeps the better error estimate), higher boosts only for boxes
+   whose expansion converges slowly, COLLIER's Cgy/Dgy order selection.
 3x. **Why hexagons/heptagons trail COLLIER in binary64 (1 Nov).**
    - With every box and triangle exact (double-double, dev switch), binary64
      hexagons reach median 1.2e-15 (COLLIER 9.2e-15): the pentagon and the
