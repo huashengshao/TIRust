@@ -146,8 +146,17 @@ const NEAR_MARGIN_BITS: i32 = 4;
 /// per lane against 0.07-2 ms; on stability-20261030 no PV lane the rotation
 /// test accepted was improved by them.
 fn estimate_choice(settings: &ReductionSettings) -> bool {
-    rotation_tested(settings) && (5..=7).contains(&settings.propagators) && settings.rank <= 7
+    rotation_tested(settings) && (4..=7).contains(&settings.propagators) && settings.rank <= 7
 }
+
+/// Accepted lanes where some box or triangle exceeds the a priori PV
+/// estimate are computed with the per-box choice too and take it where its
+/// rotated copy agrees better (boxes: every such lane, their binary64 tail
+/// was PV-accepted lanes at 1e-12..1e-11 against COLLIER DD's 1e-13; five and
+/// six points: lanes agreeing worse than this, sparing ordinary points;
+/// heptagons: none, their stability lanes are nearly all refused anyway and
+/// the opening N7R7 point would pay 13 ms for a choice that fails).
+const UPGRADE_AGREEMENT: f64 = 1.0 / (1u64 << 40) as f64;
 
 /// Whether the binary64 pass runs the loop-rotation test. Boxes too: on
 /// stability-20261030 the conditioning gate alone certified 86 of 10000
@@ -391,6 +400,9 @@ where
         direct.set_profiling(options.profiling);
         if rotation_tested(plan.direct.settings()) {
             direct.set_stability_threshold(from_binary64(&prototype, ROTATION_GATE));
+            if estimate_choice(plan.direct.settings()) {
+                direct.enable_estimate_flags();
+            }
         }
         if options.precision_rescue == PrecisionRescue::Automatic {
             direct.enable_partial_rescue(rescue_threshold(RESCUE_BITS[0]));
@@ -791,7 +803,11 @@ where
                 (LaneStatus::Success, LaneStatus::Success) => {
                     let a = &first.values[k * stride..(k + 1) * stride];
                     let difference = differences[k].unwrap_or(f64::NAN);
-                    if difference <= required {
+                    // An accepted lane (upgrade) is replaced only by a better
+                    // agreement.
+                    let better = result.statuses[lane] != LaneStatus::Success
+                        || result.estimated_errors[lane].map_or(true, |e| difference < e);
+                    if difference <= required && better {
                         result.values[lane * stride..(lane + 1) * stride].clone_from_slice(a);
                         result.statuses[lane] = LaneStatus::Success;
                         result.estimated_errors[lane] = Some(difference);
@@ -858,8 +874,14 @@ where
                 }
             }
         }
+        // Lanes where some box or triangle exceeds the a priori PV estimate.
+        let mut flagged: Vec<bool> = self.direct.last_estimate_lanes().to_vec();
+        flagged.resize(batch.rows, false);
         if tested {
             let check = self.direct.reduce_batch(&rotated(batch, n))?;
+            for (flag, rotated) in flagged.iter_mut().zip(self.direct.last_estimate_lanes()) {
+                *flag |= *rotated;
+            }
             self.last.master_rows += self.direct.last_master_rows();
             let rotated_profile = self.direct.last_profile();
             direct_profile.geometry += rotated_profile.geometry;
@@ -976,7 +998,18 @@ where
         // stability-20261030 hexagons the lanes it keeps reach E/A median
         // 3.7e-14 against 2.8e-13 for PV below the gate.
         let estimated: Vec<usize> = if estimate_choice(settings) {
-            (0..batch.rows).filter(|&lane| matches!(result.statuses[lane], LaneStatus::Unstable(_))).collect()
+            (0..batch.rows)
+                .filter(|&lane| match &result.statuses[lane] {
+                    LaneStatus::Unstable(_) => true,
+                    // Upgrade of accepted flagged lanes (kept only if better).
+                    LaneStatus::Success => {
+                        flagged[lane]
+                            && (n == 4
+                                || (n <= 6 && result.estimated_errors[lane].is_some_and(|e| e > UPGRADE_AGREEMENT)))
+                    }
+                    _ => false,
+                })
+                .collect()
         } else {
             Vec::new()
         };

@@ -720,7 +720,9 @@ fn gate_refused_binary64_box_is_kept_by_the_rotation_check() {
         let (result, stats, notes, error) = physical_box(&shifts, 6, rescue);
         assert_eq!(result.statuses[0], LaneStatus::Success, "{notes:?}");
         assert!(!result.fallback_used[0], "{stats:?}");
-        assert_eq!((stats.checked_rows, stats.checked_successes), (1, 1), "{stats:?}");
+        // Kept by one binary64 retry (the per-box method choice, first since
+        // it covers boxes, or PV below the gate).
+        assert_eq!(stats.checked_successes + stats.expansion_successes, 1, "{stats:?}");
         assert!(stats.precision_rescue.is_empty(), "{stats:?}");
         let estimate = result.estimated_error(0).expect("measured by the rotation check");
         assert!(estimate <= 2f64.powi(-36), "estimate {estimate:e}");
@@ -746,8 +748,8 @@ fn small_gram_box_is_kept_in_binary64_by_the_expansion() {
     let (result, stats, notes, error) = physical_box(&shifts, 4, PrecisionRescue::Disabled);
     assert_eq!(result.statuses[0], LaneStatus::Success, "{notes:?}");
     assert!(!result.fallback_used[0], "{stats:?}");
-    assert_eq!((stats.checked_rows, stats.checked_successes), (1, 0), "{stats:?}");
-    assert_eq!((stats.expansion_rows, stats.expansion_successes), (1, 1), "{stats:?}");
+    // Kept by a binary64 expansion retry (the per-box method choice).
+    assert_eq!(stats.expansion_successes, 1, "{stats:?}");
     let error = error.unwrap();
     assert!(error <= 1e-10, "E/A = {error:e}");
 }
