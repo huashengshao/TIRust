@@ -383,6 +383,20 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    lane_difference uses squared magnitudes (hypot was ~1/4 of the box
    overhead). Test binary64_boxes_are_checked_by_the_rotation_test.
    Next (user, 1 Nov): hexagons/heptagons still trail COLLIER in binary64.
+3y. **Method-choice retry for every refused lane (1 Nov, after capture 011).**
+   Dev switch "flagged boxes/triangles exact" (estimate trips -> double-
+   double): hexagon median 2.0e-14, p90 6.5e-13 (COLLIER 2.2e-14, 7.2e-13),
+   so the unflagged bulk is fine. The facade's hexagon median was set by the
+   retry stage that certified the lane: main pass 489 lanes median 2.4e-14,
+   a priori choice 288 (3.7e-14), PV below the gate 812 (2.8e-13). Now the
+   choice is the first retry for every refused lane (N 5-7, not only flagged
+   ones), and in it gate-refused boxes/triangles go to the expansions too.
+   Probe64y: hexagon median 1.3e-13 -> 8.1e-14 (COLLIER 2.1e-14), p90
+   5.4e-12 -> 2.7e-12, worst 3.2e-9 -> 1.0e-9, certified 1939; heptagon
+   median 5.6e-13 -> 2.1e-13 (COLLIER 9.9e-14), worst 4.1e-9 -> 1.2e-10, 91
+   of 100; pentagon 4987. The choice-retry lanes (1427) reach median 9.9e-14
+   against 2.0e-14 with exact flagged subsets: expansion accuracy is the next
+   lever (EXPANSION_TOLERANCE 2^-30, boosts).
 3x. **Why hexagons/heptagons trail COLLIER in binary64 (1 Nov).**
    - With every box and triangle exact (double-double, dev switch), binary64
      hexagons reach median 1.2e-15 (COLLIER 9.2e-15): the pentagon and the

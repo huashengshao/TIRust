@@ -15,11 +15,11 @@
 //! than the tolerance: the a posteriori test replaces the a priori bound,
 //! which is pessimistic for most such lanes.
 //!
-//! The binary64 pass also evaluates COLLIER's a priori PV estimate
-//! 2^-52 w^r per box and triangle (five to seven propagators, rank <= 7). A
-//! refused lane where some estimate exceeds the request is first evaluated
-//! again with those boxes and triangles off PV (the small-Gram expansions or
-//! the alternative PV reduction) and kept at the retries' stricter level.
+//! A lane the binary64 pass refuses (five to seven propagators, rank <= 7)
+//! is first evaluated again with COLLIER's per-box choice: boxes and
+//! triangles whose a priori PV estimate 2^-52 w^r exceeds the request, or
+//! that the gate refuses, by the small-Gram expansions or the alternative PV
+//! reduction; it is kept at the retries' stricter level.
 //!
 //! With [`PrecisionRescue::Automatic`] (the default) lanes still refused on
 //! conditioning are rerun by the same direct engine at higher precision:
@@ -137,8 +137,8 @@ const GRAM_BOOST: u16 = 12;
 /// A lane whose rotated copy agrees within this many bits of the tolerance is
 /// evaluated in a third cyclic order, which must agree with the first too.
 const NEAR_MARGIN_BITS: i32 = 4;
-/// Whether the binary64 pass flags lanes for the a priori method choice,
-/// retried on the flagged lanes the pass refuses. (Validated up to seven
+/// Whether lanes the binary64 pass refuses get the a priori method choice
+/// as their first retry. (Validated up to seven
 /// points and rank 7; larger plans would build many high-rank auxiliary
 /// plans.) The estimate 2^-52 w^r is pessimistic: it exceeds the request on
 /// every opening benchmark point from N5R5 to N7R7, where PV passes the
@@ -391,11 +391,6 @@ where
         direct.set_profiling(options.profiling);
         if rotation_tested(plan.direct.settings()) {
             direct.set_stability_threshold(from_binary64(&prototype, ROTATION_GATE));
-            // Lanes where COLLIER's a priori estimate would leave PV for some
-            // box or triangle are flagged for the method-choice retry.
-            if estimate_choice(plan.direct.settings()) {
-                direct.enable_estimate_flags();
-            }
         }
         if options.precision_rescue == PrecisionRescue::Automatic {
             direct.enable_partial_rescue(rescue_threshold(RESCUE_BITS[0]));
@@ -863,13 +858,8 @@ where
                 }
             }
         }
-        // Lanes where some box or triangle exceeds the a priori PV estimate.
-        let mut estimate_lanes: Vec<bool> = self.direct.last_estimate_lanes().to_vec();
         if tested {
             let check = self.direct.reduce_batch(&rotated(batch, n))?;
-            for (flag, rotated) in estimate_lanes.iter_mut().zip(self.direct.last_estimate_lanes()) {
-                *flag |= *rotated;
-            }
             self.last.master_rows += self.direct.last_master_rows();
             let rotated_profile = self.direct.last_profile();
             direct_profile.geometry += rotated_profile.geometry;
@@ -940,7 +930,6 @@ where
                 direct_profile.output += third_profile.output;
                 self.last.rotation_rows += near.len();
                 for (k, &(lane, first)) in near.iter().enumerate() {
-                    estimate_lanes[lane] |= self.direct.last_estimate_lanes().get(k).copied().unwrap_or(false);
                     let note = if third.statuses[k] == LaneStatus::Success {
                         let mu = batch.values[lane * width + 5 * n].re.to_f64();
                         let difference = lane_difference(
@@ -980,15 +969,17 @@ where
             reduction: direct_profile.recurrence + direct_profile.gather + direct_profile.output,
             total: Default::default(),
         };
-        // COLLIER-style a priori method choice for the flagged lanes the
-        // binary64 pass refused (gate or rotation test), before the other
-        // retries.
-        let estimated: Vec<usize> = (0..batch.rows)
-            .filter(|&lane| {
-                estimate_lanes.get(lane).copied().unwrap_or(false)
-                    && matches!(result.statuses[lane], LaneStatus::Unstable(_))
-            })
-            .collect();
+        // COLLIER-style a priori method choice (boxes and triangles whose PV
+        // estimate exceeds the request, or that the gate refuses, by the
+        // expansions or the alternative PV) for every lane the binary64 pass
+        // refused (gate or rotation test), before the other retries: on
+        // stability-20261030 hexagons the lanes it keeps reach E/A median
+        // 3.7e-14 against 2.8e-13 for PV below the gate.
+        let estimated: Vec<usize> = if estimate_choice(settings) {
+            (0..batch.rows).filter(|&lane| matches!(result.statuses[lane], LaneStatus::Unstable(_))).collect()
+        } else {
+            Vec::new()
+        };
         if !estimated.is_empty() {
             self.checked_retry(batch, &estimated, tolerance, &mut result, &mut profile, 4)?;
             checked.retain(|&lane| result.statuses[lane] != LaneStatus::Success);
