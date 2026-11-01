@@ -630,6 +630,33 @@ where
             }
             Ok(cur)
         };
+        // A converged expansion whose last pass still changed it by `change`
+        // (not machine precision) against the alternative PV reduction: if
+        // the two differ by no more than twice `change`, the expansion's own
+        // remaining error explains the difference and the alternative PV is
+        // the more accurate one (COLLIER keeps the method with the smaller
+        // error); otherwise the alternative PV is the one that is off.
+        let prefer = |expansion: FastMap<Key, L4<T>>, change: f64| -> FastMap<Key, L4<T>> {
+            if change <= 64.0 * f64::EPSILON {
+                return expansion;
+            }
+            let Ok(alternative) = alt_pv() else { return expansion };
+            let mut difference = 0.0f64;
+            for r in 1..=target {
+                let (mut diff, mut size) = (0.0f64, 0.0f64);
+                for (key, value) in expansion.iter().filter(|(key, _)| rank_of(key) == r) {
+                    let Some(other) = alternative.get(key) else { return expansion.clone() };
+                    for slot in 0..4 {
+                        diff = diff.max(cnorm2(&csub(&value[slot], &other[slot])).to_f64().sqrt());
+                        size = size.max(cnorm2(&value[slot]).to_f64().sqrt());
+                    }
+                }
+                if size > 0.0 {
+                    difference = difference.max(diff / size);
+                }
+            }
+            if difference.is_finite() && difference <= 2.0 * change { alternative } else { expansion }
+        };
         let chosen = match chosen {
             _ if self.gram_alt_only => {
                 // COLLIER's a priori estimate of this reduction (CalcDred,
@@ -645,7 +672,7 @@ where
                 }
                 alt_pv()?
             }
-            Some(map) if last_change <= EXPANSION_TOLERANCE => map,
+            Some(map) if last_change <= EXPANSION_TOLERANCE => prefer(map, last_change),
             _ => 'gc: {
                 // Small (Zadj f)_j as well (Xtilde >> Zadj f): the expansion
                 // for small Gram and small modified Cayley determinants
@@ -790,7 +817,7 @@ where
                     && (last_change * ratio.powi(extra) <= EXPANSION_TOLERANCE
                         || gc_change * gc_ratio.powi(extra / 2) <= EXPANSION_TOLERANCE);
                 match gc_chosen {
-                    Some(map) if gc_change <= EXPANSION_TOLERANCE => map,
+                    Some(map) if gc_change <= EXPANSION_TOLERANCE => prefer(map, gc_change),
                     _ if retry => {
                         return Err(format!(
                             "small-Gram expansion did not converge (last relative change {last_change:e}; with small Cayley determinant {gc_change:e}); a larger boost follows"
