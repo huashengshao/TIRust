@@ -343,7 +343,7 @@
 // Same-session direct-engine campaign (30 October 2026): TIRust public
 // binary64 default versus original IREGI and COLLIER, interleaved per block.
 // The latest bound capture of each campaign is shown; earlier ones stay in the data.
-#let direct-capture-ids = ("016", "015", "014", "013", "012", "011", "010", "008", "007", "006", "005", "004", "003", "002")
+#let direct-capture-ids = ("017", "016", "015", "014", "013", "012", "011", "010", "008", "007", "006", "005", "004", "003", "002")
 #let direct-campaign-id = direct-capture-ids.find(id => ("direct_engine_20261030_capture" + id) in data)
 #let direct-campaign = if direct-campaign-id != none { data.at("direct_engine_20261030_capture" + direct-campaign-id) } else { data.at("direct_engine_20261030", default: none) }
 #let direct-first-capture = data.at("direct_engine_20261030", default: none)
@@ -633,13 +633,16 @@
     amber with diagnostic times and never enter a ratio. Builds: TIRust release (thin LTO), Fortran
     `-O3`, all baseline x86-64; binary SHA-256 in #raw("validation/benchmark/direct-engine-20261030/summary" + (if direct-campaign-id == none { "" } else { "-" + direct-campaign-id }) + ".json").
     TIRust source: commit #raw(snapshot.at("tirust_source_commit", default: snapshot.tirust_git_head).slice(0, 7)).
-    This capture (016, 2 November) measures TIRust 5a6d415: with the precision rescue disabled, heptagon
-    lanes whose cyclic orders disagree after passing the gate skip the binary64 retry that computes every box
-    and triangle off PV, which kept none of them (binary64-only tables after the NinjaRS tables; the 500
-    stability heptagons give the same arrays, stability capture 020). The default is unchanged. Every row
-    agrees with capture 015 within 7% (separate sessions; no ratio across them) except, at a higher host
-    load (≈205 against ≈150), N2R1 single point 1.2 µs (capture 015: 1.1 µs) and N7R7 single point 3.54 ms
-    (3.31 ms; the binary64-only run, the same work on this lane, 3.30 ms). IREGI was not rerun on N7R7
+    This capture (017, 2 November) measures TIRust a71e29d: the small-Gram expansions of the binary64
+    checks run order by order in Δ (the triangles enter once instead of in every pass) and stop after four
+    orders when even their best observed rate cannot reach the tolerance; statuses and arrays are unchanged
+    up to rounding (stability capture 021; amplitude capture 003 for the physical points where they
+    dominate). These rows rarely need the expansions. At a higher host load
+    (≈420 against ≈205) every code is slower than in capture 016, COLLIER by 7 to 22% and TIRust by up to
+    34% (N3R3 batch 32); the same-session ratios are unchanged within that noise (separate sessions; no
+    ratio across them). Capture 016 (TIRust 5a6d415): with the precision rescue disabled, heptagon lanes
+    whose cyclic orders disagree after passing the gate skip the binary64 retry that computes every box and
+    triangle off PV, which kept none of them. IREGI was not rerun on N7R7
     batch 32 (about half an hour per capture); its cells show capture 014's measurement and that capture's
     own ratio. The binary64-only modes start with capture 015. Since capture 014 the
     double-double rescue tier uses fused multiply-accumulate kernels (Dekker products and one exact sum per
@@ -736,7 +739,7 @@
 }
 // Binary64 stability study (30 October 2026): cumulative accuracy profiles
 // in the style of Hirschi and Peraro, arXiv:1604.01363, figs. 2-4.
-#let stability-campaign-id = ("020", "019", "018", "017", "016", "015", "013", "012", "011", "010", "009", "008", "007", "006", "005", "004", "003", "002").find(id => ("stability_20261030_capture" + id) in data)
+#let stability-campaign-id = ("021", "020", "019", "018", "017", "016", "015", "013", "012", "011", "010", "009", "008", "007", "006", "005", "004", "003", "002").find(id => ("stability_20261030_capture" + id) in data)
 #let stability-campaign = if stability-campaign-id != none { data.at("stability_20261030_capture" + stability-campaign-id) } else { data.at("stability_20261030", default: none) }
 #let stability-first-capture = data.at("stability_20261030", default: none)
 #let st-style = (
@@ -877,7 +880,7 @@
     )
   ])
   text(size: 8.5pt)[
-    *Findings (capture 020, TIRust #raw(snapshot.tirust_git_head.slice(0, 7))).* TIRust's default returns an
+    *Findings (capture 021, TIRust #raw(snapshot.tirust_git_head.slice(0, 7))).* TIRust's default returns an
     accurate array on every point of all five integrals, worst E/A 5.0×10#super[−11] (capture 010:
     9.6×10#super[−9]). "TIRust binary64 only" (precision rescue disabled) reports every point with a binary64
     array, as COLLIER does: lanes that pass TIRust's checks are certified, the others return their best binary64
@@ -914,7 +917,10 @@
     (TIRust 3f7cd05, the fused double-double kernels of the timing section) and 020 (5a6d415, the
     binary64-only retry change of the timing section) reproduce capture 018: every binary64-only array is
     bit-identical, and the rescued lanes take the same tiers and stay at the rounding level of their binary64
-    output (E/A ≤ 1.9×10#super[−17]); capture 020 also leaves every default array of capture 019 unchanged. Timing capture 009 and stability capture
+    output (E/A ≤ 1.9×10#super[−17]); capture 020 also leaves every default array of capture 019 unchanged.
+    Capture 021 (a71e29d, the expansions order by order in Δ of the timing section) changes arrays only at
+    the rounding level: the flagged counts, 99th percentiles and worst arrays of all three TIRust codes are
+    those of capture 020 and the medians agree to three digits. Timing capture 009 and stability capture
     014 (TIRust 32a79e2, also the per-box choice for accepted hexagon lanes) are not published: that
     version took 8.8 times longer on the opening N6R6 batch of 32 without changing the hexagons. COLLIER (both
     branches) returns an accurate array on every point (worst 1.3×10#super[−9], DD pentagons); its flags are
@@ -1115,7 +1121,7 @@
 // Amplitude benchmark (2 November 2026): the integrals of an amplitude
 // evaluated together, TIRust with per-subset sharing on and off against
 // COLLIER with its global cache on and off, in one session.
-#let amplitude-capture-id = ("002", "001").find(id => ("direct_engine_20261030_amplitude" + id) in data)
+#let amplitude-capture-id = ("003", "002", "001").find(id => ("direct_engine_20261030_amplitude" + id) in data)
 #let amplitude-record = if amplitude-capture-id == none { none } else { data.at("direct_engine_20261030_amplitude" + amplitude-capture-id) }
 #let amp-time-cell(timing) = table.cell(fill: pale, {
   set par(leading: 0.3em, justify: false)
@@ -1189,10 +1195,12 @@
     The binary64 arrays of these integrals are what TIRust's checks certify (rotation test, method-choice
     retries, double-double boxes), and on these physical points the checks, not the binary64 pass, take most of
     TIRust's time (see the stability section for both codes' accuracy on the same points). Sharing removes the
-    repeats of that work: 2.3 times faster on the hexagon amplitude (capture 001, with only the double-double
-    boxes and the expansions shared and without rank floors: 1.8 times), 1.3 times on the pentagon amplitude
-    (capture 001: 1.1 times). COLLIER's cache reuses whole sub-integrals between calls (3.1 and 1.7 times
-    faster). The rotated evaluations of TIRust's rotation test start each box from another propagator, so
+    repeats of that work: 2.2 times faster on the hexagon amplitude (capture 002: 2.3; capture 001, with only
+    the double-double boxes and the expansions shared and without rank floors: 1.8 times), 1.3 times on the
+    pentagon amplitude (capture 001: 1.1 times). COLLIER's cache reuses whole sub-integrals between calls (2.9
+    and 1.7 times faster). Capture 003 (TIRust a71e29d) runs the small-Gram expansions order by order in Δ and
+    stops those that cannot converge (timing section): TIRust shared over COLLIER's cache ×9.1 on the hexagon
+    and ×4.9 on the pentagon amplitude (capture 002, TIRust 8ec79e9: ×10.4 and ×6.6; separate sessions). The rotated evaluations of TIRust's rotation test start each box from another propagator, so
     those remain separate computations.
   ]
   pagebreak()

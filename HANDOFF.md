@@ -403,6 +403,52 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    Next ideas: compare the expansion with the alternative PV per box
    (COLLIER keeps the better error estimate), higher boosts only for boxes
    whose expansion converges slowly, COLLIER's Cgy/Dgy order selection.
+4o. **Cost of the small-Gram expansions (user: "Yes, expansions", 2 Nov).**
+   Census (temporary instrumentation, patch kept out of the tree): every
+   expand_top call of the binary64-only workspace on stability points
+   (box-r4 3000, box-r6 3000, pentagon 2000, hexagon 800; 27479 calls).
+   Findings: (a) old passes recomputed every coefficient incl. the triangle
+   source terms; almost all passes ran (the change plateaus at ~1e-13 from
+   recomputation rounding, above eps); (b) about half the expansions never
+   reach 2^-30: nested triangles (rank 12/16 inside box expansions) nearly
+   always fail (ratio ~ COLLIER's fac_g = |Delta|/max|Zadj f| *
+   max(1, max|Xtilde|/(2 max|Zadj f|)), algebraic tail), yet ~800 of 11700
+   converge, so no blanket skip; boxes converge at ratio ~0.4 fac_g;
+   boxes with fac_g^(passes+extra) > 2^-6 never converged; (c) upgrade
+   retries (accepted flagged lanes, N=4 always, N=5 above 2^-40) are ~47%
+   of the expansion time of the hexagon amplitude (3.46 -> 1.84 s without
+   them; pentagon upgrades alone ~0.84 s): accuracy-only, needs the user's
+   decision with stability data. DONE a71e29d (local, not pushed): expansion
+   order by order in Delta (D_0 with sources, D_s homogeneous - Delta
+   D_{s-1}; order s through step target+1+S-s; sum = pass S, D_S = its
+   change), early stop from order 4 when change * best_ratio^(remaining +
+   extra) > 16 * 2^-30 (replay: 13017 stopped, 0 would have converged; an
+   "early jump to the larger boost" rule was unreliable, not adopted).
+   Old vs new binary64-only: statuses identical on 8800 lanes, arrays at
+   rounding level (hexagon p99 6.9e-14), 24 most-changed lanes unchanged vs
+   256-bit up to rounding; hexagon 129 -> 90 s, pentagon 34.6 -> 23.4 s,
+   box-r6 6.3 -> 4.9 s (loaded host, same CPUs). Tests pass (direct_engine
+   19, amplitude_sharing 2, gram 9). Started captures with a71e29d
+   (scratchpad final021.sh): stability 021, timing 017, amplitude 003, all
+   PUBLISHED (report commit after a71e29d). Stability 021 = 020 for all
+   TIRust codes (flagged counts, p99, max equal; medians to 3 digits).
+   Timing 017 at load ~420 (016: ~205): every code 7-34% slower incl.
+   COLLIER, same-session ratios unchanged. Amplitude 003 (load ~307):
+   hexagon shared/separate x0.456, COLLIER cache/nocache x0.341, TIRust
+   shared / COLLIER cache x9.07 (002: x10.4); pentagon x0.772, x0.597, x4.86
+   (002: x6.6); on/off bit-identical, all lanes certified.
+   Remaining cost (hexagon amplitude, sharing off, loaded host 5.1 s/call):
+   expansion stage 4.1 s = expand_top ~2.0 s (sources spz/shat 0.5 s,
+   orders 1.1 s, small-Cayley 0.27 s) + aux executors' boosted triangles
+   (~1.0 s) + nested triangle expansions' bubbles at rank ~20 (~0.9 s, for
+   expansions that almost never converge). Next ideas, in order: (1) spz by
+   the recursion spz(k) = -[spz(k-e0) + spz(k-e0+e1) + spz(k-e0+e2)]
+   (O(nm) per key instead of O(k0^2) lookups with Vec allocations);
+   (2) small-Cayley variant order by order too; (3) a priori skip of the
+   nested triangles' expansion machinery (aux executor at boost 8/12) when
+   fac_g^(passes+extra) > 2^-12 (census: 0 converging lost; 2^-18 loses 8
+   of ~800) -> go to the alternative PV with boost 1; (4) upgrade policy
+   (ask the user: accuracy trade-off).
 4n. **Improve the amplitude cache (user: "very important", 2 Nov).**
    Miss diagnostic (hexagon amplitude, 32 points, sharing on: 312 reused,
    333 computed per call): of the 333, 103 have an earlier result for the
