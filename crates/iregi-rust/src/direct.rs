@@ -10,6 +10,7 @@
 
 mod exec;
 mod numeric;
+pub(crate) mod shared;
 mod plan;
 
 use std::sync::Arc;
@@ -162,6 +163,12 @@ where
     /// `last_estimate_lanes`.
     pub fn enable_estimate_flags(&mut self) {
         self.executor.enable_estimate_flags();
+    }
+
+    /// Share per-subset results with other workspaces holding the same store
+    /// (binary64 only; `None`: no sharing).
+    pub(crate) fn set_shared_subsets(&mut self, store: Option<std::sync::Arc<shared::SubsetStore>>) {
+        self.executor.set_shared_subsets(store);
     }
 
     pub fn enable_alternative_pv(&mut self) {

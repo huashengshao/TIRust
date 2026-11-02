@@ -192,6 +192,21 @@ selects the symbolic dispatch explicitly. `DoubleFloat`, `Float` and Dual
 workspaces use the symbolic engine at their own precision. The lower-level
 `DirectReductionPlan` / `DirectWorkspace` API is also public.
 
+The integrals of an amplitude share boxes and triangles (a pinched integral's
+are its parent's), and on physical kinematics most of the binary64 cost is
+per box or triangle: refused ones computed in double-double, and the
+method-choice retries' small-Gram expansions. `AmplitudeWorkspace` evaluates
+several integrals at the same phase-space points (one plan and one batch per
+integral, `reduce_batches`) and computes each such per-subset result once per
+call, under an exact key (method settings, rank, the subset's propagators bit
+for bit), so results are bit-identical with and without sharing.
+`AmplitudeOptions::share_subsets` (default `true`) or `set_subset_sharing`
+turns it off; `last_sharing()` counts reused and computed results. A top-loop
+gg -> gggg hexagon with its 56 pinches on 32 physical points:
+1.7-2.2x faster per call
+(`crates/iregi-rust/examples/amplitude_sharing.rs`,
+`crates/iregi-rust/tests/amplitude_sharing.rs`).
+
 Moments use increasing rank and IREGI's Cartesian monomial ordering, with
 `[UV single, IR single, IR double, finite]` for each monomial. `Convention`
 selects native IREGI, OneLOop, or MadLoop normalization. `TensorWeights` makes

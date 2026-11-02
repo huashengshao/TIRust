@@ -403,6 +403,25 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    Next ideas: compare the expansion with the alternative PV per box
    (COLLIER keeps the better error estimate), higher boosts only for boxes
    whose expansion converges slowly, COLLIER's Cgy/Dgy order selection.
+4k. **AmplitudeWorkspace: shared per-subset results (user, 2 Nov).** The facade
+   cost on physical points is per box/triangle (hexagon amplitude, 32 lanes:
+   method-choice retries 1.9 s of 2.5 s, partial double-double 0.23 s).
+   direct/shared.rs SubsetStore (exact key: tag, size, rank, value count,
+   method settings, members' shifts/masses and mu bit for bit) used by
+   DirectExecutor::inject_external (partial rescue) and inject_gram
+   (expansions, nested auxiliary executors too); threaded through
+   DirectWorkspace, DirectHybridWorkspace (all retry workspaces, also those
+   created later) and TensorWorkspace (pub(crate) set_shared_subsets).
+   Public: AmplitudeWorkspace (reduce_batches: one batch per integral),
+   AmplitudeOptions { share_subsets (default true), workspace },
+   set_subset_sharing, last_sharing -> SubsetSharingStats { reused, computed }.
+   The store is cleared before and after each call. Hexagon amplitude
+   (57 integrals, 32 lanes): 312 reused / 333 computed, 2.6-3.2 s -> 1.4-1.6 s
+   per call (1.7-2.2x, loaded host), every array, status and estimate
+   bit-identical; pentagon amplitude 1.1x. Box integrals (rank-4 boxes) do
+   not share with the rank-5 boxes of hexagon and pentagons. Test:
+   tests/amplitude_sharing.rs (4 embedded physical points). Not yet in the
+   CLI or Python.
 4j. **Sharing between the integrals of an amplitude (user question, 2 Nov).**
    examples/amplitude_sharing.rs: every pinch (>= 2 propagators, rank = size)
    of a stability-study N-gon evaluated separately on 32 physical points.

@@ -19,6 +19,7 @@ use super::{
         lfma_slots, lzero, mul_dimension, solve_in_place,
     },
     plan::{DirectPlanData, NO_GEOMETRY, PostOp, SubsetKind},
+    shared::{SharedValue, SubsetStore},
 };
 use crate::{
     BatchResult, Convention, KinematicsBatch, LaneStatus, ReductionError, TensorWeights,
@@ -100,6 +101,9 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     /// Evaluate the same a priori estimate without acting on it: lanes where
     /// some box or triangle exceeds it are only recorded (`lane_estimate`).
     estimate_flags: bool,
+    /// Per-subset results shared with other executors (binary64 only; see
+    /// `super::shared`).
+    shared: Option<Arc<SubsetStore>>,
     /// The current lane's geometry found such a box or triangle.
     estimate_tripped: bool,
     gram_top_active: bool,
@@ -281,6 +285,7 @@ where
             gram_everywhere: false,
             gram_estimated: false,
             estimate_flags: false,
+            shared: None,
             estimate_tripped: false,
             gram_top_active: false,
             values: vec![lzero(&zero); plan.value_count],
@@ -677,6 +682,57 @@ where
         Some(self.values[start..start + count].to_vec())
     }
 
+    /// Share per-subset results (partial rescue, expansions) through `store`
+    /// (binary64 executors only; `None`: compute every one here).
+    pub(crate) fn set_shared_subsets(&mut self, store: Option<Arc<SubsetStore>>) {
+        self.shared = store.filter(|_| T::FIXED_BITS == Some(53));
+    }
+
+    /// Exact key of a shared per-subset result: what it is (`tag`), the
+    /// subset's size, rank and value count, the method's settings, and the
+    /// subset's propagators bit for bit. `None` without a store.
+    fn subset_key(&self, tag: u64, members: &[usize], rank: u16, count: usize, config: &[u64], mu: &C<T>) -> Option<Vec<u64>> {
+        self.shared.as_ref()?;
+        let mut key = vec![tag, members.len() as u64, u64::from(rank), count as u64, config.len() as u64];
+        key.extend_from_slice(config);
+        let bits = |z: &C<T>| [z.re.to_f64().to_bits(), z.im.to_f64().to_bits()];
+        for &member in members {
+            for a in 0..4 {
+                key.extend(bits(&self.shifts[member][a]));
+            }
+            key.extend(bits(&self.masses[member]));
+        }
+        key.extend(bits(mu));
+        Some(key)
+    }
+
+    fn shared_get(&self, key: Option<&Vec<u64>>) -> Option<SharedValue> {
+        self.shared.as_ref()?.get(key?)
+    }
+
+    fn shared_put(&self, key: Option<Vec<u64>>, start: usize, count: usize, outcome: &Result<(), String>) {
+        if let (Some(store), Some(key)) = (self.shared.as_ref(), key) {
+            let value = outcome.clone().map(|()| {
+                self.values[start..start + count]
+                    .iter()
+                    .map(|slots| {
+                        std::array::from_fn(|k| if k % 2 == 0 { slots[k / 2].re.to_f64() } else { slots[k / 2].im.to_f64() })
+                    })
+                    .collect()
+            });
+            store.put(key, value);
+        }
+    }
+
+    /// Write shared binary64 values (exact in this executor's binary64 domain).
+    fn shared_write(&mut self, start: usize, values: &[[f64; 8]]) {
+        for (k, v) in values.iter().enumerate() {
+            self.values[start + k] = std::array::from_fn(|slot| {
+                C::new(exact_f64(&self.prototype, v[2 * slot]), exact_f64(&self.prototype, v[2 * slot + 1]))
+            });
+        }
+    }
+
     /// Evaluate every external subset of this lane in double-double and
     /// inject its rounded coefficients.
     fn inject_external(&mut self, mu: f64) -> Result<(), String> {
@@ -689,6 +745,15 @@ where
                 let subset = &plan.subsets[id];
                 let size = subset.members.len();
                 let rank = subset.coefficient_rank.max(0) as u16;
+                let count = plan.coefficient_counts[id] as usize;
+                let start = subset.master.ok_or("partial rescue: no master")? as usize;
+                let mu_value = C::new(exact_f64(&self.prototype, mu), self.prototype.zero());
+                let key = self.subset_key(1, &subset.members, rank, count, &[partial.threshold.to_bits()], &mu_value);
+                if let Some(shared) = self.shared_get(key.as_ref()) {
+                    self.shared_write(start, &shared?);
+                    continue;
+                }
+                let outcome = (|| -> Result<(), String> {
                 let executor = match partial.executors.entry((size, rank)) {
                     std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
                     std::collections::hash_map::Entry::Vacant(entry) => {
@@ -719,16 +784,19 @@ where
                     return Err(format!("partial rescue of {:?}: {:?}", subset.members, result.statuses[0]));
                 }
                 let coefficients = executor.top_coefficients().ok_or("partial rescue: no PV coefficients")?;
-                if coefficients.len() != plan.coefficient_counts[id] as usize {
+                if coefficients.len() != count {
                     return Err("partial rescue: coefficient layouts differ".into());
                 }
-                let start = subset.master.ok_or("partial rescue: no master")? as usize;
                 for (k, slots) in coefficients.iter().enumerate() {
                     self.values[start + k] = std::array::from_fn(|slot| {
                         let z = &slots[slot];
                         C::new(exact_f64(&self.prototype, z.re.to_f64()), exact_f64(&self.prototype, z.im.to_f64()))
                     });
                 }
+                Ok(())
+                })();
+                self.shared_put(key, start, count, &outcome);
+                outcome?;
             }
             Ok(())
         })();

@@ -50,7 +50,7 @@ use super::{
 use crate::{
     BatchResult, DirectMasters, DirectReductionPlan, DirectWorkspace, ExecutionProfile,
     InputLayout, KinematicsBatch, LaneStatus, ReductionError, ReductionSettings,
-    basis::Monomial,
+    basis::Monomial, direct::shared::SubsetStore,
 };
 
 /// Structural direct plan and the lazily prepared fallback plan.
@@ -363,6 +363,9 @@ pub(crate) struct DirectHybridWorkspace<T: NativeFloat> {
     accuracy_bits: Option<u32>,
     profiling: bool,
     precision_rescue: PrecisionRescue,
+    /// Per-subset results shared with the other integrals of an amplitude
+    /// (`crate::AmplitudeWorkspace`), given to every binary64 workspace here.
+    shared: Option<Arc<SubsetStore>>,
     /// Binary64 workspaces of the checked retry and of the small-Gram
     /// expansion retry, prepared on first use.
     checked: Option<Box<DirectWorkspace<T>>>,
@@ -441,6 +444,7 @@ where
             everywhere: None,
             estimated: None,
             open: None,
+            shared: None,
             candidates: Vec::new(),
             rescue: RescueWorkspaces::default(),
             fallback: None,
@@ -462,6 +466,26 @@ where
             fallback.set_accuracy_precision(bits)?;
         }
         Ok(())
+    }
+
+    /// Share per-subset results through `store` in every binary64 workspace,
+    /// present and future (`None`: no sharing).
+    pub(crate) fn set_shared_subsets(&mut self, store: Option<Arc<SubsetStore>>) {
+        self.shared = store;
+        self.direct.set_shared_subsets(self.shared.clone());
+        for workspace in [
+            &mut self.checked,
+            &mut self.expanded,
+            &mut self.alternative,
+            &mut self.everywhere,
+            &mut self.estimated,
+            &mut self.open,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            workspace.set_shared_subsets(self.shared.clone());
+        }
     }
 
     pub(crate) fn set_precision_rescue(&mut self, rescue: PrecisionRescue) {
@@ -741,6 +765,7 @@ where
                 }
             }
             workspace.set_profiling(self.profiling);
+            workspace.set_shared_subsets(self.shared.clone());
             *slot = Some(Box::new(workspace));
         }
         let workspace = slot.as_mut().unwrap();
@@ -1327,6 +1352,7 @@ where
                     workspace.set_stability_threshold(self.prototype.zero());
                 }
                 workspace.set_profiling(self.profiling);
+                workspace.set_shared_subsets(self.shared.clone());
                 *slot = Some(Box::new(workspace));
             }
             let workspace = slot.as_mut().unwrap();

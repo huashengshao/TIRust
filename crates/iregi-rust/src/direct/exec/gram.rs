@@ -185,6 +185,20 @@ where
                 let subset = &plan.subsets[id];
                 let rank = subset.coefficient_rank.max(0) as u16;
                 let size = subset.members.len();
+                let count = plan.coefficient_counts[id] as usize;
+                let start = subset.master.ok_or("small-Gram expansion: no master")? as usize;
+                // The expansion's settings: boosts, alternative PV only, the
+                // auxiliary gate and this executor's gate (its default).
+                let mut config: Vec<u64> = gram.boosts.iter().map(|&b| u64::from(b)).collect();
+                config.push(u64::from(gram.alternative));
+                config.push(gram.aux_threshold.as_ref().map_or(u64::MAX, |t| t.to_f64().to_bits()));
+                config.push(self.stability_threshold.to_f64().to_bits());
+                let key = self.subset_key(2, &subset.members, rank, count, &config, mu);
+                if let Some(shared) = self.shared_get(key.as_ref()) {
+                    self.shared_write(start, &shared?);
+                    continue;
+                }
+                let outcome = (|| -> Result<(), String> {
                 let mut failure = String::new();
                 let mut done = false;
                 for boost in gram.boosts.clone() {
@@ -230,6 +244,8 @@ where
                     values.push(self.masses[member].clone());
                 }
                 values.push(mu.clone());
+                // Nested expansions of the auxiliary box share too.
+                executor.set_shared_subsets(self.shared.clone());
                 let result = executor
                     .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values })
                     .map_err(|e| e.to_string())?;
@@ -238,11 +254,9 @@ where
                     continue;
                 }
                 let coefficients = executor.top_coefficients().ok_or("small-Gram expansion: no coefficients")?;
-                let count = plan.coefficient_counts[id] as usize;
                 if coefficients.len() < count {
                     return Err("small-Gram expansion: coefficient layouts differ".into());
                 }
-                let start = subset.master.ok_or("small-Gram expansion: no master")? as usize;
                 self.values[start..start + count].clone_from_slice(&coefficients[..count]);
                 done = true;
                 break;
@@ -250,6 +264,10 @@ where
                 if !done {
                     return Err(failure);
                 }
+                Ok(())
+                })();
+                self.shared_put(key, start, count, &outcome);
+                outcome?;
             }
             Ok(())
         })();

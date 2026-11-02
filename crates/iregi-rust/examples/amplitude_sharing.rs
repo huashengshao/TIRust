@@ -20,11 +20,16 @@
 //! coefficient recursions once; what a shared plan would add per pinched
 //! integral is at least its gather and output, at most also its recurrence.
 //!
+//! Finally the whole amplitude through [`AmplitudeWorkspace`], with per-subset
+//! sharing off and on: time per call, reused and computed subset results, and
+//! a bitwise comparison of every integral's arrays and statuses.
+//!
 //! usage: amplitude_sharing POINTS_JSON INTEGRAL [LANES] [CALLS]
 use std::time::{Duration, Instant};
 
 use iregi_rust::{
-    DirectReductionPlan, KinematicsBatch, ReductionSettings, TensorEngineExecution, TensorReductionPlan, TensorWorkspace,
+    AmplitudeWorkspace, DirectReductionPlan, KinematicsBatch, ReductionSettings, TensorEngineExecution,
+    TensorReductionPlan, TensorWorkspace,
 };
 use serde_json::Value;
 use symbolica::domains::float::Complex;
@@ -155,5 +160,46 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "facade (with checks): separate {:.3} ms, of which the {n}-point integral {:.3} ms",
         ms(total.facade), ms(top.facade)
     );
+    // The whole amplitude, sharing off and on.
+    let mut plans = Vec::new();
+    let mut batches = Vec::new();
+    for members in subsets(n) {
+        let k = members.len();
+        plans.push(TensorReductionPlan::new(ReductionSettings::new(k, k as u16))?);
+        batches.push(batch(&points, &members, &masses, mu));
+    }
+    let mut amplitude = AmplitudeWorkspace::new(&plans, 0.0f64)?;
+    let mut outputs = Vec::new();
+    for share in [false, true] {
+        amplitude.set_subset_sharing(share);
+        amplitude.reduce_batches(&batches)?;
+        let started = Instant::now();
+        let mut last = Vec::new();
+        for _ in 0..calls {
+            last = amplitude.reduce_batches(&batches)?;
+        }
+        let stats = amplitude.last_sharing();
+        println!(
+            "amplitude ({} integrals), sharing {}: {:.1} ms per call; subset results reused {}, computed {}",
+            amplitude.len(),
+            if share { "on" } else { "off" },
+            ms(started.elapsed() / calls as u32),
+            stats.reused,
+            stats.computed
+        );
+        outputs.push(last);
+    }
+    let bits = |result: &iregi_rust::BatchResult<f64>| -> (Vec<u64>, String) {
+        let mut values = Vec::new();
+        for lane in 0..result.rows() {
+            match result.lane_with_estimate(lane) {
+                Some(best) => values.extend(best.values.iter().flat_map(|z| [z.re.to_bits(), z.im.to_bits()])),
+                None => values.push(u64::MAX),
+            }
+        }
+        (values, format!("{:?} {:?}", result.statuses, result.estimated_errors))
+    };
+    let differing = outputs[0].iter().zip(&outputs[1]).filter(|(a, b)| bits(a) != bits(b)).count();
+    println!("integrals whose arrays, statuses or estimates differ (bitwise): {differing} of {}", outputs[0].len());
     Ok(())
 }
