@@ -403,6 +403,32 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    Next ideas: compare the expansion with the alternative PV per box
    (COLLIER keeps the better error estimate), higher boosts only for boxes
    whose expansion converges slowly, COLLIER's Cgy/Dgy order selection.
+4f. **Faster double-double tier with safe kernels (2 Nov).** User decision:
+   no `unsafe` (runtime FMA dispatch declined: "Safe kernels only"). N7R7
+   batch 32 here: 370 ms = binary64 passes 97 ms + 106-bit tier 275 ms
+   (coefficient program 99, gather 57, D0 54, C0 40, moment program 12,
+   geometry 8). Cause: xprec's double-double product calls `f64::mul_add`
+   three times, out of line on baseline x86-64 (compiler_builtins'
+   runtime-dispatched `fma`), and renormalizes every product and sum. A
+   `+fma` build (experiment only, bit-identical) gave 273 -> 174 ms. Safe fix:
+   oneloopmaster `native/double_double.rs` (`oneloop::double_double`): fused
+   multiply-accumulate (Dekker products, their errors and the low-order terms
+   in one binary64 sum, one final two-sum; commutative and odd, so z conj(z)
+   keeps an exactly zero imaginary part), used by DoubleFloat::complex_mul and
+   the dilog series; DoubleFloat::hypot returns axis values directly (abs of
+   real values in sign tests). TIRust numeric.rs: double-double paths of
+   cmul/cfma/cscale/lfma/cfma_real/cnorm2 (Any downcast behind
+   FIXED_BITS == 106; real factors take half the products); gather steps 1
+   and 3 accumulate with cfma/cfma_real (binary64: the same expressions).
+   Tier 275 -> ~140 ms (masters 95 -> 71, recurrence 112 -> 37, gather
+   57 -> 23), batch 375 -> 236 ms; binary64 lanes bit-identical, rescued lanes
+   within 1.3e-26 of 256 bits. No gain (reverted): the Dekker product alone
+   (as many instructions as the fma calls), a binary64 real-factor path (the
+   binary64 gather is index-bound). Dead ends: double-double partial rescue of
+   estimate-flagged boxes and triangles for refused N7 lanes (0/12 kept; with
+   w > 2, 8/12 kept but 800 ms: every subset recomputes its masters).
+   Remaining: binary64 passes ~97 ms (gather step 1 ~28 ms), double-double
+   masters ~71 ms (dilog ~15, log ~12).
 4e. **Best-effort arrays from all cyclic orders (2 Nov).** The binary64 tail
    was the uncertified (best-effort) lanes (hexagon top 1%: all 21; their
    E/A median 3.3e-11 vs COLLIER 1.2e-12). The gate-free stage now runs for

@@ -8,15 +8,69 @@
 //! solver. This module is a numeric kernel only; all algebra that defines the
 //! recurrences remains in the symbolic planner and its tests.
 
+use std::any::Any;
+
 use iregi_masters::NativeFloat;
-use symbolica::domains::float::Complex;
+use symbolica::domains::float::{Complex, DoubleFloat};
 
 pub(crate) type C<T> = Complex<T>;
 /// `[UV single, IR single, IR double, finite]` coefficients.
 pub(crate) type L4<T> = [C<T>; 4];
 
+/// Double-double kernels: oneloopmaster's fused multiply-accumulate (one
+/// exact sum per component, Dekker products, no `fma` calls), with half the
+/// products for real factors. xprec's separately renormalized products and
+/// sums, each product through out-of-line `fma` calls on a baseline x86-64
+/// build, took two to three times as long in the precision rescue (the
+/// opening N7R7 batch of 32, 106-bit tier: recurrence 112 -> 37 ms, gather
+/// 57 -> 23 ms). Binary64 and MPFR keep the generic expressions.
+use oneloop::double_double as dd;
+
+/// The double-double view of a generic complex value (`T = DoubleFloat`);
+/// the precision test folds at compile time, so other domains keep their
+/// generic code unchanged.
+#[inline(always)]
+fn as_double<T: NativeFloat>(z: &C<T>) -> Option<&C<DoubleFloat>> {
+    if T::FIXED_BITS == Some(106) { (z as &dyn Any).downcast_ref() } else { None }
+}
+
+#[inline(always)]
+fn as_double_mut<T: NativeFloat>(z: &mut C<T>) -> Option<&mut C<DoubleFloat>> {
+    if T::FIXED_BITS == Some(106) { (z as &mut dyn Any).downcast_mut() } else { None }
+}
+
+#[inline(always)]
+fn as_double_l4<T: NativeFloat>(z: &L4<T>) -> Option<&L4<DoubleFloat>> {
+    if T::FIXED_BITS == Some(106) { (z as &dyn Any).downcast_ref() } else { None }
+}
+
+#[inline(always)]
+fn as_double_l4_mut<T: NativeFloat>(z: &mut L4<T>) -> Option<&mut L4<DoubleFloat>> {
+    if T::FIXED_BITS == Some(106) { (z as &mut dyn Any).downcast_mut() } else { None }
+}
+
+#[inline(always)]
+fn as_double_real<T: NativeFloat>(x: &T) -> Option<&DoubleFloat> {
+    if T::FIXED_BITS == Some(106) { (x as &dyn Any).downcast_ref() } else { None }
+}
+
 #[inline(always)]
 pub(crate) fn cmul<T: NativeFloat>(a: &C<T>, b: &C<T>) -> C<T> {
+    if let (Some(x), Some(y)) = (as_double(a), as_double(b)) {
+        // Real factors (real kinematics): half the products.
+        let product = if dd::is_zero(&y.im) {
+            dd::real_scale(&dd::factor(&y.re), x)
+        } else if dd::is_zero(&x.im) {
+            dd::real_scale(&dd::factor(&x.re), y)
+        } else {
+            dd::complex_mul(x, y)
+        };
+        let mut out = a.clone();
+        if let Some(slot) = as_double_mut(&mut out) {
+            *slot = product;
+            return out;
+        }
+    }
     C::new(
         a.re.clone() * &b.re - a.im.clone() * &b.im,
         a.re.clone() * &b.im + a.im.clone() * &b.re,
@@ -36,17 +90,55 @@ pub(crate) fn csub<T: NativeFloat>(a: &C<T>, b: &C<T>) -> C<T> {
 /// `acc += a * b`.
 #[inline(always)]
 pub(crate) fn cfma<T: NativeFloat>(acc: &mut C<T>, a: &C<T>, b: &C<T>) {
+    if let (Some(x), Some(y)) = (as_double(a), as_double(b)) {
+        if let Some(total) = as_double_mut(acc) {
+            if dd::is_zero(&x.im) {
+                dd::real_fma(total, &dd::factor(&x.re), y);
+            } else {
+                dd::complex_fma(total, &(dd::factor(&x.re), dd::factor(&x.im)), y);
+            }
+            return;
+        }
+    }
     acc.re += a.re.clone() * &b.re - a.im.clone() * &b.im;
     acc.im += a.re.clone() * &b.im + a.im.clone() * &b.re;
 }
 
 #[inline(always)]
 pub(crate) fn cscale<T: NativeFloat>(a: &C<T>, s: &T) -> C<T> {
+    if let (Some(x), Some(factor)) = (as_double(a), as_double_real(s)) {
+        let product = dd::real_scale(&dd::factor(factor), x);
+        let mut out = a.clone();
+        if let Some(slot) = as_double_mut(&mut out) {
+            *slot = product;
+            return out;
+        }
+    }
     C::new(a.re.clone() * s, a.im.clone() * s)
+}
+
+/// `acc += value * s` for a real `s` (binary64: `acc + s value` as written).
+#[inline(always)]
+pub(crate) fn cfma_real<T: NativeFloat>(acc: &mut C<T>, value: &C<T>, s: &T) {
+    if let (Some(x), Some(factor)) = (as_double(value), as_double_real(s)) {
+        if let Some(total) = as_double_mut(acc) {
+            dd::real_fma(total, &dd::factor(factor), x);
+            return;
+        }
+    }
+    *acc = cadd(acc, &cscale(value, s));
 }
 
 #[inline(always)]
 pub(crate) fn cnorm2<T: NativeFloat>(a: &C<T>) -> T {
+    if let Some(x) = as_double(a) {
+        let norm = dd::mul(&x.re, &x.re) + dd::mul(&x.im, &x.im);
+        let mut out = a.re.clone();
+        if let Some(slot) = (&mut out as &mut dyn Any).downcast_mut::<DoubleFloat>() {
+            *slot = norm;
+            return out;
+        }
+    }
     a.re.clone() * &a.re + a.im.clone() * &a.im
 }
 
@@ -67,6 +159,22 @@ pub(crate) fn lzero<T: NativeFloat>(zero: &C<T>) -> L4<T> {
 /// `acc += factor * value` for all four Laurent slots.
 #[inline(always)]
 pub(crate) fn lfma<T: NativeFloat>(acc: &mut L4<T>, factor: &C<T>, value: &L4<T>) {
+    if let (Some(x), Some(values)) = (as_double(factor), as_double_l4(value)) {
+        if let Some(total) = as_double_l4_mut(acc) {
+            if dd::is_zero(&x.im) {
+                let x = dd::factor(&x.re);
+                for slot in 0..4 {
+                    dd::real_fma(&mut total[slot], &x, &values[slot]);
+                }
+            } else {
+                let x = (dd::factor(&x.re), dd::factor(&x.im));
+                for slot in 0..4 {
+                    dd::complex_fma(&mut total[slot], &x, &values[slot]);
+                }
+            }
+            return;
+        }
+    }
     for slot in 0..4 {
         cfma(&mut acc[slot], factor, &value[slot]);
     }
@@ -83,6 +191,20 @@ pub(crate) fn lfma_slots<T: NativeFloat, const FULL: bool>(
     if FULL {
         lfma(acc, factor, value);
     } else {
+        if let (Some(x), Some(values)) = (as_double(factor), as_double_l4(value)) {
+            if let Some(total) = as_double_l4_mut(acc) {
+                if dd::is_zero(&x.im) {
+                    let x = dd::factor(&x.re);
+                    dd::real_fma(&mut total[0], &x, &values[0]);
+                    dd::real_fma(&mut total[3], &x, &values[3]);
+                } else {
+                    let x = (dd::factor(&x.re), dd::factor(&x.im));
+                    dd::complex_fma(&mut total[0], &x, &values[0]);
+                    dd::complex_fma(&mut total[3], &x, &values[3]);
+                }
+                return;
+            }
+        }
         cfma(&mut acc[0], factor, &value[0]);
         cfma(&mut acc[3], factor, &value[3]);
     }

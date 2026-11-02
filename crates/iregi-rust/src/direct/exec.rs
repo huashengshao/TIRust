@@ -15,7 +15,7 @@ use symbolica::{domains::float::Complex, evaluate::EvaluationDomain};
 
 use super::{
     numeric::{
-        C, L4, cadd, cfma, cinv, cmul, cnorm2, cscale, csub, czero, div_dimension, lfma,
+        C, L4, cadd, cfma, cfma_real, cinv, cmul, cnorm2, cscale, csub, czero, div_dimension, lfma,
         lfma_slots, lzero, mul_dimension, solve_in_place,
     },
     plan::{DirectPlanData, NO_GEOMETRY, PostOp, SubsetKind},
@@ -2095,8 +2095,8 @@ where
                             self.dense[target] = self.zero.clone();
                             self.touched.push(target as u32);
                         }
-                        let update = cmul(&value, component);
-                        self.dense[target] = cadd(&self.dense[target], &update);
+                        // dense + value * component (binary64: as written).
+                        cfma(&mut self.dense[target], &value, component);
                     }
                 }
                 for &target in &self.touched {
@@ -2142,10 +2142,10 @@ where
                     let value = &self.g_buffer[usize::from(lambda) * stride + src as usize];
                     let constant = &self.qexp_constants[e][term];
                     for slot in if FULL { 0..4 } else { 0..1 } {
-                        total[slot] = cadd(&total[slot], &cscale(&value[slot], constant));
+                        cfma_real(&mut total[slot], &value[slot], constant);
                     }
                     if !FULL {
-                        total[3] = cadd(&total[3], &cscale(&value[3], constant));
+                        cfma_real(&mut total[3], &value[3], constant);
                     }
                 }
                 for slot in &mut total {
