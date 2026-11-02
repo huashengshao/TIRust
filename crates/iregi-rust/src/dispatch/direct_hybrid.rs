@@ -273,6 +273,12 @@ const RESCUE_DD_HEADROOM: u32 = 20;
 /// Largest accepted E/A between a 106-bit lane and its rotated copy, both
 /// rounded to binary64 (a few ulps).
 const RESCUE_ROTATION_TOLERANCE: f64 = 1.0 / (1u64 << 46) as f64;
+/// Binary64 conditioning estimate (2^-53 over the rotation difference) at or
+/// above which a lane rescued at double-double skips that tier's rotation
+/// check: its binary64 difference was at most 2^-20, so the double-double
+/// error is ~2^-73, far below `RESCUE_ROTATION_TOLERANCE` (the opening N7R7
+/// batch of 32 spent half of its time in that check).
+const RESCUE_CHECK_CONDITION: f64 = 1.0 / (1u64 << 33) as f64;
 
 fn rescue_threshold(bits: u32) -> f64 {
     let headroom = if bits == RESCUE_BITS[0] { RESCUE_DD_HEADROOM } else { RESCUE_HEADROOM };
@@ -606,10 +612,16 @@ where
                 // The double-double tier's looser gate is checked a posteriori:
                 // the accepted lanes are evaluated again with rotated
                 // propagators; a disagreement escalates the lane.
+                // Lanes whose binary64 estimate is mild (refused by a rotation
+                // difference d <= 2^-20: a double-double error ~ d 2^-53) are
+                // not checked again.
                 let accepted: Vec<usize> = lanes
                     .iter()
                     .zip(&outcomes)
-                    .filter(|(_, (status, _))| *status == LaneStatus::Success)
+                    .filter(|(lane, (status, _))| {
+                        *status == LaneStatus::Success
+                            && !conditions.get(**lane).copied().flatten().is_some_and(|c| c >= RESCUE_CHECK_CONDITION)
+                    })
                     .map(|(&lane, _)| lane)
                     .collect();
                 if !accepted.is_empty() {
