@@ -23,7 +23,9 @@ def us(stats, key="median"):
 def candidate(entry, batch):
     timing = entry.get("timing_ns")
     statuses = entry.get("lane_statuses") or {}
-    complete = bool(statuses) and statuses.get("success", 0) == sum(statuses.values())
+    # Binary64-only TIRust returns refused lanes' best (finite, uncertified)
+    # arrays, like COLLIER's flagged lanes, which also count as complete.
+    complete = bool(statuses) and statuses.get("success", 0) + statuses.get("best_effort", 0) == sum(statuses.values())
     # NinjaRS returns the integrated numerator, not the array: its error is
     # the contracted lane-0 value against the reference contracted exactly.
     error = entry.get("lane0_contracted_error") if entry["engine"] == "NinjaRS" else entry.get("lane0_relative_error")
@@ -38,6 +40,7 @@ def candidate(entry, batch):
         "lane_statuses": statuses,
         "relative_error": error,
         "accepted": complete and error is not None and error <= 1e-3,
+        "best_effort_lanes": statuses.get("best_effort", 0),
         "timing_us": None if not timing else {
             "median": us(timing), "mean": us(timing, "mean"),
             "standard_error": None if timing["standard_error"] is None else timing["standard_error"] / 1e3,
@@ -75,6 +78,11 @@ def main():
                 "iregi_skipped": block.get("iregi_skipped", False),
                 "collier": collier,
                 "tirust_contracted": next((c for c in candidates if c["id"] == "tirust-contracted"), None),
+                "tirust_binary64": next((c for c in candidates if c["id"] == "tirust-binary64"), None),
+                "tirust_binary64_r20": next((c for c in candidates if c["id"] == "tirust-binary64-r20"), None),
+                "tirust_binary64_contracted": next((c for c in candidates if c["id"] == "tirust-binary64-contracted"), None),
+                "tirust_binary64_r20_contracted": next(
+                    (c for c in candidates if c["id"] == "tirust-binary64-r20-contracted"), None),
                 "ninjars": next((c for c in candidates if c["engine"] == "NinjaRS"), None),
                 "ratios": block["ratios"],
                 "tirust_iregi_cross_error_lanes": block["tirust_iregi_cross_error_lanes"],

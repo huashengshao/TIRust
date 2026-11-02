@@ -403,6 +403,18 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    Next ideas: compare the expansion with the alternative PV per box
    (COLLIER keeps the better error estimate), higher boosts only for boxes
    whose expansion converges slowly, COLLIER's Cgy/Dgy order selection.
+4h. **Binary64-only timing tables (user, 2 Nov).** direct_timing header flags
+   `binary64` (precision rescue disabled; refused lanes reported as
+   `best_effort` with their finite best array) and `accuracy=BITS`
+   (request 2^(19-BITS)). run.py candidates tirust-binary64 (2^-34),
+   tirust-binary64-r20 (2^-20, accuracy=39), and on NinjaRS rows their
+   contracted copies; ratios tirust_binary64[_r20]_over_collier and
+   tirust_binary64[_r20]_contracted_over_ninjars. summarize.py counts
+   best_effort lanes as complete (like COLLIER's flagged lanes) and records
+   best_effort_lanes. Report: de-b64-table / de-b64-ninja-table after the
+   NinjaRS tables, shown when the snapshot has the fields. Test (2 rounds,
+   N7R7 batch 32): default 0.23 s, binary64 2^-34 0.79 s (12 flagged),
+   2^-20 68 ms, COLLIER 0.15 s (NaN lane 0).
 4g. **IREGI need not be rerun (user, 2 Nov).** run.py `--skip-iregi ROW[:BATCH]`
    (repeatable; `all`, a case id, or case-id:batch) leaves IREGI out of those
    rows; the row records `iregi_skipped` (summarize.py carries it), and
@@ -413,8 +425,8 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    and ratio cells say "Not rerun in this capture" and show the latest
    earlier bound capture that measured IREGI, with that capture's own
    same-session ratio labelled by capture; tested to render, report
-   otherwise byte-identical). Not added yet because benchmark.typ is sealed
-   with capture 014.
+   otherwise byte-identical). Added to benchmark.typ with 4h (sealed at
+   capture 015).
 4f. **Faster double-double tier with safe kernels (2 Nov).** User decision:
    no `unsafe` (runtime FMA dispatch declined: "Safe kernels only"). N7R7
    batch 32 here: 370 ms = binary64 passes 97 ms + 106-bit tier 275 ms

@@ -297,7 +297,8 @@ def lane_moments(result, lane):
     if result is None:
         return None
     entry = result["lanes"][lane]
-    return entry.get("moments") if entry.get("status") == "success" else None
+    # best_effort: binary64-only TIRust's uncertified array of a refused lane.
+    return entry.get("moments") if entry.get("status") in ("success", "best_effort") else None
 
 
 def stats(values):
@@ -341,9 +342,20 @@ def ninjars_eligible(case):
 def candidates(case, collier_configs):
     out = [{"id": "tirust", "engine": "TIRust", "argv": [str(BIN / "tirust-direct-timing")]},
            {"id": "tirust-contracted", "engine": "TIRust", "contract": True,
-            "argv": [str(BIN / "tirust-direct-timing")]}]
+            "argv": [str(BIN / "tirust-direct-timing")]},
+           # Binary64 only (precision rescue disabled) at the default accuracy
+           # request 2^-34 and at 2^-20 (from capture 015).
+           {"id": "tirust-binary64", "engine": "TIRust", "binary64": True, "mode": "binary64 only, 2^-34",
+            "argv": [str(BIN / "tirust-direct-timing")]},
+           {"id": "tirust-binary64-r20", "engine": "TIRust", "binary64": True, "accuracy": 39,
+            "mode": "binary64 only, 2^-20", "argv": [str(BIN / "tirust-direct-timing")]}]
     if ninjars_eligible(case):
         out.append({"id": "ninjars", "engine": "NinjaRS", "argv": [str(NINJARS)]})
+        # Binary64-only TIRust with the same contraction, against NinjaRS.
+        out.append({"id": "tirust-binary64-contracted", "engine": "TIRust", "contract": True, "binary64": True,
+                    "mode": "binary64 only, 2^-34", "argv": [str(BIN / "tirust-direct-timing")]})
+        out.append({"id": "tirust-binary64-r20-contracted", "engine": "TIRust", "contract": True, "binary64": True,
+                    "accuracy": 39, "mode": "binary64 only, 2^-20", "argv": [str(BIN / "tirust-direct-timing")]})
     modes = (0, 1, 2) if case["table"] == "ordinary" else (0,)
     for mode in modes:
         out.append({"id": f"iregi-{MODES[mode].lower()}", "engine": "IREGI", "mode": MODES[mode], "mode_code": mode,
@@ -360,9 +372,11 @@ def wire(candidate, case, lanes, warmup, repeats, iterations):
         return (case, lanes)
     if candidate["engine"] == "TIRust":
         text = tirust_wire(case, lanes, warmup, repeats, iterations)
-        if candidate.get("contract"):
+        flags = (["contract"] if candidate.get("contract") else []) + (["binary64"] if candidate.get("binary64") else []) \
+            + ([f"accuracy={candidate['accuracy']}"] if candidate.get("accuracy") else [])
+        if flags:
             head, _, rest = text.partition("\n")
-            text = head + " contract\n" + rest
+            text = head + " " + " ".join(flags) + "\n" + rest
         return text
     if candidate["engine"] == "IREGI":
         return iregi_wire(case, lanes, candidate["mode_code"], warmup, repeats, iterations)
@@ -530,6 +544,14 @@ def main():
                 for name, reference in (("tirust_over_iregi", iregi), ("tirust_over_collier", collier)):
                     if reference is not None and reference.get("blocks_ns") and tirust.get("blocks_ns"):
                         ratios[name] = ratio_summary(tirust["blocks_ns"], reference["blocks_ns"], rng)
+                for variant, reference, name in (
+                        ("tirust-binary64", collier, "collier"), ("tirust-binary64-r20", collier, "collier"),
+                        ("tirust-binary64-contracted", ninjars, "ninjars"),
+                        ("tirust-binary64-r20-contracted", ninjars, "ninjars")):
+                    own = next((e for e in entries if e["id"] == variant), None)
+                    if own is not None and own.get("blocks_ns") and reference is not None and reference.get("blocks_ns"):
+                        ratios[variant.replace("-", "_") + "_over_" + name] = ratio_summary(
+                            own["blocks_ns"], reference["blocks_ns"], rng)
                 row[key] = {"candidates": entries, "selected_iregi": iregi["id"] if iregi else None,
                             "iregi_skipped": skip,
                             "tirust_iregi_cross_error_lanes": cross, "ratios": ratios,

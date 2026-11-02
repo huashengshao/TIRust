@@ -343,7 +343,8 @@
 // Same-session direct-engine campaign (30 October 2026): TIRust public
 // binary64 default versus original IREGI and COLLIER, interleaved per block.
 // The latest bound capture of each campaign is shown; earlier ones stay in the data.
-#let direct-campaign-id = ("014", "013", "012", "011", "010", "008", "007", "006", "005", "004", "003", "002").find(id => ("direct_engine_20261030_capture" + id) in data)
+#let direct-capture-ids = ("014", "013", "012", "011", "010", "008", "007", "006", "005", "004", "003", "002")
+#let direct-campaign-id = direct-capture-ids.find(id => ("direct_engine_20261030_capture" + id) in data)
 #let direct-campaign = if direct-campaign-id != none { data.at("direct_engine_20261030_capture" + direct-campaign-id) } else { data.at("direct_engine_20261030", default: none) }
 #let direct-first-capture = data.at("direct_engine_20261030", default: none)
 #let de-sci(x) = {
@@ -404,6 +405,45 @@
     })
   }
 }
+// IREGI not rerun in the shown capture (run.py --skip-iregi): the latest
+// earlier bound capture that measured it, with that capture's own
+// same-session ratio, labelled by capture (no ratio across sessions).
+#let de-iregi-history(row-id, key) = {
+  let found = none
+  for id in direct-capture-ids.filter(id => direct-campaign-id == none or id < direct-campaign-id) {
+    if found != none { break }
+    let entry = data.at("direct_engine_20261030_capture" + id, default: none)
+    if entry == none { continue }
+    let r = entry.snapshot.rows.find(r => r.id == row-id)
+    if r == none { continue }
+    let b = r.at(key)
+    if not b.at("iregi_skipped", default: false) and b.iregi != none { found = (id: id, block: b) }
+  }
+  found
+}
+#let de-skipped-iregi-cells(past, batch) = {
+  let note(body) = text(size: 6.5pt, fill: luma(70), body)
+  (
+    table.cell(fill: pending, {
+      set par(leading: 0.3em, justify: false)
+      text(size: 8pt, fill: luma(90))[Not rerun in this capture]
+      linebreak()
+      if past == none { note[no earlier measurement] } else {
+        let r = past.block.iregi
+        note[capture #past.id: #de-time(if r.timing_us == none { none } else { r.timing_us.median / batch })#if batch > 1 [/point] · #r.mode]
+      }
+    }),
+    table.cell(fill: pending, {
+      set par(leading: 0.3em, justify: false)
+      let ratio = if past == none { none } else { past.block.ratios.at("tirust_over_iregi", default: none) }
+      if ratio == none { text(size: 7.5pt, fill: luma(100))[No ratio] } else {
+        note[capture #past.id (its own session):]
+        linebreak()
+        text(size: 8pt)[×#if ratio.median < 0.01 { fixed(ratio.median, digits: 4) } else { fixed(ratio.median, digits: 3) }]
+      }
+    }),
+  )
+}
 #let de-table(rows, batch) = {
   let key = "batch" + str(batch)
   figure(kind: table, caption: [#if batch == 1 [Single phase-space point] else [Batch of 32 points, time per point] — median of paired block means])[
@@ -417,11 +457,18 @@
         let tirust-ok = b.tirust.accepted
         let iregi-ok = b.iregi != none and b.iregi.accepted
         let collier-ok = b.collier != none and b.collier.accepted
+        let iregi-cells = if b.at("iregi_skipped", default: false) {
+          de-skipped-iregi-cells(de-iregi-history(row.id, key), batch)
+        } else {
+          (
+            de-engine-cell(b.iregi, batch, kind: "IREGI"),
+            de-ratio-cell(b.ratios.at("tirust_over_iregi", default: none), tirust-ok and iregi-ok),
+          )
+        }
         (
           table.cell(de-label(row)),
           de-engine-cell(b.tirust, batch),
-          de-engine-cell(b.iregi, batch, kind: "IREGI"),
-          de-ratio-cell(b.ratios.at("tirust_over_iregi", default: none), tirust-ok and iregi-ok),
+          ..iregi-cells,
           de-engine-cell(b.collier, batch, kind: "COLLIER"),
           de-ratio-cell(b.ratios.at("tirust_over_collier", default: none), tirust-ok and collier-ok),
         )
@@ -470,6 +517,90 @@
           de-ninja-cell(ninja, batch),
           de-ratio-cell(b.ratios.at("tirust_contracted_over_ninjars", default: none),
             contracted != none and contracted.accepted and ninja != none and ninja.accepted),
+        )
+      }).flatten(),
+    )
+  ]
+}
+// TIRust binary64 only (precision rescue disabled) at the accuracy requests
+// 2^-34 (default) and 2^-20, against COLLIER and, with the contraction,
+// against NinjaRS (capture 015 on).
+#let de-b64-cell(record, batch) = {
+  let ok = record != none and record.accepted
+  table.cell(fill: if record == none { pending } else if ok { pale } else { amber }, {
+    set par(leading: 0.3em, justify: false)
+    if record == none {
+      text(size: 8pt, fill: luma(90))[Not measured]
+    } else {
+      let t = if record.timing_us == none { none } else { record.timing_us.median / batch }
+      text(size: 10pt, weight: "bold", de-time(t))
+      if batch > 1 { text(size: 6.5pt)[ /point] }
+      linebreak()
+      let flagged = record.at("best_effort_lanes", default: 0)
+      text(size: 6.5pt, fill: luma(70))[E/A #de-sci(record.relative_error)#if flagged > 0 [ · #flagged flagged]#if not ok [ · diagnostic]]
+    }
+  })
+}
+#let de-b64-header(cells) = table.header(..cells.map(h => {
+  set par(justify: false)
+  text(fill: white, size: 8.5pt, weight: "bold", h)
+}))
+#let de-b64-table(rows, batch) = {
+  let key = "batch" + str(batch)
+  let rows = rows.filter(r => r.at(key).at("tirust_binary64", default: none) != none)
+  figure(kind: table, caption: [TIRust binary64 only (precision rescue disabled) against COLLIER;
+    #if batch == 1 [single point] else [batch of 32, time per point]])[
+    #table(
+      columns: (1.05fr, 1fr, 0.95fr, 1fr, 0.95fr, 1.05fr),
+      inset: (x: 5pt, y: 5pt), stroke: table-stroke, align: left + horizon,
+      fill: (x, y) => if y == 0 { navy } else { none },
+      de-b64-header(([Input], [TIRust binary64, request 2#super[−34]], [TIRust / COLLIER],
+        [TIRust binary64, request 2#super[−20]], [TIRust / COLLIER], [COLLIER 1.2.10])),
+      ..rows.map(row => {
+        let b = row.at(key)
+        let strict = b.tirust_binary64
+        let loose = b.at("tirust_binary64_r20", default: none)
+        let collier-ok = b.collier != none and b.collier.accepted
+        (
+          table.cell(de-label(row)),
+          de-b64-cell(strict, batch),
+          de-ratio-cell(b.ratios.at("tirust_binary64_over_collier", default: none),
+            strict != none and strict.accepted and collier-ok),
+          de-b64-cell(loose, batch),
+          de-ratio-cell(b.ratios.at("tirust_binary64_r20_over_collier", default: none),
+            loose != none and loose.accepted and collier-ok),
+          de-engine-cell(b.collier, batch, kind: "COLLIER"),
+        )
+      }).flatten(),
+    )
+  ]
+}
+#let de-b64-ninja-table(rows, batch) = {
+  let key = "batch" + str(batch)
+  let rows = rows.filter(r => r.at(key).at("tirust_binary64_contracted", default: none) != none)
+  figure(kind: table, caption: [TIRust binary64 only (array and contraction with the dense random numerator)
+    against NinjaRS; #if batch == 1 [single point] else [batch of 32, time per point]])[
+    #table(
+      columns: (1.05fr, 1fr, 0.95fr, 1fr, 0.95fr, 1.1fr),
+      inset: (x: 5pt, y: 5pt), stroke: table-stroke, align: left + horizon,
+      fill: (x, y) => if y == 0 { navy } else { none },
+      de-b64-header(([Input], [TIRust binary64 + contraction, 2#super[−34]], [TIRust / NinjaRS],
+        [TIRust binary64 + contraction, 2#super[−20]], [TIRust / NinjaRS], [NinjaRS])),
+      ..rows.map(row => {
+        let b = row.at(key)
+        let strict = b.tirust_binary64_contracted
+        let loose = b.at("tirust_binary64_r20_contracted", default: none)
+        let ninja = b.at("ninjars", default: none)
+        let ninja-ok = ninja != none and ninja.accepted
+        (
+          table.cell(de-label(row)),
+          de-b64-cell(strict, batch),
+          de-ratio-cell(b.ratios.at("tirust_binary64_contracted_over_ninjars", default: none),
+            strict != none and strict.accepted and ninja-ok),
+          de-b64-cell(loose, batch),
+          de-ratio-cell(b.ratios.at("tirust_binary64_r20_contracted_over_ninjars", default: none),
+            loose != none and loose.accepted and ninja-ok),
+          de-ninja-cell(ninja, batch),
         )
       }).flatten(),
     )
@@ -556,6 +687,25 @@
     ]
     de-ninja-table(snapshot.rows, 1)
     de-ninja-table(snapshot.rows, 32)
+  }
+  if snapshot.rows.any(r => r.batch1.at("tirust_binary64", default: none) != none) {
+    pagebreak()
+    text(size: 8.5pt)[
+      *TIRust binary64 only.* The same driver with the precision rescue disabled
+      (`TensorWorkspaceOptions::precision_rescue = Disabled`), at the default accuracy request
+      2#super[−34] and at 2#super[−20] (`set_accuracy_precision(39)`); their accuracy is the stability
+      section's curves "TIRust binary64 only". Every lane is computed in binary64; a lane its checks refuse
+      returns its best binary64 array, uncertified and flagged ("flagged" in the cell), and counts as
+      complete, as COLLIER's flagged lanes do. With the rescue disabled a refused lane goes through
+      TIRust's binary64 retries and the best-effort search over cyclic orders instead of the precision
+      rescue. Against NinjaRS each mode is timed with the contraction of its array with the row's
+      numerator, as "TIRust (array + contraction)" above; NinjaRS rows as above. Same session, TIRust in
+      the numerator, acceptance and ratios as in the tables above.
+    ]
+    de-b64-table(snapshot.rows, 1)
+    de-b64-table(snapshot.rows, 32)
+    de-b64-ninja-table(snapshot.rows, 1)
+    de-b64-ninja-table(snapshot.rows, 32)
   }
   v(0.3em)
   let cross = snapshot.rows.map(r => r.batch32.tirust_iregi_cross_error_lanes).filter(x => x != none)

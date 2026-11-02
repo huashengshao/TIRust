@@ -2,7 +2,7 @@
 //! protocol, so one runner can interleave TIRust, IREGI and COLLIER blocks.
 //!
 //! stdin:
-//!   BENCH id n rank h mu batch warmup repeats iterations [contract]
+//!   BENCH id n rank h mu batch warmup repeats iterations [contract] [binary64] [accuracy=BITS]
 //!   p0 p1 p2 p3 (m2re,m2im) power          (n rows per lane, lane-major)
 //!   QUIT
 //! stdout: `READY TIRUST_BENCHMARK_V1`, then one `RESULT {json}` per request
@@ -16,6 +16,10 @@
 //! `contract`, each timed call also contracts every lane's array with fixed
 //! complex coefficients per moment (all four Laurent slots), as an amplitude
 //! with a numerator polynomial would, so the block includes the contraction.
+//! With `binary64`, the workspace has its precision rescue disabled (binary64
+//! only): lanes its checks refuse return their best binary64 array, reported
+//! with status `best_effort` (uncertified, like a flagged COLLIER lane).
+//! `accuracy=BITS` sets the accuracy request 2^(19-BITS) (default 2^-34).
 use std::{
     collections::HashMap,
     error::Error,
@@ -25,8 +29,8 @@ use std::{
 };
 
 use iregi_rust::{
-    KinematicsBatch, LaneStatus, ReductionSettings, TensorEngineExecution, TensorReductionPlan,
-    TensorWorkspace,
+    KinematicsBatch, LaneStatus, PrecisionRescue, ReductionSettings, TensorEngineExecution,
+    TensorReductionPlan, TensorWorkspace, TensorWorkspaceOptions,
 };
 use serde_json::{Value, json};
 use symbolica::domains::float::Complex;
@@ -52,7 +56,7 @@ fn main() -> Fallible<()> {
     let mut out = stdout.lock();
     writeln!(out, "READY TIRUST_BENCHMARK_V1")?;
     out.flush()?;
-    let mut cache: HashMap<(usize, u16, i16, Vec<u16>), Prepared> = HashMap::new();
+    let mut cache: HashMap<(usize, u16, i16, Vec<u16>, bool, Option<u32>), Prepared> = HashMap::new();
     while let Some(line) = lines.next() {
         let line = line?;
         let line = line.trim();
@@ -63,8 +67,19 @@ fn main() -> Fallible<()> {
             break;
         }
         let header: Vec<&str> = line.split_whitespace().collect();
-        if !(header.len() == 10 || header.len() == 11 && header[10] == "contract") || header[0] != "BENCH" {
+        if header.len() < 10 || header[0] != "BENCH" {
             return Err(format!("invalid header: {line}").into());
+        }
+        let (mut contract, mut binary64, mut accuracy) = (false, false, None::<u32>);
+        for flag in &header[10..] {
+            match *flag {
+                "contract" => contract = true,
+                "binary64" => binary64 = true,
+                _ => match flag.strip_prefix("accuracy=") {
+                    Some(bits) => accuracy = Some(bits.parse()?),
+                    None => return Err(format!("invalid header flag {flag}: {line}").into()),
+                },
+            }
         }
         let id = header[1].to_string();
         let n: usize = header[2].parse()?;
@@ -75,7 +90,6 @@ fn main() -> Fallible<()> {
         let warmup: usize = header[7].parse()?;
         let repeats: usize = header[8].parse()?;
         let iterations: usize = header[9].parse()?;
-        let contract = header.len() == 11;
         if n == 0 || batch == 0 || repeats == 0 || iterations == 0 {
             return Err("invalid request dimensions".into());
         }
@@ -114,7 +128,7 @@ fn main() -> Fallible<()> {
             components: 1,
             values,
         };
-        let key = (n, rank, h, powers.clone());
+        let key = (n, rank, h, powers.clone(), binary64, accuracy);
         if !cache.contains_key(&key) {
             let mut settings = ReductionSettings::new(n, rank);
             settings.powers = powers.clone();
@@ -123,7 +137,15 @@ fn main() -> Fallible<()> {
             let plan = TensorReductionPlan::new(settings)?;
             let plan_ns = started.elapsed().as_nanos();
             let started = Instant::now();
-            let workspace = TensorWorkspace::new(&plan, 0.0f64)?;
+            let mut workspace = if binary64 {
+                let options = TensorWorkspaceOptions { precision_rescue: PrecisionRescue::Disabled, ..Default::default() };
+                TensorWorkspace::new_with_options(&plan, 0.0f64, options)?
+            } else {
+                TensorWorkspace::new(&plan, 0.0f64)?
+            };
+            if let Some(bits) = accuracy {
+                workspace.set_accuracy_precision(bits)?;
+            }
             let workspace_ns = started.elapsed().as_nanos();
             cache.insert(
                 key.clone(),
@@ -201,21 +223,40 @@ fn main() -> Fallible<()> {
         };
         let diagnostics = prepared.workspace.last_diagnostics().to_vec();
         let moments = result.basis.len();
+        let array = |values: &[Complex<f64>]| -> Value {
+            json!((0..moments)
+                .map(|m| (0..4)
+                    .map(|slot| {
+                        let z = values[4 * m + slot];
+                        [z.re, z.im]
+                    })
+                    .collect::<Vec<_>>())
+                .collect::<Vec<_>>())
+        };
         let lanes: Vec<Value> = (0..batch)
             .map(|lane| match result.lane(lane) {
                 Ok(values) => json!({
                     "status": "success",
                     "fallback_used": result.fallback_used[lane],
                     "diagnostics": diagnostics.get(lane),
-                    "moments": (0..moments)
-                        .map(|m| (0..4)
-                            .map(|slot| {
-                                let z = values[4 * m + slot];
-                                [z.re, z.im]
-                            })
-                            .collect::<Vec<_>>())
-                        .collect::<Vec<_>>(),
+                    "moments": array(values),
                 }),
+                // Binary64 only: a refused lane's best uncertified (finite) array.
+                Err(status)
+                    if result.lane_with_estimate(lane).is_some_and(|best| {
+                        best.values.iter().all(|z| z.re.is_finite() && z.im.is_finite())
+                    }) =>
+                {
+                    let best = result.lane_with_estimate(lane).unwrap();
+                    json!({
+                        "status": "best_effort",
+                        "detail": format!("{status:?}"),
+                        "estimated_error": best.estimated_error,
+                        "fallback_used": result.fallback_used[lane],
+                        "diagnostics": diagnostics.get(lane),
+                        "moments": array(best.values),
+                    })
+                }
                 Err(status) => json!({
                     "status": match status {
                         LaneStatus::Unstable(_) => "unstable",
