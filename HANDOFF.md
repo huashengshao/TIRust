@@ -426,6 +426,24 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    gate refusals as per-lane masks, masters (oneloopmaster, branchy) kept
    per lane; then the rotated/third passes and the retries on the same
    chunked executor. Measure per-point time at batch 32 against batch 1.
+   Design (exec.rs reduce_batch): phase A per lane, unchanged scalar code
+   (read_lane, geometry + variant, native masters, lightlike, external and
+   gram injections, unit_finite, detect_ir_free); then instead of running
+   the programs, stash the lane (its variant's plan Arc and constants, ir_free,
+   skip ranges of injected subsets, and only the program inputs: master
+   values, injected coefficient ranges, lightlike values, unit value, the
+   geometry vector). Phase B per chunk of up to W lanes with the same plan
+   Arc and ir_free: SoA buffers values[index] = [L4; W], geometry[g] = [C; W];
+   coefficient program and moment program run term by term over the W lanes
+   with the scalar path's exact operation order (cfma per slot), per-lane
+   masks for a term whose geometry is exactly zero (the scalar path skips
+   it: signed zeros/NaN) and for instructions inside a lane's injected
+   ranges (keep the injected value); gather and output per lane first
+   (gather's sparse products depend on each lane's zero components), then
+   SoA gather where zero patterns agree. Jets/Dual lanes and lanes that fail
+   in phase A stay scalar. Bit-identity check: amplitude_timing FINAL
+   fingerprints (summary-001: hexagon f052a9e12c9603a0, pentagon
+   eb9ffc5aa0d1a8ab) and the direct-engine tests.
 4l. **Amplitude benchmark in the report (user, 2 Nov).**
    validation/benchmark/direct-engine-20261030/amplitude/: build.py (release
    amplitude_timing + collier_amplitude.f90), run.py (stability-study N-gon
