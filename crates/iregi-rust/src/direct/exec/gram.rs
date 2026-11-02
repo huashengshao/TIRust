@@ -72,6 +72,21 @@ impl<T: NativeFloat> GramRescue<T> {
 
     /// The alternative PV reduction alone: triangles of the box's own rank
     /// suffice (boost 1 keeps the expansion bookkeeping valid).
+    /// Bits identifying this configuration (keys of shared results).
+    pub(crate) fn signature(&self) -> u64 {
+        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut eat = |x: u64| {
+            hash ^= x;
+            hash = hash.wrapping_mul(0x0100_0000_01b3);
+        };
+        for &boost in &self.boosts {
+            eat(u64::from(boost));
+        }
+        eat(u64::from(self.alternative));
+        eat(self.aux_threshold.as_ref().map_or(u64::MAX, |t| t.to_f64().to_bits()));
+        hash
+    }
+
     pub(crate) fn alternative() -> Self {
         Self { executors: HashMap::new(), boosts: vec![1], alternative: true, aux_threshold: None }
     }
