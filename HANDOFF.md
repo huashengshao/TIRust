@@ -432,7 +432,13 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    integrals too (user asked whether sub-integral tensor coefficients are
    cached: within an integral yes, across integrals only the injected
    double-double/expansion results), then origin re-routing.
-   Step 3 (user: "Yes, do it", 2 Nov; IN PROGRESS): share the binary64 PV
+   Step 3 DONE (masters + PV subsets; see below for the design): hexagon
+   amplitude 32 points: reused 41,800 / computed 3,223 per call (masters
+   are shared across integrals and across the passes and retries of each),
+   on/off 2.82 s -> 1.22 s (x0.43), pentagon 196 -> 151 ms (x0.77); on/off
+   bit-identical, all lanes certified; tests pass. Next: measure on the
+   ordinary (opening) kinematics, recapture amp002, update report 1.1.
+   Step 3 (user: "Yes, do it", 2 Nov): share the binary64 PV
    subsets and their masters across integrals. Design: in
    run_program_ordinary (coefficient program), walk the PV subsets' ranges
    (plan.coefficient_ranges, contiguous per subset; other instructions run

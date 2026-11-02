@@ -107,6 +107,8 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     /// The current lane's geometry found such a box or triangle.
     estimate_tripped: bool,
     gram_top_active: bool,
+    /// mu^2 of the current lane (keys of shared sub-integrals).
+    lane_mu2: Option<C<T>>,
     /// Plan variant of the current lane.
     plan: Arc<DirectPlanData>,
     base_plan: Arc<DirectPlanData>,
@@ -285,6 +287,7 @@ where
             gram_everywhere: false,
             gram_estimated: false,
             estimate_flags: false,
+            lane_mu2: None,
             shared: None,
             estimate_tripped: false,
             gram_top_active: false,
@@ -567,6 +570,9 @@ where
     fn native_masters(&mut self, mu2: &C<T>) -> Result<(), String> {
         let plan = self.plan.clone();
         let n = plan.settings.propagators;
+        // Scalar masters shared with the other integrals of an amplitude,
+        // keyed by family and arguments bit for bit (binary64).
+        let store = self.shared.clone().filter(|store| store.enabled());
         for family in 0..4 {
             let Some(evaluator) = self.native[family].as_mut() else {
                 continue;
@@ -605,7 +611,31 @@ where
                     input[first_mass + k] = self.masses[member].clone();
                 }
                 input[arity] = mu2.clone();
-                evaluator.evaluate(&input[..arity + 1], &mut self.native_output)?;
+                let key = store.as_ref().map(|_| {
+                    let mut key = vec![4, family as u64, arity as u64];
+                    for z in &input[..arity + 1] {
+                        key.extend([z.re.to_f64().to_bits(), z.im.to_f64().to_bits()]);
+                    }
+                    key
+                });
+                match (store.as_ref(), key.as_ref()).0.and_then(|store| store.get(key.as_ref().unwrap())) {
+                    Some(Ok(shared)) => {
+                        let v = shared[0];
+                        for k in 0..3 {
+                            let (re, im) = if k < 2 { (v[2 * k], v[2 * k + 1]) } else { (v[4], v[5]) };
+                            self.native_output[k] = C::new(exact_f64(&self.prototype, re), exact_f64(&self.prototype, im));
+                        }
+                    }
+                    _ => {
+                        evaluator.evaluate(&input[..arity + 1], &mut self.native_output)?;
+                        if let (Some(store), Some(key)) = (store.as_ref(), key) {
+                            let o = &self.native_output;
+                            let v = [o[0].re.to_f64(), o[0].im.to_f64(), o[1].re.to_f64(), o[1].im.to_f64(),
+                                o[2].re.to_f64(), o[2].im.to_f64(), 0.0, 0.0];
+                            store.put(key, Ok(vec![v]));
+                        }
+                    }
+                }
                 self.master_rows += 1;
                 // The oneloopmaster order is [finite, total single, double]. The UV
                 // residues are exact: A0 m^2, B0 one, C0/D0 zero.
@@ -2080,6 +2110,44 @@ where
                 .map(|&id| plan.coefficient_ranges[id])
                 .collect()
         };
+        // Binary64 PV sub-integrals shared with the other integrals of an
+        // amplitude (base plan only): a stored subset is injected and its
+        // instructions skipped, the others are stored after the program.
+        let mut skip = skip;
+        let mut computed: Vec<(usize, usize, Vec<u64>)> = Vec::new();
+        let store = self.shared.clone().filter(|store| store.enabled() && !program_is_moments);
+        if let (Some(store), Some(mu2)) = (store.as_ref(), self.lane_mu2.clone()) {
+            if Arc::ptr_eq(&self.plan, &self.base_plan) && self.gram_top.is_none() {
+                let gram = self.gram.as_ref();
+                let config = [
+                    u64::from(FULL),
+                    self.stability_threshold.to_f64().to_bits(),
+                    self.partial.as_ref().map_or(u64::MAX, |partial| partial.threshold.to_bits()),
+                    gram.map_or(u64::MAX, |gram| gram.signature()),
+                    u64::from(self.gram_everywhere),
+                    u64::from(self.gram_estimated),
+                    u64::from(self.gram_alt_only),
+                    u64::from(self.gram_extra_ranks),
+                ];
+                for (id, subset) in plan.subsets.iter().enumerate() {
+                    let (a, b) = plan.coefficient_ranges[id];
+                    if a == b || subset.kind != SubsetKind::Pv || subset.lightlike {
+                        continue;
+                    }
+                    if skip.iter().any(|&(x, y)| x == a && y == b) {
+                        continue;
+                    }
+                    let Some(start) = subset.master.map(|m| m as usize) else { continue };
+                    let count = plan.coefficient_counts[id] as usize;
+                    let rank = subset.coefficient_rank.max(0) as u16;
+                    let Some(key) = self.subset_key(3, &subset.members, rank, count, &config, &mu2) else { continue };
+                    match store.get(&key) {
+                        Some(Ok(values)) if self.shared_write(start, count, &values).is_ok() => skip.push((a, b)),
+                        _ => computed.push((start, count, key)),
+                    }
+                }
+            }
+        }
         for (index, instruction) in program.iter().enumerate() {
             if !skip.is_empty() && skip.iter().any(|&(a, b)| a <= index as u32 && (index as u32) < b) {
                 continue;
@@ -2109,6 +2177,11 @@ where
                 }
             }
             self.values[instruction.dst as usize] = accumulator;
+        }
+        if let Some(store) = store {
+            for (start, count, key) in computed {
+                store.put(key, Ok(Self::shared_values(&self.values[start..start + count])));
+            }
         }
     }
 
@@ -2381,6 +2454,7 @@ where
                 }
             } else {
                 let mu2 = self.mu_squared(batch, row);
+                self.lane_mu2 = Some(mu2.clone());
                 if let Err(error) = self.native_masters(&mu2) {
                     statuses.push(LaneStatus::MasterFailure(error));
                     continue;
