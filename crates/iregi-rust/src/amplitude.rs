@@ -1,0 +1,152 @@
+//! Several one-loop integrals evaluated together at the same phase-space
+//! points, with their common work shared.
+//!
+//! The integrals of an amplitude contain the same boxes and triangles: a
+//! pinched integral's are its parent's. On difficult (physical) kinematics
+//! most of the binary64 cost is per box or triangle: refused ones computed in
+//! double-double (partial rescue) and the method-choice retries' small-Gram
+//! expansions. An [`AmplitudeWorkspace`] gives every integral's workspace one
+//! store of these per-subset results, keyed exactly by the method's settings
+//! and the subset's propagators bit for bit, so each is computed once per
+//! call. A stored result is what the integral would have computed itself:
+//! results are bit-identical with sharing on and off (the
+//! `share_subsets` flag), only faster on (a top-loop gg -> gggg hexagon and
+//! its 56 pinches on 32 physical points: 2.7 s -> 1.4 s per call).
+//!
+//! The store is cleared at the start and end of every call, so memory does
+//! not grow over a Monte Carlo run.
+use std::sync::Arc;
+
+use iregi_masters::NativeFloat;
+use symbolica::{domains::float::Complex, evaluate::EvaluationDomain};
+
+use crate::{
+    BatchResult, KinematicsBatch, ReductionError, TensorReductionPlan, TensorWorkspace,
+    TensorWorkspaceOptions, direct::shared::SubsetStore,
+};
+
+/// Options of an [`AmplitudeWorkspace`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AmplitudeOptions {
+    /// Share per-subset results between the integrals (default `true`).
+    /// Results are bit-identical either way; `false` evaluates every integral
+    /// independently, as separate [`TensorWorkspace`]s would.
+    pub share_subsets: bool,
+    /// Options of every integral's workspace.
+    pub workspace: TensorWorkspaceOptions,
+}
+
+impl Default for AmplitudeOptions {
+    fn default() -> Self {
+        Self { share_subsets: true, workspace: TensorWorkspaceOptions::default() }
+    }
+}
+
+/// Per-subset results of the last call: reused from the store and computed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SubsetSharingStats {
+    pub reused: u64,
+    pub computed: u64,
+}
+
+/// One workspace per integral of an amplitude, evaluated together.
+pub struct AmplitudeWorkspace<T: NativeFloat> {
+    workspaces: Vec<TensorWorkspace<T>>,
+    store: Arc<SubsetStore>,
+    share: bool,
+    last: SubsetSharingStats,
+}
+
+impl<T: NativeFloat> AmplitudeWorkspace<T>
+where
+    Complex<T>: EvaluationDomain,
+{
+    /// Workspaces for `plans` (one per integral) with default options
+    /// (sharing on).
+    pub fn new(plans: &[TensorReductionPlan], prototype: T) -> Result<Self, ReductionError> {
+        Self::new_with_options(plans, prototype, AmplitudeOptions::default())
+    }
+
+    pub fn new_with_options(
+        plans: &[TensorReductionPlan],
+        prototype: T,
+        options: AmplitudeOptions,
+    ) -> Result<Self, ReductionError> {
+        let workspaces = plans
+            .iter()
+            .map(|plan| TensorWorkspace::new_with_options(plan, prototype.clone(), options.workspace))
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut amplitude = Self {
+            workspaces,
+            store: Arc::new(SubsetStore::default()),
+            share: false,
+            last: SubsetSharingStats::default(),
+        };
+        amplitude.set_subset_sharing(options.share_subsets);
+        Ok(amplitude)
+    }
+
+    /// Turn sharing between the integrals on or off. Results are
+    /// bit-identical either way.
+    pub fn set_subset_sharing(&mut self, enabled: bool) {
+        self.share = enabled;
+        let store = enabled.then(|| self.store.clone());
+        for workspace in &mut self.workspaces {
+            workspace.set_shared_subsets(store.clone());
+        }
+        self.store.clear();
+    }
+
+    pub fn subset_sharing(&self) -> bool {
+        self.share
+    }
+
+    /// Number of integrals.
+    pub fn len(&self) -> usize {
+        self.workspaces.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.workspaces.is_empty()
+    }
+
+    /// Integral `index`'s workspace (diagnostics, execution statistics).
+    pub fn workspace(&self, index: usize) -> &TensorWorkspace<T> {
+        &self.workspaces[index]
+    }
+
+    /// Integral `index`'s workspace, e.g. to change its settings.
+    pub fn workspace_mut(&mut self, index: usize) -> &mut TensorWorkspace<T> {
+        &mut self.workspaces[index]
+    }
+
+    /// Evaluate integral `k` on `batches[k]`, for every `k` (one batch per
+    /// integral, in the order of the plans; usually the same phase-space
+    /// points, each batch holding the integral's own propagators).
+    pub fn reduce_batches(&mut self, batches: &[KinematicsBatch<T>]) -> Result<Vec<BatchResult<T>>, ReductionError> {
+        if batches.len() != self.workspaces.len() {
+            return Err(ReductionError::InvalidInput(format!(
+                "{} batches for {} integrals",
+                batches.len(),
+                self.workspaces.len()
+            )));
+        }
+        self.store.clear();
+        let results = self
+            .workspaces
+            .iter_mut()
+            .zip(batches)
+            .map(|(workspace, batch)| workspace.reduce_batch(batch))
+            .collect::<Result<Vec<_>, _>>();
+        let (reused, computed) = self.store.counts();
+        self.last = SubsetSharingStats { reused, computed };
+        self.store.clear();
+        results
+    }
+
+    /// Sharing statistics of the last [`Self::reduce_batches`] call (zero
+    /// with sharing off).
+    pub fn last_sharing(&self) -> SubsetSharingStats {
+        self.last
+    }
+}

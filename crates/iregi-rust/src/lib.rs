@@ -4,6 +4,7 @@
 #![forbid(unsafe_code)]
 
 mod affine_descent_guard;
+mod amplitude;
 mod affine_power;
 pub mod basis;
 pub mod certified_planar;
@@ -46,6 +47,7 @@ pub use certified_scalar::{
 pub use certified_tensor::{
     CertifiedTensorReductionPlan, CertifiedTensorWorkspace, TensorCertificateExecutionStats,
 };
+pub use amplitude::{AmplitudeOptions, AmplitudeWorkspace, SubsetSharingStats};
 pub use contraction::{ContractionPlan, ContractionResult, ContractionWorkspace, NumeratorBatch};
 pub use direct::{DirectMasters, DirectProfile, DirectReductionPlan, DirectWorkspace};
 pub use dispatch::{
