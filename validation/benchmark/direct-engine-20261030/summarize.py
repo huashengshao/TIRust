@@ -71,6 +71,8 @@ def main():
                 "tirust": tirust,
                 "iregi": iregi,
                 "iregi_modes": [c for c in candidates if c["engine"] == "IREGI"],
+                # IREGI not rerun in this capture (run.py --skip-iregi).
+                "iregi_skipped": block.get("iregi_skipped", False),
                 "collier": collier,
                 "tirust_contracted": next((c for c in candidates if c["id"] == "tirust-contracted"), None),
                 "ninjars": next((c for c in candidates if c["engine"] == "NinjaRS"), None),

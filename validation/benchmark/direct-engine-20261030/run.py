@@ -369,11 +369,23 @@ def wire(candidate, case, lanes, warmup, repeats, iterations):
     return collier_wire(case, lanes, candidate["config"], warmup, repeats, iterations)
 
 
-def measure(case, batch, cpu, rounds, rng, raw, collier_configs):
+def skips_iregi(case_id, batch, patterns):
+    """Whether `--skip-iregi` leaves IREGI out of this row and batch: a pattern
+    is `all`, a case id (both batches) or `case-id:batch`."""
+    for pattern in patterns:
+        name, _, size = pattern.partition(":")
+        if (name == "all" or name == case_id) and (not size or int(size) == batch):
+            return True
+    return False
+
+
+def measure(case, batch, cpu, rounds, rng, raw, collier_configs, skip_iregi=False):
     lanes = case["lanes"][:batch]
     reference = reference_array(case)
     runs = []
     for candidate in candidates(case, collier_configs):
+        if skip_iregi and candidate["engine"] == "IREGI":
+            continue
         entry = {key: candidate[key] for key in candidate if key != "argv"}
         try:
             engine = NinjaEngine(cpu) if candidate["engine"] == "NinjaRS" else Engine(candidate["argv"], cpu)
@@ -470,6 +482,8 @@ def main():
     parser.add_argument("--seed", type=int, default=20261030)
     parser.add_argument("--build-record", default="build.json")
     parser.add_argument("--inputs", default="inputs.json", help="inputs-003.json for capture 003 (adds N7R7)")
+    parser.add_argument("--skip-iregi", action="append", default=[], metavar="ROW[:BATCH]",
+                        help="leave IREGI out (not rerun) for a case id, case-id:batch, or all; repeatable")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=False)
     inputs = json.loads((HERE / args.inputs).read_text())
@@ -485,6 +499,7 @@ def main():
                           if l.startswith("model name")),
         "uname": " ".join(os.uname()), "target_ns_per_block": TARGET_NS,
         "rounds": {"batch1": args.rounds, "batch32": args.batch_rounds}, "seed": args.seed,
+        "skip_iregi": args.skip_iregi,
         "build": json.loads((HERE / args.build_record).read_text()),
     }
     rows = []
@@ -498,8 +513,10 @@ def main():
             for batch in inputs["batch_sizes"]:
                 busy_before = cpu_busy(args.cpu, 0.5)
                 started = time.monotonic()
+                skip = skips_iregi(case["id"], batch, args.skip_iregi)
                 entries, cross = measure(case, batch, args.cpu,
-                                         args.rounds if batch == 1 else args.batch_rounds, rng, raw, collier_configs)
+                                         args.rounds if batch == 1 else args.batch_rounds, rng, raw, collier_configs,
+                                         skip_iregi=skip)
                 key = f"batch{batch}"
                 tirust = next(e for e in entries if e["id"] == "tirust")
                 iregi = selected(entries, "IREGI")
@@ -514,6 +531,7 @@ def main():
                     if reference is not None and reference.get("blocks_ns") and tirust.get("blocks_ns"):
                         ratios[name] = ratio_summary(tirust["blocks_ns"], reference["blocks_ns"], rng)
                 row[key] = {"candidates": entries, "selected_iregi": iregi["id"] if iregi else None,
+                            "iregi_skipped": skip,
                             "tirust_iregi_cross_error_lanes": cross, "ratios": ratios,
                             "cpu_busy_before": busy_before, "wall_s": round(time.monotonic() - started, 2)}
                 print(json.dumps({"id": case["id"], "batch": batch,
