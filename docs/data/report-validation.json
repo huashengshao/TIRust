@@ -1,14 +1,14 @@
 {
  "schema_version": 1,
- "recorded_utc": "2026-11-02T14:29:47.983865+00:00",
- "status": "passed_stability_study_report_rebuild",
- "scope": "Binary64 stability study (TIRust, original IREGI, COLLIER against a confirmed high-precision reference) and the direct-engine precision rescue; all previous records unchanged.",
+ "recorded_utc": "2026-11-02T15:17:06.523214+00:00",
+ "status": "passed_direct_engine_same_session_report_rebuild",
+ "scope": "Direct numerical engine is the public binary64 default. New same-session interleaved TIRust/original-IREGI/COLLIER tables (18 rows, batch 1 and 32) with full-array validation; all previous records unchanged.",
  "report_artifacts": {
-  "HANDOFF.md": "77e8bf55a1ea5cadff954bd6570781a37c011e66e2513118c390e259040e9708",
+  "HANDOFF.md": "343b8a1aba19dcf17c949bb7f29810d41a1be8a2243fad4a63dc78ff617df5e3",
   "README.md": "95d0c64796264ef6d85028954b4237557d651c18ead039b42b750779ee8f63a2",
   "docs/algebra-reuse.typ": "c4b1b2449f07d6e2d68cb707986b27165e7fae5c2775c8edb8fc1a5fce8a2e43",
-  "docs/benchmark.pdf": "b38c467d6db0abcfcff2b1e124b1a624581af9bf6183e9971d40cccb77511ce5",
-  "docs/benchmark.typ": "e77a618cc2687d1ba2faff114ce56535e7ce722babefa05bbb225c7f5d442200",
+  "docs/benchmark.pdf": "b6edacc684e5e8a26abb34972449e0a05b8ffcb831bb102f8009d051d861abd6",
+  "docs/benchmark.typ": "af1167f7f4a54e0ba738fc17717e5fac2116fafb53b3e47608394cfe4598ca26",
   "docs/checkpoints/rank6-current-20261026.md": "c80623ebea605ce88b78ac1478857202ab15bb3d99aa5af5a9bad04d177a3fe5",
   "docs/checkpoints/rank6-dual-precision-boundary-20261026.md": "6338ef15664907acf4aa7bcf172b1dd52f36d65c08a17e7ce33c4115077b6f55",
   "docs/checkpoints/rank6-dual-resource-boundaries-20261026.md": "c4520d220257784e1399afd3b27aebaf1b17fd016c3d750e7a9b5a9f804b7ca4",
@@ -33,7 +33,7 @@
   "docs/data/rank6-functional-completion-saved-replays-20261026.json": "2eafcee7593304e626814ef72182e54814a3ac0db89bc6bde12d5a34903d6d56",
   "docs/data/rank6-generalized-followup-20261026.json": "23d9edad5d4e4f4a89a3f612e1b808161c49956f3e6be7edb7c7d2e958a3c0a5",
   "docs/data/rank6-ordinary-closure-and-dual-route-20261026.json": "ce82c600c323ac682caaa667c9f6260055c84211cfab8705b0a44167396282ac",
-  "docs/data/results.json": "39a08a335ef88c91066a114e0d59626d9dbe711322ce5875c144f7f9255e2761",
+  "docs/data/results.json": "968892707709567097ab63e6d874045aa656a96e96192d2dbe6d84106f211e41",
   "scripts/build-benchmark-report.sh": "2ccb0a7980c2f366199ad3a6a4ef86333fc3754f2400e52d1a651941e13408f0",
   "scripts/check-benchmark-report.py": "ed5ac011874fb36a4fc8417e551bd0107d3da0b439565c43b18d719e35a4d003",
   "validation/benchmark/opening-collier-20261026/manifest.json": "f5c87288d38db4eb70a4dced6ee91619100838d1d053461e453b20ef7193100f",
@@ -64,9 +64,9 @@
  "build_command": "bash scripts/build-benchmark-report.sh",
  "independent_rebuild_command": "typst compile --root . --creation-timestamp 1793318400 docs/benchmark.typ target/report-rebuild/benchmark-independent.pdf",
  "byte_identical_rebuild": true,
- "page_count": 80,
+ "page_count": 84,
  "render_check": "Root inspected actual pages1-4; all-binary64 large cells, measured error and mode labels fit; pentagons unflagged; nonfinite N6 and refused dotted diagnostic durations explicit; no clipping.",
- "source_ledger_count": 503,
+ "source_ledger_count": 505,
  "source_ledger": [
   {
    "key": "n6_specialized_diagnostic",
@@ -2582,6 +2582,16 @@
    "key": "stability_20261030_build019",
    "source": "validation/benchmark/stability-20261030/build-019.json",
    "sha256": "7c15d09c0cdebb4ea64739d75799ba9e6ee395d95764b6a5d1218799a15b21c0"
+  },
+  {
+   "key": "direct_engine_20261030_capture015",
+   "source": "validation/benchmark/direct-engine-20261030/summary-015.json",
+   "sha256": "6ec81d8c42cf8d555535bd1def5eea799ea6a10b8d101862851231cb00f98a45"
+  },
+  {
+   "key": "direct_engine_20261030_build015",
+   "source": "validation/benchmark/direct-engine-20261030/build-015.json",
+   "sha256": "1cedd3a3e92c5abc4832a5acc52045e32dfecc8e105f6388dd957e5a1bbbe854"
   }
  ],
  "independent_arithmetic_review": {
@@ -35562,5 +35572,15 @@
   ],
   "campaign": "validation/benchmark/stability-20261030",
   "note": "All listed artifacts rehashed; historical result members preserved byte-for-byte."
+ },
+ "direct_engine_checkpoint_20261030_capture015": {
+  "base_commit": "b83d5c8",
+  "previous_proof_sha256": "89fc1f671dff272be04200623d8f0d8bf67a8d96e45e8f14d78ef1e985f9d354",
+  "new_result_records": [
+   "direct_engine_20261030_capture015",
+   "direct_engine_20261030_build015"
+  ],
+  "campaign": "validation/benchmark/direct-engine-20261030",
+  "note": "Previous proof was stale for HANDOFF.md at the base commit; all listed artifacts are rehashed here. Historical result members are preserved byte-for-byte."
  }
 }
