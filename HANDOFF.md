@@ -403,6 +403,14 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    Next ideas: compare the expansion with the alternative PV per box
    (COLLIER keeps the better error estimate), higher boosts only for boxes
    whose expansion converges slowly, COLLIER's Cgy/Dgy order selection.
+4d. **Cheaper rescue for mildly refused lanes (2 Nov).** With the rescue on,
+   refused N >= 7 lanes skip the binary64 retries (fe4496c), and the
+   double-double tier skips its rotation check for lanes whose binary64
+   conditioning estimate is >= 2^-33 (rotation difference <= 2^-20; dd
+   error ~2^-73). N7R7 batch 32: 1.27 s -> 0.67 s -> 0.37 s (COLLIER 0.15 s,
+   NaN on lane 0); its 12 rescued lanes agree with 256 bits to <= 1.2e-26.
+   Open: the 20 binary64-certified N7R7 lanes reach E/A 9.7e-11 (> 2^-34;
+   their cyclic orders share the error, near-miss third order passes).
 4c. **Consensus of cyclic orders (2 Nov).** Orders differ widely in accuracy
    (N7R7 lane 26: 1.2e-9 in orders 0, 1; 7.7e-11..9.1e-11 in 2, 3, 6).
    Refused lanes (N 5-6) first evaluate all cyclic orders; an order with >= 3

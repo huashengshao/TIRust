@@ -75,7 +75,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let reference = wide.reduce_batch(&lifted)?;
             let mu = batch.values[5 * n].re;
             for (lane, notes) in workspace.last_diagnostics().iter().enumerate() {
-                if !notes.iter().any(|note| note.contains("cyclic orders")) { continue; }
+                let rescued = notes.iter().any(|note| note.contains("bits: accepted"));
+                if !notes.iter().any(|note| note.contains("cyclic orders")) && !rescued && std::env::var("CHECK").as_deref() != Ok("all") { continue; }
                 let (Ok(x), Ok(y)) = (result.lane(lane), reference.lane(lane)) else { continue };
                 let (mut e, mut s) = (0.0f64, 0.0f64);
                 for (m, monomial) in result.basis.iter().enumerate() {
@@ -86,7 +87,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         s = s.max(v.re.to_f64().hypot(v.im.to_f64()) / w);
                     }
                 }
-                println!("  consensus lane {lane}: E/A {:.2e} (estimate {:?})", e / s, result.estimated_error(lane));
+                println!("  lane {lane} ({}): E/A {:.2e}", if rescued { "rescued" } else { "binary64" }, e / s);
             }
         }
         if let Some(notes) = workspace.last_diagnostics().iter().find(|n| n.len() > 1) {
