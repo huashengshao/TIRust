@@ -403,6 +403,29 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    Next ideas: compare the expansion with the alternative PV per box
    (COLLIER keeps the better error estimate), higher boosts only for boxes
    whose expansion converges slowly, COLLIER's Cgy/Dgy order selection.
+4m. **Cost of TIRust's checks on physical points; vectorization next (2 Nov).**
+   Hexagon amplitude call (57 integrals, 32 points, sharing off, 2.70 s):
+   top-level inject_gram (small-Gram expansions of the method-choice
+   retries) 2.26 s, of which expand_top 2.19 s in 547 calls (~4 ms each,
+   nested auxiliary triangles included): 81% of the call. A dense
+   (lambda, kappa) map instead of FastMap in expand_top (KeyMap, offsets by
+   rank and lambda) was bit-identical but gained <= 5% (interleaved A/B at
+   load ~480: old 6.3-6.9 s, new 6.2-6.9 s): the expansions are
+   arithmetic-bound; reverted. Ideas not tried: fewer passes or boosts when
+   the change is already small, sharing the expansions between the main,
+   rotated and third orders (they differ in origin), cheaper upgrades.
+   USER REQUEST (2 Nov, open): vectorized amplitude evaluation. Status: the
+   API is batched end to end (KinematicsBatch rows in, BatchResult rows out;
+   AmplitudeWorkspace one batch per integral), but every lane runs the plan
+   sequentially with scalar arithmetic (batch 32 vs 1: N4R4 35.6 vs 36.1 us
+   per point). Plan: SIMD across lanes in the binary64 direct engine's
+   straight-line stages (geometry, coefficient program, gather, moment
+   program, output) in struct-of-arrays chunks of W lanes ([f64; W] loops
+   the compiler vectorizes; safe code only, no new dependencies; baseline
+   x86-64 gives 2 doubles per SSE2 register), lanes grouped by plan variant,
+   gate refusals as per-lane masks, masters (oneloopmaster, branchy) kept
+   per lane; then the rotated/third passes and the retries on the same
+   chunked executor. Measure per-point time at batch 32 against batch 1.
 4l. **Amplitude benchmark in the report (user, 2 Nov).**
    validation/benchmark/direct-engine-20261030/amplitude/: build.py (release
    amplitude_timing + collier_amplitude.f90), run.py (stability-study N-gon
