@@ -94,6 +94,11 @@ LATER = {
         "direct_engine_20261030_capture016": ("summary-016.json", True),
         "direct_engine_20261030_build016": ("build-016.json", True),
     },
+    # Amplitude benchmark (amplitude/): TIRust sharing on/off, COLLIER cache on/off.
+    "amp001": {
+        "direct_engine_20261030_amplitude001": ("amplitude/summary-001.json", True),
+        "direct_engine_20261030_amplitude_build001": ("amplitude/build-001.json", True),
+    },
 }
 
 

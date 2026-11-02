@@ -403,6 +403,22 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    Next ideas: compare the expansion with the alternative PV per box
    (COLLIER keeps the better error estimate), higher boosts only for boxes
    whose expansion converges slowly, COLLIER's Cgy/Dgy order selection.
+4l. **Amplitude benchmark in the report (user, 2 Nov).**
+   validation/benchmark/direct-engine-20261030/amplitude/: build.py (release
+   amplitude_timing + collier_amplitude.f90), run.py (stability-study N-gon
+   and every pinch >= 2 propagators at rank = size, 32 points, 4 candidates
+   interleaved on one CPU, 7 rounds). Bound as amp001 through the
+   direct-engine publish.py (direct_engine_20261030_amplitude001, report
+   section 1.1). Capture 001 (fe7a499, load ~370): hexagon amplitude TIRust
+   shared 1.17 s / separate 2.15 s (x0.554), COLLIER cache 86 ms / no cache
+   256 ms (x0.337), TIRust shared / COLLIER cache x13.6; pentagon amplitude
+   x0.881, x0.587, x6.5. TIRust bit-identical on/off, 1824/1824 integral
+   lanes certified; COLLIER cache/no-cache sums equal (hexagon) or 3e-16.
+   COLLIER's accuracy flag with the cache is reset only per InitEvent (per
+   point), so only the no-cache count is per call. Answer to the user: both
+   codes empty their reuse per phase-space point (COLLIER InitEvent_cll(1)
+   per point with InitCacheSystem once; TIRust per call, keys contain the
+   point's kinematics).
 4k. **AmplitudeWorkspace: shared per-subset results (user, 2 Nov).** The facade
    cost on physical points is per box/triangle (hexagon amplitude, 32 lanes:
    method-choice retries 1.9 s of 2.5 s, partial double-double 0.23 s).
