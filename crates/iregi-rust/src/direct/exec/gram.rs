@@ -460,121 +460,176 @@ where
             })
         };
 
-        // Passes: t = 0 drops every Delta term; pass t has metric coefficients
-        // up to rank R + 1 - t and momentum coefficients up to R - t.
+        // The expansion order by order in Delta: the coefficients are
+        // D_0 + D_1 + ..., D_s = O(Delta^s). D_0 carries the triangles (C0,
+        // Shat, D0) and no Delta term; D_s (s > 0) only the homogeneous terms
+        // of the recursion and -Delta D_{s-1}. Step q of an order gives its
+        // metric coefficients of rank q and momentum coefficients of rank
+        // q - 1 and needs the previous order through step q + 1, so orders
+        // 0..=S take order s through step target + 1 + S - s: their sum is
+        // pass S of the fixed-point form (each pass recomputing everything,
+        // the previous pass in the Delta terms) and D_S that pass's change.
+        // Order by order the triangles enter once, and the first orders,
+        // which show whether the expansion converges, need the lowest ranks.
         let passes = child_rank - target;
-        let mut previous: Option<FastMap<Key, L4<T>>> = None;
-        let mut last_change = f64::INFINITY;
-        // Observed change ratio per pass (convergence rate), for deciding
-        // whether a larger boost would converge.
-        let mut ratio = 1.0f64;
-        let mut chosen: Option<FastMap<Key, L4<T>>> = None;
-        for t in 0..=passes {
-            let metric_rank = child_rank + 1 - t;
-            let momentum_rank = child_rank - t;
-            let mut cur: FastMap<Key, L4<T>> = FastMap::default();
-            cur.insert((0, [0, 0, 0]), d0.clone());
+        let extra = i32::from(self.gram_extra_ranks);
+        let neg_delta = csub(&zero, &delta);
+        let two_adj = cscale(&adj[k][l], &two);
+        let neg_adj = csub(&zero, &adj[k][l]);
+        let step = |cur: &mut FastMap<Key, L4<T>>, prev: Option<&FastMap<Key, L4<T>>>, q: u16| -> Result<(), String> {
             let get = |map: &FastMap<Key, L4<T>>, key: Key| -> Result<L4<T>, String> {
                 map.get(&key).cloned().ok_or_else(|| format!("small-Gram expansion: coefficient {key:?} missing"))
             };
-            for r in 1..=metric_rank {
-                for lambda in (1..=r / 2).rev() {
-                    for kappa in compositions(r - 2 * lambda, nm) {
-                        let mut acc = lzero(&zero);
-                        if let Some(prev) = &previous {
-                            let key = (lambda - 1, add(add(kappa, k), l));
-                            lfma(&mut acc, &csub(&zero, &delta), &get(prev, key)?);
-                        }
-                        lfma(&mut acc, &cscale(&adj[k][l], &two), spz.get(&(lambda - 1, kappa)).ok_or("small-Gram expansion: C0 outside the triangle ranks")?);
-                        lfma(&mut acc, &xtilde, &get(&cur, (lambda - 1, kappa))?);
+            let first = prev.is_none();
+            for lambda in (1..=q / 2).rev() {
+                for kappa in compositions(q - 2 * lambda, nm) {
+                    let mut acc = lzero(&zero);
+                    if let Some(prev) = prev {
+                        lfma(&mut acc, &neg_delta, &get(prev, (lambda - 1, add(add(kappa, k), l)))?);
+                    } else {
+                        lfma(&mut acc, &two_adj, spz.get(&(lambda - 1, kappa)).ok_or("small-Gram expansion: C0 outside the triangle ranks")?);
+                    }
+                    lfma(&mut acc, &xtilde, &get(cur, (lambda - 1, kappa))?);
+                    if first {
                         for m in 0..nm {
                             lfma(&mut acc, &adj[m][l], shat_of(m, lambda - 1, add(kappa, k))?);
-                            lfma(&mut acc, &csub(&zero, &adj[k][l]), shat_of(m, lambda - 1, add(kappa, m))?);
+                            lfma(&mut acc, &neg_adj, shat_of(m, lambda - 1, add(kappa, m))?);
                         }
-                        for (a, b, w) in &pairs {
-                            let (a, b) = (*a, *b);
-                            let mut bracket = lzero(&zero);
+                    }
+                    for (a, b, w) in &pairs {
+                        let (a, b) = (*a, *b);
+                        let mut bracket = lzero(&zero);
+                        if first {
                             lfma(&mut bracket, &f[a], shat_of(b, lambda - 1, kappa)?);
-                            if let Some(less) = sub(kappa, a) {
+                        }
+                        if let Some(less) = sub(kappa, a) {
+                            if first {
                                 lfma(&mut bracket, &real(2 * kappa[a] as usize), shat_of(b, lambda, less)?);
-                                let factor = cscale(&f[b], &(two.clone() * &self.prototype.from_usize(kappa[a] as usize)));
-                                lfma(&mut bracket, &csub(&zero, &factor), &get(&cur, (lambda, less))?);
                             }
-                            if let Some(less) = sub(kappa, b) {
-                                let factor = cscale(&f[a], &(two.clone() * &self.prototype.from_usize(kappa[b] as usize)));
-                                lfma(&mut bracket, &csub(&zero, &factor), &get(&cur, (lambda, less))?);
-                            }
-                            let multiplicity = if a == b {
-                                kappa[a] as usize * (kappa[a] as usize).saturating_sub(1)
-                            } else {
-                                kappa[a] as usize * kappa[b] as usize
-                            };
-                            if multiplicity > 0 {
-                                let less = sub(sub(kappa, a).unwrap(), b).unwrap();
-                                let factor = cscale(&real(multiplicity), &four);
-                                lfma(&mut bracket, &csub(&zero, &factor), &get(&cur, (lambda + 1, less))?);
-                            }
-                            lfma(&mut acc, &csub(&zero, w), &bracket);
+                            let factor = cscale(&f[b], &(two.clone() * &self.prototype.from_usize(kappa[a] as usize)));
+                            lfma(&mut bracket, &csub(&zero, &factor), &get(cur, (lambda, less))?);
                         }
-                        let mut out: L4<T> = std::array::from_fn(|slot| cmul(&acc[slot], &inv_two_adj));
-                        // Divisor (a - 2 eps), a = 2 (lambda + |kappa|) + 4 - N.
-                        let a = self.prototype.from_usize(2 * (lambda as usize + kappa.iter().map(|&x| x as usize).sum::<usize>()) + 3 - nm);
-                        div_dimension(&mut out, &(self.prototype.one() / &a));
-                        cur.insert((lambda, kappa), out);
+                        if let Some(less) = sub(kappa, b) {
+                            let factor = cscale(&f[a], &(two.clone() * &self.prototype.from_usize(kappa[b] as usize)));
+                            lfma(&mut bracket, &csub(&zero, &factor), &get(cur, (lambda, less))?);
+                        }
+                        let multiplicity = if a == b {
+                            kappa[a] as usize * (kappa[a] as usize).saturating_sub(1)
+                        } else {
+                            kappa[a] as usize * kappa[b] as usize
+                        };
+                        if multiplicity > 0 {
+                            let less = sub(sub(kappa, a).unwrap(), b).unwrap();
+                            let factor = cscale(&real(multiplicity), &four);
+                            lfma(&mut bracket, &csub(&zero, &factor), &get(cur, (lambda + 1, less))?);
+                        }
+                        lfma(&mut acc, &csub(&zero, w), &bracket);
                     }
+                    let mut out: L4<T> = std::array::from_fn(|slot| cmul(&acc[slot], &inv_two_adj));
+                    // Divisor (a - 2 eps), a = 2 (lambda + |kappa|) + 4 - N.
+                    let a = self.prototype.from_usize(2 * (lambda as usize + kappa.iter().map(|&x| x as usize).sum::<usize>()) + 3 - nm);
+                    div_dimension(&mut out, &(self.prototype.one() / &a));
+                    cur.insert((lambda, kappa), out);
                 }
-                if r - 1 <= momentum_rank && r >= 2 {
-                    for kappa in compositions(r - 1, nm) {
-                        let mut acc = lzero(&zero);
-                        for m in 0..nm {
+            }
+            if q >= 2 {
+                for kappa in compositions(q - 1, nm) {
+                    let mut acc = lzero(&zero);
+                    for m in 0..nm {
+                        if first {
                             lfma(&mut acc, &adj[j][m], shat_of(m, 0, kappa)?);
-                            if let Some(less) = sub(kappa, m) {
-                                let factor = cscale(&adj[j][m], &(two.clone() * &self.prototype.from_usize(kappa[m] as usize)));
-                                lfma(&mut acc, &csub(&zero, &factor), &get(&cur, (1, less))?);
-                            }
                         }
-                        if let Some(prev) = &previous {
-                            lfma(&mut acc, &csub(&zero, &delta), &get(prev, (0, add(kappa, j)))?);
+                        if let Some(less) = sub(kappa, m) {
+                            let factor = cscale(&adj[j][m], &(two.clone() * &self.prototype.from_usize(kappa[m] as usize)));
+                            lfma(&mut acc, &csub(&zero, &factor), &get(cur, (1, less))?);
                         }
-                        let out: L4<T> = std::array::from_fn(|slot| cmul(&acc[slot], &inv_adjf));
-                        cur.insert((0, kappa), out);
                     }
+                    if let Some(prev) = prev {
+                        lfma(&mut acc, &neg_delta, &get(prev, (0, add(kappa, j)))?);
+                    }
+                    let out: L4<T> = std::array::from_fn(|slot| cmul(&acc[slot], &inv_adjf));
+                    cur.insert((0, kappa), out);
                 }
             }
-            if let Some(prev) = &previous {
-                // Largest relative change per rank, ranks <= target.
-                let mut change = 0.0f64;
-                for r in 1..=target {
-                    let (mut diff, mut size) = (0.0f64, 0.0f64);
-                    for (key, value) in cur.iter().filter(|(key, _)| rank_of(key) == r) {
-                        let old = &prev[key];
-                        for slot in 0..4 {
-                            diff = diff.max(cnorm2(&csub(&value[slot], &old[slot])).to_f64().sqrt());
-                            size = size.max(cnorm2(&value[slot]).to_f64().sqrt());
-                        }
-                    }
-                    if size > 0.0 {
-                        change = change.max(diff / size);
-                    }
+            Ok(())
+        };
+        let mut orders: Vec<FastMap<Key, L4<T>>> = Vec::with_capacity(usize::from(passes) + 1);
+        // Steps completed per order (step 1 is empty).
+        let mut steps: Vec<u16> = Vec::with_capacity(usize::from(passes) + 1);
+        // Sum of the accepted orders, ranks <= target.
+        let mut total: FastMap<Key, L4<T>> = FastMap::default();
+        let mut accepted = false;
+        let mut last_change = f64::INFINITY;
+        // Observed change ratio per order (convergence rate), for deciding
+        // whether a larger boost would converge; `best` the smallest one from
+        // the third order on (the first ratio is often much smaller).
+        let mut ratio = 1.0f64;
+        let mut best = 1.0f64;
+        for order in 0..=passes {
+            let mut fresh: FastMap<Key, L4<T>> = FastMap::default();
+            fresh.insert((0, [0, 0, 0]), if order == 0 { d0.clone() } else { lzero(&zero) });
+            orders.push(fresh);
+            steps.push(1);
+            for s in 0..=usize::from(order) {
+                let through = target + 1 + order - s as u16;
+                let (lower, upper) = orders.split_at_mut(s);
+                for q in steps[s] + 1..=through {
+                    step(&mut upper[0], lower.last(), q)?;
                 }
-                if !change.is_finite() || (t >= 2 && change > last_change) {
-                    // Diverging: keep the previous pass.
-                    break;
-                }
-                if last_change.is_finite() && last_change > 0.0 {
-                    ratio = (change / last_change).min(1.0);
-                }
-                last_change = change;
-                chosen = Some(cur.clone());
-                if change <= f64::EPSILON {
-                    break;
-                }
-            } else if passes == 0 {
-                chosen = Some(cur.clone());
-                last_change = 0.0;
+                steps[s] = through;
             }
-            previous = Some(cur);
+            let latest = &orders[usize::from(order)];
+            if order == 0 {
+                total = latest.iter().filter(|(key, _)| rank_of(key) <= target).map(|(key, value)| (*key, value.clone())).collect();
+                if passes == 0 {
+                    accepted = true;
+                    last_change = 0.0;
+                }
+                continue;
+            }
+            // Largest relative change per rank, ranks <= target.
+            let mut next = total.clone();
+            let mut change = 0.0f64;
+            for r in 1..=target {
+                let (mut diff, mut size) = (0.0f64, 0.0f64);
+                for (key, value) in latest.iter().filter(|(key, _)| rank_of(key) == r) {
+                    let sum = next.get_mut(key).ok_or("small-Gram expansion: coefficient missing")?;
+                    for slot in 0..4 {
+                        sum[slot] = cadd(&sum[slot], &value[slot]);
+                        diff = diff.max(cnorm2(&value[slot]).to_f64().sqrt());
+                        size = size.max(cnorm2(&sum[slot]).to_f64().sqrt());
+                    }
+                }
+                if size > 0.0 {
+                    change = change.max(diff / size);
+                }
+            }
+            if !change.is_finite() || (order >= 2 && change > last_change) {
+                // Diverging: keep the previous orders.
+                break;
+            }
+            if last_change.is_finite() && last_change > 0.0 {
+                ratio = (change / last_change).min(1.0);
+                if order >= 3 {
+                    best = best.min(ratio);
+                }
+            }
+            last_change = change;
+            total = next;
+            accepted = true;
+            if change <= f64::EPSILON {
+                break;
+            }
+            // Hopeless: from the fourth order on, even the best rate seen
+            // since the third keeps the remaining orders and a larger boost
+            // above the tolerance (by 2^4; on 27479 expansions of the
+            // stability points this stopped 13017, none of which converged).
+            if order >= 4 && last_change * best.powi(i32::from(passes - order) + extra) > 16.0 * EXPANSION_TOLERANCE {
+                break;
+            }
         }
+        drop(orders);
+        let chosen = accepted.then_some(total);
         // Alternative PV reduction (hep-ph/0509141 sect. 3.2, eqs. (PValtrec1),
         // (PValtrec2); COLLIER's CalcDpv2), the last resort when neither
         // expansion converges: the modified Cayley matrix X instead of Z, so
