@@ -403,6 +403,26 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    Next ideas: compare the expansion with the alternative PV per box
    (COLLIER keeps the better error estimate), higher boosts only for boxes
    whose expansion converges slowly, COLLIER's Cgy/Dgy order selection.
+4j. **Sharing between the integrals of an amplitude (user question, 2 Nov).**
+   examples/amplitude_sharing.rs: every pinch (>= 2 propagators, rank = size)
+   of a stability-study N-gon evaluated separately on 32 physical points.
+   Top-loop gg -> gggg hexagon amplitude (57 integrals, colour-ordered):
+   default facade 2.77 s per batch (hexagon 0.58, 6 pentagons 1.50, 15 boxes
+   0.69, triangles and bubbles 4 ms); bare binary64 pass, gate open,
+   56 ms (masters 14, recurrence 8, gather 29); master evaluations
+   20,672 -> 1,792 if shared. Bare-pass sharing gain only 1.3-1.5x (each
+   integral's gather stays), but the facade spends ~50x the bare work on the
+   stability machinery (partial double-double boxes, retries), repeated in
+   every integral that contains the same ill-conditioned box: a shared
+   amplitude plan (union of subsets, each rescued once; reflected labelling
+   gives every subset a different origin for the rotation test) could bring
+   the facade near the hexagon's own 0.58 s (factor up to ~4, not built).
+   Pentagon amplitude (26 integrals): facade 0.17 s, pentagon alone 0.07 s.
+   Across the 60 colour orderings of 6 gluons the lower-point integrals repeat
+   more: k = 2/3/4/5/6 points 29/13/4.6/2.0/1.0 times on average.
+   COLLIER's cache shares within a phase-space point by call position (no
+   argument check after event 2; wrong rank-9 heptagons, NinjaRS note
+   COLLIER_CACHE_BUG.md).
 4i. **Faster binary64-only heptagons (user, 2 Nov).** Rescue disabled, N7R7
    batch 32 (12 lanes refused by the rotation test): 0.80 s = passes 0.10,
    a priori choice 0.07 (kept 0), stage 3 everywhere 0.51 (kept 0),
