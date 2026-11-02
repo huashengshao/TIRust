@@ -403,6 +403,23 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    Next ideas: compare the expansion with the alternative PV per box
    (COLLIER keeps the better error estimate), higher boosts only for boxes
    whose expansion converges slowly, COLLIER's Cgy/Dgy order selection.
+4n. **Improve the amplitude cache (user: "very important", 2 Nov).**
+   Miss diagnostic (hexagon amplitude, 32 points, sharing on: 312 reused,
+   333 computed per call): of the 333, 103 have an earlier result for the
+   same subset in the same order and settings at another coefficient rank
+   (box integrals compute boxes at rank 4, hexagon/pentagons at 5; triangles
+   3 vs 4), 89 the same subset in another cyclic order (rotation test:
+   another origin), 6 another method setting, 135 are new. Plan, step 1
+   (rank floor): within an AmplitudeWorkspace, compute every injected box or
+   triangle (partial rescue and expansions) at the amplitude's highest
+   coefficient rank for its size and inject the prefix the integral's
+   layout needs (coefficient layouts are rank-nested: inject_gram already
+   slices `coefficients[..count]`); apply the floor with sharing on AND off
+   so both stay bit-identical (results then differ from a standalone
+   TensorWorkspace only at the expansions' truncation level, still checked
+   by the rotation test). Pass the floor with the store (per-size ranks
+   from all plans' subsets). Step 2 (later): share across origins by
+   re-routing coefficients (binomial translation in the subset's momenta).
 4m. **Cost of TIRust's checks on physical points; vectorization next (2 Nov).**
    Hexagon amplitude call (57 integrals, 32 points, sharing off, 2.70 s):
    top-level inject_gram (small-Gram expansions of the method-choice
