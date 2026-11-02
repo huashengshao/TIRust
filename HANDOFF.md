@@ -411,6 +411,11 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    NaN on lane 0); its 12 rescued lanes agree with 256 bits to <= 1.2e-26.
    Open: the 20 binary64-certified N7R7 lanes reach E/A 9.7e-11 (> 2^-34;
    their cyclic orders share the error, near-miss third order passes).
+   Decision (user, 2 Nov): keep the speed. Requiring near-miss agreement
+   within tolerance/4 for N >= 7 would certify none beyond the request but
+   send the opening N7R7 lane itself (E/A 2.0e-11) to the rescue (~6x
+   slower single-lane call); not done. Published in e1008b6 (timing 012,
+   stability 017), with the limitation stated in the timing caption.
 4c. **Consensus of cyclic orders (2 Nov).** Orders differ widely in accuracy
    (N7R7 lane 26: 1.2e-9 in orders 0, 1; 7.7e-11..9.1e-11 in 2, 3, 6).
    Refused lanes (N 5-6) first evaluate all cyclic orders; an order with >= 3
