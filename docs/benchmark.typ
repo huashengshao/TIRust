@@ -1115,7 +1115,8 @@
 // Amplitude benchmark (2 November 2026): the integrals of an amplitude
 // evaluated together, TIRust with per-subset sharing on and off against
 // COLLIER with its global cache on and off, in one session.
-#let amplitude-record = data.at("direct_engine_20261030_amplitude001", default: none)
+#let amplitude-capture-id = ("002", "001").find(id => ("direct_engine_20261030_amplitude" + id) in data)
+#let amplitude-record = if amplitude-capture-id == none { none } else { data.at("direct_engine_20261030_amplitude" + amplitude-capture-id) }
 #let amp-time-cell(timing) = table.cell(fill: pale, {
   set par(leading: 0.3em, justify: false)
   text(size: 10pt, weight: "bold", de-time(timing.median * 1000))
@@ -1131,11 +1132,14 @@
     binary64 stability study with every pinch of at least two propagators, each at rank equal to its number of
     propagators (renormalizable vertices, Feynman gauge), on the study's first #env.lanes physical phase-space
     points; one call evaluates every integral at every point. TIRust (commit
-    #raw(snapshot.tirust_git_head.slice(0, 7))) uses `AmplitudeWorkspace`: with `share_subsets` on, each box or
-    triangle that its checks send to the double-double partial rescue or to the small-Gram expansions is
-    computed once per call and reused by every integral containing it, under an exact key (method settings,
-    rank, the subset's propagators bit for bit), so its arrays are bit-identical with sharing off; the
-    integrals share the amplitude's loop-momentum routing. COLLIER 1.2.10 (COLI, TenRed 6, requested accuracy
+    #raw(snapshot.tirust_git_head.slice(0, 7))) uses `AmplitudeWorkspace`: with `share_subsets` on, every
+    scalar master, every binary64 PV sub-integral's coefficients, and every box or triangle that its checks
+    send to the double-double partial rescue or to the small-Gram expansions is computed once per call and
+    reused by every integral (and every pass and retry) that needs it, under an exact key (method settings,
+    rank, the subset's propagators and mu#super[2] bit for bit). Boxes and triangles of the rescue and the
+    expansions are computed at the amplitude's highest rank for their size, a pinched integral using the
+    leading coefficients, with sharing on and off alike, so the arrays are bit-identical with sharing off;
+    the integrals share the amplitude's loop-momentum routing. COLLIER 1.2.10 (COLI, TenRed 6, requested accuracy
     10#super[−10], critical 10#super[−3]) evaluates the same integrals, each in its own zero-origin routing, with
     its global cache initialized once and `InitEvent_cll(1)` before each phase-space point (the cache learns the
     call sequence of the first events and later returns results by position) or without it. Both codes empty
@@ -1185,11 +1189,11 @@
     The binary64 arrays of these integrals are what TIRust's checks certify (rotation test, method-choice
     retries, double-double boxes), and on these physical points the checks, not the binary64 pass, take most of
     TIRust's time (see the stability section for both codes' accuracy on the same points). Sharing removes the
-    repeats of that work between integrals: 1.8 times faster on the hexagon amplitude, where 312 of 645
-    per-subset results were reused, 1.1 times on the pentagon amplitude (7 of 46). COLLIER's cache reuses whole
-    sub-integrals between calls (3.0 and 1.7 times faster). Pinched boxes do not share their rank-4
-    computations with the rank-5 boxes of the hexagon and pentagons, and the rotated evaluations of TIRust's
-    rotation test start each box from another propagator, so they are separate computations.
+    repeats of that work: 2.3 times faster on the hexagon amplitude (capture 001, with only the double-double
+    boxes and the expansions shared and without rank floors: 1.8 times), 1.3 times on the pentagon amplitude
+    (capture 001: 1.1 times). COLLIER's cache reuses whole sub-integrals between calls (3.1 and 1.7 times
+    faster). The rotated evaluations of TIRust's rotation test start each box from another propagator, so
+    those remain separate computations.
   ]
   pagebreak()
 }

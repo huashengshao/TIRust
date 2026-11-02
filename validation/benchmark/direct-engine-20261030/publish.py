@@ -99,6 +99,10 @@ LATER = {
         "direct_engine_20261030_amplitude001": ("amplitude/summary-001.json", True),
         "direct_engine_20261030_amplitude_build001": ("amplitude/build-001.json", True),
     },
+    "amp002": {
+        "direct_engine_20261030_amplitude002": ("amplitude/summary-002.json", True),
+        "direct_engine_20261030_amplitude_build002": ("amplitude/build-002.json", True),
+    },
 }
 
 
