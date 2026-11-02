@@ -429,6 +429,15 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    w > 2, 8/12 kept but 800 ms: every subset recomputes its masters).
    Remaining: binary64 passes ~97 ms (gather step 1 ~28 ms), double-double
    masters ~71 ms (dilog ~15, log ~12).
+   Upstream oneloopmaster (user request, merged as huashengshao): #13 native
+   dilog (3992c59), #14 small-momentum B0 (ed50302; main merged into its
+   branch, mod.rs/lib.rs lines combined), #15 non-finite C0/D0 retry
+   (3459692; main merged in, B0 small-momentum arm moved into family_values).
+   main 3459692 equals the locally tested combination (full suite: the 33
+   failures of 7b3f43c, none new). The fused kernels are PR #16 (branch
+   fused-double-double-kernels on 3459692; full suite: same 33, 252 passed),
+   merged (b667e78) at the user's request. NixCI never ran on these PRs
+   (stays "Queued").
 4e. **Best-effort arrays from all cyclic orders (2 Nov).** The binary64 tail
    was the uncertified (best-effort) lanes (hexagon top 1%: all 21; their
    E/A median 3.3e-11 vs COLLIER 1.2e-12). The gate-free stage now runs for

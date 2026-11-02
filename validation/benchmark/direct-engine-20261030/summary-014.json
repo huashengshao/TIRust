@@ -1,0 +1,7300 @@
+{
+ "schema_version": 1,
+ "campaign": "direct-engine-20261030",
+ "environment": {
+  "cpu": 206,
+  "started": "2026-11-02T12:49:09Z",
+  "loadavg_start": [
+   "143.76",
+   "150.71",
+   "147.49"
+  ],
+  "cpu_model": "AMD EPYC 9754 128-Core Processor",
+  "uname": "Linux itphlies 6.18.45 #1-NixOS SMP PREEMPT_DYNAMIC Wed Aug 19 16:18:21 UTC 2026 x86_64",
+  "target_ns_per_block": 20000000,
+  "rounds": {
+   "batch1": 11,
+   "batch32": 7
+  },
+  "seed": 20261030,
+  "finished": "2026-11-02T14:26:31Z",
+  "loadavg_end": [
+   "160.00",
+   "171.55",
+   "238.90"
+  ]
+ },
+ "binaries": {
+  "tirust": {
+   "sha256": "158039fc0b169beaef01a0c18a22797dd399079dca446da06ee24242d4289f9e"
+  },
+  "iregi": {
+   "sha256": "f63159d71d60ddb120295bbcf4498cd688cb5e9fafe205d614c0026eb337ccd0"
+  },
+  "collier": {
+   "sha256": "29baa9928840c77e92f2a1a71f84cbaf205371813e9ce8f1232eb2651b6fec9f"
+  },
+  "ninjars": {
+   "sha256": "22d1353dcbb816f8df0bf8e431a7942ff87a87da141b98162b7febef9a31d9d3"
+  }
+ },
+ "tirust_git_head": "3f7cd053d5400a7a1b574506b1cdaec27c096690",
+ "selection_rule": "IREGI: fastest mode with a complete finite lane-0 array within E/A<=1e-3 of the reference; COLLIER: archived opening-double selected public configuration; TIRust: public default facade (Hybrid, binary64).",
+ "accuracy_metric": "E/A: dimensionally rescaled whole-array max discrepancy over all moments and four Laurent slots, versus the archived reference tensors admitted against quadruple-precision original IREGI.",
+ "rows": [
+  {
+   "id": "ordinary-n1-r0",
+   "table": "ordinary",
+   "label": "N=1, R=0",
+   "n": 1,
+   "rank": 0,
+   "powers": [
+    1
+   ],
+   "dimension_shift": 0,
+   "moments": 1,
+   "batch1": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 0.0,
+     "accepted": true,
+     "timing_us": {
+      "median": 0.5028719411223551,
+      "mean": 0.5032799991636698,
+      "standard_error": 0.00161199624889487,
+      "min": 0.4954022539098436,
+      "max": 0.5116999080036798,
+      "blocks": 11
+     },
+     "per_point_us": 0.5028719411223551,
+     "iterations_per_block": 21740,
+     "plan_ns": 10387243,
+     "workspace_ns": 10166052,
+     "first_call_ns": 3903596,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-pv",
+     "engine": "IREGI",
+     "mode": "PV",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 0.0,
+     "accepted": true,
+     "timing_us": {
+      "median": 0.7555049664602683,
+      "mean": 0.7538196008068299,
+      "standard_error": 0.004531956091304562,
+      "min": 0.7362220717234262,
+      "max": 0.7892434210526316,
+      "blocks": 11
+     },
+     "per_point_us": 0.7555049664602683,
+     "iterations_per_block": 15504
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 0.0,
+      "accepted": true,
+      "timing_us": {
+       "median": 0.9477208542331662,
+       "mean": 0.943000400724067,
+       "standard_error": 0.005390887226039705,
+       "min": 0.9165738714090287,
+       "max": 0.9796285909712723,
+       "blocks": 11
+      },
+      "per_point_us": 0.9477208542331662,
+      "iterations_per_block": 13158
+     },
+     {
+      "id": "iregi-pv",
+      "engine": "IREGI",
+      "mode": "PV",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 0.0,
+      "accepted": true,
+      "timing_us": {
+       "median": 0.7555049664602683,
+       "mean": 0.7538196008068299,
+       "standard_error": 0.004531956091304562,
+       "min": 0.7362220717234262,
+       "max": 0.7892434210526316,
+       "blocks": 11
+      },
+      "per_point_us": 0.7555049664602683,
+      "iterations_per_block": 15504
+     },
+     {
+      "id": "iregi-hybrid",
+      "engine": "IREGI",
+      "mode": "Hybrid",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 0.0,
+      "accepted": true,
+      "timing_us": {
+       "median": 0.7971207667731629,
+       "mean": 0.8007014425404202,
+       "standard_error": 0.0029395769799873345,
+       "min": 0.7893635072772452,
+       "max": 0.8197392971246006,
+       "blocks": 11
+      },
+      "per_point_us": 0.7971207667731629,
+      "iterations_per_block": 14085
+     }
+    ],
+    "collier": {
+     "id": "collier",
+     "engine": "COLLIER",
+     "mode": "mode1-ten6-perm0",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 0.0,
+     "accepted": true,
+     "timing_us": {
+      "median": 0.4173536629267415,
+      "mean": 0.4190555697976949,
+      "standard_error": 0.0015709057624229109,
+      "min": 0.4106031679366413,
+      "max": 0.42684130317393654,
+      "blocks": 11
+     },
+     "per_point_us": 0.4173536629267415,
+     "iterations_per_block": 33334
+    },
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 0.0,
+     "accepted": true,
+     "timing_us": {
+      "median": 0.523977973568282,
+      "mean": 0.5407701241489787,
+      "standard_error": 0.009108883754581106,
+      "min": 0.5131189427312776,
+      "max": 0.5885044052863436,
+      "blocks": 11
+     },
+     "per_point_us": 0.523977973568282,
+     "iterations_per_block": 908,
+     "plan_ns": 44820,
+     "workspace_ns": 118010,
+     "first_call_ns": 16409,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": {
+     "id": "ninjars",
+     "engine": "NinjaRS",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 1.4835356363635178e-16,
+     "accepted": true,
+     "timing_us": {
+      "median": 0.24515207672119138,
+      "mean": 0.24714890705455433,
+      "standard_error": 0.0011426112792753708,
+      "min": 0.2435292892456055,
+      "max": 0.2565782012939453,
+      "blocks": 11
+     },
+     "per_point_us": 0.24515207672119138,
+     "iterations_per_block": 80764,
+     "ninjars_engine": "fast",
+     "fast_failed_lanes": 0
+    },
+    "ratios": {
+     "tirust_contracted_over_ninjars": {
+      "median": 2.143809229708411,
+      "ci99": [
+       2.066263641493789,
+       2.3305560628895288
+      ],
+      "pairs": 11
+     },
+     "tirust_over_iregi": {
+      "median": 0.6716745005332618,
+      "ci99": [
+       0.652500227004568,
+       0.6833499011872144
+      ],
+      "pairs": 11
+     },
+     "tirust_over_collier": {
+      "median": 1.2002362606856851,
+      "ci99": [
+       1.178123900810593,
+       1.2275829840204162
+      ],
+      "pairs": 11
+     }
+    },
+    "tirust_iregi_cross_error_lanes": null,
+    "cpu_busy_before": 0.0196
+   },
+   "batch32": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 0.0,
+     "accepted": true,
+     "timing_us": {
+      "median": 7.905609362389024,
+      "mean": 7.931739075291134,
+      "standard_error": 0.056059463063856,
+      "min": 7.813841807909604,
+      "max": 8.25529620661824,
+      "blocks": 7
+     },
+     "per_point_us": 0.247050292574657,
+     "iterations_per_block": 1239,
+     "plan_ns": 56530,
+     "workspace_ns": 140310,
+     "first_call_ns": 40230,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-pv",
+     "engine": "IREGI",
+     "mode": "PV",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 0.0,
+     "accepted": true,
+     "timing_us": {
+      "median": 24.937415019762845,
+      "mean": 24.9135753811406,
+      "standard_error": 0.03109397996628075,
+      "min": 24.750814229249013,
+      "max": 24.991815546772067,
+      "blocks": 7
+     },
+     "per_point_us": 0.7792942193675889,
+     "iterations_per_block": 759
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 0.0,
+      "accepted": true,
+      "timing_us": {
+       "median": 31.302790322580645,
+       "mean": 31.348857603686636,
+       "standard_error": 0.19048312556082825,
+       "min": 30.692206451612904,
+       "max": 32.126680645161294,
+       "blocks": 7
+      },
+      "per_point_us": 0.9782121975806451,
+      "iterations_per_block": 620
+     },
+     {
+      "id": "iregi-pv",
+      "engine": "IREGI",
+      "mode": "PV",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 0.0,
+      "accepted": true,
+      "timing_us": {
+       "median": 24.937415019762845,
+       "mean": 24.9135753811406,
+       "standard_error": 0.03109397996628075,
+       "min": 24.750814229249013,
+       "max": 24.991815546772067,
+       "blocks": 7
+      },
+      "per_point_us": 0.7792942193675889,
+      "iterations_per_block": 759
+     },
+     {
+      "id": "iregi-hybrid",
+      "engine": "IREGI",
+      "mode": "Hybrid",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 0.0,
+      "accepted": true,
+      "timing_us": {
+       "median": 26.029942068965518,
+       "mean": 26.09924669950739,
+       "standard_error": 0.14610779340806856,
+       "min": 25.715347586206896,
+       "max": 26.854,
+       "blocks": 7
+      },
+      "per_point_us": 0.8134356896551724,
+      "iterations_per_block": 725
+     }
+    ],
+    "collier": {
+     "id": "collier",
+     "engine": "COLLIER",
+     "mode": "mode1-ten6-perm0",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 0.0,
+     "accepted": true,
+     "timing_us": {
+      "median": 13.439024765729586,
+      "mean": 13.527318129661504,
+      "standard_error": 0.08638987881342715,
+      "min": 13.326333333333334,
+      "max": 14.002815261044178,
+      "blocks": 7
+     },
+     "per_point_us": 0.41996952392904957,
+     "iterations_per_block": 1494
+    },
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 0.0,
+     "accepted": true,
+     "timing_us": {
+      "median": 7.95621841941506,
+      "mean": 7.968870032891813,
+      "standard_error": 0.010539647499364023,
+      "min": 7.945334785314251,
+      "max": 8.022534536403235,
+      "blocks": 7
+     },
+     "per_point_us": 0.24863182560672062,
+     "iterations_per_block": 1607,
+     "plan_ns": 38380,
+     "workspace_ns": 109231,
+     "first_call_ns": 33770,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": {
+     "id": "ninjars",
+     "engine": "NinjaRS",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 1.4835356363635178e-16,
+     "accepted": true,
+     "timing_us": {
+      "median": 3.906170776367188,
+      "mean": 3.94584912109375,
+      "standard_error": 0.026060848976666176,
+      "min": 3.885811889648437,
+      "max": 4.047740112304687,
+      "blocks": 7
+     },
+     "per_point_us": 0.12206783676147462,
+     "iterations_per_block": 5143,
+     "ninjars_engine": "fast",
+     "fast_failed_lanes": 0
+    },
+    "ratios": {
+     "tirust_contracted_over_ninjars": {
+      "median": 2.0349994503039763,
+      "ci99": [
+       1.9655951712979365,
+       2.058553563097856
+      ],
+      "pairs": 7
+     },
+     "tirust_over_iregi": {
+      "median": 0.3167908844177172,
+      "ci99": [
+       0.3144658225175543,
+       0.3311705761746334
+      ],
+      "pairs": 7
+     },
+     "tirust_over_collier": {
+      "median": 0.586345967226014,
+      "ci99": [
+       0.5818383585039059,
+       0.5895454630173169
+      ],
+      "pairs": 7
+     }
+    },
+    "tirust_iregi_cross_error_lanes": 3.5771513889412963e-16,
+    "cpu_busy_before": 0.02
+   }
+  },
+  {
+   "id": "ordinary-n1-r6",
+   "table": "ordinary",
+   "label": "N=1, R=6",
+   "n": 1,
+   "rank": 6,
+   "powers": [
+    1
+   ],
+   "dimension_shift": 0,
+   "moments": 210,
+   "batch1": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 1.5689172819682284e-20,
+     "accepted": true,
+     "timing_us": {
+      "median": 3.0975960038986354,
+      "mean": 3.1455083289030656,
+      "standard_error": 0.02889194266088572,
+      "min": 3.0613723196881093,
+      "max": 3.3158177387914227,
+      "blocks": 11
+     },
+     "per_point_us": 3.0975960038986354,
+     "iterations_per_block": 2052,
+     "plan_ns": 235551,
+     "workspace_ns": 206491,
+     "first_call_ns": 41810,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-hybrid",
+     "engine": "IREGI",
+     "mode": "Hybrid",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 3.765401476723748e-19,
+     "accepted": true,
+     "timing_us": {
+      "median": 23.589085872576177,
+      "mean": 23.817776630571643,
+      "standard_error": 0.16107319412745608,
+      "min": 23.17808864265928,
+      "max": 24.51902077562327,
+      "blocks": 11
+     },
+     "per_point_us": 23.589085872576177,
+     "iterations_per_block": 722
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 6.7777226581027465e-18,
+      "accepted": true,
+      "timing_us": {
+       "median": 31.862628366247755,
+       "mean": 31.863369511996083,
+       "standard_error": 0.17360387486499493,
+       "min": 30.97079174147217,
+       "max": 32.76196588868941,
+       "blocks": 11
+      },
+      "per_point_us": 31.862628366247755,
+      "iterations_per_block": 557
+     },
+     {
+      "id": "iregi-pv",
+      "engine": "IREGI",
+      "mode": "PV",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 3.765401476723748e-19,
+      "accepted": true,
+      "timing_us": {
+       "median": 23.80939697802198,
+       "mean": 23.89583166833167,
+       "standard_error": 0.17082740987346634,
+       "min": 22.906358516483518,
+       "max": 24.919938186813187,
+       "blocks": 11
+      },
+      "per_point_us": 23.80939697802198,
+      "iterations_per_block": 728
+     },
+     {
+      "id": "iregi-hybrid",
+      "engine": "IREGI",
+      "mode": "Hybrid",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 3.765401476723748e-19,
+      "accepted": true,
+      "timing_us": {
+       "median": 23.589085872576177,
+       "mean": 23.817776630571643,
+       "standard_error": 0.16107319412745608,
+       "min": 23.17808864265928,
+       "max": 24.51902077562327,
+       "blocks": 11
+      },
+      "per_point_us": 23.589085872576177,
+      "iterations_per_block": 722
+     }
+    ],
+    "collier": {
+     "id": "collier",
+     "engine": "COLLIER",
+     "mode": "mode2-ten6-perm0",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 1.5689172819682284e-20,
+     "accepted": true,
+     "timing_us": {
+      "median": 4.807522312069482,
+      "mean": 4.835449481336274,
+      "standard_error": 0.021865155340662114,
+      "min": 4.7595525606469,
+      "max": 4.955441150044924,
+      "blocks": 11
+     },
+     "per_point_us": 4.807522312069482,
+     "iterations_per_block": 3339
+    },
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 1.5689172819682284e-20,
+     "accepted": true,
+     "timing_us": {
+      "median": 3.7536156962025315,
+      "mean": 3.828397284234753,
+      "standard_error": 0.03655746750877127,
+      "min": 3.722471392405063,
+      "max": 4.056284556962026,
+      "blocks": 11
+     },
+     "per_point_us": 3.7536156962025315,
+     "iterations_per_block": 1975,
+     "plan_ns": 215571,
+     "workspace_ns": 188371,
+     "first_call_ns": 32270,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": null,
+    "ratios": {
+     "tirust_over_iregi": {
+      "median": 0.13165421070222136,
+      "ci99": [
+       0.1307439208016147,
+       0.13554521962341778
+      ],
+      "pairs": 11
+     },
+     "tirust_over_collier": {
+      "median": 0.6442970944775149,
+      "ci99": [
+       0.642988309215094,
+       0.6724686284893162
+      ],
+      "pairs": 11
+     }
+    },
+    "tirust_iregi_cross_error_lanes": null,
+    "cpu_busy_before": 0.2
+   },
+   "batch32": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 1.5689172819682284e-20,
+     "accepted": true,
+     "timing_us": {
+      "median": 85.87882432432431,
+      "mean": 85.89610038610039,
+      "standard_error": 0.08252111440625538,
+      "min": 85.48679729729729,
+      "max": 86.19720270270271,
+      "blocks": 7
+     },
+     "per_point_us": 2.683713260135135,
+     "iterations_per_block": 222,
+     "plan_ns": 232641,
+     "workspace_ns": 203211,
+     "first_call_ns": 361032,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-pv",
+     "engine": "IREGI",
+     "mode": "PV",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 3.765401476723748e-19,
+     "accepted": true,
+     "timing_us": {
+      "median": 749.97632,
+      "mean": 746.2174228571429,
+      "standard_error": 4.07143437587021,
+      "min": 723.4378,
+      "max": 754.38312,
+      "blocks": 7
+     },
+     "per_point_us": 23.43676,
+     "iterations_per_block": 25
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 6.7777226581027465e-18,
+      "accepted": true,
+      "timing_us": {
+       "median": 984.5972105263158,
+       "mean": 970.2479924812029,
+       "standard_error": 13.467130947213795,
+       "min": 914.7063684210526,
+       "max": 1000.699947368421,
+       "blocks": 7
+      },
+      "per_point_us": 30.76866282894737,
+      "iterations_per_block": 19
+     },
+     {
+      "id": "iregi-pv",
+      "engine": "IREGI",
+      "mode": "PV",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 3.765401476723748e-19,
+      "accepted": true,
+      "timing_us": {
+       "median": 749.97632,
+       "mean": 746.2174228571429,
+       "standard_error": 4.07143437587021,
+       "min": 723.4378,
+       "max": 754.38312,
+       "blocks": 7
+      },
+      "per_point_us": 23.43676,
+      "iterations_per_block": 25
+     },
+     {
+      "id": "iregi-hybrid",
+      "engine": "IREGI",
+      "mode": "Hybrid",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 3.765401476723748e-19,
+      "accepted": true,
+      "timing_us": {
+       "median": 769.8135833333333,
+       "mean": 776.8814107142857,
+       "standard_error": 8.935368458595248,
+       "min": 752.6085,
+       "max": 819.950875,
+       "blocks": 7
+      },
+      "per_point_us": 24.056674479166666,
+      "iterations_per_block": 24
+     }
+    ],
+    "collier": {
+     "id": "collier",
+     "engine": "COLLIER",
+     "mode": "mode2-ten6-perm0",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 1.5689172819682284e-20,
+     "accepted": true,
+     "timing_us": {
+      "median": 144.72782307692307,
+      "mean": 144.7095857142857,
+      "standard_error": 0.19897294715117125,
+      "min": 143.94297692307694,
+      "max": 145.53821538461537,
+      "blocks": 7
+     },
+     "per_point_us": 4.522744471153846,
+     "iterations_per_block": 130
+    },
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 1.5689172819682284e-20,
+     "accepted": true,
+     "timing_us": {
+      "median": 110.38462222222223,
+      "mean": 110.60788492063493,
+      "standard_error": 0.24619305097642497,
+      "min": 109.94112222222223,
+      "max": 111.85673333333334,
+      "blocks": 7
+     },
+     "per_point_us": 3.449519444444445,
+     "iterations_per_block": 180,
+     "plan_ns": 220381,
+     "workspace_ns": 184721,
+     "first_call_ns": 349001,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": null,
+    "ratios": {
+     "tirust_over_iregi": {
+      "median": 0.11454968829853959,
+      "ci99": [
+       0.1141910463158793,
+       0.11816744618168595
+      ],
+      "pairs": 7
+     },
+     "tirust_over_collier": {
+      "median": 0.5933529459262138,
+      "ci99": [
+       0.5901305193636592,
+       0.5988288178086414
+      ],
+      "pairs": 7
+     }
+    },
+    "tirust_iregi_cross_error_lanes": 3.5771513889412963e-16,
+    "cpu_busy_before": 0.0
+   }
+  },
+  {
+   "id": "ordinary-n2-r1",
+   "table": "ordinary",
+   "label": "N=2, R=1",
+   "n": 2,
+   "rank": 1,
+   "powers": [
+    1,
+    1
+   ],
+   "dimension_shift": 0,
+   "moments": 5,
+   "batch1": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 4.415197605258389e-16,
+     "accepted": true,
+     "timing_us": {
+      "median": 1.1434042641275097,
+      "mean": 1.1463087007520871,
+      "standard_error": 0.0027719748552539926,
+      "min": 1.1382383219485268,
+      "max": 1.1728869109225142,
+      "blocks": 11
+     },
+     "per_point_us": 1.1434042641275097,
+     "iterations_per_block": 14493,
+     "plan_ns": 2272159,
+     "workspace_ns": 167461,
+     "first_call_ns": 2348120,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-pv",
+     "engine": "IREGI",
+     "mode": "PV",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 2.1654153860184458e-16,
+     "accepted": true,
+     "timing_us": {
+      "median": 3.0312474690663667,
+      "mean": 3.0261265773596477,
+      "standard_error": 0.007556705976814052,
+      "min": 2.985083014623172,
+      "max": 3.0624805399325083,
+      "blocks": 11
+     },
+     "per_point_us": 3.0312474690663667,
+     "iterations_per_block": 4445
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 2.1654153860184458e-16,
+      "accepted": true,
+      "timing_us": {
+       "median": 4.949114669829973,
+       "mean": 4.919642079154535,
+       "standard_error": 0.03024594525356831,
+       "min": 4.744645709766706,
+       "max": 5.043903914590747,
+       "blocks": 11
+      },
+      "per_point_us": 4.949114669829973,
+      "iterations_per_block": 2529
+     },
+     {
+      "id": "iregi-pv",
+      "engine": "IREGI",
+      "mode": "PV",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 2.1654153860184458e-16,
+      "accepted": true,
+      "timing_us": {
+       "median": 3.0312474690663667,
+       "mean": 3.0261265773596477,
+       "standard_error": 0.007556705976814052,
+       "min": 2.985083014623172,
+       "max": 3.0624805399325083,
+       "blocks": 11
+      },
+      "per_point_us": 3.0312474690663667,
+      "iterations_per_block": 4445
+     },
+     {
+      "id": "iregi-hybrid",
+      "engine": "IREGI",
+      "mode": "Hybrid",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 2.1654153860184458e-16,
+      "accepted": true,
+      "timing_us": {
+       "median": 3.0673661092530655,
+       "mean": 3.083531123948515,
+       "standard_error": 0.016470030695794873,
+       "min": 3.034197547380156,
+       "max": 3.2372820512820515,
+       "blocks": 11
+      },
+      "per_point_us": 3.0673661092530655,
+      "iterations_per_block": 4485
+     }
+    ],
+    "collier": {
+     "id": "collier",
+     "engine": "COLLIER",
+     "mode": "mode1-ten6-perm0",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 1.1080177429756723e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 1.137181842726966,
+      "mean": 1.141957825299911,
+      "standard_error": 0.003438149944520221,
+      "min": 1.1317258859264259,
+      "max": 1.1689774552818089,
+      "blocks": 11
+     },
+     "per_point_us": 1.137181842726966,
+     "iterations_per_block": 14815
+    },
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 4.415197605258389e-16,
+     "accepted": true,
+     "timing_us": {
+      "median": 1.1669629518524074,
+      "mean": 1.1711562240069813,
+      "standard_error": 0.0025536442362254675,
+      "min": 1.1629379031048448,
+      "max": 1.1902224388780562,
+      "blocks": 11
+     },
+     "per_point_us": 1.1669629518524074,
+     "iterations_per_block": 13334,
+     "plan_ns": 72240,
+     "workspace_ns": 153131,
+     "first_call_ns": 29911,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": {
+     "id": "ninjars",
+     "engine": "NinjaRS",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 5.473677838676988e-16,
+     "accepted": true,
+     "timing_us": {
+      "median": 1.1207782287597656,
+      "mean": 1.1201982616077768,
+      "standard_error": 0.007077609232608708,
+      "min": 1.092910400390625,
+      "max": 1.1611070556640626,
+      "blocks": 11
+     },
+     "per_point_us": 1.1207782287597656,
+     "iterations_per_block": 18214,
+     "ninjars_engine": "fast",
+     "fast_failed_lanes": 0
+    },
+    "ratios": {
+     "tirust_contracted_over_ninjars": {
+      "median": 1.056925018814637,
+      "ci99": [
+       1.0102306699778294,
+       1.0640743309691176
+      ],
+      "pairs": 11
+     },
+     "tirust_over_iregi": {
+      "median": 0.37695864442833316,
+      "ci99": [
+       0.37495504077368613,
+       0.38298618873407914
+      ],
+      "pairs": 11
+     },
+     "tirust_over_collier": {
+      "median": 1.004693933931752,
+      "ci99": [
+       0.9941591641519222,
+       1.0095815370900683
+      ],
+      "pairs": 11
+     }
+    },
+    "tirust_iregi_cross_error_lanes": null,
+    "cpu_busy_before": 0.0204
+   },
+   "batch32": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 4.415197605258389e-16,
+     "accepted": true,
+     "timing_us": {
+      "median": 25.533638268156423,
+      "mean": 25.571464285714285,
+      "standard_error": 0.07557477715530705,
+      "min": 25.40165502793296,
+      "max": 25.97575,
+      "blocks": 7
+     },
+     "per_point_us": 0.7979261958798882,
+     "iterations_per_block": 716,
+     "plan_ns": 82881,
+     "workspace_ns": 157520,
+     "first_call_ns": 85231,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-pv",
+     "engine": "IREGI",
+     "mode": "PV",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 2.1654153860184458e-16,
+     "accepted": true,
+     "timing_us": {
+      "median": 97.5884702970297,
+      "mean": 97.92576237623763,
+      "standard_error": 0.6653285749195694,
+      "min": 95.63281683168317,
+      "max": 101.05477227722771,
+      "blocks": 7
+     },
+     "per_point_us": 3.049639696782178,
+     "iterations_per_block": 202
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 2.1654153860184458e-16,
+      "accepted": true,
+      "timing_us": {
+       "median": 182.5043495145631,
+       "mean": 182.82126907073513,
+       "standard_error": 0.4168072664712518,
+       "min": 181.9212427184466,
+       "max": 185.16086407766988,
+       "blocks": 7
+      },
+      "per_point_us": 5.703260922330097,
+      "iterations_per_block": 103
+     },
+     {
+      "id": "iregi-pv",
+      "engine": "IREGI",
+      "mode": "PV",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 2.1654153860184458e-16,
+      "accepted": true,
+      "timing_us": {
+       "median": 97.5884702970297,
+       "mean": 97.92576237623763,
+       "standard_error": 0.6653285749195694,
+       "min": 95.63281683168317,
+       "max": 101.05477227722771,
+       "blocks": 7
+      },
+      "per_point_us": 3.049639696782178,
+      "iterations_per_block": 202
+     },
+     {
+      "id": "iregi-hybrid",
+      "engine": "IREGI",
+      "mode": "Hybrid",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 2.1654153860184458e-16,
+      "accepted": true,
+      "timing_us": {
+       "median": 97.64959893048129,
+       "mean": 98.52917570664628,
+       "standard_error": 0.9429072885483251,
+       "min": 97.10002673796791,
+       "max": 104.12614973262032,
+       "blocks": 7
+      },
+      "per_point_us": 3.0515499665775403,
+      "iterations_per_block": 187
+     }
+    ],
+    "collier": {
+     "id": "collier",
+     "engine": "COLLIER",
+     "mode": "mode1-ten6-perm0",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 1.1080177429756723e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 36.6738,
+      "mean": 36.78571296296296,
+      "standard_error": 0.08706430816802657,
+      "min": 36.59702222222222,
+      "max": 37.26259814814815,
+      "blocks": 7
+     },
+     "per_point_us": 1.14605625,
+     "iterations_per_block": 540
+    },
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 4.415197605258389e-16,
+     "accepted": true,
+     "timing_us": {
+      "median": 26.201021739130436,
+      "mean": 26.261798343685303,
+      "standard_error": 0.09574064721283876,
+      "min": 26.013875362318842,
+      "max": 26.786342028985505,
+      "blocks": 7
+     },
+     "per_point_us": 0.8187819293478261,
+     "iterations_per_block": 690,
+     "plan_ns": 55600,
+     "workspace_ns": 132711,
+     "first_call_ns": 66780,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": {
+     "id": "ninjars",
+     "engine": "NinjaRS",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 5.473677838676988e-16,
+     "accepted": true,
+     "timing_us": {
+      "median": 19.1448642578125,
+      "mean": 19.20116873604911,
+      "standard_error": 0.10557355121232262,
+      "min": 18.8806591796875,
+      "max": 19.6215849609375,
+      "blocks": 7
+     },
+     "per_point_us": 0.5982770080566406,
+     "iterations_per_block": 1040,
+     "ninjars_engine": "fast",
+     "fast_failed_lanes": 0
+    },
+    "ratios": {
+     "tirust_contracted_over_ninjars": {
+      "median": 1.3720018852760316,
+      "ci99": [
+       1.328442744345339,
+       1.3873544571392562
+      ],
+      "pairs": 7
+     },
+     "tirust_over_iregi": {
+      "median": 0.2625536176963286,
+      "ci99": [
+       0.25323558925317596,
+       0.2656165097870189
+      ],
+      "pairs": 7
+     },
+     "tirust_over_collier": {
+      "median": 0.6944273583071857,
+      "ci99": [
+       0.6911989896072839,
+       0.699364304861699
+      ],
+      "pairs": 7
+     }
+    },
+    "tirust_iregi_cross_error_lanes": 1.1698867540047707e-15,
+    "cpu_busy_before": 0.0204
+   }
+  },
+  {
+   "id": "ordinary-n2-r6",
+   "table": "ordinary",
+   "label": "N=2, R=6",
+   "n": 2,
+   "rank": 6,
+   "powers": [
+    1,
+    1
+   ],
+   "dimension_shift": 0,
+   "moments": 210,
+   "batch1": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 4.415197605258389e-16,
+     "accepted": true,
+     "timing_us": {
+      "median": 5.169751479289941,
+      "mean": 5.170105074412767,
+      "standard_error": 0.010906493115389214,
+      "min": 5.1308823142669295,
+      "max": 5.232329388560158,
+      "blocks": 11
+     },
+     "per_point_us": 5.169751479289941,
+     "iterations_per_block": 1521,
+     "plan_ns": 264532,
+     "workspace_ns": 222561,
+     "first_call_ns": 57170,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-ibp",
+     "engine": "IREGI",
+     "mode": "IBP",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 2.1654153860184458e-16,
+     "accepted": true,
+     "timing_us": {
+      "median": 388.7408235294117,
+      "mean": 388.84030124777183,
+      "standard_error": 0.3419158611605954,
+      "min": 386.63649019607846,
+      "max": 390.43337254901957,
+      "blocks": 11
+     },
+     "per_point_us": 388.7408235294117,
+     "iterations_per_block": 51
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 2.1654153860184458e-16,
+      "accepted": true,
+      "timing_us": {
+       "median": 388.7408235294117,
+       "mean": 388.84030124777183,
+       "standard_error": 0.3419158611605954,
+       "min": 386.63649019607846,
+       "max": 390.43337254901957,
+       "blocks": 11
+      },
+      "per_point_us": 388.7408235294117,
+      "iterations_per_block": 51
+     },
+     {
+      "id": "iregi-pv",
+      "engine": "IREGI",
+      "mode": "PV",
+      "status": "no_result",
+      "complete_finite": false,
+      "lane_statuses": {},
+      "relative_error": null,
+      "accepted": false,
+      "timing_us": null,
+      "per_point_us": null,
+      "iterations_per_block": null,
+      "detail": [
+       " ERROR:out of range of pave_UV"
+      ]
+     },
+     {
+      "id": "iregi-hybrid",
+      "engine": "IREGI",
+      "mode": "Hybrid",
+      "status": "no_result",
+      "complete_finite": false,
+      "lane_statuses": {},
+      "relative_error": null,
+      "accepted": false,
+      "timing_us": null,
+      "per_point_us": null,
+      "iterations_per_block": null,
+      "detail": [
+       " ERROR:out of range of pave_UV"
+      ]
+     }
+    ],
+    "collier": {
+     "id": "collier",
+     "engine": "COLLIER",
+     "mode": "mode2-ten6-perm0",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 2.249782219242109e-16,
+     "accepted": true,
+     "timing_us": {
+      "median": 8.719758324924317,
+      "mean": 8.732388129529399,
+      "standard_error": 0.017852607089833893,
+      "min": 8.653729061553985,
+      "max": 8.803805247225025,
+      "blocks": 11
+     },
+     "per_point_us": 8.719758324924317,
+     "iterations_per_block": 1982
+    },
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 4.415197605258389e-16,
+     "accepted": true,
+     "timing_us": {
+      "median": 5.856149532710281,
+      "mean": 5.88088549767989,
+      "standard_error": 0.021515607713541107,
+      "min": 5.810965492451474,
+      "max": 6.081361610352264,
+      "blocks": 11
+     },
+     "per_point_us": 5.856149532710281,
+     "iterations_per_block": 1391,
+     "plan_ns": 249831,
+     "workspace_ns": 215570,
+     "first_call_ns": 44891,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": null,
+    "ratios": {
+     "tirust_over_iregi": {
+      "median": 0.013294300391628594,
+      "ci99": [
+       0.013201232597773414,
+       0.013401133723469126
+      ],
+      "pairs": 11
+     },
+     "tirust_over_collier": {
+      "median": 0.5904643136360215,
+      "ci99": [
+       0.5840234718214852,
+       0.6030611870907173
+      ],
+      "pairs": 11
+     }
+    },
+    "tirust_iregi_cross_error_lanes": null,
+    "cpu_busy_before": 0.0196
+   },
+   "batch32": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 4.415197605258389e-16,
+     "accepted": true,
+     "timing_us": {
+      "median": 143.21364963503652,
+      "mean": 143.22846402502608,
+      "standard_error": 0.14564257254840104,
+      "min": 142.6873795620438,
+      "max": 143.72848175182483,
+      "blocks": 7
+     },
+     "per_point_us": 4.475426551094891,
+     "iterations_per_block": 137,
+     "plan_ns": 277851,
+     "workspace_ns": 218411,
+     "first_call_ns": 444602,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-ibp",
+     "engine": "IREGI",
+     "mode": "IBP",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 2.1654153860184458e-16,
+     "accepted": true,
+     "timing_us": {
+      "median": 12625.632,
+      "mean": 12641.470714285715,
+      "standard_error": 11.830530035753712,
+      "min": 12620.542,
+      "max": 12697.1625,
+      "blocks": 7
+     },
+     "per_point_us": 394.551,
+     "iterations_per_block": 2
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 2.1654153860184458e-16,
+      "accepted": true,
+      "timing_us": {
+       "median": 12625.632,
+       "mean": 12641.470714285715,
+       "standard_error": 11.830530035753712,
+       "min": 12620.542,
+       "max": 12697.1625,
+       "blocks": 7
+      },
+      "per_point_us": 394.551,
+      "iterations_per_block": 2
+     },
+     {
+      "id": "iregi-pv",
+      "engine": "IREGI",
+      "mode": "PV",
+      "status": "no_result",
+      "complete_finite": false,
+      "lane_statuses": {},
+      "relative_error": null,
+      "accepted": false,
+      "timing_us": null,
+      "per_point_us": null,
+      "iterations_per_block": null,
+      "detail": [
+       " ERROR:out of range of pave_UV"
+      ]
+     },
+     {
+      "id": "iregi-hybrid",
+      "engine": "IREGI",
+      "mode": "Hybrid",
+      "status": "no_result",
+      "complete_finite": false,
+      "lane_statuses": {},
+      "relative_error": null,
+      "accepted": false,
+      "timing_us": null,
+      "per_point_us": null,
+      "iterations_per_block": null,
+      "detail": [
+       " ERROR:out of range of pave_UV"
+      ]
+     }
+    ],
+    "collier": {
+     "id": "collier",
+     "engine": "COLLIER",
+     "mode": "mode2-ten6-perm0",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 2.249782219242109e-16,
+     "accepted": true,
+     "timing_us": {
+      "median": 273.1567397260274,
+      "mean": 273.41032289628185,
+      "standard_error": 0.5602324475227858,
+      "min": 271.4505616438356,
+      "max": 275.31661643835616,
+      "blocks": 7
+     },
+     "per_point_us": 8.536148116438357,
+     "iterations_per_block": 73
+    },
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 4.415197605258389e-16,
+     "accepted": true,
+     "timing_us": {
+      "median": 167.94671186440678,
+      "mean": 167.96643099273606,
+      "standard_error": 0.10117480185462793,
+      "min": 167.699,
+      "max": 168.43077966101694,
+      "blocks": 7
+     },
+     "per_point_us": 5.248334745762712,
+     "iterations_per_block": 118,
+     "plan_ns": 258611,
+     "workspace_ns": 196511,
+     "first_call_ns": 434002,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": null,
+    "ratios": {
+     "tirust_over_iregi": {
+      "median": 0.011311369431445631,
+      "ci99": [
+       0.011297579700709779,
+       0.01138386432867874
+      ],
+      "pairs": 7
+     },
+     "tirust_over_collier": {
+      "median": 0.5242403627484914,
+      "ci99": [
+       0.519043616158543,
+       0.529483088491111
+      ],
+      "pairs": 7
+     }
+    },
+    "tirust_iregi_cross_error_lanes": 1.1698867540047707e-15,
+    "cpu_busy_before": 0.0
+   }
+  },
+  {
+   "id": "ordinary-n3-r2",
+   "table": "ordinary",
+   "label": "N=3, R=2",
+   "n": 3,
+   "rank": 2,
+   "powers": [
+    1,
+    1,
+    1
+   ],
+   "dimension_shift": 0,
+   "moments": 15,
+   "batch1": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 4.421364192039781e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 4.180709843448424,
+      "mean": 4.193405104010294,
+      "standard_error": 0.009643359361292745,
+      "min": 4.1702702123096715,
+      "max": 4.281257130602617,
+      "blocks": 11
+     },
+     "per_point_us": 4.180709843448424,
+     "iterations_per_block": 4663,
+     "plan_ns": 106801,
+     "workspace_ns": 169561,
+     "first_call_ns": 2849631,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-hybrid",
+     "engine": "IREGI",
+     "mode": "Hybrid",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 1.856444430998122e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 24.84527456647399,
+      "mean": 24.93959169732002,
+      "standard_error": 0.1129842504700454,
+      "min": 24.59197976878613,
+      "max": 25.843257225433526,
+      "blocks": 11
+     },
+     "per_point_us": 24.84527456647399,
+     "iterations_per_block": 692
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 1.856444430998122e-15,
+      "accepted": true,
+      "timing_us": {
+       "median": 60.088485049833885,
+       "mean": 60.374710057384476,
+       "standard_error": 0.25458255590827517,
+       "min": 59.744066445182725,
+       "max": 62.63354817275747,
+       "blocks": 11
+      },
+      "per_point_us": 60.088485049833885,
+      "iterations_per_block": 301
+     },
+     {
+      "id": "iregi-pv",
+      "engine": "IREGI",
+      "mode": "PV",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 1.856444430998122e-15,
+      "accepted": true,
+      "timing_us": {
+       "median": 24.843176046176048,
+       "mean": 24.940638200183653,
+       "standard_error": 0.086377392061007,
+       "min": 24.600620490620493,
+       "max": 25.539484848484847,
+       "blocks": 11
+      },
+      "per_point_us": 24.843176046176048,
+      "iterations_per_block": 693
+     },
+     {
+      "id": "iregi-hybrid",
+      "engine": "IREGI",
+      "mode": "Hybrid",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 1.856444430998122e-15,
+      "accepted": true,
+      "timing_us": {
+       "median": 24.84527456647399,
+       "mean": 24.93959169732002,
+       "standard_error": 0.1129842504700454,
+       "min": 24.59197976878613,
+       "max": 25.843257225433526,
+       "blocks": 11
+      },
+      "per_point_us": 24.84527456647399,
+      "iterations_per_block": 692
+     }
+    ],
+    "collier": {
+     "id": "collier",
+     "engine": "COLLIER",
+     "mode": "mode1-ten6-perm0",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 6.961110662644009e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 8.297311467673431,
+      "mean": 8.31220296881033,
+      "standard_error": 0.023174337401632942,
+      "min": 8.21946295422369,
+      "max": 8.506566304860783,
+      "blocks": 11
+     },
+     "per_point_us": 8.297311467673431,
+     "iterations_per_block": 2119
+    },
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 4.421364192039781e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 4.280174704276615,
+      "mean": 4.290025808586318,
+      "standard_error": 0.011732837385001419,
+      "min": 4.254244085532302,
+      "max": 4.3956574158325745,
+      "blocks": 11
+     },
+     "per_point_us": 4.280174704276615,
+     "iterations_per_block": 4396,
+     "plan_ns": 87251,
+     "workspace_ns": 159060,
+     "first_call_ns": 43751,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": {
+     "id": "ninjars",
+     "engine": "NinjaRS",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 7.91546060614576e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 46.598044921875,
+      "mean": 46.54051029829546,
+      "standard_error": 0.24220729129665985,
+      "min": 45.54298046875,
+      "max": 48.1273671875,
+      "blocks": 11
+     },
+     "per_point_us": 46.598044921875,
+     "iterations_per_block": 418,
+     "ninjars_engine": "generic",
+     "fast_failed_lanes": 1
+    },
+    "ratios": {
+     "tirust_contracted_over_ninjars": {
+      "median": 0.09223894893625732,
+      "ci99": [
+       0.0909014412323378,
+       0.09357356842721874
+      ],
+      "pairs": 11
+     },
+     "tirust_over_iregi": {
+      "median": 0.16834669986359166,
+      "ci99": [
+       0.16609888905615902,
+       0.16983010273655674
+      ],
+      "pairs": 11
+     },
+     "tirust_over_collier": {
+      "median": 0.503945464609391,
+      "ci99": [
+       0.5032885158558325,
+       0.5060398547465644
+      ],
+      "pairs": 11
+     }
+    },
+    "tirust_iregi_cross_error_lanes": null,
+    "cpu_busy_before": 0.0
+   },
+   "batch32": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 4.421364192039781e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 124.31900628930818,
+      "mean": 124.52071248876909,
+      "standard_error": 0.2196786446315465,
+      "min": 123.86767924528301,
+      "max": 125.4973144654088,
+      "blocks": 7
+     },
+     "per_point_us": 3.8849689465408805,
+     "iterations_per_block": 159,
+     "plan_ns": 112611,
+     "workspace_ns": 183140,
+     "first_call_ns": 230280,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-pv",
+     "engine": "IREGI",
+     "mode": "PV",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 1.856444430998122e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 789.46208,
+      "mean": 795.9946171428571,
+      "standard_error": 3.6238949818049453,
+      "min": 787.50924,
+      "max": 808.6569599999999,
+      "blocks": 7
+     },
+     "per_point_us": 24.67069,
+     "iterations_per_block": 25
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 1.856444430998122e-15,
+      "accepted": true,
+      "timing_us": {
+       "median": 2017.0154,
+       "mean": 2021.9972285714284,
+       "standard_error": 7.747597330316103,
+       "min": 2001.1422,
+       "max": 2062.1496,
+       "blocks": 7
+      },
+      "per_point_us": 63.03173125,
+      "iterations_per_block": 10
+     },
+     {
+      "id": "iregi-pv",
+      "engine": "IREGI",
+      "mode": "PV",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 1.856444430998122e-15,
+      "accepted": true,
+      "timing_us": {
+       "median": 789.46208,
+       "mean": 795.9946171428571,
+       "standard_error": 3.6238949818049453,
+       "min": 787.50924,
+       "max": 808.6569599999999,
+       "blocks": 7
+      },
+      "per_point_us": 24.67069,
+      "iterations_per_block": 25
+     },
+     {
+      "id": "iregi-hybrid",
+      "engine": "IREGI",
+      "mode": "Hybrid",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 1.856444430998122e-15,
+      "accepted": true,
+      "timing_us": {
+       "median": 804.0583333333334,
+       "mean": 803.6365416666667,
+       "standard_error": 2.9887351021510846,
+       "min": 795.1845416666666,
+       "max": 816.6979583333334,
+       "blocks": 7
+      },
+      "per_point_us": 25.12682291666667,
+      "iterations_per_block": 24
+     }
+    ],
+    "collier": {
+     "id": "collier",
+     "engine": "COLLIER",
+     "mode": "mode1-ten6-perm0",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 6.961110662644009e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 265.3944305555556,
+      "mean": 266.1812003968254,
+      "standard_error": 0.819623771561882,
+      "min": 264.71109722222224,
+      "max": 270.9919444444444,
+      "blocks": 7
+     },
+     "per_point_us": 8.293575954861112,
+     "iterations_per_block": 72
+    },
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 4.421364192039781e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 125.75683870967742,
+      "mean": 125.89001198156681,
+      "standard_error": 0.15614214972906257,
+      "min": 125.43554838709677,
+      "max": 126.59510322580645,
+      "blocks": 7
+     },
+     "per_point_us": 3.9299012096774195,
+     "iterations_per_block": 155,
+     "plan_ns": 88691,
+     "workspace_ns": 171411,
+     "first_call_ns": 212181,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": {
+     "id": "ninjars",
+     "engine": "NinjaRS",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 7.91546060614576e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 1194.969,
+      "mean": 1208.7373125,
+      "standard_error": 8.95800065291827,
+      "min": 1188.32303125,
+      "max": 1244.0816875,
+      "blocks": 7
+     },
+     "per_point_us": 37.34278125,
+     "iterations_per_block": 17,
+     "ninjars_engine": "generic",
+     "fast_failed_lanes": 32
+    },
+    "ratios": {
+     "tirust_contracted_over_ninjars": {
+      "median": 0.10524965667075104,
+      "ci99": [
+       0.10082581364826719,
+       0.10593644389489927
+      ],
+      "pairs": 7
+     },
+     "tirust_over_iregi": {
+      "median": 0.15717326579299837,
+      "ci99": [
+       0.15458337920681448,
+       0.15762444184466423
+      ],
+      "pairs": 7
+     },
+     "tirust_over_collier": {
+      "median": 0.4677215876108266,
+      "ci99": [
+       0.4605161838167229,
+       0.4740916258605324
+      ],
+      "pairs": 7
+     }
+    },
+    "tirust_iregi_cross_error_lanes": 2.3557002025678145e-14,
+    "cpu_busy_before": 0.0
+   }
+  },
+  {
+   "id": "ordinary-n3-r3",
+   "table": "ordinary",
+   "label": "N=3, R=3",
+   "n": 3,
+   "rank": 3,
+   "powers": [
+    1,
+    1,
+    1
+   ],
+   "dimension_shift": 0,
+   "moments": 35,
+   "batch1": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 4.421364192039781e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 4.893145587125974,
+      "mean": 4.916461425926349,
+      "standard_error": 0.02343624146018435,
+      "min": 4.841983907467941,
+      "max": 5.085401810409857,
+      "blocks": 11
+     },
+     "per_point_us": 4.893145587125974,
+     "iterations_per_block": 3977,
+     "plan_ns": 142210,
+     "workspace_ns": 188841,
+     "first_call_ns": 71310,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-pv",
+     "engine": "IREGI",
+     "mode": "PV",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 1.856444430998122e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 67.0135979020979,
+      "mean": 67.14274125874125,
+      "standard_error": 0.26140361139502305,
+      "min": 66.01670629370629,
+      "max": 68.84147552447553,
+      "blocks": 11
+     },
+     "per_point_us": 67.0135979020979,
+     "iterations_per_block": 286
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 1.856444430998122e-15,
+      "accepted": true,
+      "timing_us": {
+       "median": 149.36868548387096,
+       "mean": 150.24451319648097,
+       "standard_error": 0.6889302887915356,
+       "min": 148.0505241935484,
+       "max": 155.3155564516129,
+       "blocks": 11
+      },
+      "per_point_us": 149.36868548387096,
+      "iterations_per_block": 124
+     },
+     {
+      "id": "iregi-pv",
+      "engine": "IREGI",
+      "mode": "PV",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 1.856444430998122e-15,
+      "accepted": true,
+      "timing_us": {
+       "median": 67.0135979020979,
+       "mean": 67.14274125874125,
+       "standard_error": 0.26140361139502305,
+       "min": 66.01670629370629,
+       "max": 68.84147552447553,
+       "blocks": 11
+      },
+      "per_point_us": 67.0135979020979,
+      "iterations_per_block": 286
+     },
+     {
+      "id": "iregi-hybrid",
+      "engine": "IREGI",
+      "mode": "Hybrid",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 1.856444430998122e-15,
+      "accepted": true,
+      "timing_us": {
+       "median": 69.15003272727273,
+       "mean": 69.33674380165289,
+       "standard_error": 0.2509587549091919,
+       "min": 68.13075636363637,
+       "max": 70.84549090909091,
+       "blocks": 11
+      },
+      "per_point_us": 69.15003272727273,
+      "iterations_per_block": 275
+     }
+    ],
+    "collier": {
+     "id": "collier",
+     "engine": "COLLIER",
+     "mode": "mode1-ten6-perm0",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 6.961110662644009e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 10.601686039544639,
+      "mean": 10.651856909417724,
+      "standard_error": 0.0441111040873013,
+      "min": 10.564717195925704,
+      "max": 11.073179748352306,
+      "blocks": 11
+     },
+     "per_point_us": 10.601686039544639,
+     "iterations_per_block": 1669
+    },
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 4.421364192039781e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 5.037536780383795,
+      "mean": 5.067922441364606,
+      "standard_error": 0.022175941480183876,
+      "min": 5.006190831556503,
+      "max": 5.251431769722815,
+      "blocks": 11
+     },
+     "per_point_us": 5.037536780383795,
+     "iterations_per_block": 3752,
+     "plan_ns": 135550,
+     "workspace_ns": 164441,
+     "first_call_ns": 52320,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": {
+     "id": "ninjars",
+     "engine": "NinjaRS",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 6.0013573375130906e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 73.426708984375,
+      "mean": 73.86635333806818,
+      "standard_error": 0.45996509706160404,
+      "min": 72.499673828125,
+      "max": 77.63619921875,
+      "blocks": 11
+     },
+     "per_point_us": 73.426708984375,
+     "iterations_per_block": 275,
+     "ninjars_engine": "generic",
+     "fast_failed_lanes": 1
+    },
+    "ratios": {
+     "tirust_contracted_over_ninjars": {
+      "median": 0.06885124795012292,
+      "ci99": [
+       0.06764153606909876,
+       0.06937143927680633
+      ],
+      "pairs": 11
+     },
+     "tirust_over_iregi": {
+      "median": 0.07304077226399987,
+      "ci99": [
+       0.07191416288366491,
+       0.07451224457246824
+      ],
+      "pairs": 11
+     },
+     "tirust_over_collier": {
+      "median": 0.46031404952934674,
+      "ci99": [
+       0.45834576395637344,
+       0.46487490081830307
+      ],
+      "pairs": 11
+     }
+    },
+    "tirust_iregi_cross_error_lanes": null,
+    "cpu_busy_before": 0.0196
+   },
+   "batch32": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 4.421364192039781e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 142.67433333333335,
+      "mean": 142.74320789779327,
+      "standard_error": 0.10809870493714022,
+      "min": 142.3901056910569,
+      "max": 143.2673495934959,
+      "blocks": 7
+     },
+     "per_point_us": 4.458572916666667,
+     "iterations_per_block": 123,
+     "plan_ns": 144170,
+     "workspace_ns": 228041,
+     "first_call_ns": 253921,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-pv",
+     "engine": "IREGI",
+     "mode": "PV",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 1.856444430998122e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 2101.9907000000003,
+      "mean": 2111.4013000000004,
+      "standard_error": 9.285691078699916,
+      "min": 2093.7626,
+      "max": 2165.269,
+      "blocks": 7
+     },
+     "per_point_us": 65.68720937500001,
+     "iterations_per_block": 10
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 1.856444430998122e-15,
+      "accepted": true,
+      "timing_us": {
+       "median": 5015.18075,
+       "mean": 5015.500071428572,
+       "standard_error": 4.80743917102216,
+       "min": 4999.42075,
+       "max": 5040.53825,
+       "blocks": 7
+      },
+      "per_point_us": 156.7243984375,
+      "iterations_per_block": 4
+     },
+     {
+      "id": "iregi-pv",
+      "engine": "IREGI",
+      "mode": "PV",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 1.856444430998122e-15,
+      "accepted": true,
+      "timing_us": {
+       "median": 2101.9907000000003,
+       "mean": 2111.4013000000004,
+       "standard_error": 9.285691078699916,
+       "min": 2093.7626,
+       "max": 2165.269,
+       "blocks": 7
+      },
+      "per_point_us": 65.68720937500001,
+      "iterations_per_block": 10
+     },
+     {
+      "id": "iregi-hybrid",
+      "engine": "IREGI",
+      "mode": "Hybrid",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 1.856444430998122e-15,
+      "accepted": true,
+      "timing_us": {
+       "median": 2147.7444444444445,
+       "mean": 2146.726841269841,
+       "standard_error": 8.129290806411204,
+       "min": 2119.743222222222,
+       "max": 2181.7713333333336,
+       "blocks": 7
+      },
+      "per_point_us": 67.11701388888889,
+      "iterations_per_block": 9
+     }
+    ],
+    "collier": {
+     "id": "collier",
+     "engine": "COLLIER",
+     "mode": "mode1-ten6-perm0",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 6.961110662644009e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 353.8190517241379,
+      "mean": 354.39619704433494,
+      "standard_error": 1.4294657578451162,
+      "min": 350.0074827586207,
+      "max": 360.9383965517241,
+      "blocks": 7
+     },
+     "per_point_us": 11.05684536637931,
+     "iterations_per_block": 58
+    },
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 4.421364192039781e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 148.66336666666666,
+      "mean": 149.23993928571426,
+      "standard_error": 0.603403676911701,
+      "min": 148.39003333333332,
+      "max": 152.83505,
+      "blocks": 7
+     },
+     "per_point_us": 4.645730208333333,
+     "iterations_per_block": 120,
+     "plan_ns": 141060,
+     "workspace_ns": 160131,
+     "first_call_ns": 241711,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": {
+     "id": "ninjars",
+     "engine": "NinjaRS",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 6.0013573375130906e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 1971.4675,
+      "mean": 1980.3188839285713,
+      "standard_error": 10.17579726602961,
+      "min": 1960.66875,
+      "max": 2040.4296875,
+      "blocks": 7
+     },
+     "per_point_us": 61.608359375,
+     "iterations_per_block": 11,
+     "ninjars_engine": "generic",
+     "fast_failed_lanes": 32
+    },
+    "ratios": {
+     "tirust_contracted_over_ninjars": {
+      "median": 0.07532538232417815,
+      "ci99": [
+       0.0728588530040522,
+       0.07752349455418361
+      ],
+      "pairs": 7
+     },
+     "tirust_over_iregi": {
+      "median": 0.06786544191404853,
+      "ci99": [
+       0.06589219784393226,
+       0.06815793694686466
+      ],
+      "pairs": 7
+     },
+     "tirust_over_collier": {
+      "median": 0.40283447570327197,
+      "ci99": [
+       0.395287214373402,
+       0.4076372003391847
+      ],
+      "pairs": 7
+     }
+    },
+    "tirust_iregi_cross_error_lanes": 2.3557002025678145e-14,
+    "cpu_busy_before": 0.2653
+   }
+  },
+  {
+   "id": "ordinary-n3-r6",
+   "table": "ordinary",
+   "label": "N=3, R=6",
+   "n": 3,
+   "rank": 6,
+   "powers": [
+    1,
+    1,
+    1
+   ],
+   "dimension_shift": 0,
+   "moments": 210,
+   "batch1": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 4.421364192039781e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 9.622162452107279,
+      "mean": 9.608717589690002,
+      "standard_error": 0.014918805779788722,
+      "min": 9.519005363984673,
+      "max": 9.68520459770115,
+      "blocks": 11
+     },
+     "per_point_us": 9.622162452107279,
+     "iterations_per_block": 1305,
+     "plan_ns": 384511,
+     "workspace_ns": 240681,
+     "first_call_ns": 93881,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-ibp",
+     "engine": "IREGI",
+     "mode": "IBP",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 1.856444430998122e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 2696.821125,
+      "mean": 2697.975125,
+      "standard_error": 3.498940836532795,
+      "min": 2677.45475,
+      "max": 2722.32,
+      "blocks": 11
+     },
+     "per_point_us": 2696.821125,
+     "iterations_per_block": 8
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 1.856444430998122e-15,
+      "accepted": true,
+      "timing_us": {
+       "median": 2696.821125,
+       "mean": 2697.975125,
+       "standard_error": 3.498940836532795,
+       "min": 2677.45475,
+       "max": 2722.32,
+       "blocks": 11
+      },
+      "per_point_us": 2696.821125,
+      "iterations_per_block": 8
+     },
+     {
+      "id": "iregi-pv",
+      "engine": "IREGI",
+      "mode": "PV",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 0.0019042063260570356,
+      "accepted": false,
+      "timing_us": {
+       "median": 2299.795,
+       "mean": 2299.4039494949498,
+       "standard_error": 2.4507144624145885,
+       "min": 2284.512777777778,
+       "max": 2310.1106666666665,
+       "blocks": 11
+      },
+      "per_point_us": 2299.795,
+      "iterations_per_block": 9
+     },
+     {
+      "id": "iregi-hybrid",
+      "engine": "IREGI",
+      "mode": "Hybrid",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 0.0019042063260570356,
+      "accepted": false,
+      "timing_us": {
+       "median": 2302.8873333333336,
+       "mean": 2303.6795353535354,
+       "standard_error": 3.6161575942926487,
+       "min": 2284.1783333333333,
+       "max": 2327.353,
+       "blocks": 11
+      },
+      "per_point_us": 2302.8873333333336,
+      "iterations_per_block": 9
+     }
+    ],
+    "collier": {
+     "id": "collier",
+     "engine": "COLLIER",
+     "mode": "mode1-ten6-perm0",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 6.961110662644009e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 50.89781408450705,
+      "mean": 51.017767477592834,
+      "standard_error": 0.1839548853251953,
+      "min": 50.422884507042255,
+      "max": 52.68779436619718,
+      "blocks": 11
+     },
+     "per_point_us": 50.89781408450705,
+     "iterations_per_block": 355
+    },
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 4.421364192039781e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 10.291919796954314,
+      "mean": 10.313524873096446,
+      "standard_error": 0.023938200402177687,
+      "min": 10.192854822335025,
+      "max": 10.45523147208122,
+      "blocks": 11
+     },
+     "per_point_us": 10.291919796954314,
+     "iterations_per_block": 985,
+     "plan_ns": 349892,
+     "workspace_ns": 215911,
+     "first_call_ns": 54850,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": null,
+    "ratios": {
+     "tirust_over_iregi": {
+      "median": 0.003561811595684183,
+      "ci99": [
+       0.0035548045947815425,
+       0.003579594850437888
+      ],
+      "pairs": 11
+     },
+     "tirust_over_collier": {
+      "median": 0.18886977154267276,
+      "ci99": [
+       0.18708325743735307,
+       0.18975857676987748
+      ],
+      "pairs": 11
+     }
+    },
+    "tirust_iregi_cross_error_lanes": null,
+    "cpu_busy_before": 0.0
+   },
+   "batch32": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 4.421364192039781e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 289.55635294117644,
+      "mean": 289.6426932773109,
+      "standard_error": 0.15619519788429445,
+      "min": 289.33560294117643,
+      "max": 290.5254705882353,
+      "blocks": 7
+     },
+     "per_point_us": 9.048636029411764,
+     "iterations_per_block": 68,
+     "plan_ns": 371821,
+     "workspace_ns": 242511,
+     "first_call_ns": 625573,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-ibp",
+     "engine": "IREGI",
+     "mode": "IBP",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 1.856444430998122e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 88393.486,
+      "mean": 88443.77,
+      "standard_error": 190.3944551399741,
+      "min": 87869.483,
+      "max": 89460.77,
+      "blocks": 7
+     },
+     "per_point_us": 2762.2964375,
+     "iterations_per_block": 1
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 1.856444430998122e-15,
+      "accepted": true,
+      "timing_us": {
+       "median": 88393.486,
+       "mean": 88443.77,
+       "standard_error": 190.3944551399741,
+       "min": 87869.483,
+       "max": 89460.77,
+       "blocks": 7
+      },
+      "per_point_us": 2762.2964375,
+      "iterations_per_block": 1
+     },
+     {
+      "id": "iregi-pv",
+      "engine": "IREGI",
+      "mode": "PV",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 0.0019042063260570356,
+      "accepted": false,
+      "timing_us": {
+       "median": 73475.844,
+       "mean": 73573.98442857144,
+       "standard_error": 109.1477381116895,
+       "min": 73320.114,
+       "max": 74123.416,
+       "blocks": 7
+      },
+      "per_point_us": 2296.120125,
+      "iterations_per_block": 1
+     },
+     {
+      "id": "iregi-hybrid",
+      "engine": "IREGI",
+      "mode": "Hybrid",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 0.0019042063260570356,
+      "accepted": false,
+      "timing_us": {
+       "median": 73297.953,
+       "mean": 76602.07814285715,
+       "standard_error": 3319.9575909843256,
+       "min": 73084.792,
+       "max": 96520.23,
+       "blocks": 7
+      },
+      "per_point_us": 2290.56103125,
+      "iterations_per_block": 1
+     }
+    ],
+    "collier": {
+     "id": "collier",
+     "engine": "COLLIER",
+     "mode": "mode1-ten6-perm0",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 6.961110662644009e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 1631.4236923076924,
+      "mean": 1633.8461978021976,
+      "standard_error": 4.874787110071006,
+      "min": 1619.6174615384616,
+      "max": 1654.3068461538462,
+      "blocks": 7
+     },
+     "per_point_us": 50.981990384615386,
+     "iterations_per_block": 13
+    },
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 4.421364192039781e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 316.8128620689655,
+      "mean": 317.8862931034482,
+      "standard_error": 0.860770473789084,
+      "min": 315.567,
+      "max": 321.3146206896552,
+      "blocks": 7
+     },
+     "per_point_us": 9.900401939655172,
+     "iterations_per_block": 58,
+     "plan_ns": 365832,
+     "workspace_ns": 233621,
+     "first_call_ns": 598782,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": null,
+    "ratios": {
+     "tirust_over_iregi": {
+      "median": 0.003277713912352426,
+      "ci99": [
+       0.0032343261613278023,
+       0.0032953005190798318
+      ],
+      "pairs": 7
+     },
+     "tirust_over_collier": {
+      "median": 0.17808094363106822,
+      "ci99": [
+       0.17490425642391438,
+       0.17878070582551586
+      ],
+      "pairs": 7
+     }
+    },
+    "tirust_iregi_cross_error_lanes": 2.3557002025678145e-14,
+    "cpu_busy_before": 0.02
+   }
+  },
+  {
+   "id": "ordinary-n4-r4",
+   "table": "ordinary",
+   "label": "N=4, R=4",
+   "n": 4,
+   "rank": 4,
+   "powers": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "dimension_shift": 0,
+   "moments": 70,
+   "batch1": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 1.5594865891229013e-14,
+     "accepted": true,
+     "timing_us": {
+      "median": 36.314359404096834,
+      "mean": 36.554052141527,
+      "standard_error": 0.1917619940690326,
+      "min": 36.19141713221602,
+      "max": 38.2641061452514,
+      "blocks": 11
+     },
+     "per_point_us": 36.314359404096834,
+     "iterations_per_block": 537,
+     "plan_ns": 298911,
+     "workspace_ns": 209301,
+     "first_call_ns": 5620524,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-pv",
+     "engine": "IREGI",
+     "mode": "PV",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 1.037176972611101e-14,
+     "accepted": true,
+     "timing_us": {
+      "median": 534.8227368421053,
+      "mean": 537.6917751196172,
+      "standard_error": 2.1028441403907445,
+      "min": 529.9898157894737,
+      "max": 552.2909736842106,
+      "blocks": 11
+     },
+     "per_point_us": 534.8227368421053,
+     "iterations_per_block": 38
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 1.0439792232228704e-14,
+      "accepted": true,
+      "timing_us": {
+       "median": 1317.3982857142857,
+       "mean": 1326.4074220779219,
+       "standard_error": 5.777442691387652,
+       "min": 1310.726857142857,
+       "max": 1374.2799285714286,
+       "blocks": 11
+      },
+      "per_point_us": 1317.3982857142857,
+      "iterations_per_block": 14
+     },
+     {
+      "id": "iregi-pv",
+      "engine": "IREGI",
+      "mode": "PV",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 1.037176972611101e-14,
+      "accepted": true,
+      "timing_us": {
+       "median": 534.8227368421053,
+       "mean": 537.6917751196172,
+       "standard_error": 2.1028441403907445,
+       "min": 529.9898157894737,
+       "max": 552.2909736842106,
+       "blocks": 11
+      },
+      "per_point_us": 534.8227368421053,
+      "iterations_per_block": 38
+     },
+     {
+      "id": "iregi-hybrid",
+      "engine": "IREGI",
+      "mode": "Hybrid",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 1.037176972611101e-14,
+      "accepted": true,
+      "timing_us": {
+       "median": 540.2906216216217,
+       "mean": 540.9690196560197,
+       "standard_error": 2.197825245347195,
+       "min": 531.4332972972973,
+       "max": 558.555027027027,
+       "blocks": 11
+      },
+      "per_point_us": 540.2906216216217,
+      "iterations_per_block": 37
+     }
+    ],
+    "collier": {
+     "id": "collier",
+     "engine": "COLLIER",
+     "mode": "mode1-ten6-perm0",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 9.7398943650474e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 50.30872809667674,
+      "mean": 50.517662180719576,
+      "standard_error": 0.2766734833589804,
+      "min": 49.53899395770392,
+      "max": 52.711036253776435,
+      "blocks": 11
+     },
+     "per_point_us": 50.30872809667674,
+     "iterations_per_block": 331
+    },
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 1.5594865891229013e-14,
+     "accepted": true,
+     "timing_us": {
+      "median": 36.49527100271003,
+      "mean": 36.71345282089185,
+      "standard_error": 0.17468163754201285,
+      "min": 36.254758807588075,
+      "max": 38.18278590785908,
+      "blocks": 11
+     },
+     "per_point_us": 36.49527100271003,
+     "iterations_per_block": 369,
+     "plan_ns": 288231,
+     "workspace_ns": 198481,
+     "first_call_ns": 111590,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": {
+     "id": "ninjars",
+     "engine": "NinjaRS",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 8.327823796866087e-14,
+     "accepted": true,
+     "timing_us": {
+      "median": 258.0739609375,
+      "mean": 259.78094176136364,
+      "standard_error": 1.393316249424351,
+      "min": 255.30996874999997,
+      "max": 270.5708828125,
+      "blocks": 11
+     },
+     "per_point_us": 258.0739609375,
+     "iterations_per_block": 78,
+     "ninjars_engine": "generic",
+     "fast_failed_lanes": 1
+    },
+    "ratios": {
+     "tirust_contracted_over_ninjars": {
+      "median": 0.14140457453468705,
+      "ci99": [
+       0.14087298480542085,
+       0.14280048566993273
+      ],
+      "pairs": 11
+     },
+     "tirust_over_iregi": {
+      "median": 0.06806573291277625,
+      "ci99": [
+       0.0673487681500505,
+       0.06823406173983615
+      ],
+      "pairs": 11
+     },
+     "tirust_over_collier": {
+      "median": 0.7240652719556234,
+      "ci99": [
+       0.7179833613315908,
+       0.7305642331597613
+      ],
+      "pairs": 11
+     }
+    },
+    "tirust_iregi_cross_error_lanes": null,
+    "cpu_busy_before": 0.0
+   },
+   "batch32": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 1.5594865891229013e-14,
+     "accepted": true,
+     "timing_us": {
+      "median": 1138.0918235294118,
+      "mean": 1138.42556302521,
+      "standard_error": 1.4310051503963277,
+      "min": 1133.090529411765,
+      "max": 1145.4394705882353,
+      "blocks": 7
+     },
+     "per_point_us": 35.56536948529412,
+     "iterations_per_block": 17,
+     "plan_ns": 306141,
+     "workspace_ns": 222311,
+     "first_call_ns": 9068297,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-pv",
+     "engine": "IREGI",
+     "mode": "PV",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 1.037176972611101e-14,
+     "accepted": true,
+     "timing_us": {
+      "median": 16985.2405,
+      "mean": 17120.318714285713,
+      "standard_error": 114.70795935054961,
+      "min": 16877.075,
+      "max": 17578.2875,
+      "blocks": 7
+     },
+     "per_point_us": 530.788765625,
+     "iterations_per_block": 2
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 1.0439792232228704e-14,
+      "accepted": true,
+      "timing_us": {
+       "median": 43659.35,
+       "mean": 43700.065,
+       "standard_error": 119.18680619654734,
+       "min": 43387.4,
+       "max": 44347.073,
+       "blocks": 7
+      },
+      "per_point_us": 1364.3546875,
+      "iterations_per_block": 1
+     },
+     {
+      "id": "iregi-pv",
+      "engine": "IREGI",
+      "mode": "PV",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 1.037176972611101e-14,
+      "accepted": true,
+      "timing_us": {
+       "median": 16985.2405,
+       "mean": 17120.318714285713,
+       "standard_error": 114.70795935054961,
+       "min": 16877.075,
+       "max": 17578.2875,
+       "blocks": 7
+      },
+      "per_point_us": 530.788765625,
+      "iterations_per_block": 2
+     },
+     {
+      "id": "iregi-hybrid",
+      "engine": "IREGI",
+      "mode": "Hybrid",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 1.037176972611101e-14,
+      "accepted": true,
+      "timing_us": {
+       "median": 16988.6955,
+       "mean": 17445.3665,
+       "standard_error": 446.4453897923521,
+       "min": 16865.075,
+       "max": 20117.4235,
+       "blocks": 7
+      },
+      "per_point_us": 530.896734375,
+      "iterations_per_block": 2
+     }
+    ],
+    "collier": {
+     "id": "collier",
+     "engine": "COLLIER",
+     "mode": "mode1-ten6-perm0",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 9.7398943650474e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 1623.356,
+      "mean": 1631.1274175824176,
+      "standard_error": 7.664113203684376,
+      "min": 1612.7328461538461,
+      "max": 1670.8638461538462,
+      "blocks": 7
+     },
+     "per_point_us": 50.729875,
+     "iterations_per_block": 13
+    },
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 1.5594865891229013e-14,
+     "accepted": true,
+     "timing_us": {
+      "median": 1155.4216875,
+      "mean": 1155.4383482142857,
+      "standard_error": 2.583296239083856,
+      "min": 1146.2585,
+      "max": 1166.9204375,
+      "blocks": 7
+     },
+     "per_point_us": 36.106927734375,
+     "iterations_per_block": 16,
+     "plan_ns": 300761,
+     "workspace_ns": 204561,
+     "first_call_ns": 1497206,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": {
+     "id": "ninjars",
+     "engine": "NinjaRS",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 8.327823796866087e-14,
+     "accepted": true,
+     "timing_us": {
+      "median": 7833.594750000001,
+      "mean": 7989.9430357142855,
+      "standard_error": 189.77162711888596,
+      "min": 7568.74125,
+      "max": 9091.185,
+      "blocks": 7
+     },
+     "per_point_us": 244.79983593750003,
+     "iterations_per_block": 3,
+     "ninjars_engine": "generic",
+     "fast_failed_lanes": 32
+    },
+    "ratios": {
+     "tirust_contracted_over_ninjars": {
+      "median": 0.14665956138080954,
+      "ci99": [
+       0.12835735247935226,
+       0.1526570468372135
+      ],
+      "pairs": 7
+     },
+     "tirust_over_iregi": {
+      "median": 0.06704509475880129,
+      "ci99": [
+       0.0646327162530602,
+       0.0675411886172428
+      ],
+      "pairs": 7
+     },
+     "tirust_over_collier": {
+      "median": 0.6989866467798548,
+      "ci99": [
+       0.6855372885258826,
+       0.70681124192445
+      ],
+      "pairs": 7
+     }
+    },
+    "tirust_iregi_cross_error_lanes": 6.210976813606522e-14,
+    "cpu_busy_before": 1.0
+   }
+  },
+  {
+   "id": "ordinary-n4-r6",
+   "table": "ordinary",
+   "label": "N=4, R=6",
+   "n": 4,
+   "rank": 6,
+   "powers": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "dimension_shift": 0,
+   "moments": 210,
+   "batch1": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 1.5992399267703864e-14,
+     "accepted": true,
+     "timing_us": {
+      "median": 59.092932835820896,
+      "mean": 59.06642435549526,
+      "standard_error": 0.05516170597198789,
+      "min": 58.779608208955224,
+      "max": 59.39352985074627,
+      "blocks": 11
+     },
+     "per_point_us": 59.092932835820896,
+     "iterations_per_block": 268,
+     "plan_ns": 726223,
+     "workspace_ns": 259711,
+     "first_call_ns": 193311,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-ibp",
+     "engine": "IREGI",
+     "mode": "IBP",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 1.0439792232228704e-14,
+     "accepted": true,
+     "timing_us": {
+      "median": 12506.942,
+      "mean": 12886.149454545455,
+      "standard_error": 375.9178633795762,
+      "min": 12402.5315,
+      "max": 16634.789,
+      "blocks": 11
+     },
+     "per_point_us": 12506.942,
+     "iterations_per_block": 2
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 1.0439792232228704e-14,
+      "accepted": true,
+      "timing_us": {
+       "median": 12506.942,
+       "mean": 12886.149454545455,
+       "standard_error": 375.9178633795762,
+       "min": 12402.5315,
+       "max": 16634.789,
+       "blocks": 11
+      },
+      "per_point_us": 12506.942,
+      "iterations_per_block": 2
+     },
+     {
+      "id": "iregi-pv",
+      "engine": "IREGI",
+      "mode": "PV",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 0.006212201256469411,
+      "accepted": false,
+      "timing_us": {
+       "median": 10032.8115,
+       "mean": 10052.550272727274,
+       "standard_error": 33.38733551617791,
+       "min": 9890.306,
+       "max": 10323.5325,
+       "blocks": 11
+      },
+      "per_point_us": 10032.8115,
+      "iterations_per_block": 2
+     },
+     {
+      "id": "iregi-hybrid",
+      "engine": "IREGI",
+      "mode": "Hybrid",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 0.006212201256469411,
+      "accepted": false,
+      "timing_us": {
+       "median": 10041.967,
+       "mean": 10078.444,
+       "standard_error": 36.55872954750032,
+       "min": 9981.0665,
+       "max": 10416.413,
+       "blocks": 11
+      },
+      "per_point_us": 10041.967,
+      "iterations_per_block": 2
+     }
+    ],
+    "collier": {
+     "id": "collier",
+     "engine": "COLLIER",
+     "mode": "mode1-ten6-perm0",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 9.7398943650474e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 266.87234722222223,
+      "mean": 266.7402234848485,
+      "standard_error": 0.5584828978574616,
+      "min": 263.9731805555556,
+      "max": 270.0147361111111,
+      "blocks": 11
+     },
+     "per_point_us": 266.87234722222223,
+     "iterations_per_block": 72
+    },
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 1.5992399267703864e-14,
+     "accepted": true,
+     "timing_us": {
+      "median": 60.02052797202797,
+      "mean": 60.42507533375716,
+      "standard_error": 0.3099315236301072,
+      "min": 59.74674825174825,
+      "max": 63.27729020979021,
+      "blocks": 11
+     },
+     "per_point_us": 60.02052797202797,
+     "iterations_per_block": 286,
+     "plan_ns": 711143,
+     "workspace_ns": 247461,
+     "first_call_ns": 185621,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": {
+     "id": "ninjars",
+     "engine": "NinjaRS",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 1.5882143433474727e-12,
+     "accepted": true,
+     "timing_us": {
+      "median": 1462.0873125,
+      "mean": 1476.4321363636366,
+      "standard_error": 15.831882514635819,
+      "min": 1452.184125,
+      "max": 1633.37425,
+      "blocks": 11
+     },
+     "per_point_us": 1462.0873125,
+     "iterations_per_block": 14,
+     "ninjars_engine": "generic",
+     "fast_failed_lanes": 1
+    },
+    "ratios": {
+     "tirust_contracted_over_ninjars": {
+      "median": 0.0410897778502925,
+      "ci99": [
+       0.040825318132504416,
+       0.04154578231650807
+      ],
+      "pairs": 11
+     },
+     "tirust_over_iregi": {
+      "median": 0.004733205939729111,
+      "ci99": [
+       0.004640526958214667,
+       0.0047434993412145765
+      ],
+      "pairs": 11
+     },
+     "tirust_over_collier": {
+      "median": 0.22186380136092837,
+      "ci99": [
+       0.2196161845621291,
+       0.22267265214310103
+      ],
+      "pairs": 11
+     }
+    },
+    "tirust_iregi_cross_error_lanes": null,
+    "cpu_busy_before": 0.0
+   },
+   "batch32": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 1.5992399267703864e-14,
+     "accepted": true,
+     "timing_us": {
+      "median": 1890.5555555555554,
+      "mean": 1894.2548253968253,
+      "standard_error": 6.128458761484414,
+      "min": 1882.5444444444445,
+      "max": 1929.3791111111111,
+      "blocks": 7
+     },
+     "per_point_us": 59.07986111111111,
+     "iterations_per_block": 9,
+     "plan_ns": 742853,
+     "workspace_ns": 276671,
+     "first_call_ns": 2578221,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-ibp",
+     "engine": "IREGI",
+     "mode": "IBP",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 1.0439792232228704e-14,
+     "accepted": true,
+     "timing_us": {
+      "median": 405472.521,
+      "mean": 405846.8644285714,
+      "standard_error": 422.5830715991071,
+      "min": 404438.398,
+      "max": 407505.959,
+      "blocks": 7
+     },
+     "per_point_us": 12671.01628125,
+     "iterations_per_block": 1
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 1.0439792232228704e-14,
+      "accepted": true,
+      "timing_us": {
+       "median": 405472.521,
+       "mean": 405846.8644285714,
+       "standard_error": 422.5830715991071,
+       "min": 404438.398,
+       "max": 407505.959,
+       "blocks": 7
+      },
+      "per_point_us": 12671.01628125,
+      "iterations_per_block": 1
+     },
+     {
+      "id": "iregi-pv",
+      "engine": "IREGI",
+      "mode": "PV",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 0.006212201256469411,
+      "accepted": false,
+      "timing_us": {
+       "median": 322576.098,
+       "mean": 322459.401,
+       "standard_error": 442.627666010825,
+       "min": 320525.508,
+       "max": 323786.581,
+       "blocks": 7
+      },
+      "per_point_us": 10080.5030625,
+      "iterations_per_block": 1
+     },
+     {
+      "id": "iregi-hybrid",
+      "engine": "IREGI",
+      "mode": "Hybrid",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 0.006212201256469411,
+      "accepted": false,
+      "timing_us": {
+       "median": 322926.379,
+       "mean": 322979.08214285714,
+       "standard_error": 221.22862931542633,
+       "min": 322369.147,
+       "max": 324028.494,
+       "blocks": 7
+      },
+      "per_point_us": 10091.44934375,
+      "iterations_per_block": 1
+     }
+    ],
+    "collier": {
+     "id": "collier",
+     "engine": "COLLIER",
+     "mode": "mode1-ten6-perm0",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 9.7398943650474e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 8512.832,
+      "mean": 8581.425095238095,
+      "standard_error": 54.35977259062366,
+      "min": 8461.882,
+      "max": 8864.880333333334,
+      "blocks": 7
+     },
+     "per_point_us": 266.026,
+     "iterations_per_block": 3
+    },
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 1.5992399267703864e-14,
+     "accepted": true,
+     "timing_us": {
+      "median": 1891.6323333333332,
+      "mean": 1891.2240476190473,
+      "standard_error": 2.7455794985730906,
+      "min": 1882.631111111111,
+      "max": 1901.6345555555556,
+      "blocks": 7
+     },
+     "per_point_us": 59.113510416666664,
+     "iterations_per_block": 9,
+     "plan_ns": 715603,
+     "workspace_ns": 278321,
+     "first_call_ns": 2542861,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": {
+     "id": "ninjars",
+     "engine": "NinjaRS",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 1.5882143433474727e-12,
+     "accepted": true,
+     "timing_us": {
+      "median": 45145.448,
+      "mean": 45166.80442857143,
+      "standard_error": 70.36525408448512,
+      "min": 44971.336,
+      "max": 45556.829,
+      "blocks": 7
+     },
+     "per_point_us": 1410.79525,
+     "iterations_per_block": 1,
+     "ninjars_engine": "generic",
+     "fast_failed_lanes": 32
+    },
+    "ratios": {
+     "tirust_contracted_over_ninjars": {
+      "median": 0.041890766960489774,
+      "ci99": [
+       0.04174203071850228,
+       0.042029647815591806
+      ],
+      "pairs": 7
+     },
+     "tirust_over_iregi": {
+      "median": 0.004673738121141705,
+      "ci99": [
+       0.004626870306140213,
+       0.004734603429716008
+      ],
+      "pairs": 7
+     },
+     "tirust_over_collier": {
+      "median": 0.22215715709344278,
+      "ci99": [
+       0.21670725459028017,
+       0.22262836725650043
+      ],
+      "pairs": 7
+     }
+    },
+    "tirust_iregi_cross_error_lanes": 6.210976813606522e-14,
+    "cpu_busy_before": 0.0
+   }
+  },
+  {
+   "id": "ordinary-n5-r5",
+   "table": "ordinary",
+   "label": "N=5, R=5",
+   "n": 5,
+   "rank": 5,
+   "powers": [
+    1,
+    1,
+    1,
+    1,
+    1
+   ],
+   "dimension_shift": 0,
+   "moments": 126,
+   "batch1": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 4.685450964102931e-12,
+     "accepted": true,
+     "timing_us": {
+      "median": 140.65870289855073,
+      "mean": 140.97196179183135,
+      "standard_error": 0.4174816580697937,
+      "min": 139.73768115942028,
+      "max": 144.92509420289855,
+      "blocks": 11
+     },
+     "per_point_us": 140.65870289855073,
+     "iterations_per_block": 138,
+     "plan_ns": 6338936,
+     "workspace_ns": 309231,
+     "first_call_ns": 5009511,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-hybrid",
+     "engine": "IREGI",
+     "mode": "Hybrid",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 9.657452317091753e-12,
+     "accepted": true,
+     "timing_us": {
+      "median": 8669.032666666666,
+      "mean": 8694.83787878788,
+      "standard_error": 20.412882340745377,
+      "min": 8651.779333333334,
+      "max": 8886.773666666666,
+      "blocks": 11
+     },
+     "per_point_us": 8669.032666666666,
+     "iterations_per_block": 3
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 9.672541553540397e-12,
+      "accepted": true,
+      "timing_us": {
+       "median": 12545.837,
+       "mean": 12564.513409090909,
+       "standard_error": 46.405289751121444,
+       "min": 12348.146,
+       "max": 12941.6085,
+       "blocks": 11
+      },
+      "per_point_us": 12545.837,
+      "iterations_per_block": 2
+     },
+     {
+      "id": "iregi-pv",
+      "engine": "IREGI",
+      "mode": "PV",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 9.657452317091753e-12,
+      "accepted": true,
+      "timing_us": {
+       "median": 8697.446,
+       "mean": 8740.624727272727,
+       "standard_error": 29.160767632710307,
+       "min": 8652.379333333334,
+       "max": 8915.097,
+       "blocks": 11
+      },
+      "per_point_us": 8697.446,
+      "iterations_per_block": 3
+     },
+     {
+      "id": "iregi-hybrid",
+      "engine": "IREGI",
+      "mode": "Hybrid",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 9.657452317091753e-12,
+      "accepted": true,
+      "timing_us": {
+       "median": 8669.032666666666,
+       "mean": 8694.83787878788,
+       "standard_error": 20.412882340745377,
+       "min": 8651.779333333334,
+       "max": 8886.773666666666,
+       "blocks": 11
+      },
+      "per_point_us": 8669.032666666666,
+      "iterations_per_block": 3
+     }
+    ],
+    "collier": {
+     "id": "collier",
+     "engine": "COLLIER",
+     "mode": "mode1-ten6-perm0",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 1.1008377788267852e-11,
+     "accepted": true,
+     "timing_us": {
+      "median": 301.78625,
+      "mean": 301.85125,
+      "standard_error": 0.7769378528653506,
+      "min": 297.293109375,
+      "max": 306.907671875,
+      "blocks": 11
+     },
+     "per_point_us": 301.78625,
+     "iterations_per_block": 64
+    },
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 4.685450964102931e-12,
+     "accepted": true,
+     "timing_us": {
+      "median": 140.77630434782608,
+      "mean": 141.112,
+      "standard_error": 0.46547619220855285,
+      "min": 139.82666666666665,
+      "max": 145.57552898550722,
+      "blocks": 11
+     },
+     "per_point_us": 140.77630434782608,
+     "iterations_per_block": 138,
+     "plan_ns": 1696417,
+     "workspace_ns": 289321,
+     "first_call_ns": 280672,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": {
+     "id": "ninjars",
+     "engine": "NinjaRS",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 8.498957013657075e-12,
+     "accepted": true,
+     "timing_us": {
+      "median": 729.00896875,
+      "mean": 731.3542642045454,
+      "standard_error": 1.713987200536736,
+      "min": 726.68115625,
+      "max": 745.81121875,
+      "blocks": 11
+     },
+     "per_point_us": 729.00896875,
+     "iterations_per_block": 27,
+     "ninjars_engine": "generic",
+     "fast_failed_lanes": 1
+    },
+    "ratios": {
+     "tirust_contracted_over_ninjars": {
+      "median": 0.19309559053199338,
+      "ci99": [
+       0.1910675215600975,
+       0.19373251933831984
+      ],
+      "pairs": 11
+     },
+     "tirust_over_iregi": {
+      "median": 0.016215288914569657,
+      "ci99": [
+       0.016119178059707428,
+       0.01626896761431434
+      ],
+      "pairs": 11
+     },
+     "tirust_over_collier": {
+      "median": 0.46723547831572826,
+      "ci99": [
+       0.46197195329693935,
+       0.4723365152981788
+      ],
+      "pairs": 11
+     }
+    },
+    "tirust_iregi_cross_error_lanes": null,
+    "cpu_busy_before": 0.0
+   },
+   "batch32": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 4.685450964102931e-12,
+     "accepted": true,
+     "timing_us": {
+      "median": 4521.5108,
+      "mean": 4546.468857142857,
+      "standard_error": 19.686983926525375,
+      "min": 4497.076599999999,
+      "max": 4630.4412,
+      "blocks": 7
+     },
+     "per_point_us": 141.2972125,
+     "iterations_per_block": 5,
+     "plan_ns": 1696047,
+     "workspace_ns": 299851,
+     "first_call_ns": 5058971,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-hybrid",
+     "engine": "IREGI",
+     "mode": "Hybrid",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 9.657452317091753e-12,
+     "accepted": true,
+     "timing_us": {
+      "median": 278267.706,
+      "mean": 278949.7227142857,
+      "standard_error": 768.0151978921818,
+      "min": 277106.54,
+      "max": 283126.336,
+      "blocks": 7
+     },
+     "per_point_us": 8695.8658125,
+     "iterations_per_block": 1
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 9.672541553540397e-12,
+      "accepted": true,
+      "timing_us": {
+       "median": 410843.406,
+       "mean": 412461.58471428574,
+       "standard_error": 1729.1003548506937,
+       "min": 407504.431,
+       "max": 421364.851,
+       "blocks": 7
+      },
+      "per_point_us": 12838.8564375,
+      "iterations_per_block": 1
+     },
+     {
+      "id": "iregi-pv",
+      "engine": "IREGI",
+      "mode": "PV",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 9.657452317091753e-12,
+      "accepted": true,
+      "timing_us": {
+       "median": 282851.335,
+       "mean": 286152.9698571429,
+       "standard_error": 3505.940718689374,
+       "min": 279078.518,
+       "max": 306196.402,
+       "blocks": 7
+      },
+      "per_point_us": 8839.10421875,
+      "iterations_per_block": 1
+     },
+     {
+      "id": "iregi-hybrid",
+      "engine": "IREGI",
+      "mode": "Hybrid",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 9.657452317091753e-12,
+      "accepted": true,
+      "timing_us": {
+       "median": 278267.706,
+       "mean": 278949.7227142857,
+       "standard_error": 768.0151978921818,
+       "min": 277106.54,
+       "max": 283126.336,
+       "blocks": 7
+      },
+      "per_point_us": 8695.8658125,
+      "iterations_per_block": 1
+     }
+    ],
+    "collier": {
+     "id": "collier",
+     "engine": "COLLIER",
+     "mode": "mode1-ten6-perm0",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 1.1008377788267852e-11,
+     "accepted": true,
+     "timing_us": {
+      "median": 9650.073333333334,
+      "mean": 9674.689285714285,
+      "standard_error": 32.67016525964041,
+      "min": 9600.186666666666,
+      "max": 9858.351,
+      "blocks": 7
+     },
+     "per_point_us": 301.5647916666667,
+     "iterations_per_block": 3
+    },
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 4.685450964102931e-12,
+     "accepted": true,
+     "timing_us": {
+      "median": 4546.8168,
+      "mean": 4556.095742857143,
+      "standard_error": 12.142904268177514,
+      "min": 4538.6968,
+      "max": 4628.0312,
+      "blocks": 7
+     },
+     "per_point_us": 142.088025,
+     "iterations_per_block": 5,
+     "plan_ns": 1658347,
+     "workspace_ns": 279681,
+     "first_call_ns": 5062181,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": {
+     "id": "ninjars",
+     "engine": "NinjaRS",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 8.498957013657075e-12,
+     "accepted": true,
+     "timing_us": {
+      "median": 22985.096,
+      "mean": 22980.44157142857,
+      "standard_error": 80.21083315175052,
+      "min": 22715.795,
+      "max": 23296.447,
+      "blocks": 7
+     },
+     "per_point_us": 718.28425,
+     "iterations_per_block": 1,
+     "ninjars_engine": "generic",
+     "fast_failed_lanes": 32
+    },
+    "ratios": {
+     "tirust_contracted_over_ninjars": {
+      "median": 0.19781587164134531,
+      "ci99": [
+       0.19488357173091672,
+       0.20373626368788766
+      ],
+      "pairs": 7
+     },
+     "tirust_over_iregi": {
+      "median": 0.016267694787548075,
+      "ci99": [
+       0.016215509391520982,
+       0.016495684143979263
+      ],
+      "pairs": 7
+     },
+     "tirust_over_collier": {
+      "median": 0.46969733579175665,
+      "ci99": [
+       0.46648538278792206,
+       0.4769768887969453
+      ],
+      "pairs": 7
+     }
+    },
+    "tirust_iregi_cross_error_lanes": 4.144805911985113e-11,
+    "cpu_busy_before": 0.0
+   }
+  },
+  {
+   "id": "ordinary-n5-r6",
+   "table": "ordinary",
+   "label": "N=5, R=6",
+   "n": 5,
+   "rank": 6,
+   "powers": [
+    1,
+    1,
+    1,
+    1,
+    1
+   ],
+   "dimension_shift": 0,
+   "moments": 210,
+   "batch1": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 1.8197193898203026e-11,
+     "accepted": true,
+     "timing_us": {
+      "median": 209.27358695652174,
+      "mean": 209.89552569169962,
+      "standard_error": 0.4553354543931273,
+      "min": 208.46151086956522,
+      "max": 213.46513043478262,
+      "blocks": 11
+     },
+     "per_point_us": 209.27358695652174,
+     "iterations_per_block": 92,
+     "plan_ns": 2390850,
+     "workspace_ns": 369151,
+     "first_call_ns": 412671,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-ibp",
+     "engine": "IREGI",
+     "mode": "IBP",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 3.7373873467236054e-11,
+     "accepted": true,
+     "timing_us": {
+      "median": 46039.821,
+      "mean": 46050.4049090909,
+      "standard_error": 96.62716485218792,
+      "min": 45280.348,
+      "max": 46495.123,
+      "blocks": 11
+     },
+     "per_point_us": 46039.821,
+     "iterations_per_block": 1
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 3.7373873467236054e-11,
+      "accepted": true,
+      "timing_us": {
+       "median": 46039.821,
+       "mean": 46050.4049090909,
+       "standard_error": 96.62716485218792,
+       "min": 45280.348,
+       "max": 46495.123,
+       "blocks": 11
+      },
+      "per_point_us": 46039.821,
+      "iterations_per_block": 1
+     },
+     {
+      "id": "iregi-pv",
+      "engine": "IREGI",
+      "mode": "PV",
+      "status": "measured",
+      "complete_finite": false,
+      "lane_statuses": {
+       "unstable": 1
+      },
+      "relative_error": null,
+      "accepted": false,
+      "timing_us": {
+       "median": 8942.230333333335,
+       "mean": 8945.02203030303,
+       "standard_error": 24.17666107627109,
+       "min": 8829.73,
+       "max": 9149.751333333334,
+       "blocks": 11
+      },
+      "per_point_us": 8942.230333333335,
+      "iterations_per_block": 3
+     },
+     {
+      "id": "iregi-hybrid",
+      "engine": "IREGI",
+      "mode": "Hybrid",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 3.7373873467236054e-11,
+      "accepted": true,
+      "timing_us": {
+       "median": 49714.206,
+       "mean": 49661.90618181818,
+       "standard_error": 167.33417186727218,
+       "min": 48157.01,
+       "max": 50328.579,
+       "blocks": 11
+      },
+      "per_point_us": 49714.206,
+      "iterations_per_block": 1
+     }
+    ],
+    "collier": {
+     "id": "collier",
+     "engine": "COLLIER",
+     "mode": "mode1-ten6-perm1",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 4.267443941902613e-11,
+     "accepted": true,
+     "timing_us": {
+      "median": 1065.8577777777778,
+      "mean": 1065.236388888889,
+      "standard_error": 1.6377071151820257,
+      "min": 1055.8921666666668,
+      "max": 1075.963888888889,
+      "blocks": 11
+     },
+     "per_point_us": 1065.8577777777778,
+     "iterations_per_block": 18
+    },
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 1.8197193898203026e-11,
+     "accepted": true,
+     "timing_us": {
+      "median": 207.64095833333334,
+      "mean": 208.17454640151513,
+      "standard_error": 0.33329604972409527,
+      "min": 207.08470833333334,
+      "max": 210.04139583333335,
+      "blocks": 11
+     },
+     "per_point_us": 207.64095833333334,
+     "iterations_per_block": 96,
+     "plan_ns": 1884228,
+     "workspace_ns": 367822,
+     "first_call_ns": 387661,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": {
+     "id": "ninjars",
+     "engine": "NinjaRS",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 2.3316645311547095e-11,
+     "accepted": true,
+     "timing_us": {
+      "median": 1759.7391875,
+      "mean": 1761.5775511363636,
+      "standard_error": 3.8123878099534165,
+      "min": 1745.306625,
+      "max": 1790.9018125,
+      "blocks": 11
+     },
+     "per_point_us": 1759.7391875,
+     "iterations_per_block": 12,
+     "ninjars_engine": "generic",
+     "fast_failed_lanes": 1
+    },
+    "ratios": {
+     "tirust_contracted_over_ninjars": {
+      "median": 0.11833491381733317,
+      "ci99": [
+       0.1175603832800942,
+       0.11879178929390376
+      ],
+      "pairs": 11
+     },
+     "tirust_over_iregi": {
+      "median": 0.004539800224226455,
+      "ci99": [
+       0.004510650018217275,
+       0.004585701697333383
+      ],
+      "pairs": 11
+     },
+     "tirust_over_collier": {
+      "median": 0.19666320045953573,
+      "ci99": [
+       0.195878337991663,
+       0.1983943259055104
+      ],
+      "pairs": 11
+     }
+    },
+    "tirust_iregi_cross_error_lanes": null,
+    "cpu_busy_before": 0.2549
+   },
+   "batch32": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 1.8197193898203026e-11,
+     "accepted": true,
+     "timing_us": {
+      "median": 6606.474,
+      "mean": 6616.812333333334,
+      "standard_error": 14.206436535122265,
+      "min": 6581.347333333333,
+      "max": 6690.564666666667,
+      "blocks": 7
+     },
+     "per_point_us": 206.4523125,
+     "iterations_per_block": 3,
+     "plan_ns": 1885647,
+     "workspace_ns": 368932,
+     "first_call_ns": 7412961,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-ibp",
+     "engine": "IREGI",
+     "mode": "IBP",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 3.7373873467236054e-11,
+     "accepted": true,
+     "timing_us": {
+      "median": 1504286.233,
+      "mean": 1506824.9222857144,
+      "standard_error": 5074.77933605487,
+      "min": 1489155.158,
+      "max": 1531853.641,
+      "blocks": 7
+     },
+     "per_point_us": 47008.94478125,
+     "iterations_per_block": 1
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 3.7373873467236054e-11,
+      "accepted": true,
+      "timing_us": {
+       "median": 1504286.233,
+       "mean": 1506824.9222857144,
+       "standard_error": 5074.77933605487,
+       "min": 1489155.158,
+       "max": 1531853.641,
+       "blocks": 7
+      },
+      "per_point_us": 47008.94478125,
+      "iterations_per_block": 1
+     },
+     {
+      "id": "iregi-pv",
+      "engine": "IREGI",
+      "mode": "PV",
+      "status": "measured",
+      "complete_finite": false,
+      "lane_statuses": {
+       "unstable": 32
+      },
+      "relative_error": null,
+      "accepted": false,
+      "timing_us": {
+       "median": 282207.275,
+       "mean": 283471.88428571424,
+       "standard_error": 1571.2343879673488,
+       "min": 280415.816,
+       "max": 292492.087,
+       "blocks": 7
+      },
+      "per_point_us": 8818.97734375,
+      "iterations_per_block": 1
+     },
+     {
+      "id": "iregi-hybrid",
+      "engine": "IREGI",
+      "mode": "Hybrid",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 3.7373873467236054e-11,
+      "accepted": true,
+      "timing_us": {
+       "median": 1613875.942,
+       "mean": 1617903.7834285714,
+       "standard_error": 6364.04546153216,
+       "min": 1598132.803,
+       "max": 1647358.762,
+       "blocks": 7
+      },
+      "per_point_us": 50433.6231875,
+      "iterations_per_block": 1
+     }
+    ],
+    "collier": {
+     "id": "collier",
+     "engine": "COLLIER",
+     "mode": "mode1-ten6-perm1",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 4.267443941902613e-11,
+     "accepted": true,
+     "timing_us": {
+      "median": 34157.871,
+      "mean": 34112.313,
+      "standard_error": 68.55841103238694,
+      "min": 33868.411,
+      "max": 34357.493,
+      "blocks": 7
+     },
+     "per_point_us": 1067.43346875,
+     "iterations_per_block": 1
+    },
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 1.8197193898203026e-11,
+     "accepted": true,
+     "timing_us": {
+      "median": 6635.227666666667,
+      "mean": 6638.884809523809,
+      "standard_error": 14.402808519449373,
+      "min": 6598.757333333333,
+      "max": 6707.584666666667,
+      "blocks": 7
+     },
+     "per_point_us": 207.35086458333333,
+     "iterations_per_block": 3,
+     "plan_ns": 1870828,
+     "workspace_ns": 410881,
+     "first_call_ns": 7345051,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": {
+     "id": "ninjars",
+     "engine": "NinjaRS",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 2.3316645311547095e-11,
+     "accepted": true,
+     "timing_us": {
+      "median": 55121.76,
+      "mean": 55210.674,
+      "standard_error": 163.01856947029947,
+      "min": 54674.437,
+      "max": 55843.132,
+      "blocks": 7
+     },
+     "per_point_us": 1722.555,
+     "iterations_per_block": 1,
+     "ninjars_engine": "generic",
+     "fast_failed_lanes": 32
+    },
+    "ratios": {
+     "tirust_contracted_over_ninjars": {
+      "median": 0.1197997729632242,
+      "ci99": [
+       0.11913835894537615,
+       0.12209432003763146
+      ],
+      "pairs": 7
+     },
+     "tirust_over_iregi": {
+      "median": 0.004377065118290738,
+      "ci99": [
+       0.0043127318584347705,
+       0.004447667285582788
+      ],
+      "pairs": 7
+     },
+     "tirust_over_collier": {
+      "median": 0.1942754537588996,
+      "ci99": [
+       0.19228626489132952,
+       0.19587182897513333
+      ],
+      "pairs": 7
+     }
+    },
+    "tirust_iregi_cross_error_lanes": 1.5997035414850531e-10,
+    "cpu_busy_before": 0.04
+   }
+  },
+  {
+   "id": "ordinary-n6-r6",
+   "table": "ordinary",
+   "label": "N=6, R=6",
+   "n": 6,
+   "rank": 6,
+   "powers": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    1
+   ],
+   "dimension_shift": 0,
+   "moments": 210,
+   "batch1": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 8.556037236765987e-12,
+     "accepted": true,
+     "timing_us": {
+      "median": 558.9820571428571,
+      "mean": 558.9875766233765,
+      "standard_error": 2.6561000100921306,
+      "min": 549.9937142857143,
+      "max": 582.3627142857143,
+      "blocks": 11
+     },
+     "per_point_us": 558.9820571428571,
+     "iterations_per_block": 35,
+     "plan_ns": 6251526,
+     "workspace_ns": 638873,
+     "first_call_ns": 14600641,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-ibp",
+     "engine": "IREGI",
+     "mode": "IBP",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 1.7730511804273565e-11,
+     "accepted": true,
+     "timing_us": {
+      "median": 203182.696,
+      "mean": 203397.49245454546,
+      "standard_error": 551.9669061001157,
+      "min": 200850.647,
+      "max": 207535.205,
+      "blocks": 11
+     },
+     "per_point_us": 203182.696,
+     "iterations_per_block": 1
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 1.7730511804273565e-11,
+      "accepted": true,
+      "timing_us": {
+       "median": 203182.696,
+       "mean": 203397.49245454546,
+       "standard_error": 551.9669061001157,
+       "min": 200850.647,
+       "max": 207535.205,
+       "blocks": 11
+      },
+      "per_point_us": 203182.696,
+      "iterations_per_block": 1
+     },
+     {
+      "id": "iregi-pv",
+      "engine": "IREGI",
+      "mode": "PV",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 0.005939801046811232,
+      "accepted": false,
+      "timing_us": {
+       "median": 121682.137,
+       "mean": 122130.29245454546,
+       "standard_error": 444.4088473499142,
+       "min": 120350.751,
+       "max": 124900.74,
+       "blocks": 11
+      },
+      "per_point_us": 121682.137,
+      "iterations_per_block": 1
+     },
+     {
+      "id": "iregi-hybrid",
+      "engine": "IREGI",
+      "mode": "Hybrid",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 0.005939801046811232,
+      "accepted": false,
+      "timing_us": {
+       "median": 120120.251,
+       "mean": 120335.845,
+       "standard_error": 390.05672350075633,
+       "min": 118166.012,
+       "max": 122609.991,
+       "blocks": 11
+      },
+      "per_point_us": 120120.251,
+      "iterations_per_block": 1
+     }
+    ],
+    "collier": {
+     "id": "collier",
+     "engine": "COLLIER",
+     "mode": "mode1-ten6-perm0",
+     "status": "measured",
+     "complete_finite": false,
+     "lane_statuses": {
+      "unstable": 1
+     },
+     "relative_error": null,
+     "accepted": false,
+     "timing_us": {
+      "median": 1961.3263636363636,
+      "mean": 1972.5186280991736,
+      "standard_error": 17.021941556910033,
+      "min": 1908.0360909090907,
+      "max": 2102.5923636363636,
+      "blocks": 11
+     },
+     "per_point_us": 1961.3263636363636,
+     "iterations_per_block": 11
+    },
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 8.556037236765987e-12,
+     "accepted": true,
+     "timing_us": {
+      "median": 557.7328611111111,
+      "mean": 557.589345959596,
+      "standard_error": 1.1779438655785084,
+      "min": 551.2858888888888,
+      "max": 564.3473611111111,
+      "blocks": 11
+     },
+     "per_point_us": 557.7328611111111,
+     "iterations_per_block": 36,
+     "plan_ns": 6266196,
+     "workspace_ns": 593802,
+     "first_call_ns": 11088195,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": {
+     "id": "ninjars",
+     "engine": "NinjaRS",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": false,
+     "lane_statuses": {
+      "unknown": 1
+     },
+     "relative_error": null,
+     "accepted": false,
+     "timing_us": {
+      "median": 1347.281875,
+      "mean": 1351.525346590909,
+      "standard_error": 5.580019219126515,
+      "min": 1331.949875,
+      "max": 1386.4095,
+      "blocks": 11
+     },
+     "per_point_us": 1347.281875,
+     "iterations_per_block": 15,
+     "ninjars_engine": "generic",
+     "fast_failed_lanes": 1
+    },
+    "ratios": {
+     "tirust_contracted_over_ninjars": {
+      "median": 0.4138938703597152,
+      "ci99": [
+       0.40827611133985137,
+       0.41625143449831387
+      ],
+      "pairs": 11
+     },
+     "tirust_over_iregi": {
+      "median": 0.002742963531504083,
+      "ci99": [
+       0.0027233231337170064,
+       0.002763553979745125
+      ],
+      "pairs": 11
+     },
+     "tirust_over_collier": {
+      "median": 0.2860210826005981,
+      "ci99": [
+       0.27488221589856526,
+       0.29099052245811036
+      ],
+      "pairs": 11
+     }
+    },
+    "tirust_iregi_cross_error_lanes": null,
+    "cpu_busy_before": 0.68
+   },
+   "batch32": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 8.556037236765987e-12,
+     "accepted": true,
+     "timing_us": {
+      "median": 17838.075,
+      "mean": 17868.997714285713,
+      "standard_error": 79.47130191757581,
+      "min": 17642.2835,
+      "max": 18237.7065,
+      "blocks": 7
+     },
+     "per_point_us": 557.43984375,
+     "iterations_per_block": 2,
+     "plan_ns": 6195866,
+     "workspace_ns": 568252,
+     "first_call_ns": 34386463,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-ibp",
+     "engine": "IREGI",
+     "mode": "IBP",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 1.7730511804273565e-11,
+     "accepted": true,
+     "timing_us": {
+      "median": 6782201.812,
+      "mean": 6763996.853571428,
+      "standard_error": 23530.970895630693,
+      "min": 6690651.294,
+      "max": 6867821.25,
+      "blocks": 7
+     },
+     "per_point_us": 211943.806625,
+     "iterations_per_block": 1
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 1.7730511804273565e-11,
+      "accepted": true,
+      "timing_us": {
+       "median": 6782201.812,
+       "mean": 6763996.853571428,
+       "standard_error": 23530.970895630693,
+       "min": 6690651.294,
+       "max": 6867821.25,
+       "blocks": 7
+      },
+      "per_point_us": 211943.806625,
+      "iterations_per_block": 1
+     },
+     {
+      "id": "iregi-pv",
+      "engine": "IREGI",
+      "mode": "PV",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 0.005939801046811232,
+      "accepted": false,
+      "timing_us": {
+       "median": 3843928.476,
+       "mean": 3855704.717857143,
+       "standard_error": 10896.021049026653,
+       "min": 3826807.455,
+       "max": 3912510.248,
+       "blocks": 7
+      },
+      "per_point_us": 120122.764875,
+      "iterations_per_block": 1
+     },
+     {
+      "id": "iregi-hybrid",
+      "engine": "IREGI",
+      "mode": "Hybrid",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 0.005939801046811232,
+      "accepted": false,
+      "timing_us": {
+       "median": 3851151.789,
+       "mean": 3846216.5455714287,
+       "standard_error": 5291.913225715499,
+       "min": 3826320.245,
+       "max": 3867151.992,
+       "blocks": 7
+      },
+      "per_point_us": 120348.49340625,
+      "iterations_per_block": 1
+     }
+    ],
+    "collier": {
+     "id": "collier",
+     "engine": "COLLIER",
+     "mode": "mode1-ten6-perm0",
+     "status": "measured",
+     "complete_finite": false,
+     "lane_statuses": {
+      "unstable": 1,
+      "success": 31
+     },
+     "relative_error": null,
+     "accepted": false,
+     "timing_us": {
+      "median": 48880.595,
+      "mean": 48780.23,
+      "standard_error": 144.27118163557063,
+      "min": 48237.892,
+      "max": 49202.456,
+      "blocks": 7
+     },
+     "per_point_us": 1527.51859375,
+     "iterations_per_block": 1
+    },
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 8.556037236765987e-12,
+     "accepted": true,
+     "timing_us": {
+      "median": 17805.22,
+      "mean": 17795.055285714287,
+      "standard_error": 42.73565752081503,
+      "min": 17628.484,
+      "max": 17923.7,
+      "blocks": 7
+     },
+     "per_point_us": 556.413125,
+     "iterations_per_block": 2,
+     "plan_ns": 6343577,
+     "workspace_ns": 632413,
+     "first_call_ns": 33803291,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": {
+     "id": "ninjars",
+     "engine": "NinjaRS",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": false,
+     "lane_statuses": {
+      "unknown": 32
+     },
+     "relative_error": null,
+     "accepted": false,
+     "timing_us": {
+      "median": 43524.472,
+      "mean": 43494.133285714284,
+      "standard_error": 105.08241753085647,
+      "min": 43031.931,
+      "max": 43968.103,
+      "blocks": 7
+     },
+     "per_point_us": 1360.13975,
+     "iterations_per_block": 1,
+     "ninjars_engine": "generic",
+     "fast_failed_lanes": 32
+    },
+    "ratios": {
+     "tirust_contracted_over_ninjars": {
+      "median": 0.40908526127554173,
+      "ci99": [
+       0.4066389951522295,
+       0.41200772051580165
+      ],
+      "pairs": 7
+     },
+     "tirust_over_iregi": {
+      "median": 0.0026301303757193476,
+      "ci99": [
+       0.002568832655625683,
+       0.002704621686089485
+      ],
+      "pairs": 7
+     },
+     "tirust_over_collier": {
+      "median": 0.3676117107273261,
+      "ci99": [
+       0.3586334690678826,
+       0.37066658826949617
+      ],
+      "pairs": 7
+     }
+    },
+    "tirust_iregi_cross_error_lanes": 1.0554079303830113e-10,
+    "cpu_busy_before": 0.0
+   }
+  },
+  {
+   "id": "ordinary-n7-r7",
+   "table": "ordinary",
+   "label": "N=7, R=7",
+   "n": 7,
+   "rank": 7,
+   "powers": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1
+   ],
+   "dimension_shift": 0,
+   "moments": 330,
+   "batch1": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 2.0068292208842384e-11,
+     "accepted": true,
+     "timing_us": {
+      "median": 3334.199714285714,
+      "mean": 3343.509753246753,
+      "standard_error": 14.205466634762512,
+      "min": 3270.5994285714287,
+      "max": 3457.013,
+      "blocks": 11
+     },
+     "per_point_us": 3334.199714285714,
+     "iterations_per_block": 7,
+     "plan_ns": 19874524,
+     "workspace_ns": 1391885,
+     "first_call_ns": 54787590,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-ibp",
+     "engine": "IREGI",
+     "mode": "IBP",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 2.8786265930534525e-06,
+     "accepted": true,
+     "timing_us": {
+      "median": 3753641.035,
+      "mean": 3755203.081909091,
+      "standard_error": 18554.46000915678,
+      "min": 3677674.706,
+      "max": 3884238.706,
+      "blocks": 11
+     },
+     "per_point_us": 3753641.035,
+     "iterations_per_block": 1
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 2.8786265930534525e-06,
+      "accepted": true,
+      "timing_us": {
+       "median": 3753641.035,
+       "mean": 3755203.081909091,
+       "standard_error": 18554.46000915678,
+       "min": 3677674.706,
+       "max": 3884238.706,
+       "blocks": 11
+      },
+      "per_point_us": 3753641.035,
+      "iterations_per_block": 1
+     },
+     {
+      "id": "iregi-pv",
+      "engine": "IREGI",
+      "mode": "PV",
+      "status": "measured",
+      "complete_finite": false,
+      "lane_statuses": {
+       "unstable": 1
+      },
+      "relative_error": null,
+      "accepted": false,
+      "timing_us": {
+       "median": 20.061749219562955,
+       "mean": 20.072758868602783,
+       "standard_error": 0.0428699364640792,
+       "min": 19.93057232049948,
+       "max": 20.369742976066597,
+       "blocks": 11
+      },
+      "per_point_us": 20.061749219562955,
+      "iterations_per_block": 961
+     },
+     {
+      "id": "iregi-hybrid",
+      "engine": "IREGI",
+      "mode": "Hybrid",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 0.6145303167900819,
+      "accepted": false,
+      "timing_us": {
+       "median": 3773192.42,
+       "mean": 3781461.2584545454,
+       "standard_error": 13116.812998224708,
+       "min": 3741653.15,
+       "max": 3882444.974,
+       "blocks": 11
+      },
+      "per_point_us": 3773192.42,
+      "iterations_per_block": 1
+     }
+    ],
+    "collier": {
+     "id": "collier",
+     "engine": "COLLIER",
+     "mode": "mode1-ten6-perm0",
+     "status": "measured",
+     "complete_finite": false,
+     "lane_statuses": {
+      "unstable": 1
+     },
+     "relative_error": null,
+     "accepted": false,
+     "timing_us": {
+      "median": 5130.10925,
+      "mean": 5119.845159090909,
+      "standard_error": 17.438281091866433,
+      "min": 5042.06625,
+      "max": 5210.40675,
+      "blocks": 11
+     },
+     "per_point_us": 5130.10925,
+     "iterations_per_block": 4
+    },
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 2.0068292208842384e-11,
+     "accepted": true,
+     "timing_us": {
+      "median": 3338.914,
+      "mean": 3342.3232878787876,
+      "standard_error": 16.975569720897017,
+      "min": 3271.7421666666664,
+      "max": 3442.9195,
+      "blocks": 11
+     },
+     "per_point_us": 3338.914,
+     "iterations_per_block": 6,
+     "plan_ns": 18895469,
+     "workspace_ns": 1381356,
+     "first_call_ns": 55462422,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": {
+     "id": "ninjars",
+     "engine": "NinjaRS",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": false,
+     "lane_statuses": {
+      "unknown": 1
+     },
+     "relative_error": null,
+     "accepted": false,
+     "timing_us": {
+      "median": 3472.252125,
+      "mean": 3472.0214090909094,
+      "standard_error": 12.073283493786295,
+      "min": 3424.355625,
+      "max": 3568.46,
+      "blocks": 11
+     },
+     "per_point_us": 3472.252125,
+     "iterations_per_block": 6,
+     "ninjars_engine": "generic",
+     "fast_failed_lanes": 1
+    },
+    "ratios": {
+     "tirust_contracted_over_ninjars": {
+      "median": 0.9646061810415841,
+      "ci99": [
+       0.9371341097594309,
+       0.9839928795318622
+      ],
+      "pairs": 11
+     },
+     "tirust_over_iregi": {
+      "median": 0.0008927074533418038,
+      "ci99": [
+       0.0008678103644346844,
+       0.0009043908704446001
+      ],
+      "pairs": 11
+     },
+     "tirust_over_collier": {
+      "median": 0.6521839808001068,
+      "ci99": [
+       0.6467356692306884,
+       0.6581044291901796
+      ],
+      "pairs": 11
+     }
+    },
+    "tirust_iregi_cross_error_lanes": null,
+    "cpu_busy_before": 0.2308
+   },
+   "batch32": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 2.0068292208842384e-11,
+     "accepted": true,
+     "timing_us": {
+      "median": 230781.393,
+      "mean": 241716.94542857143,
+      "standard_error": 10698.871714781488,
+      "min": 229890.259,
+      "max": 305850.862,
+      "blocks": 7
+     },
+     "per_point_us": 7211.91853125,
+     "iterations_per_block": 1,
+     "plan_ns": 18177007,
+     "workspace_ns": 1431916,
+     "first_call_ns": 343165512,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 12
+    },
+    "iregi": {
+     "id": "iregi-ibp",
+     "engine": "IREGI",
+     "mode": "IBP",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 2.8786265930534525e-06,
+     "accepted": true,
+     "timing_us": {
+      "median": 128102472.115,
+      "mean": 130587126.04114285,
+      "standard_error": 2547831.413744883,
+      "min": 127494357.183,
+      "max": 145843031.572,
+      "blocks": 7
+     },
+     "per_point_us": 4003202.25359375,
+     "iterations_per_block": 1
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 2.8786265930534525e-06,
+      "accepted": true,
+      "timing_us": {
+       "median": 128102472.115,
+       "mean": 130587126.04114285,
+       "standard_error": 2547831.413744883,
+       "min": 127494357.183,
+       "max": 145843031.572,
+       "blocks": 7
+      },
+      "per_point_us": 4003202.25359375,
+      "iterations_per_block": 1
+     },
+     {
+      "id": "iregi-pv",
+      "engine": "IREGI",
+      "mode": "PV",
+      "status": "measured",
+      "complete_finite": false,
+      "lane_statuses": {
+       "unstable": 3,
+       "success": 29
+      },
+      "relative_error": null,
+      "accepted": false,
+      "timing_us": {
+       "median": 64746308.9,
+       "mean": 65165041.43657143,
+       "standard_error": 425470.1411277866,
+       "min": 64411935.402,
+       "max": 67665796.042,
+       "blocks": 7
+      },
+      "per_point_us": 2023322.153125,
+      "iterations_per_block": 1
+     },
+     {
+      "id": "iregi-hybrid",
+      "engine": "IREGI",
+      "mode": "Hybrid",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 0.6145303167900819,
+      "accepted": false,
+      "timing_us": {
+       "median": 76324213.398,
+       "mean": 77795305.111,
+       "standard_error": 1269750.9610967236,
+       "min": 75909696.653,
+       "max": 85225630.87700002,
+       "blocks": 7
+      },
+      "per_point_us": 2385131.6686875,
+      "iterations_per_block": 1
+     }
+    ],
+    "collier": {
+     "id": "collier",
+     "engine": "COLLIER",
+     "mode": "mode1-ten6-perm0",
+     "status": "measured",
+     "complete_finite": false,
+     "lane_statuses": {
+      "unstable": 1,
+      "success": 31
+     },
+     "relative_error": null,
+     "accepted": false,
+     "timing_us": {
+      "median": 151730.07,
+      "mean": 153581.1887142857,
+      "standard_error": 1877.7845225495275,
+      "min": 150089.634,
+      "max": 164028.784,
+      "blocks": 7
+     },
+     "per_point_us": 4741.5646875,
+     "iterations_per_block": 1
+    },
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 2.0068292208842384e-11,
+     "accepted": true,
+     "timing_us": {
+      "median": 233884.29,
+      "mean": 235005.2532857143,
+      "standard_error": 1655.102752594198,
+      "min": 229878.588,
+      "max": 243564.381,
+      "blocks": 7
+     },
+     "per_point_us": 7308.8840625,
+     "iterations_per_block": 1,
+     "plan_ns": 18188186,
+     "workspace_ns": 1491107,
+     "first_call_ns": 309966953,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 12
+    },
+    "ninjars": {
+     "id": "ninjars",
+     "engine": "NinjaRS",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": false,
+     "lane_statuses": {
+      "unknown": 32
+     },
+     "relative_error": null,
+     "accepted": false,
+     "timing_us": {
+      "median": 111386.77,
+      "mean": 111661.95828571428,
+      "standard_error": 655.4841325863732,
+      "min": 109602.149,
+      "max": 113844.432,
+      "blocks": 7
+     },
+     "per_point_us": 3480.8365625,
+     "iterations_per_block": 1,
+     "ninjars_engine": "generic",
+     "fast_failed_lanes": 32
+    },
+    "ratios": {
+     "tirust_contracted_over_ninjars": {
+      "median": 2.101125735129944,
+      "ci99": [
+       2.0568851412059472,
+       2.1394492178589815
+      ],
+      "pairs": 7
+     },
+     "tirust_over_iregi": {
+      "median": 0.00180077095462226,
+      "ci99": [
+       0.0015832400458982965,
+       0.0023976252925039876
+      ],
+      "pairs": 7
+     },
+     "tirust_over_collier": {
+      "median": 1.5203526301675074,
+      "ci99": [
+       1.4015238874172231,
+       2.037788046041874
+      ],
+      "pairs": 7
+     }
+    },
+    "tirust_iregi_cross_error_lanes": 1.0001125535064892,
+    "cpu_busy_before": 0.098
+   }
+  },
+  {
+   "id": "extended-n1-r6-dot2",
+   "table": "extended",
+   "label": "N=1, R=6",
+   "n": 1,
+   "rank": 6,
+   "powers": [
+    2
+   ],
+   "dimension_shift": 0,
+   "moments": 210,
+   "batch1": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 4.499564438479887e-16,
+     "accepted": true,
+     "timing_us": {
+      "median": 3.862580774365821,
+      "mean": 3.8652877776429175,
+      "standard_error": 0.009436765591117747,
+      "min": 3.829176234979973,
+      "max": 3.9259332443257677,
+      "blocks": 11
+     },
+     "per_point_us": 3.862580774365821,
+     "iterations_per_block": 749,
+     "plan_ns": 236911,
+     "workspace_ns": 233721,
+     "first_call_ns": 2011969,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-ibp",
+     "engine": "IREGI",
+     "mode": "IBP",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 8.999128876959774e-17,
+     "accepted": true,
+     "timing_us": {
+      "median": 35.9043918128655,
+      "mean": 35.91128832181464,
+      "standard_error": 0.06457016207186728,
+      "min": 35.54314230019493,
+      "max": 36.39408187134503,
+      "blocks": 11
+     },
+     "per_point_us": 35.9043918128655,
+     "iterations_per_block": 513
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 8.999128876959774e-17,
+      "accepted": true,
+      "timing_us": {
+       "median": 35.9043918128655,
+       "mean": 35.91128832181464,
+       "standard_error": 0.06457016207186728,
+       "min": 35.54314230019493,
+       "max": 36.39408187134503,
+       "blocks": 11
+      },
+      "per_point_us": 35.9043918128655,
+      "iterations_per_block": 513
+     }
+    ],
+    "collier": null,
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 4.499564438479887e-16,
+     "accepted": true,
+     "timing_us": {
+      "median": 4.549501691093574,
+      "mean": 4.547867172286563,
+      "standard_error": 0.0111092244089244,
+      "min": 4.486660653889515,
+      "max": 4.593177001127396,
+      "blocks": 11
+     },
+     "per_point_us": 4.549501691093574,
+     "iterations_per_block": 887,
+     "plan_ns": 224031,
+     "workspace_ns": 197041,
+     "first_call_ns": 35810,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": null,
+    "ratios": {
+     "tirust_over_iregi": {
+      "median": 0.10751738718836693,
+      "ci99": [
+       0.10676248363474433,
+       0.10876333256958229
+      ],
+      "pairs": 11
+     }
+    },
+    "tirust_iregi_cross_error_lanes": null,
+    "cpu_busy_before": 0.0196
+   },
+   "batch32": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 4.499564438479887e-16,
+     "accepted": true,
+     "timing_us": {
+      "median": 102.46954054054055,
+      "mean": 102.62218378378378,
+      "standard_error": 0.13482263619298124,
+      "min": 102.19878378378378,
+      "max": 103.17348648648648,
+      "blocks": 7
+     },
+     "per_point_us": 3.202173141891892,
+     "iterations_per_block": 185,
+     "plan_ns": 235791,
+     "workspace_ns": 210131,
+     "first_call_ns": 405112,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-ibp",
+     "engine": "IREGI",
+     "mode": "IBP",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 8.999128876959774e-17,
+     "accepted": true,
+     "timing_us": {
+      "median": 1132.0756470588235,
+      "mean": 1132.6019747899159,
+      "standard_error": 5.9269870493158585,
+      "min": 1112.900294117647,
+      "max": 1164.127,
+      "blocks": 7
+     },
+     "per_point_us": 35.377363970588235,
+     "iterations_per_block": 17
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 8.999128876959774e-17,
+      "accepted": true,
+      "timing_us": {
+       "median": 1132.0756470588235,
+       "mean": 1132.6019747899159,
+       "standard_error": 5.9269870493158585,
+       "min": 1112.900294117647,
+       "max": 1164.127,
+       "blocks": 7
+      },
+      "per_point_us": 35.377363970588235,
+      "iterations_per_block": 17
+     }
+    ],
+    "collier": null,
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 4.499564438479887e-16,
+     "accepted": true,
+     "timing_us": {
+      "median": 127.15933766233766,
+      "mean": 127.4868970315399,
+      "standard_error": 0.23803110868843075,
+      "min": 127.03056493506493,
+      "max": 128.70661688311688,
+      "blocks": 7
+     },
+     "per_point_us": 3.973729301948052,
+     "iterations_per_block": 154,
+     "plan_ns": 240042,
+     "workspace_ns": 198231,
+     "first_call_ns": 399612,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": null,
+    "ratios": {
+     "tirust_over_iregi": {
+      "median": 0.09049312183829383,
+      "ci99": [
+       0.08844333623021859,
+       0.0923544330241775
+      ],
+      "pairs": 7
+     }
+    },
+    "tirust_iregi_cross_error_lanes": 1.124891109619972e-15,
+    "cpu_busy_before": 0.0
+   }
+  },
+  {
+   "id": "extended-n2-r2-dot2",
+   "table": "extended",
+   "label": "N=2, R=2",
+   "n": 2,
+   "rank": 2,
+   "powers": [
+    2,
+    1
+   ],
+   "dimension_shift": 0,
+   "moments": 15,
+   "batch1": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 2.5965997206221066e-16,
+     "accepted": true,
+     "timing_us": {
+      "median": 2.451645926119989,
+      "mean": 2.4535674851739824,
+      "standard_error": 0.0038665178423683837,
+      "min": 2.442921535237097,
+      "max": 2.489918129421011,
+      "blocks": 11
+     },
+     "per_point_us": 2.451645926119989,
+     "iterations_per_block": 7634,
+     "plan_ns": 92030,
+     "workspace_ns": 179851,
+     "first_call_ns": 54200,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-ibp",
+     "engine": "IREGI",
+     "mode": "IBP",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 1.2982998603110533e-16,
+     "accepted": true,
+     "timing_us": {
+      "median": 27.375192366412215,
+      "mean": 27.418088688410823,
+      "standard_error": 0.07174792269255426,
+      "min": 27.119908396946563,
+      "max": 27.985285496183206,
+      "blocks": 11
+     },
+     "per_point_us": 27.375192366412215,
+     "iterations_per_block": 655
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 1.2982998603110533e-16,
+      "accepted": true,
+      "timing_us": {
+       "median": 27.375192366412215,
+       "mean": 27.418088688410823,
+       "standard_error": 0.07174792269255426,
+       "min": 27.119908396946563,
+       "max": 27.985285496183206,
+       "blocks": 11
+      },
+      "per_point_us": 27.375192366412215,
+      "iterations_per_block": 655
+     }
+    ],
+    "collier": null,
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 2.5965997206221066e-16,
+     "accepted": true,
+     "timing_us": {
+      "median": 2.4996108457431863,
+      "mean": 2.5056658024470613,
+      "standard_error": 0.005239566301172255,
+      "min": 2.4935571789828606,
+      "max": 2.55598370328744,
+      "blocks": 11
+     },
+     "per_point_us": 2.4996108457431863,
+     "iterations_per_block": 7118,
+     "plan_ns": 84881,
+     "workspace_ns": 143940,
+     "first_call_ns": 36500,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": null,
+    "ratios": {
+     "tirust_over_iregi": {
+      "median": 0.08965674272302487,
+      "ci99": [
+       0.08874856303150992,
+       0.09048180509082895
+      ],
+      "pairs": 11
+     }
+    },
+    "tirust_iregi_cross_error_lanes": null,
+    "cpu_busy_before": 0.4314
+   },
+   "batch32": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 2.5965997206221066e-16,
+     "accepted": true,
+     "timing_us": {
+      "median": 65.47099649122806,
+      "mean": 65.38177744360902,
+      "standard_error": 0.06060405612681747,
+      "min": 65.1203649122807,
+      "max": 65.5424701754386,
+      "blocks": 7
+     },
+     "per_point_us": 2.045968640350877,
+     "iterations_per_block": 285,
+     "plan_ns": 109611,
+     "workspace_ns": 168580,
+     "first_call_ns": 154831,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-ibp",
+     "engine": "IREGI",
+     "mode": "IBP",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 1.2982998603110533e-16,
+     "accepted": true,
+     "timing_us": {
+      "median": 1010.5003684210526,
+      "mean": 1012.8380225563909,
+      "standard_error": 1.9281419107315199,
+      "min": 1008.2556315789474,
+      "max": 1022.480947368421,
+      "blocks": 7
+     },
+     "per_point_us": 31.578136513157894,
+     "iterations_per_block": 19
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 1.2982998603110533e-16,
+      "accepted": true,
+      "timing_us": {
+       "median": 1010.5003684210526,
+       "mean": 1012.8380225563909,
+       "standard_error": 1.9281419107315199,
+       "min": 1008.2556315789474,
+       "max": 1022.480947368421,
+       "blocks": 7
+      },
+      "per_point_us": 31.578136513157894,
+      "iterations_per_block": 19
+     }
+    ],
+    "collier": null,
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 2.5965997206221066e-16,
+     "accepted": true,
+     "timing_us": {
+      "median": 67.38624354243542,
+      "mean": 67.38629151291514,
+      "standard_error": 0.04933820146978852,
+      "min": 67.20037638376384,
+      "max": 67.53528413284134,
+      "blocks": 7
+     },
+     "per_point_us": 2.105820110701107,
+     "iterations_per_block": 271,
+     "plan_ns": 78731,
+     "workspace_ns": 151841,
+     "first_call_ns": 137961,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": null,
+    "ratios": {
+     "tirust_over_iregi": {
+      "median": 0.06467126627295908,
+      "ci99": [
+       0.0639298284698446,
+       0.0648849263319902
+      ],
+      "pairs": 7
+     }
+    },
+    "tirust_iregi_cross_error_lanes": 3.57892652764197e-15,
+    "cpu_busy_before": 0.0
+   }
+  },
+  {
+   "id": "extended-n3-r4-dot2",
+   "table": "extended",
+   "label": "N=3, R=4",
+   "n": 3,
+   "rank": 4,
+   "powers": [
+    2,
+    1,
+    1
+   ],
+   "dimension_shift": 0,
+   "moments": 70,
+   "batch1": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 5.712884164262732e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 9.919978189028422,
+      "mean": 9.905302589677342,
+      "standard_error": 0.01818581210341442,
+      "min": 9.790381361533376,
+      "max": 10.010018506278916,
+      "blocks": 11
+     },
+     "per_point_us": 9.919978189028422,
+     "iterations_per_block": 1513,
+     "plan_ns": 194441,
+     "workspace_ns": 204281,
+     "first_call_ns": 93950,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-ibp",
+     "engine": "IREGI",
+     "mode": "IBP",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 5.3911048401074755e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 534.5107837837838,
+      "mean": 534.3260884520886,
+      "standard_error": 0.48333224731384866,
+      "min": 531.2153513513514,
+      "max": 536.9054054054054,
+      "blocks": 11
+     },
+     "per_point_us": 534.5107837837838,
+     "iterations_per_block": 37
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 5.3911048401074755e-15,
+      "accepted": true,
+      "timing_us": {
+       "median": 534.5107837837838,
+       "mean": 534.3260884520886,
+       "standard_error": 0.48333224731384866,
+       "min": 531.2153513513514,
+       "max": 536.9054054054054,
+       "blocks": 11
+      },
+      "per_point_us": 534.5107837837838,
+      "iterations_per_block": 37
+     }
+    ],
+    "collier": null,
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 5.712884164262732e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 10.038358465608466,
+      "mean": 10.033698172198172,
+      "standard_error": 0.013583079056304827,
+      "min": 9.954032407407407,
+      "max": 10.112115740740741,
+      "blocks": 11
+     },
+     "per_point_us": 10.038358465608466,
+     "iterations_per_block": 1512,
+     "plan_ns": 172851,
+     "workspace_ns": 183281,
+     "first_call_ns": 73681,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": null,
+    "ratios": {
+     "tirust_over_iregi": {
+      "median": 0.01854099805995358,
+      "ci99": [
+       0.01834621823834021,
+       0.018656761438376364
+      ],
+      "pairs": 11
+     }
+    },
+    "tirust_iregi_cross_error_lanes": null,
+    "cpu_busy_before": 0.58
+   },
+   "batch32": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 5.712884164262732e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 310.2721904761905,
+      "mean": 310.3996507936508,
+      "standard_error": 0.5836032556224531,
+      "min": 309.02788888888887,
+      "max": 313.5350634920635,
+      "blocks": 7
+     },
+     "per_point_us": 9.696005952380952,
+     "iterations_per_block": 63,
+     "plan_ns": 193450,
+     "workspace_ns": 204970,
+     "first_call_ns": 509352,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-ibp",
+     "engine": "IREGI",
+     "mode": "IBP",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 5.3911048401074755e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 17811.4355,
+      "mean": 17893.9205,
+      "standard_error": 78.39682717788727,
+      "min": 17742.2645,
+      "max": 18348.4875,
+      "blocks": 7
+     },
+     "per_point_us": 556.607359375,
+     "iterations_per_block": 2
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 5.3911048401074755e-15,
+      "accepted": true,
+      "timing_us": {
+       "median": 17811.4355,
+       "mean": 17893.9205,
+       "standard_error": 78.39682717788727,
+       "min": 17742.2645,
+       "max": 18348.4875,
+       "blocks": 7
+      },
+      "per_point_us": 556.607359375,
+      "iterations_per_block": 2
+     }
+    ],
+    "collier": null,
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 5.712884164262732e-15,
+     "accepted": true,
+     "timing_us": {
+      "median": 309.11838095238096,
+      "mean": 309.2264013605443,
+      "standard_error": 0.3685312831320042,
+      "min": 308.15868253968256,
+      "max": 310.697746031746,
+      "blocks": 7
+     },
+     "per_point_us": 9.659949404761905,
+     "iterations_per_block": 63,
+     "plan_ns": 184821,
+     "workspace_ns": 192171,
+     "first_call_ns": 501772,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": null,
+    "ratios": {
+     "tirust_over_iregi": {
+      "median": 0.017381770411972027,
+      "ci99": [
+       0.016845813931486524,
+       0.017603020457955986
+      ],
+      "pairs": 7
+     }
+    },
+    "tirust_iregi_cross_error_lanes": 1.9960167956809107e-14,
+    "cpu_busy_before": 0.0
+   }
+  },
+  {
+   "id": "extended-n4-r6-dot2",
+   "table": "extended",
+   "label": "N=4, R=6",
+   "n": 4,
+   "rank": 6,
+   "powers": [
+    2,
+    1,
+    1,
+    1
+   ],
+   "dimension_shift": 0,
+   "moments": 210,
+   "batch1": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 6.045924885905901e-14,
+     "accepted": true,
+     "timing_us": {
+      "median": 43.42520822622108,
+      "mean": 43.42520986211731,
+      "standard_error": 0.048720644346435776,
+      "min": 43.176182519280204,
+      "max": 43.835287917737794,
+      "blocks": 11
+     },
+     "per_point_us": 43.42520822622108,
+     "iterations_per_block": 389,
+     "plan_ns": 719473,
+     "workspace_ns": 284981,
+     "first_call_ns": 172701,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-ibp",
+     "engine": "IREGI",
+     "mode": "IBP",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 7.78169701659662e-14,
+     "accepted": true,
+     "timing_us": {
+      "median": 14930.857,
+      "mean": 14954.023454545455,
+      "standard_error": 22.453818028997627,
+      "min": 14865.4865,
+      "max": 15129.998,
+      "blocks": 11
+     },
+     "per_point_us": 14930.857,
+     "iterations_per_block": 2
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 7.78169701659662e-14,
+      "accepted": true,
+      "timing_us": {
+       "median": 14930.857,
+       "mean": 14954.023454545455,
+       "standard_error": 22.453818028997627,
+       "min": 14865.4865,
+       "max": 15129.998,
+       "blocks": 11
+      },
+      "per_point_us": 14930.857,
+      "iterations_per_block": 2
+     }
+    ],
+    "collier": null,
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 6.045924885905901e-14,
+     "accepted": true,
+     "timing_us": {
+      "median": 43.94756451612903,
+      "mean": 43.9482866568915,
+      "standard_error": 0.051154724395270045,
+      "min": 43.759903225806454,
+      "max": 44.31141129032258,
+      "blocks": 11
+     },
+     "per_point_us": 43.94756451612903,
+     "iterations_per_block": 372,
+     "plan_ns": 685633,
+     "workspace_ns": 263321,
+     "first_call_ns": 132971,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": null,
+    "ratios": {
+     "tirust_over_iregi": {
+      "median": 0.002903485010842571,
+      "ci99": [
+       0.0028941604263966964,
+       0.0029123580134560825
+      ],
+      "pairs": 11
+     }
+    },
+    "tirust_iregi_cross_error_lanes": null,
+    "cpu_busy_before": 0.0
+   },
+   "batch32": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 6.045924885905901e-14,
+     "accepted": true,
+     "timing_us": {
+      "median": 1368.1388,
+      "mean": 1371.3713904761908,
+      "standard_error": 4.427639694130864,
+      "min": 1361.0700666666667,
+      "max": 1394.6536,
+      "blocks": 7
+     },
+     "per_point_us": 42.7543375,
+     "iterations_per_block": 15,
+     "plan_ns": 745373,
+     "workspace_ns": 276451,
+     "first_call_ns": 1805988,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-ibp",
+     "engine": "IREGI",
+     "mode": "IBP",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 7.78169701659662e-14,
+     "accepted": true,
+     "timing_us": {
+      "median": 498002.746,
+      "mean": 497822.2817142857,
+      "standard_error": 2446.4620640080852,
+      "min": 487645.249,
+      "max": 506664.384,
+      "blocks": 7
+     },
+     "per_point_us": 15562.5858125,
+     "iterations_per_block": 1
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 7.78169701659662e-14,
+      "accepted": true,
+      "timing_us": {
+       "median": 498002.746,
+       "mean": 497822.2817142857,
+       "standard_error": 2446.4620640080852,
+       "min": 487645.249,
+       "max": 506664.384,
+       "blocks": 7
+      },
+      "per_point_us": 15562.5858125,
+      "iterations_per_block": 1
+     }
+    ],
+    "collier": null,
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 6.045924885905901e-14,
+     "accepted": true,
+     "timing_us": {
+      "median": 1388.6548666666667,
+      "mean": 1390.692523809524,
+      "standard_error": 3.122849124108071,
+      "min": 1383.5962,
+      "max": 1408.509,
+      "blocks": 7
+     },
+     "per_point_us": 43.395464583333336,
+     "iterations_per_block": 15,
+     "plan_ns": 725153,
+     "workspace_ns": 280861,
+     "first_call_ns": 1759258,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": null,
+    "ratios": {
+     "tirust_over_iregi": {
+      "median": 0.0027472515181673316,
+      "ci99": [
+       0.002693597924841177,
+       0.00280263393769588
+      ],
+      "pairs": 7
+     }
+    },
+    "tirust_iregi_cross_error_lanes": 2.3524945022283073e-13,
+    "cpu_busy_before": 0.0
+   }
+  },
+  {
+   "id": "extended-n4-r6-dot3",
+   "table": "extended",
+   "label": "N=4, R=6",
+   "n": 4,
+   "rank": 6,
+   "powers": [
+    3,
+    1,
+    1,
+    1
+   ],
+   "dimension_shift": 0,
+   "moments": 210,
+   "batch1": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 8.069836470133687e-14,
+     "accepted": true,
+     "timing_us": {
+      "median": 68.18409961685823,
+      "mean": 68.22838383838385,
+      "standard_error": 0.06062580487306711,
+      "min": 67.84689655172414,
+      "max": 68.54942911877394,
+      "blocks": 11
+     },
+     "per_point_us": 68.18409961685823,
+     "iterations_per_block": 261,
+     "plan_ns": 726363,
+     "workspace_ns": 313601,
+     "first_call_ns": 661413,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-ibp",
+     "engine": "IREGI",
+     "mode": "IBP",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 9.918285168954533e-14,
+     "accepted": true,
+     "timing_us": {
+      "median": 18252.317,
+      "mean": 18275.842863636364,
+      "standard_error": 17.570147660306066,
+      "min": 18208.2565,
+      "max": 18415.4975,
+      "blocks": 11
+     },
+     "per_point_us": 18252.317,
+     "iterations_per_block": 2
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 9.918285168954533e-14,
+      "accepted": true,
+      "timing_us": {
+       "median": 18252.317,
+       "mean": 18275.842863636364,
+       "standard_error": 17.570147660306066,
+       "min": 18208.2565,
+       "max": 18415.4975,
+       "blocks": 11
+      },
+      "per_point_us": 18252.317,
+      "iterations_per_block": 2
+     }
+    ],
+    "collier": null,
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 8.069836470133687e-14,
+     "accepted": true,
+     "timing_us": {
+      "median": 69.62859922178988,
+      "mean": 69.59049628581536,
+      "standard_error": 0.06467648606699858,
+      "min": 69.22941245136187,
+      "max": 69.93043190661479,
+      "blocks": 11
+     },
+     "per_point_us": 69.62859922178988,
+     "iterations_per_block": 257,
+     "plan_ns": 705113,
+     "workspace_ns": 280931,
+     "first_call_ns": 169691,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": null,
+    "ratios": {
+     "tirust_over_iregi": {
+      "median": 0.0037375790520938154,
+      "ci99": [
+       0.003708154941928602,
+       0.003746509852253153
+      ],
+      "pairs": 11
+     }
+    },
+    "tirust_iregi_cross_error_lanes": null,
+    "cpu_busy_before": 0.02
+   },
+   "batch32": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 8.069836470133687e-14,
+     "accepted": true,
+     "timing_us": {
+      "median": 2177.5038,
+      "mean": 2177.358314285714,
+      "standard_error": 2.012434855429303,
+      "min": 2168.3367000000003,
+      "max": 2184.5218,
+      "blocks": 7
+     },
+     "per_point_us": 68.04699375,
+     "iterations_per_block": 10,
+     "plan_ns": 749873,
+     "workspace_ns": 313181,
+     "first_call_ns": 2670642,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-ibp",
+     "engine": "IREGI",
+     "mode": "IBP",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 9.918285168954533e-14,
+     "accepted": true,
+     "timing_us": {
+      "median": 600234.551,
+      "mean": 599806.6047142857,
+      "standard_error": 1331.2385611107338,
+      "min": 595684.102,
+      "max": 605728.574,
+      "blocks": 7
+     },
+     "per_point_us": 18757.32971875,
+     "iterations_per_block": 1
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 9.918285168954533e-14,
+      "accepted": true,
+      "timing_us": {
+       "median": 600234.551,
+       "mean": 599806.6047142857,
+       "standard_error": 1331.2385611107338,
+       "min": 595684.102,
+       "max": 605728.574,
+       "blocks": 7
+      },
+      "per_point_us": 18757.32971875,
+      "iterations_per_block": 1
+     }
+    ],
+    "collier": null,
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 8.069836470133687e-14,
+     "accepted": true,
+     "timing_us": {
+      "median": 2194.8997999999997,
+      "mean": 2196.2280142857144,
+      "standard_error": 1.6397556810505167,
+      "min": 2191.1448,
+      "max": 2204.9449,
+      "blocks": 7
+     },
+     "per_point_us": 68.59061874999999,
+     "iterations_per_block": 10,
+     "plan_ns": 719633,
+     "workspace_ns": 276441,
+     "first_call_ns": 2608402,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": null,
+    "ratios": {
+     "tirust_over_iregi": {
+      "median": 0.003629058966840264,
+      "ci99": [
+       0.003579716713182496,
+       0.0036567941120185573
+      ],
+      "pairs": 7
+     }
+    },
+    "tirust_iregi_cross_error_lanes": 2.9752076332590653e-13,
+    "cpu_busy_before": 0.0
+   }
+  },
+  {
+   "id": "extended-n3-r2-h1",
+   "table": "extended",
+   "label": "N=3, R=2",
+   "n": 3,
+   "rank": 2,
+   "powers": [
+    1,
+    1,
+    1
+   ],
+   "dimension_shift": 1,
+   "moments": 15,
+   "batch1": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 1.35224926183109e-14,
+     "accepted": true,
+     "timing_us": {
+      "median": 4.684744359037937,
+      "mean": 4.680125555079684,
+      "standard_error": 0.007642020515595403,
+      "min": 4.646209521448053,
+      "max": 4.73492090255393,
+      "blocks": 11
+     },
+     "per_point_us": 4.684744359037937,
+     "iterations_per_block": 4033,
+     "plan_ns": 164151,
+     "workspace_ns": 186231,
+     "first_call_ns": 80580,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-ibp",
+     "engine": "IREGI",
+     "mode": "IBP",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 1.1338757339036354e-14,
+     "accepted": true,
+     "timing_us": {
+      "median": 84.46203125,
+      "mean": 84.6637849025974,
+      "standard_error": 0.22625448003293944,
+      "min": 83.94734375,
+      "max": 86.16971875,
+      "blocks": 11
+     },
+     "per_point_us": 84.46203125,
+     "iterations_per_block": 224
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 1
+      },
+      "relative_error": 1.1338757339036354e-14,
+      "accepted": true,
+      "timing_us": {
+       "median": 84.46203125,
+       "mean": 84.6637849025974,
+       "standard_error": 0.22625448003293944,
+       "min": 83.94734375,
+       "max": 86.16971875,
+       "blocks": 11
+      },
+      "per_point_us": 84.46203125,
+      "iterations_per_block": 224
+     }
+    ],
+    "collier": null,
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 1
+     },
+     "relative_error": 1.35224926183109e-14,
+     "accepted": true,
+     "timing_us": {
+      "median": 4.752013988010277,
+      "mean": 4.75467482417668,
+      "standard_error": 0.009899550145391484,
+      "min": 4.71059206394519,
+      "max": 4.840678275763631,
+      "blocks": 11
+     },
+     "per_point_us": 4.752013988010277,
+     "iterations_per_block": 3503,
+     "plan_ns": 130321,
+     "workspace_ns": 162511,
+     "first_call_ns": 54510,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": null,
+    "ratios": {
+     "tirust_over_iregi": {
+      "median": 0.05530885745417573,
+      "ci99": [
+       0.05504491584117879,
+       0.05554920253276503
+      ],
+      "pairs": 11
+     }
+    },
+    "tirust_iregi_cross_error_lanes": null,
+    "cpu_busy_before": 0.098
+   },
+   "batch32": {
+    "tirust": {
+     "id": "tirust",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 1.35224926183109e-14,
+     "accepted": true,
+     "timing_us": {
+      "median": 139.17832167832168,
+      "mean": 139.20564935064937,
+      "standard_error": 0.20586184825532386,
+      "min": 138.54306293706293,
+      "max": 140.2683916083916,
+      "blocks": 7
+     },
+     "per_point_us": 4.3493225524475525,
+     "iterations_per_block": 143,
+     "plan_ns": 151450,
+     "workspace_ns": 199031,
+     "first_call_ns": 267511,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "iregi": {
+     "id": "iregi-ibp",
+     "engine": "IREGI",
+     "mode": "IBP",
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 1.1338757339036354e-14,
+     "accepted": true,
+     "timing_us": {
+      "median": 2718.4885,
+      "mean": 2711.829125,
+      "standard_error": 6.504239281896132,
+      "min": 2678.09825,
+      "max": 2731.16975,
+      "blocks": 7
+     },
+     "per_point_us": 84.952765625,
+     "iterations_per_block": 8
+    },
+    "iregi_modes": [
+     {
+      "id": "iregi-ibp",
+      "engine": "IREGI",
+      "mode": "IBP",
+      "status": "measured",
+      "complete_finite": true,
+      "lane_statuses": {
+       "success": 32
+      },
+      "relative_error": 1.1338757339036354e-14,
+      "accepted": true,
+      "timing_us": {
+       "median": 2718.4885,
+       "mean": 2711.829125,
+       "standard_error": 6.504239281896132,
+       "min": 2678.09825,
+       "max": 2731.16975,
+       "blocks": 7
+      },
+      "per_point_us": 84.952765625,
+      "iterations_per_block": 8
+     }
+    ],
+    "collier": null,
+    "tirust_contracted": {
+     "id": "tirust-contracted",
+     "engine": "TIRust",
+     "mode": null,
+     "status": "measured",
+     "complete_finite": true,
+     "lane_statuses": {
+      "success": 32
+     },
+     "relative_error": 1.35224926183109e-14,
+     "accepted": true,
+     "timing_us": {
+      "median": 142.69890647482015,
+      "mean": 142.5931151079137,
+      "standard_error": 0.20431309404486497,
+      "min": 141.8360287769784,
+      "max": 143.39078417266185,
+      "blocks": 7
+     },
+     "per_point_us": 4.45934082733813,
+     "iterations_per_block": 139,
+     "plan_ns": 138240,
+     "workspace_ns": 172621,
+     "first_call_ns": 244251,
+     "plan_engine": "Direct",
+     "workspace_engine": "Direct",
+     "fallback_rows": 0
+    },
+    "ninjars": null,
+    "ratios": {
+     "tirust_over_iregi": {
+      "median": 0.05121618073091477,
+      "ci99": [
+       0.050955443188752746,
+       0.05202739239737322
+      ],
+      "pairs": 7
+     }
+    },
+    "tirust_iregi_cross_error_lanes": 4.4607440456754597e-14,
+    "cpu_busy_before": 0.0
+   }
+  }
+ ],
+ "tirust_source_commit": "3f7cd053d5400a7a1b574506b1cdaec27c096690"
+}

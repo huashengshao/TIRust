@@ -312,4 +312,4 @@ within 8 u² of the term magnitudes; commutativity, oddness, zero imaginary part
 of `z conj(z)`); iregi-masters' double-double master tests and iregi-rust's
 direct-engine and rescue tests pass. Opening N7R7 batch of 32 in iregi-rust:
 106-bit masters 95 -> 71 ms, rescued arrays within 1.3e-26 of 256 bits.
-Upstream branch `fused-double-double-kernels` (stacked on #13).
+Upstream: alphal00p/oneloopmaster#16, merged (b667e78).
