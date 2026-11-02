@@ -343,7 +343,7 @@
 // Same-session direct-engine campaign (30 October 2026): TIRust public
 // binary64 default versus original IREGI and COLLIER, interleaved per block.
 // The latest bound capture of each campaign is shown; earlier ones stay in the data.
-#let direct-capture-ids = ("015", "014", "013", "012", "011", "010", "008", "007", "006", "005", "004", "003", "002")
+#let direct-capture-ids = ("016", "015", "014", "013", "012", "011", "010", "008", "007", "006", "005", "004", "003", "002")
 #let direct-campaign-id = direct-capture-ids.find(id => ("direct_engine_20261030_capture" + id) in data)
 #let direct-campaign = if direct-campaign-id != none { data.at("direct_engine_20261030_capture" + direct-campaign-id) } else { data.at("direct_engine_20261030", default: none) }
 #let direct-first-capture = data.at("direct_engine_20261030", default: none)
@@ -633,11 +633,15 @@
     amber with diagnostic times and never enter a ratio. Builds: TIRust release (thin LTO), Fortran
     `-O3`, all baseline x86-64; binary SHA-256 in #raw("validation/benchmark/direct-engine-20261030/summary" + (if direct-campaign-id == none { "" } else { "-" + direct-campaign-id }) + ".json").
     TIRust source: commit #raw(snapshot.at("tirust_source_commit", default: snapshot.tirust_git_head).slice(0, 7)).
-    This capture (015, 2 November) measures the same TIRust library as capture 014 (its timing driver gained
-    the binary64-only modes of the tables after the NinjaRS tables) and agrees with capture 014 within 7% on
-    every row (separate sessions; no ratio across them); N1R0 batch 32 is back at 7.4 µs (capture 014:
-    7.9 µs; 7.35–7.96 µs since capture 008). IREGI was not rerun on N7R7 batch 32 (about half an hour per
-    capture); its cells show capture 014's measurement and that capture's own ratio. Since capture 014 the
+    This capture (016, 2 November) measures TIRust 5a6d415: with the precision rescue disabled, heptagon
+    lanes whose cyclic orders disagree after passing the gate skip the binary64 retry that computes every box
+    and triangle off PV, which kept none of them (binary64-only tables after the NinjaRS tables; the 500
+    stability heptagons give the same arrays, stability capture 020). The default is unchanged. Every row
+    agrees with capture 015 within 7% (separate sessions; no ratio across them) except, at a higher host
+    load (≈205 against ≈150), N2R1 single point 1.2 µs (capture 015: 1.1 µs) and N7R7 single point 3.54 ms
+    (3.31 ms; the binary64-only run, the same work on this lane, 3.30 ms). IREGI was not rerun on N7R7
+    batch 32 (about half an hour per capture); its cells show capture 014's measurement and that capture's
+    own ratio. The binary64-only modes start with capture 015. Since capture 014 the
     double-double rescue tier uses fused multiply-accumulate kernels (Dekker products and one exact sum per
     component, in safe code: the baseline build no longer runs each double-double product through
     out-of-line `fma` calls; the scalar masters' part is oneloopmaster PR \#16). N7R7 batch 32 takes
@@ -662,7 +666,7 @@
     quad IREGI IBP to 6.3×10#super[−17], quad PV fails, COLLIER returns NaN, `validation/mre/collier-n7-nan`)
     and NinjaRS. TIRust's undotted N≥4 rows include the loop-rotation test (boxes since capture 006), the N≥5 rows the Gram-free pentagon reduction,
     which keep physical pentagons accurate in binary64 (capture 002, without them: N5R5 65 µs, N6R6 216 µs).
-    Captures 001 (TIRust #raw(direct-first-capture.snapshot.tirust_git_head.slice(0, 7))) to 014 remain
+    Captures 001 (TIRust #raw(direct-first-capture.snapshot.tirust_git_head.slice(0, 7))) to 015 remain
     bound unchanged in the report data (009 not published).
   ]
   v(0.3em)
@@ -702,13 +706,14 @@
       TIRust's binary64 retries and the best-effort search over cyclic orders instead of the precision
       rescue. Against NinjaRS each mode is timed with the contraction of its array with the row's
       numerator, as "TIRust (array + contraction)" above; NinjaRS rows as above. Same session, TIRust in
-      the numerator, acceptance and ratios as in the tables above. Capture 015: on every row but N7R7 no lane
+      the numerator, acceptance and ratios as in the tables above. Capture 016: on every row but N7R7 no lane
       is refused, so both modes cost what the default costs and their ratios to COLLIER and NinjaRS are the
-      default's. N7R7: single point 3.3 ms at 2#super[−34] and 2.1 ms at 2#super[−20] (default 3.3 ms);
-      batch of 32 0.67 s at 2#super[−34], whose 12 lanes refused by the rotation test go through the binary64
-      retries and the best-effort search and return flagged (the default rescues them at 106 bits: 0.23 s),
-      and 64 ms at 2#super[−20], where no lane is refused. COLLIER takes 0.15 s but returns NaN on lane 0,
-      and NinjaRS fails its lane-0 cut there, so N7R7 has no ratio.
+      default's. N7R7: single point 3.3 ms at 2#super[−34] and 2.3 ms at 2#super[−20]; batch of 32 0.27 s at
+      2#super[−34] (capture 015: 0.67 s), whose 12 lanes refused by the rotation test go through the a priori
+      method choice and the best-effort search over cyclic orders and return flagged (since this capture
+      without the retry that computes every box and triangle off PV, which kept none of them; the default
+      rescues them at 106 bits: 0.23 s), and 65 ms at 2#super[−20], where no lane is refused. COLLIER takes
+      0.15 s but returns NaN on lane 0, and NinjaRS fails its lane-0 cut there, so N7R7 has no ratio.
     ]
     de-b64-table(snapshot.rows, 1)
     pagebreak()
@@ -731,7 +736,7 @@
 }
 // Binary64 stability study (30 October 2026): cumulative accuracy profiles
 // in the style of Hirschi and Peraro, arXiv:1604.01363, figs. 2-4.
-#let stability-campaign-id = ("019", "018", "017", "016", "015", "013", "012", "011", "010", "009", "008", "007", "006", "005", "004", "003", "002").find(id => ("stability_20261030_capture" + id) in data)
+#let stability-campaign-id = ("020", "019", "018", "017", "016", "015", "013", "012", "011", "010", "009", "008", "007", "006", "005", "004", "003", "002").find(id => ("stability_20261030_capture" + id) in data)
 #let stability-campaign = if stability-campaign-id != none { data.at("stability_20261030_capture" + stability-campaign-id) } else { data.at("stability_20261030", default: none) }
 #let stability-first-capture = data.at("stability_20261030", default: none)
 #let st-style = (
@@ -872,7 +877,7 @@
     )
   ])
   text(size: 8.5pt)[
-    *Findings (capture 019, TIRust #raw(snapshot.tirust_git_head.slice(0, 7))).* TIRust's default returns an
+    *Findings (capture 020, TIRust #raw(snapshot.tirust_git_head.slice(0, 7))).* TIRust's default returns an
     accurate array on every point of all five integrals, worst E/A 5.0×10#super[−11] (capture 010:
     9.6×10#super[−9]). "TIRust binary64 only" (precision rescue disabled) reports every point with a binary64
     array, as COLLIER does: lanes that pass TIRust's checks are certified, the others return their best binary64
@@ -905,10 +910,11 @@
     every box and triangle computed exactly, binary64 hexagons reach a median of 1.2×10#super[−15], so the gap
     is in the boxes TIRust computes by its expansions, which do not yet reach COLLIER's accuracy. With the precision rescue on, refused
     heptagon lanes go to it directly (their binary64 retries rarely succeed), and its double-double tier
-    skips the rotated check for lanes whose binary64 rotation difference was at most 2#super[−20]. Capture 019
-    (TIRust 3f7cd05, the fused double-double kernels of the timing section) reproduces capture 018: every
-    binary64-only array is bit-identical, and the rescued lanes take the same tiers and stay at the rounding
-    level of their binary64 output (E/A ≤ 1.9×10#super[−17]). Timing capture 009 and stability capture
+    skips the rotated check for lanes whose binary64 rotation difference was at most 2#super[−20]. Captures 019
+    (TIRust 3f7cd05, the fused double-double kernels of the timing section) and 020 (5a6d415, the
+    binary64-only retry change of the timing section) reproduce capture 018: every binary64-only array is
+    bit-identical, and the rescued lanes take the same tiers and stay at the rounding level of their binary64
+    output (E/A ≤ 1.9×10#super[−17]); capture 020 also leaves every default array of capture 019 unchanged. Timing capture 009 and stability capture
     014 (TIRust 32a79e2, also the per-box choice for accepted hexagon lanes) are not published: that
     version took 8.8 times longer on the opening N6R6 batch of 32 without changing the hexagons. COLLIER (both
     branches) returns an accurate array on every point (worst 1.3×10#super[−9], DD pentagons); its flags are
@@ -919,7 +925,7 @@
     box and a few hexagons and heptagons. Heptagon references are confirmed by COLLIER COLI and DD
     (≤10#super[−9]) instead of quad IREGI, which fails there in both modes; COLLIER's heptagon curves are
     therefore conditioned on that agreement (5 of 500 points excluded); six hexagon points are confirmed the
-    same way. Captures 001-018 remain bound unchanged in the report data (014 not published).
+    same way. Captures 001-019 remain bound unchanged in the report data (014 not published).
   ]
   v(0.2em)
   let rescued = snapshot.integrals.map(i => (i.id, i.codes.at(0).at("rescued_by_bits", default: (:))))
