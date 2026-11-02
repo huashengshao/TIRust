@@ -1175,6 +1175,15 @@ where
         }
     }
 
+    /// `(number of propagators, coefficient rank)` of the direct plan's PV
+    /// subsets (empty for other engines).
+    pub(crate) fn direct_subset_ranks(plan: &TensorReductionPlan) -> Vec<(usize, u16)> {
+        match &plan.ordinary {
+            OrdinaryPlan::Direct(direct) => direct.direct.subset_ranks(),
+            _ => Vec::new(),
+        }
+    }
+
     /// Share per-subset results with the other workspaces holding `store`
     /// (direct binary64 engine only; see `crate::AmplitudeWorkspace`).
     pub(crate) fn set_shared_subsets(&mut self, store: Option<std::sync::Arc<crate::direct::shared::SubsetStore>>) {

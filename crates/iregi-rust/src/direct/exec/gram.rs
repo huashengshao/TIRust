@@ -183,8 +183,8 @@ where
         let outcome = (|| -> Result<(), String> {
             for &id in &boxes {
                 let subset = &plan.subsets[id];
-                let rank = subset.coefficient_rank.max(0) as u16;
                 let size = subset.members.len();
+                let rank = self.injection_rank(size, subset.coefficient_rank.max(0) as u16);
                 let count = plan.coefficient_counts[id] as usize;
                 let start = subset.master.ok_or("small-Gram expansion: no master")? as usize;
                 // The expansion's settings: boosts, alternative PV only, the
@@ -193,12 +193,13 @@ where
                 config.push(u64::from(gram.alternative));
                 config.push(gram.aux_threshold.as_ref().map_or(u64::MAX, |t| t.to_f64().to_bits()));
                 config.push(self.stability_threshold.to_f64().to_bits());
-                let key = self.subset_key(2, &subset.members, rank, count, &config, mu);
+                let key = self.subset_key(2, &subset.members, rank, 0, &config, mu);
                 if let Some(shared) = self.shared_get(key.as_ref()) {
-                    self.shared_write(start, &shared?);
+                    self.shared_write(start, count, &shared?)?;
                     continue;
                 }
-                let outcome = (|| -> Result<(), String> {
+                let outcome = (|| -> Result<Vec<[f64; 8]>, String> {
+                let mut full = None;
                 let mut failure = String::new();
                 let mut done = false;
                 for boost in gram.boosts.clone() {
@@ -257,17 +258,17 @@ where
                 if coefficients.len() < count {
                     return Err("small-Gram expansion: coefficient layouts differ".into());
                 }
-                self.values[start..start + count].clone_from_slice(&coefficients[..count]);
+                full = Some(Self::shared_values(&coefficients));
                 done = true;
                 break;
                 }
                 if !done {
                     return Err(failure);
                 }
-                Ok(())
+                full.ok_or_else(|| "small-Gram expansion: no coefficients".to_string())
                 })();
-                self.shared_put(key, start, count, &outcome);
-                outcome?;
+                self.shared_put(key, &outcome);
+                self.shared_write(start, count, &outcome?)?;
             }
             Ok(())
         })();

@@ -109,9 +109,28 @@ fn shared_subsets_give_bit_identical_results_and_are_reused() {
     for (k, result) in unshared.reduce_batches(&batches).unwrap().iter().enumerate() {
         assert_eq!(fingerprint(result), fingerprint(&shared[k]));
     }
+    // The hexagon needs no subset above its own ranks: bit-identical to a
+    // standalone workspace. The pinched integrals take their injected boxes
+    // and triangles at the amplitude's rank floor: equal to their standalone
+    // arrays within the certified accuracy.
     let hexagon = members.iter().position(|m| m.len() == 6).unwrap();
-    let mut standalone = TensorWorkspace::new(&plans[hexagon], 0.0f64).unwrap();
-    assert_eq!(fingerprint(&standalone.reduce_batch(&batches[hexagon]).unwrap()), fingerprint(&shared[hexagon]));
+    let mut worst = 0.0f64;
+    for (k, plan) in plans.iter().enumerate() {
+        let mut standalone = TensorWorkspace::new(plan, 0.0f64).unwrap();
+        let alone = standalone.reduce_batch(&batches[k]).unwrap();
+        if k == hexagon {
+            assert_eq!(fingerprint(&alone), fingerprint(&shared[k]));
+        }
+        assert_eq!(format!("{:?}", alone.statuses), format!("{:?}", shared[k].statuses));
+        for lane in 0..alone.rows() {
+            let (Ok(a), Ok(b)) = (alone.lane(lane), shared[k].lane(lane)) else { continue };
+            let size = a.iter().map(|z| z.re.hypot(z.im)).fold(0.0f64, f64::max);
+            let difference = a.iter().zip(b).map(|(x, y)| (x.re - y.re).hypot(x.im - y.im)).fold(0.0f64, f64::max);
+            worst = worst.max(difference / size);
+        }
+    }
+    eprintln!("largest relative difference to standalone workspaces: {worst:e}");
+    assert!(worst <= 1e-10, "amplitude results differ from standalone ones by {worst:e}");
 }
 
 #[test]

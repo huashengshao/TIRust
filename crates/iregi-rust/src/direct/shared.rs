@@ -12,6 +12,14 @@
 //! result is a pure function of its key, so every integral receives exactly
 //! the values it would have computed itself: results are bit-identical with
 //! and without sharing.
+//!
+//! Integrals of an amplitude need a subset at different coefficient ranks (a
+//! pinched box at rank 4, the boxes of its parents at rank 5). The store
+//! therefore also carries a rank floor per subset size, the amplitude's
+//! highest: every injected box or triangle is computed at the floor and each
+//! integral injects the leading part its layout needs (layouts are
+//! rank-major). The floor applies with sharing on and off, so both stay
+//! bit-identical.
 use std::{
     collections::HashMap,
     sync::{
@@ -28,11 +36,39 @@ pub(crate) type SharedValue = Result<Vec<[f64; 8]>, String>;
 #[derive(Debug, Default)]
 pub(crate) struct SubsetStore {
     map: Mutex<HashMap<Vec<u64>, SharedValue>>,
+    /// Sharing on (`false`: the floors still apply, nothing is shared).
+    enabled: std::sync::atomic::AtomicBool,
+    /// Coefficient rank floor per subset size (number of propagators).
+    floors: Mutex<Vec<u16>>,
     hits: AtomicU64,
     misses: AtomicU64,
 }
 
 impl SubsetStore {
+    pub(crate) fn set_enabled(&self, enabled: bool) {
+        self.enabled.store(enabled, Ordering::Relaxed);
+    }
+
+    pub(crate) fn enabled(&self) -> bool {
+        self.enabled.load(Ordering::Relaxed)
+    }
+
+    /// Raise the floor of `size`-propagator subsets to `rank`.
+    pub(crate) fn raise_floor(&self, size: usize, rank: u16) {
+        let mut floors = self.floors.lock().unwrap_or_else(|e| e.into_inner());
+        if floors.len() <= size {
+            floors.resize(size + 1, 0);
+        }
+        floors[size] = floors[size].max(rank);
+    }
+
+    /// The coefficient rank at which a `size`-propagator subset needed at
+    /// `rank` is computed.
+    pub(crate) fn rank_for(&self, size: usize, rank: u16) -> u16 {
+        let floors = self.floors.lock().unwrap_or_else(|e| e.into_inner());
+        rank.max(floors.get(size).copied().unwrap_or(0))
+    }
+
     /// The stored result for `key` (a hit), if any.
     pub(crate) fn get(&self, key: &[u64]) -> Option<SharedValue> {
         let value = self.map.lock().unwrap_or_else(|e| e.into_inner()).get(key).cloned();
