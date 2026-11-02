@@ -970,6 +970,9 @@ where
         // Lanes refused by the a priori gate (N >= 4: or whose rotated copy
         // was), for the checked binary64 retry.
         let mut checked: Vec<usize> = Vec::new();
+        // Lanes whose binary64 arrays passed the gate but whose cyclic orders
+        // disagree (rotation test or third order).
+        let mut order_refused = vec![false; batch.rows];
         if checkable {
             for lane in 0..batch.rows {
                 if matches!(result.statuses[lane], LaneStatus::Unstable(_))
@@ -1023,6 +1026,7 @@ where
                     self.candidates[lane].push((result.values[lane * stride..(lane + 1) * stride].to_vec(), difference));
                     // Rounding estimate ~ amplification * 2^-53.
                     conditions[lane] = Some(2f64.powi(-53) / difference);
+                    order_refused[lane] = true;
                     format!("loop-rotation test: binary64 arrays differ by E/A {difference:e}")
                 } else {
                     conditions[lane] = rotated_conditions[lane].or(Some(0.0));
@@ -1071,6 +1075,7 @@ where
                         }
                         let difference = first.max(difference);
                         conditions[lane] = Some(2f64.powi(-53) / difference);
+                        order_refused[lane] = true;
                         format!("loop-rotation test: a third order differs by E/A {difference:e}")
                     } else {
                         conditions[lane] = self.direct.last_conditions().get(k).copied().flatten().or(Some(0.0));
@@ -1177,9 +1182,18 @@ where
         // Every lane still refused on a conditioning estimate (gate or
         // rotation test): every box and triangle by the expansions or the
         // alternative PV reduction, as COLLIER chooses its method per box.
+        // Not for heptagon (and larger) lanes whose orders disagreed after
+        // passing the gate: on the 500 stability heptagons this stage
+        // certified only gate-refused lanes, and on the opening N7R7 batch of
+        // 32 (precision rescue disabled) it kept none of its 12 such lanes in
+        // 0.51 s of 0.80 s.
         if checkable && binary64_retries {
             let rest: Vec<usize> = (0..batch.rows)
-                .filter(|&lane| matches!(result.statuses[lane], LaneStatus::Unstable(_)) && conditions[lane].is_some())
+                .filter(|&lane| {
+                    matches!(result.statuses[lane], LaneStatus::Unstable(_))
+                        && conditions[lane].is_some()
+                        && !(n >= 7 && order_refused[lane])
+                })
                 .collect();
             if !rest.is_empty() {
                 self.checked_retry(batch, &rest, tolerance, &mut result, &mut profile, 3)?;
