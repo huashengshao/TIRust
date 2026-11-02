@@ -403,6 +403,14 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    Next ideas: compare the expansion with the alternative PV per box
    (COLLIER keeps the better error estimate), higher boosts only for boxes
    whose expansion converges slowly, COLLIER's Cgy/Dgy order selection.
+4e. **Best-effort arrays from all cyclic orders (2 Nov).** The binary64 tail
+   was the uncertified (best-effort) lanes (hexagon top 1%: all 21; their
+   E/A median 3.3e-11 vs COLLIER 1.2e-12). The gate-free stage now runs for
+   every refused lane (N >= 5), each order's estimate is its distance to the
+   second-nearest other order. Probe64be: hexagon p99 6.5e-11 -> 9.3e-12
+   (COLI 2.0e-11), worst 1.0e-9 -> 3.1e-10 (2.1e-10), best-effort median
+   1.9e-13; heptagon sample p99 1.0e-10 -> 1.1e-11, worst 1.2e-10 -> 4.3e-10;
+   pentagon p99 3.3e-12, worst 4.4e-11. Certified counts unchanged.
 4d. **Cheaper rescue for mildly refused lanes (2 Nov).** With the rescue on,
    refused N >= 7 lanes skip the binary64 retries (fe4496c), and the
    double-double tier skips its rotation check for lanes whose binary64
