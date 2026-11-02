@@ -403,6 +403,18 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    Next ideas: compare the expansion with the alternative PV per box
    (COLLIER keeps the better error estimate), higher boosts only for boxes
    whose expansion converges slowly, COLLIER's Cgy/Dgy order selection.
+4g. **IREGI need not be rerun (user, 2 Nov).** run.py `--skip-iregi ROW[:BATCH]`
+   (repeatable; `all`, a case id, or case-id:batch) leaves IREGI out of those
+   rows; the row records `iregi_skipped` (summarize.py carries it), and
+   environment.skip_iregi the patterns. N7R7 batch 32 is the slow one (IREGI
+   PV/IBP/hybrid ~31 min of timed blocks per capture). Before publishing the
+   first capture that uses it, add the report rendering (patch
+   /tmp/claude-1134/-shared-external-iregi/01b9e11e-1c07-41b1-a11b-4b28bbc150f3/scratchpad/skip-iregi-report.patch; if lost: in de-table, a skipped row's IREGI
+   and ratio cells say "Not rerun in this capture" and show the latest
+   earlier bound capture that measured IREGI, with that capture's own
+   same-session ratio labelled by capture; tested to render, report
+   otherwise byte-identical). Not added yet because benchmark.typ is sealed
+   with capture 014.
 4f. **Faster double-double tier with safe kernels (2 Nov).** User decision:
    no `unsafe` (runtime FMA dispatch declined: "Safe kernels only"). N7R7
    batch 32 here: 370 ms = binary64 passes 97 ms + 106-bit tier 275 ms
