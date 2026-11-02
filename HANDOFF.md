@@ -403,6 +403,18 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    Next ideas: compare the expansion with the alternative PV per box
    (COLLIER keeps the better error estimate), higher boosts only for boxes
    whose expansion converges slowly, COLLIER's Cgy/Dgy order selection.
+4i. **Faster binary64-only heptagons (user, 2 Nov).** Rescue disabled, N7R7
+   batch 32 (12 lanes refused by the rotation test): 0.80 s = passes 0.10,
+   a priori choice 0.07 (kept 0), stage 3 everywhere 0.51 (kept 0),
+   best-effort orders 0.11. Stage 3 now skips N >= 7 lanes whose orders
+   disagreed after passing the gate (order_refused): 0.30 s; default
+   unchanged (0.23 s). On the 500 stability heptagons the 2^-34
+   binary64-only result is identical (472 certified, every array equal).
+   Probe of the alternatives: no stage 3 at all for N >= 7 loses 7
+   certifications (all gate-refused lanes); no binary64 retries for N >= 7
+   (as with the rescue on) loses 89 and the worst array goes to 1e-2: the
+   stability heptagons are gate-refused and certified by the retries (467
+   of 468 in capture 019).
 4h. **Binary64-only timing tables (user, 2 Nov).** direct_timing header flags
    `binary64` (precision rescue disabled; refused lanes reported as
    `best_effort` with their finite best array) and `accuracy=BITS`
