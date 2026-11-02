@@ -414,11 +414,13 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    arithmetic-bound; reverted. Ideas not tried: fewer passes or boosts when
    the change is already small, sharing the expansions between the main,
    rotated and third orders (they differ in origin), cheaper upgrades.
-   USER REQUEST (2 Nov, open): vectorized amplitude evaluation. Status: the
+   Vectorized amplitude evaluation (user, 2 Nov): WITHDRAWN by the user (the
+   batched API already gives the batch dimension in input and output; no
+   SIMD work wanted). Status as told to the user: the
    API is batched end to end (KinematicsBatch rows in, BatchResult rows out;
    AmplitudeWorkspace one batch per integral), but every lane runs the plan
    sequentially with scalar arithmetic (batch 32 vs 1: N4R4 35.6 vs 36.1 us
-   per point). Plan: SIMD across lanes in the binary64 direct engine's
+   per point). Plan (not pursued): SIMD across lanes in the binary64 direct engine's
    straight-line stages (geometry, coefficient program, gather, moment
    program, output) in struct-of-arrays chunks of W lanes ([f64; W] loops
    the compiler vectorizes; safe code only, no new dependencies; baseline
@@ -426,7 +428,7 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    gate refusals as per-lane masks, masters (oneloopmaster, branchy) kept
    per lane; then the rotated/third passes and the retries on the same
    chunked executor. Measure per-point time at batch 32 against batch 1.
-   Design (exec.rs reduce_batch): phase A per lane, unchanged scalar code
+   Design (not pursued; kept for reference) (exec.rs reduce_batch): phase A per lane, unchanged scalar code
    (read_lane, geometry + variant, native masters, lightlike, external and
    gram injections, unit_finite, detect_ir_free); then instead of running
    the programs, stash the lane (its variant's plan Arc and constants, ir_free,
