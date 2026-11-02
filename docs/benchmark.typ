@@ -1112,6 +1112,87 @@
   )
 ]
 #if direct-campaign != none { direct-engine-pages(direct-campaign.snapshot) }
+// Amplitude benchmark (2 November 2026): the integrals of an amplitude
+// evaluated together, TIRust with per-subset sharing on and off against
+// COLLIER with its global cache on and off, in one session.
+#let amplitude-record = data.at("direct_engine_20261030_amplitude001", default: none)
+#let amp-time-cell(timing) = table.cell(fill: pale, {
+  set par(leading: 0.3em, justify: false)
+  text(size: 10pt, weight: "bold", de-time(timing.median * 1000))
+  linebreak()
+  text(size: 6.5pt, fill: luma(70))[per call · #timing.blocks blocks]
+})
+#if amplitude-record != none {
+  let snapshot = amplitude-record.snapshot
+  let env = snapshot.environment
+  [== Amplitudes: work shared between integrals]
+  text(size: 8.5pt)[
+    The integrals of an amplitude contain the same boxes and triangles. Each amplitude here is an N-gon of the
+    binary64 stability study with every pinch of at least two propagators, each at rank equal to its number of
+    propagators (renormalizable vertices, Feynman gauge), on the study's first #env.lanes physical phase-space
+    points; one call evaluates every integral at every point. TIRust (commit
+    #raw(snapshot.tirust_git_head.slice(0, 7))) uses `AmplitudeWorkspace`: with `share_subsets` on, each box or
+    triangle that its checks send to the double-double partial rescue or to the small-Gram expansions is
+    computed once per call and reused by every integral containing it, under an exact key (method settings,
+    rank, the subset's propagators bit for bit), so its arrays are bit-identical with sharing off; the
+    integrals share the amplitude's loop-momentum routing. COLLIER 1.2.10 (COLI, TenRed 6, requested accuracy
+    10#super[−10], critical 10#super[−3]) evaluates the same integrals, each in its own zero-origin routing, with
+    its global cache initialized once and `InitEvent_cll(1)` before each phase-space point (the cache learns the
+    call sequence of the first events and later returns results by position) or without it. Both codes empty
+    their reuse at every phase-space point in effect: COLLIER by `InitEvent_cll`, TIRust by keys that contain
+    each point's kinematics, its store being emptied at every call (here a batch of #env.lanes points). All four
+    candidates run as long-lived processes on CPU #env.cpu (load average #env.loadavg_start.at(0) at start), two
+    warm-up calls each, then #env.rounds rounds in seeded random order; ratios are medians of same-round ratios
+    with 99% bootstrap intervals (TIRust or the shared/cached variant in the numerator). Original IREGI and
+    NinjaRS are not measured here: neither reuses work between integrals (their per-integral timings are in the
+    tables above).
+  ]
+  v(0.3em)
+  figure(kind: table, caption: [Time per amplitude call (#env.lanes phase-space points) and same-session ratios])[
+    #table(
+      columns: (1.2fr, 0.9fr, 0.9fr, 0.95fr, 0.9fr, 0.9fr, 0.95fr, 0.95fr),
+      inset: (x: 4pt, y: 5pt), stroke: table-stroke, align: left + horizon,
+      fill: (x, y) => if y == 0 { navy } else { none },
+      table.header(..([Amplitude], [TIRust shared], [TIRust separate], [shared / separate], [COLLIER cache],
+        [COLLIER no cache], [cache / no cache], [TIRust shared / COLLIER cache]).map(h => {
+        set par(justify: false)
+        text(fill: white, size: 7.5pt, weight: "bold", h)
+      })),
+      ..snapshot.amplitudes.map(a => (
+        table.cell(text(size: 7.5pt)[*#a.label* \ #text(size: 6.3pt, fill: luma(80))[#a.integrals integrals]]),
+        amp-time-cell(a.timing_ms_per_call.at("tirust-shared")),
+        amp-time-cell(a.timing_ms_per_call.at("tirust-separate")),
+        de-ratio-cell(a.ratios.tirust_shared_over_separate, true),
+        amp-time-cell(a.timing_ms_per_call.at("collier-cache")),
+        amp-time-cell(a.timing_ms_per_call.at("collier-nocache")),
+        de-ratio-cell(a.ratios.collier_cache_over_nocache, true),
+        de-ratio-cell(a.ratios.tirust_shared_over_collier_cache, true),
+      )).flatten(),
+    )
+  ]
+  text(size: 8.5pt)[
+    #for a in snapshot.amplitudes [
+      *#a.label:* TIRust reused #a.tirust_final.reused and computed #a.tirust_final.computed per-subset results per
+      call; its #a.tirust_final.integrals integrals' arrays, statuses and estimates are
+      #if a.tirust_final.differing_integrals == 0 [bit-identical] else [*not* identical (#a.tirust_final.differing_integrals integrals)]
+      with sharing on and off (#a.tirust_final.successful_integral_lanes of
+      #(a.tirust_final.integrals * a.tirust_final.lanes) integral lanes certified). COLLIER's coefficient sums per
+      integral and point agree with and without its cache to
+      #de-sci(a.collier_final.cache_vs_nocache_max_relative_sum_difference) (relative); without its cache it sets
+      its accuracy flag on #a.collier_final.accuracy_flagged.at("0") of #a.collier_final.calls calls (with the cache
+      the flag is reset only per phase-space point, so it is not counted per call).
+    ]
+    The binary64 arrays of these integrals are what TIRust's checks certify (rotation test, method-choice
+    retries, double-double boxes), and on these physical points the checks, not the binary64 pass, take most of
+    TIRust's time (see the stability section for both codes' accuracy on the same points). Sharing removes the
+    repeats of that work between integrals: 1.8 times faster on the hexagon amplitude, where 312 of 645
+    per-subset results were reused, 1.1 times on the pentagon amplitude (7 of 46). COLLIER's cache reuses whole
+    sub-integrals between calls (3.0 and 1.7 times faster). Pinched boxes do not share their rank-4
+    computations with the rank-5 boxes of the hexagon and pentagons, and the rotated evaluations of TIRust's
+    rotation test start each box from another propagator, so they are separate computations.
+  ]
+  pagebreak()
+}
 #if stability-campaign != none { stability-pages(stability-campaign.snapshot) }
 #if opening-examples != none { opening-timing-pages(opening-examples.snapshot) }
 = Current coverage
