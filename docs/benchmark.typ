@@ -343,7 +343,7 @@
 // Same-session direct-engine campaign (30 October 2026): TIRust public
 // binary64 default versus original IREGI and COLLIER, interleaved per block.
 // The latest bound capture of each campaign is shown; earlier ones stay in the data.
-#let direct-capture-ids = ("014", "013", "012", "011", "010", "008", "007", "006", "005", "004", "003", "002")
+#let direct-capture-ids = ("015", "014", "013", "012", "011", "010", "008", "007", "006", "005", "004", "003", "002")
 #let direct-campaign-id = direct-capture-ids.find(id => ("direct_engine_20261030_capture" + id) in data)
 #let direct-campaign = if direct-campaign-id != none { data.at("direct_engine_20261030_capture" + direct-campaign-id) } else { data.at("direct_engine_20261030", default: none) }
 #let direct-first-capture = data.at("direct_engine_20261030", default: none)
@@ -633,20 +633,22 @@
     amber with diagnostic times and never enter a ratio. Builds: TIRust release (thin LTO), Fortran
     `-O3`, all baseline x86-64; binary SHA-256 in #raw("validation/benchmark/direct-engine-20261030/summary" + (if direct-campaign-id == none { "" } else { "-" + direct-campaign-id }) + ".json").
     TIRust source: commit #raw(snapshot.at("tirust_source_commit", default: snapshot.tirust_git_head).slice(0, 7)).
-    This capture (014, 2 November) measures TIRust 3f7cd05, whose double-double rescue tier uses fused
-    multiply-accumulate kernels (Dekker products and one exact sum per component, in safe code: the
-    baseline build no longer runs each double-double product through out-of-line `fma` calls; the scalar
-    masters' part is oneloopmaster PR \#16). N7R7 batch 32 takes 0.23 s (capture 013: 0.35 s, capture 011:
+    This capture (015, 2 November) measures the same TIRust library as capture 014 (its timing driver gained
+    the binary64-only modes of the tables after the NinjaRS tables) and agrees with capture 014 within 7% on
+    every row (separate sessions; no ratio across them); N1R0 batch 32 is back at 7.4 µs (capture 014:
+    7.9 µs; 7.35–7.96 µs since capture 008). IREGI was not rerun on N7R7 batch 32 (about half an hour per
+    capture); its cells show capture 014's measurement and that capture's own ratio. Since capture 014 the
+    double-double rescue tier uses fused multiply-accumulate kernels (Dekker products and one exact sum per
+    component, in safe code: the baseline build no longer runs each double-double product through
+    out-of-line `fma` calls; the scalar masters' part is oneloopmaster PR \#16). N7R7 batch 32 takes
+    0.23 s (capture 013: 0.35 s, capture 011:
     0.67 s, capture 010: 1.10 s; COLLIER's 0.15 s returns NaN on lane 0). Its 12 lanes refused by the
     rotation test go to the precision rescue directly (since capture 011; before, first through binary64
     retries that do not succeed there), whose double-double tier does not evaluate them a second time with
     rotated propagators (since capture 012); the rescued lanes agree with 256 bits to 1.3×10#super[−26].
     About 0.1 s of the batch is spent in the three binary64 passes of the rotation test (development profile on the
     same host). Its 20 lanes kept in binary64 reach E/A 9.7×10#super[−11], above the 2#super[−34]
-    request: their cyclic orders share the error, which the rotation test cannot see. Every other row
-    agrees with capture 013 within 7% (separate sessions; no ratio across them) except N1R0 batch 32:
-    7.9 µs (capture 013: 7.35 µs; 7.35–7.96 µs since capture 008), with COLLIER slower in this session too
-    (ratio 0.59; captures 008–013: 0.56–0.62).
+    request: their cyclic orders share the error, which the rotation test cannot see.
     Capture 009 (not published) measured a version that also gave accepted hexagon lanes the per-box
     choice: the N6R6 batch of 32 took 151.9 ms (capture 008: 17.3 ms). Since capture 006 the undotted box
     rows take two binary64 evaluations (the loop-rotation test; N4R4 35.6 µs, capture 005: 16.6 µs; N4R6
@@ -660,7 +662,7 @@
     quad IREGI IBP to 6.3×10#super[−17], quad PV fails, COLLIER returns NaN, `validation/mre/collier-n7-nan`)
     and NinjaRS. TIRust's undotted N≥4 rows include the loop-rotation test (boxes since capture 006), the N≥5 rows the Gram-free pentagon reduction,
     which keep physical pentagons accurate in binary64 (capture 002, without them: N5R5 65 µs, N6R6 216 µs).
-    Captures 001 (TIRust #raw(direct-first-capture.snapshot.tirust_git_head.slice(0, 7))) to 013 remain
+    Captures 001 (TIRust #raw(direct-first-capture.snapshot.tirust_git_head.slice(0, 7))) to 014 remain
     bound unchanged in the report data (009 not published).
   ]
   v(0.3em)
@@ -700,10 +702,18 @@
       TIRust's binary64 retries and the best-effort search over cyclic orders instead of the precision
       rescue. Against NinjaRS each mode is timed with the contraction of its array with the row's
       numerator, as "TIRust (array + contraction)" above; NinjaRS rows as above. Same session, TIRust in
-      the numerator, acceptance and ratios as in the tables above.
+      the numerator, acceptance and ratios as in the tables above. Capture 015: on every row but N7R7 no lane
+      is refused, so both modes cost what the default costs and their ratios to COLLIER and NinjaRS are the
+      default's. N7R7: single point 3.3 ms at 2#super[−34] and 2.1 ms at 2#super[−20] (default 3.3 ms);
+      batch of 32 0.67 s at 2#super[−34], whose 12 lanes refused by the rotation test go through the binary64
+      retries and the best-effort search and return flagged (the default rescues them at 106 bits: 0.23 s),
+      and 64 ms at 2#super[−20], where no lane is refused. COLLIER takes 0.15 s but returns NaN on lane 0,
+      and NinjaRS fails its lane-0 cut there, so N7R7 has no ratio.
     ]
     de-b64-table(snapshot.rows, 1)
+    pagebreak()
     de-b64-table(snapshot.rows, 32)
+    pagebreak()
     de-b64-ninja-table(snapshot.rows, 1)
     de-b64-ninja-table(snapshot.rows, 32)
   }
