@@ -420,6 +420,18 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    by the rotation test). Pass the floor with the store (per-size ranks
    from all plans' subsets). Step 2 (later): share across origins by
    re-routing coefficients (binomial translation in the subset's momenta).
+   Step 1 DONE: SubsetStore has an enabled flag and per-size rank floors
+   (raise_floor from every plan's PV subsets via
+   TensorWorkspace::direct_subset_ranks); AmplitudeWorkspace keeps the store
+   attached in both modes; inject_external / inject_gram compute at
+   injection_rank and inject the leading count (shared_write slices).
+   Hexagon amplitude (32 points): reused/computed 312/333 -> 345/265, sharing
+   on/off 2.86 s -> 1.22 s (x0.43; before x0.55), on/off bit-identical,
+   1824/1824 certified; test: amplitude vs standalone within 1e-10 (0 on its
+   points). Next: share the binary64 PV subsets and masters across
+   integrals too (user asked whether sub-integral tensor coefficients are
+   cached: within an integral yes, across integrals only the injected
+   double-double/expansion results), then origin re-routing.
 4m. **Cost of TIRust's checks on physical points; vectorization next (2 Nov).**
    Hexagon amplitude call (57 integrals, 32 points, sharing off, 2.70 s):
    top-level inject_gram (small-Gram expansions of the method-choice

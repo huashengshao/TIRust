@@ -31,6 +31,16 @@ pub struct DirectReductionPlan {
 }
 
 impl DirectReductionPlan {
+    /// `(number of propagators, coefficient rank)` of every PV subset.
+    pub(crate) fn subset_ranks(&self) -> Vec<(usize, u16)> {
+        self.data
+            .subsets
+            .iter()
+            .filter(|subset| subset.kind == plan::SubsetKind::Pv && subset.coefficient_rank >= 0)
+            .map(|subset| (subset.members.len(), subset.coefficient_rank as u16))
+            .collect()
+    }
+
     /// Whether `settings` lie inside the direct engine's implemented domain.
     pub fn supports(settings: &ReductionSettings) -> bool {
         DirectPlanData::supported(settings).is_ok()

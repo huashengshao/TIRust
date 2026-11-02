@@ -692,7 +692,9 @@ where
     /// subset's size, rank and value count, the method's settings, and the
     /// subset's propagators bit for bit. `None` without a store.
     fn subset_key(&self, tag: u64, members: &[usize], rank: u16, count: usize, config: &[u64], mu: &C<T>) -> Option<Vec<u64>> {
-        self.shared.as_ref()?;
+        if !self.shared.as_ref()?.enabled() {
+            return None;
+        }
         let mut key = vec![tag, members.len() as u64, u64::from(rank), count as u64, config.len() as u64];
         key.extend_from_slice(config);
         let bits = |z: &C<T>| [z.re.to_f64().to_bits(), z.im.to_f64().to_bits()];
@@ -710,27 +712,38 @@ where
         self.shared.as_ref()?.get(key?)
     }
 
-    fn shared_put(&self, key: Option<Vec<u64>>, start: usize, count: usize, outcome: &Result<(), String>) {
+    /// Coefficient rank at which an injected `size`-propagator subset needed
+    /// at `rank` is computed (the amplitude's floor, see `super::shared`).
+    fn injection_rank(&self, size: usize, rank: u16) -> u16 {
+        self.shared.as_ref().map_or(rank, |store| store.rank_for(size, rank))
+    }
+
+    fn shared_put(&self, key: Option<Vec<u64>>, outcome: &Result<Vec<[f64; 8]>, String>) {
         if let (Some(store), Some(key)) = (self.shared.as_ref(), key) {
-            let value = outcome.clone().map(|()| {
-                self.values[start..start + count]
-                    .iter()
-                    .map(|slots| {
-                        std::array::from_fn(|k| if k % 2 == 0 { slots[k / 2].re.to_f64() } else { slots[k / 2].im.to_f64() })
-                    })
-                    .collect()
-            });
-            store.put(key, value);
+            store.put(key, outcome.clone());
         }
     }
 
-    /// Write shared binary64 values (exact in this executor's binary64 domain).
-    fn shared_write(&mut self, start: usize, values: &[[f64; 8]]) {
-        for (k, v) in values.iter().enumerate() {
+    /// Binary64 values of a computed subset, for the store.
+    fn shared_values<U: NativeFloat>(values: &[L4<U>]) -> Vec<[f64; 8]> {
+        values
+            .iter()
+            .map(|slots| std::array::from_fn(|k| if k % 2 == 0 { slots[k / 2].re.to_f64() } else { slots[k / 2].im.to_f64() }))
+            .collect()
+    }
+
+    /// Write the leading `count` shared binary64 values (exact in this
+    /// executor's binary64 domain).
+    fn shared_write(&mut self, start: usize, count: usize, values: &[[f64; 8]]) -> Result<(), String> {
+        if values.len() < count {
+            return Err("shared subset result: coefficient layouts differ".into());
+        }
+        for (k, v) in values[..count].iter().enumerate() {
             self.values[start + k] = std::array::from_fn(|slot| {
                 C::new(exact_f64(&self.prototype, v[2 * slot]), exact_f64(&self.prototype, v[2 * slot + 1]))
             });
         }
+        Ok(())
     }
 
     /// Evaluate every external subset of this lane in double-double and
@@ -744,16 +757,16 @@ where
             for &id in &external {
                 let subset = &plan.subsets[id];
                 let size = subset.members.len();
-                let rank = subset.coefficient_rank.max(0) as u16;
+                let rank = self.injection_rank(size, subset.coefficient_rank.max(0) as u16);
                 let count = plan.coefficient_counts[id] as usize;
                 let start = subset.master.ok_or("partial rescue: no master")? as usize;
                 let mu_value = C::new(exact_f64(&self.prototype, mu), self.prototype.zero());
-                let key = self.subset_key(1, &subset.members, rank, count, &[partial.threshold.to_bits()], &mu_value);
+                let key = self.subset_key(1, &subset.members, rank, 0, &[partial.threshold.to_bits()], &mu_value);
                 if let Some(shared) = self.shared_get(key.as_ref()) {
-                    self.shared_write(start, &shared?);
+                    self.shared_write(start, count, &shared?)?;
                     continue;
                 }
-                let outcome = (|| -> Result<(), String> {
+                let outcome = (|| -> Result<Vec<[f64; 8]>, String> {
                 let executor = match partial.executors.entry((size, rank)) {
                     std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
                     std::collections::hash_map::Entry::Vacant(entry) => {
@@ -784,19 +797,13 @@ where
                     return Err(format!("partial rescue of {:?}: {:?}", subset.members, result.statuses[0]));
                 }
                 let coefficients = executor.top_coefficients().ok_or("partial rescue: no PV coefficients")?;
-                if coefficients.len() != count {
+                if coefficients.len() < count {
                     return Err("partial rescue: coefficient layouts differ".into());
                 }
-                for (k, slots) in coefficients.iter().enumerate() {
-                    self.values[start + k] = std::array::from_fn(|slot| {
-                        let z = &slots[slot];
-                        C::new(exact_f64(&self.prototype, z.re.to_f64()), exact_f64(&self.prototype, z.im.to_f64()))
-                    });
-                }
-                Ok(())
+                Ok(Self::shared_values(&coefficients))
                 })();
-                self.shared_put(key, start, count, &outcome);
-                outcome?;
+                self.shared_put(key, &outcome);
+                self.shared_write(start, count, &outcome?)?;
             }
             Ok(())
         })();

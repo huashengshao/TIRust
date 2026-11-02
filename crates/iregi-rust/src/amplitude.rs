@@ -13,6 +13,15 @@
 //! `share_subsets` flag), only faster on (a top-loop gg -> gggg hexagon and
 //! its 56 pinches on 32 physical points: 2.7 s -> 1.4 s per call).
 //!
+//! Integrals need a box or triangle at different ranks (a pinched box at
+//! rank 4, its parents' boxes at rank 5): inside an amplitude workspace
+//! every injected one is computed at the amplitude's highest rank for its
+//! size and each integral uses the leading coefficients it needs, with
+//! sharing on and off alike. Results can therefore differ from a standalone
+//! [`TensorWorkspace`] at the level of the expansions' truncation (both
+//! checked by the rotation test); with sharing on and off they are
+//! bit-identical.
+//!
 //! The store is cleared at the start and end of every call, so memory does
 //! not grow over a Monte Carlo run.
 use std::sync::Arc;
@@ -76,12 +85,18 @@ where
             .iter()
             .map(|plan| TensorWorkspace::new_with_options(plan, prototype.clone(), options.workspace))
             .collect::<Result<Vec<_>, _>>()?;
-        let mut amplitude = Self {
-            workspaces,
-            store: Arc::new(SubsetStore::default()),
-            share: false,
-            last: SubsetSharingStats::default(),
-        };
+        // Every injected box or triangle at the amplitude's highest rank for
+        // its size, with sharing on and off alike (see `direct::shared`).
+        let store = Arc::new(SubsetStore::default());
+        for plan in plans {
+            for (size, rank) in TensorWorkspace::<T>::direct_subset_ranks(plan) {
+                store.raise_floor(size, rank);
+            }
+        }
+        let mut amplitude = Self { workspaces, store, share: false, last: SubsetSharingStats::default() };
+        for workspace in &mut amplitude.workspaces {
+            workspace.set_shared_subsets(Some(amplitude.store.clone()));
+        }
         amplitude.set_subset_sharing(options.share_subsets);
         Ok(amplitude)
     }
@@ -90,10 +105,7 @@ where
     /// bit-identical either way.
     pub fn set_subset_sharing(&mut self, enabled: bool) {
         self.share = enabled;
-        let store = enabled.then(|| self.store.clone());
-        for workspace in &mut self.workspaces {
-            workspace.set_shared_subsets(store.clone());
-        }
+        self.store.set_enabled(enabled);
         self.store.clear();
     }
 
