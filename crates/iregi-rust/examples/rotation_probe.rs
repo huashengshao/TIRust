@@ -65,7 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let masses: Vec<f64> = integral["masses_squared"].as_array().unwrap().iter().map(number).collect();
     let plan = DirectReductionPlan::new(ReductionSettings::new(n, rank))?;
     let mut workspace = plan.workspace(0.0f64)?;
-    workspace.set_stability_threshold(1e-15);
+    workspace.set_stability_threshold(std::env::var("THRESH").ok().and_then(|s| s.parse().ok()).unwrap_or(1e-15));
     let bits = 256;
     let mut reference = plan.workspace(Float::new(bits))?;
     reference.set_stability_threshold(Float::with_val(bits, 2f64.powi(-(bits as i32 - 40))));

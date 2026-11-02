@@ -1285,9 +1285,18 @@ where
                 .collect()
         };
         for stage in 0..2 {
-            let missing = unresolved(&result, &self.candidates);
+            // The gate-free stage covers every refused lane of five or more
+            // points: one of its cyclic orders is often far more accurate
+            // than the retries' arrays (stability hexagons left best-effort:
+            // E/A median 3.3e-11 -> 1.9e-13 by the order closest to two
+            // others; COLLIER 1.2e-12).
+            let missing = if stage == 1 && n >= 5 {
+                (0..batch.rows).filter(|&lane| matches!(result.statuses[lane], LaneStatus::Unstable(_))).collect()
+            } else {
+                unresolved(&result, &self.candidates)
+            };
             if missing.is_empty() {
-                break;
+                continue;
             }
             let slot = if stage == 0 { &mut self.expanded } else { &mut self.open };
             if slot.is_none() {
@@ -1332,11 +1341,17 @@ where
                     .map(|evaluation| &evaluation.values[k * stride..(k + 1) * stride])
                     .collect();
                 for (i, a) in good.iter().enumerate() {
-                    // E/A to the next successful order (NaN: the only one).
-                    let difference = if good.len() > 1 {
-                        lane_difference(&result.basis, a, good[(i + 1) % good.len()], mu)
-                    } else {
-                        f64::NAN
+                    // E/A to its second-nearest other order (with fewer than
+                    // three orders, to the other one; NaN: the only one).
+                    let mut distances: Vec<f64> = (0..good.len())
+                        .filter(|&j| j != i)
+                        .map(|j| lane_difference(&result.basis, a, good[j], mu))
+                        .collect();
+                    distances.sort_by(f64::total_cmp);
+                    let difference = match distances.len() {
+                        0 => f64::NAN,
+                        1 => distances[0],
+                        _ => distances[1],
                     };
                     self.candidates[lane].push((a.to_vec(), difference));
                     if stage == 0 {
