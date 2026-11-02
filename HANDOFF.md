@@ -432,6 +432,28 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    integrals too (user asked whether sub-integral tensor coefficients are
    cached: within an integral yes, across integrals only the injected
    double-double/expansion results), then origin re-routing.
+   Step 3 (user: "Yes, do it", 2 Nov; IN PROGRESS): share the binary64 PV
+   subsets and their masters across integrals. Design: in
+   run_program_ordinary (coefficient program), walk the PV subsets' ranges
+   (plan.coefficient_ranges, contiguous per subset; other instructions run
+   as before); for a subset with a stored result (tag 3) inject its values
+   [master, master + count) and skip its range, else run the range and store
+   its values. Key: tag 3, size, coefficient rank, count, executor settings
+   (stability threshold bits, partial threshold, gram config incl. everywhere/
+   estimated/alternative flags), members' shifts/masses bit for bit, mu.
+   Only lanes on the base plan (Arc::ptr_eq(plan, base_plan)) and not
+   jets; skip subsets in external/gram_external of the lane (already
+   injected). Masters (tag 4): in native_masters, look up/store each
+   family's [finite, single, double] per subset key before evaluating (saves
+   ~25% of the bare pass). A pinched integral's rank-4 box vs its parents'
+   rank-5: try serving the leading part of a higher-rank stored PV result
+   (pure PV recursion should give identical leading values; the on/off
+   fingerprint check decides; else key by rank). Verify: amplitude_timing
+   FINAL on/off differing_integrals 0 for hexagon and pentagon amplitudes,
+   tests/amplitude_sharing.rs, direct_engine tests; measure on the physical
+   amplitudes and on the opening (ordinary) kinematics where the bare pass
+   dominates (e.g. inputs-003 N6R6 lanes as an amplitude). Then recapture
+   the amplitude benchmark (amp002) and update report section 1.1.
 4m. **Cost of TIRust's checks on physical points; vectorization next (2 Nov).**
    Hexagon amplitude call (57 integrals, 32 points, sharing off, 2.70 s):
    top-level inject_gram (small-Gram expansions of the method-choice
