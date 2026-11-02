@@ -17,6 +17,7 @@ mod inspection;
 mod inspection_formulas;
 mod labelling;
 pub use labelling::regular_d0_labelling;
+pub use native::double_double;
 mod native;
 mod precision;
 #[cfg(feature = "rust-codegen")]

@@ -287,3 +287,29 @@ Validation: `../../crates/iregi-masters/tests/nonfinite_d0_repair.rs` (both
 binary64 kernels against 256 bits, relative <= 1e-12). In iregi-rust this
 removed the last stability-study lanes (heptagon-r7 #10) whose binary64 arrays
 were not finite.
+
+## Fused double-double kernels without fused multiply-add (2 November 2026)
+
+`DoubleFloat` products used xprec's algorithm 12, three `f64::mul_add` calls
+each; without the FMA target feature (baseline x86-64, how iregi-rust is
+built) every one runs as two out-of-line calls (`compiler_builtins`'
+runtime-dispatched `fma`), and each product and sum is renormalized on its own.
+New `native::double_double` (public `oneloop::double_double`): `acc + x1 y1 ±
+x2 y2` as one exact sum (Dekker products, their errors and the low-order terms
+in one binary64 sum, one final two-sum; error a few u² times the sum of the
+term magnitudes). It is symmetric in the factors and odd in each, so
+`DoubleFloat::complex_mul` now uses it in place of `commutative_product` and
+keeps `a b == b a`, `a (-b) == -(a b)` and an exactly zero imaginary part of
+`z conj(z)`. The dilog series multiplies with the domain's `complex_mul`
+(binary64 and `Float`: the plain expression, unchanged), and
+`DoubleFloat::hypot` returns an axis value directly (the value its general
+formula gives). iregi-rust also uses these kernels in its double-double
+recurrences.
+
+Validation: `native::double_double::tests` (2000 operand sets against 300-bit
+MPFR: real products within 4 u², complex products and multiply-accumulates
+within 8 u² of the term magnitudes; commutativity, oddness, zero imaginary part
+of `z conj(z)`); iregi-masters' double-double master tests and iregi-rust's
+direct-engine and rescue tests pass. Opening N7R7 batch of 32 in iregi-rust:
+106-bit masters 95 -> 71 ms, rescued arrays within 1.3e-26 of 256 bits.
+Upstream branch `fused-double-double-kernels` (stacked on #13).

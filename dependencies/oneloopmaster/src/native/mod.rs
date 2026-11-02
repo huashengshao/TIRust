@@ -7,6 +7,7 @@ pub mod batch;
 #[cfg_attr(not(feature = "generated-evaluators"), allow(dead_code))]
 pub mod primitives;
 mod dilog;
+pub mod double_double;
 mod small_momentum;
 mod tensor;
 pub use small_momentum::b0_momentum_shift;

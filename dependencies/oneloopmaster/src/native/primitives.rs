@@ -191,23 +191,6 @@ fn double_to_float(value: DoubleFloat, bits: u32) -> Float {
     Float::with_val(bits, pair.hi()) + Float::with_val(bits, pair.lo())
 }
 
-/// The DoubleFloat product `x * y`, exactly commutative and odd in each operand.
-///
-/// The compensated product behind DoubleFloat accumulates its cross terms in
-/// operand order, so `x * y` and `y * x` can differ in the low component. Here
-/// every operation is symmetric under exchanging the operands: the high
-/// product with its fused rounding error, and the plain sum of the two cross
-/// products. Hence `x * y == y * x` and `x * (-y) == -(x * y)` exactly, as for
-/// binary64 and MPFR products, at the same few-ulp accuracy.
-#[inline]
-pub(crate) fn commutative_product(x: &DoubleFloat, y: &DoubleFloat) -> DoubleFloat {
-    let (x, y) = (x.into_inner(), y.into_inner());
-    let high = x.hi() * y.hi();
-    let error = x.hi().mul_add(y.hi(), -high);
-    let cross = x.hi() * y.lo() + x.lo() * y.hi();
-    DoubleFloat::from_compensated_sum(high, error + (cross + x.lo() * y.lo()))
-}
-
 impl NativeFloat for DoubleFloat {
     // Compensated arithmetic expands to many instructions. Sharing these two
     // operations avoids repeating that expansion in every generated branch.
@@ -222,12 +205,10 @@ impl NativeFloat for DoubleFloat {
     // `z conj(z)`, `re (-im) + im re`, is exactly zero, as in binary64 and
     // MPFR; otherwise a residue of a few 1e-35 decided |z| > 1 for |z| = 0.09
     // and inverted a dilogarithm argument (wrong four-mass D0 real part).
+    // The fused kernel is commutative and keeps that residue exactly zero.
     #[inline(never)]
     fn complex_mul(a: &C<Self>, b: &C<Self>) -> C<Self> {
-        C::new(
-            commutative_product(&a.re, &b.re) - commutative_product(&a.im, &b.im),
-            commutative_product(&a.re, &b.im) + commutative_product(&a.im, &b.re),
-        )
+        super::double_double::complex_mul(a, b)
     }
 
     const FIXED_BITS: Option<u32> = Some(106);
@@ -267,7 +248,9 @@ impl NativeFloat for DoubleFloat {
         let a = self.norm();
         let b = other.norm();
         let (large, small) = if a >= b { (a, b) } else { (b, a) };
-        if large.is_fully_zero() {
+        // An axis (most calls: sign tests `x - |x|` of real values) is the
+        // value below exactly, without its division and square root.
+        if large.is_fully_zero() || small.is_fully_zero() {
             return large;
         }
         let ratio = small / large;

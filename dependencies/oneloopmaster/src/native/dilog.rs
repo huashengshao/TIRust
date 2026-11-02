@@ -114,11 +114,10 @@ pub(crate) fn double_coefficients() -> &'static [symbolica::domains::float::Doub
     })
 }
 
+/// The domain's complex product (binary64 and MPFR: the plain expression;
+/// double-double: the fused kernel).
 fn mul<T: NativeFloat>(a: &C<T>, b: &C<T>) -> C<T> {
-    C::new(
-        a.re.clone() * &b.re - a.im.clone() * &b.im,
-        a.re.clone() * &b.im + a.im.clone() * &b.re,
-    )
+    T::complex_mul(a, b)
 }
 
 /// `u - u^2/4 + sum_k c_k u^(2k+1)` with `coefficients[k-1] = c_k`.
