@@ -618,6 +618,33 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    r20 N7R7 (+16%); amplitude 008: hexagon shared 353 -> 263 ms, x4.3 ->
    x3.3 over COLLIER cache (separate/nocache x2.95 -> x2.24), pentagon
    x2.3 -> x2.2; fingerprints unchanged; COLLIER cache ratio now 3.0.
+   GATHER PRODUCTS (user: "Gather stage 1", 3 Nov), 0b607e9: the plan lists
+   each momentum product once per (origin, multi-index) (DirectPlanData::
+   products; Gather::products maps kappas) since subsets with the same
+   origin multiply the same shift(member)-shift(origin) along the same
+   chain (parent = last nonzero momentum removed); the executor builds all
+   products before the gathers, in place with a slot per monomial (first-
+   reached order kept: it fixes every sum's order, and differs from monomial
+   order when components vanish). Test shared_products_follow_each_gathers_
+   chain. Bit-identical: 27500 binary64-only dumps = bdf47ab, fingerprints
+   unchanged, direct_engine/amplitude_sharing/regulators/shifted_pentagon/
+   physical_box pass. Hexagon steady call 2.924 -> 2.738 GIr (gather 817 ->
+   635 MIr; the slot rewrite alone gave 2.854); A/B (load ~270) hexagon
+   300 -> 282 ms (x0.956), pentagon 38.8 -> 36.9 ms (x0.954, noisy). Stage
+   1 left ~400 MIr: per multiply-add ~45 Ir of which ~15 arithmetic. NEXT
+   (bigger): moments are recomputed for every subset whose coefficients the
+   amplitude store reuses (gather runs for all gathers; store skips only the
+   coefficient program); moments depend only on those coefficients and the
+   members' shifts already in the key, so sharing them could skip most
+   gathers (gather is ~23% of the hexagon call). Captures (report commit
+   after 0b607e9): stability 027 = 026 on all 27500 points (st024.py);
+   timing 023 (load ~300 vs ~200 for 022, ran alone): statuses/E/A
+   unchanged, TIRust N5R6 -4..-11%, N6R6 -1..-13%, N7R7 -6..-31%, other
+   TIRust rows median +0.6% (COLLIER +2.9%, IREGI +2.3%), only batch-1
+   N1R0 outside 7% (-16%); amplitude 009 ran on a half-busy core (blocks
+   251-310 ms) and was repeated as 010 (same build-record binaries):
+   hexagon 263 -> 253 ms, x3.1 [2.75, 3.23] vs COLLIER cache 80.7 ms;
+   pentagon 39.8 -> 37.6 ms, x2.1; fingerprints unchanged.
 4n. **Improve the amplitude cache (user: "very important", 2 Nov).**
    Miss diagnostic (hexagon amplitude, 32 points, sharing on: 312 reused,
    333 computed per call): of the 333, 103 have an earlier result for the
