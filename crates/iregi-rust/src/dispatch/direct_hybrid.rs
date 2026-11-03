@@ -149,15 +149,6 @@ fn estimate_choice(settings: &ReductionSettings) -> bool {
     rotation_tested(settings) && (4..=7).contains(&settings.propagators) && settings.rank <= 7
 }
 
-/// Accepted lanes where some box or triangle exceeds the a priori PV
-/// estimate are computed with the per-box choice too and take it where its
-/// rotated copy agrees better (boxes: every such lane, their binary64 tail
-/// was PV-accepted lanes at 1e-12..1e-11 against COLLIER DD's 1e-13;
-/// pentagons: lanes agreeing worse than this, sparing ordinary points; six
-/// and seven points: none, it did not improve the stability hexagons while
-/// the opening N6R6 batch of 32 took 8.8 times longer and the N7R7 point
-/// would pay 13 ms for a choice that fails).
-const UPGRADE_AGREEMENT: f64 = 1.0 / (1u64 << 40) as f64;
 /// Refused lanes the per-box choice kept with an agreement worse than this
 /// also try every box and triangle with w > 2 off PV (kept if better).
 const HARDER_AGREEMENT: f64 = 1.0 / (1u64 << 48) as f64;
@@ -423,9 +414,6 @@ where
         direct.set_profiling(options.profiling);
         if rotation_tested(plan.direct.settings()) {
             direct.set_stability_threshold(from_binary64(&prototype, ROTATION_GATE));
-            if estimate_choice(plan.direct.settings()) {
-                direct.enable_estimate_flags();
-            }
         }
         if options.precision_rescue == PrecisionRescue::Automatic {
             direct.enable_partial_rescue(rescue_threshold(RESCUE_BITS[0]));
@@ -854,8 +842,8 @@ where
                 (LaneStatus::Success, LaneStatus::Success) => {
                     let a = &first.values[k * stride..(k + 1) * stride];
                     let difference = differences[k].unwrap_or(f64::NAN);
-                    // An accepted lane (upgrade) is replaced only by a better
-                    // agreement.
+                    // An accepted lane (the harder retry after the choice) is
+                    // replaced only by a better agreement.
                     let better = result.statuses[lane] != LaneStatus::Success
                         || result.estimated_errors[lane].map_or(true, |e| difference < e);
                     if difference <= required && better {
@@ -1007,14 +995,8 @@ where
                 }
             }
         }
-        // Lanes where some box or triangle exceeds the a priori PV estimate.
-        let mut flagged: Vec<bool> = self.direct.last_estimate_lanes().to_vec();
-        flagged.resize(batch.rows, false);
         if tested {
             let check = self.direct.reduce_batch(&rotated(batch, n))?;
-            for (flag, rotated) in flagged.iter_mut().zip(self.direct.last_estimate_lanes()) {
-                *flag |= *rotated;
-            }
             self.last.master_rows += self.direct.last_master_rows();
             let rotated_profile = self.direct.last_profile();
             direct_profile.geometry += rotated_profile.geometry;
@@ -1146,20 +1128,16 @@ where
         // With the precision rescue on, refused heptagon (and larger) lanes go
         // to it directly: their binary64 retries rarely succeed there (3 of
         // 495 stability heptagons) and cost the opening N7R7 batch of 32
-        // about 0.6 s of 1.3 s.
+        // about 0.6 s of 1.3 s. Accepted lanes are not retried for accuracy
+        // beyond the request (the former upgrade of accepted box and pentagon
+        // lanes the a priori estimate flagged: on the stability points their
+        // 99th percentiles 5e-13..3e-12 against 5e-12..8e-12 without it, still
+        // below COLLIER's, for 20% of the hexagon and 34% of the pentagon
+        // amplitude's time).
         let binary64_retries = !(self.precision_rescue == PrecisionRescue::Automatic && n >= 7);
         let estimated: Vec<usize> = if choice_enabled && binary64_retries {
             (0..batch.rows)
-                .filter(|&lane| match &result.statuses[lane] {
-                    LaneStatus::Unstable(_) => true,
-                    // Upgrade of accepted flagged lanes (kept only if better).
-                    LaneStatus::Success => {
-                        flagged[lane]
-                            && (n == 4
-                                || (n == 5 && result.estimated_errors[lane].is_some_and(|e| e > UPGRADE_AGREEMENT)))
-                    }
-                    _ => false,
-                })
+                .filter(|&lane| matches!(result.statuses[lane], LaneStatus::Unstable(_)))
                 .collect()
         } else {
             Vec::new()
