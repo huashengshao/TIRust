@@ -151,6 +151,18 @@ LATER = {
         "direct_engine_20261030_amplitude008": ("amplitude/summary-008.json", True),
         "direct_engine_20261030_amplitude_build008": ("amplitude/build-008.json", True),
     },
+    "023": {
+        "direct_engine_20261030_capture023": ("summary-023.json", True),
+        "direct_engine_20261030_build023": ("build-023.json", True),
+    },
+    "amp009": {
+        "direct_engine_20261030_amplitude009": ("amplitude/summary-009.json", True),
+        "direct_engine_20261030_amplitude_build009": ("amplitude/build-009.json", True),
+    },
+    "amp010": {
+        "direct_engine_20261030_amplitude010": ("amplitude/summary-010.json", True),
+        "direct_engine_20261030_amplitude_build010": ("amplitude/build-010.json", True),
+    },
 }
 
 
