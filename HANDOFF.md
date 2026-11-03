@@ -485,6 +485,55 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    x6.63 vs COLLIER cache, separate x4.80; pentagon 50.7 ms, x2.95, x2.02;
    all integral lanes certified, sharing on/off bit-identical). The report's
    pentagon sharing sentence (garbled in 4892274) now says 1.1 times.
+   PROFILE (user: "Yes, profile it", 3 Nov; TIRust 8ed78a4 = 939bb35 code).
+   Hexagon amplitude, sharing on, bench profile (release + debuginfo,
+   CARGO_TARGET_DIR=target/profile-build, temporary example amp_prof:
+   1 warm-up + N calls through #[inline(never)] measured), 532 ms/call.
+   perf 7.2 and valgrind 3.27 are in /nix/store (not on PATH);
+   perf_event_paranoid=2 allows -e cpu-clock:u. DWARF stacks truncate
+   (only ~1% reach main), so filter samples by time window; callgrind
+   with --toggle-collect=amp_prof::measured --dump-after=... gives exact
+   per-call trees. Call 2 overall still builds variant plans
+   (with_profile_boost + select_variant, +0.46 G Ir = +12%); calls 3+ are
+   identical (3.99 G Ir), so the benchmark's 2 warm-ups measure steady state.
+   Steady state (perf, 11 calls): expand_top 61% (325 ms; 168 top calls,
+   ~3.8 M coefficient lookups/call), PV gather 13% (68 ms, real complex
+   FMA work), double-double partial rescue 14% (73 ms: 52 distinct DD
+   executor runs/call via inject_external after 144 store hits, plus 10 from
+   rescue_tier; DD D0 boxes 47 ms ~5.6 M Ir each, DD C0 15 ms, reduction
+   11 ms), run_program 4% (23 ms), f64 masters 10 ms, SubsetStore 8 ms,
+   geometry 4 ms. Inside expand_top the step closure (gram.rs `step`) is
+   ~38% of the call and is mostly FastMap work: hasher (plan.rs:55),
+   hashbrown probing, Result/Option plumbing, 64-byte clones; inserts and
+   reserve_rehash another ~9%. Source-line attribution puts map overhead at
+   roughly a quarter to a third of the whole call against ~6-10% for the
+   arithmetic (estimate). Candidate: dense (lambda, kappa) storage with an
+   arithmetic graded index (nm <= 3, child rank <= ~18: ~4000 entries)
+   for spz, shat, the order maps and the triangle layouts (whose
+   (u16, Vec<u16>) keys allocate per lookup), maps pre-sized. Second: DD
+   D0 cost in oneloopmaster (upstream PR if improved).
+   ("Yes, do it") DONE a51d171: Grading (rank-graded index of (lambda,
+   kappa), nm 1..3; a rank-truncated set is a prefix) + Coefficients
+   (Vec<L4> + present flags, grows rank by rank) replace every FastMap in
+   expand_top (orders, totals, spz, shat per m, alt_pv, gc orders) and the
+   triangle layouts (dense u32 index arrays built per call). Bit-identical:
+   amplitude fingerprints = capture 005 (hexagon d5982c2edce61827, pentagon
+   ecd7d3be452f3803, sharing on/off); ab_dump binary64-only jsonl on 8800
+   stability lanes byte-identical to the 939bb35-era build; tests 19 + 2 +
+   10 (new graded_index test). A/B (bench profile, same CPU, 4 alternating
+   rounds): hexagon 531 -> 375 ms, pentagon 52.0 -> 40.3 ms. Re-profile:
+   expand_top 325 -> 168 ms/call (45% of the call); next largest: PV gather
+   66 ms, DD partial rescue 72 ms (DD D0 41), run_program 24 ms.
+   Published with a51d171: stability 024 (every TIRust field -- flagged,
+   best effort, delta, delta_quad, contracted, diagnostics -- identical to
+   023 on all 27500 points), timing 020 (load ~290 vs ~200 for 019; median
+   change vs 019: COLLIER +3%, TIRust +2%, IREGI +1%; >7%: four batch-32
+   binary64-only rows N4R6-N5R6 +7..9%, batch-1 dotted N3R4 -11% (back to
+   018, IREGI too), five batch-1 N7R7 modes +11..19%, which a same-binary
+   rerun the same day (scratchpad n7check-020, load ~285) put within
+   -1..+2.4% of 018), amplitude 006 (hexagon shared 380 ms, x4.73 vs COLLIER
+   cache, separate x3.30; pentagon 41.5 ms, x2.39, x1.56; fingerprints =
+   005; sharing x2.05 and x1.11, COLLIER cache x2.94 and x1.69).
    Remaining cost (hexagon amplitude, sharing off, loaded host 5.1 s/call):
    expansion stage 4.1 s = expand_top ~2.0 s (sources spz/shat 0.5 s,
    orders 1.1 s, small-Cayley 0.27 s) + aux executors' boosted triangles
