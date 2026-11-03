@@ -545,7 +545,40 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    nested triangles' expansion machinery (aux executor at boost 8/12) when
    fac_g^(passes+extra) > 2^-12 (census: 0 converging lost; 2^-18 loses 8
    of ~800) -> go to the alternative PV with boost 1; (4) upgrade policy
-   (ask the user: accuracy trade-off).
+   (ask the user: accuracy trade-off). (That list predates 939bb35; (1), (2)
+   are done, (3) was first dropped, then done as below.)
+   SKIP HOPELESS NESTED TRIANGLES (user: "Skip hopeless expansions", 3 Nov).
+   Measurement (temporary instrumentation, scratchpad census3_patch.py,
+   c3.py): hexagon amplitude call, sharing on, 378 ms: expansion
+   injections 182 ms inclusive; the 61 nested triangles (triangles of the
+   auxiliary box executors, rank 12 at boost 8) take 51 ms and all 61 end
+   in the alternative PV; their bubbles cost 1.6 ms, the rest is the
+   expansion orders and the small-Cayley variant. Pentagon: 1.9 of 40.6 ms.
+   Rule (gram.rs NESTED_HOPELESS_LOG2): a nested triangle with
+   fac_g^(B-1) > 2^-18 and fac_gy^((B-2)/2) > 2^-30 (COLLIER's factors,
+   B = largest boost 12) runs the alternative PV directly in the first
+   boost's executor (same bubbles and gate; a refused lane still tries the
+   boost-12 expansion). Two failed versions, both caught by binary64-only
+   dumps of all 27500 stability points: bubbles at boost 1 (gate passes
+   lanes that boost 8 refuses) and fac_g alone (nested triangles that
+   converge via the small-Cayley variant): both lost binary64 certification
+   on 12 hexagon and 21 heptagon lanes. Final rule: every binary64-only
+   array, status and estimate identical to a51d171 on all 27500 points for
+   (G, Y) = (-9..-24, -30) and (-18, -18/-24); (-30, -30) moves two
+   heptagon estimates. Amplitude fingerprints unchanged for every setting.
+   Speed (same binary, env switch, alternating rounds, one CPU): hexagon
+   amplitude 386 -> 351 ms, pentagon 39.4 -> 38.0 ms; binary64-only
+   stability dumps (loaded host, one run): heptagons 126 -> 93 s, hexagons
+   75 -> 56 s. Published as timing 021 / stability 025 / amplitude 007
+   (TIRust f06c5f3): stability 025 identical to 024 in every TIRust field
+   on all 27500 points; timing rows within host noise of 020 (TIRust median
+   -2%, COLLIER -3%, IREGI 0%; N7R7 batch 1 back to capture 018 for every
+   engine); amplitude x4.3 (CI 4.08-4.46) and x2.3 (2.24-2.36), fingerprints
+   unchanged. Both timing 021 and amplitude 007 are reruns: the first timing
+   run (alongside stability) had its extended rows disturbed (IREGI up to
+   1.8x slower), the first amplitude run had COLLIER 4-10% slower and 99%
+   intervals up to 4x wider (x4.2, x2.2). Lesson: run timing alone, not
+   alongside the stability capture.
 4n. **Improve the amplitude cache (user: "very important", 2 Nov).**
    Miss diagnostic (hexagon amplitude, 32 points, sharing on: 312 reused,
    333 computed per call): of the 333, 103 have an earlier result for the
