@@ -306,6 +306,24 @@ pub(crate) struct Gather {
     /// Row-major `[lambda][kappa]`, `lambda <= moment_rank / 2`.
     pub coefficient: Vec<u32>,
     pub moment_base: u32,
+    /// Per kappa: its momentum product in `DirectPlanData::products`.
+    pub products: Vec<u32>,
+}
+
+/// One momentum product `P_kappa(z) = prod_i (p_i.z)^(kappa_i) / kappa_i!`,
+/// shared by every gather whose subset has the same origin: their momenta are
+/// all `shift(member) - shift(origin)`, and each kappa extends its parent at
+/// its last nonzero momentum, so those gathers multiply the same vectors in
+/// the same order.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Product {
+    pub degree: u16,
+    /// Parent product; `u32::MAX` for degree zero.
+    pub parent: u32,
+    /// Geometry offset of the four components of the momentum multiplied in.
+    pub momentum: u32,
+    /// Exponent of that momentum (the `1/kappa!` divisor).
+    pub divisor: u16,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -356,6 +374,8 @@ pub(crate) struct DirectPlanData {
     /// Coefficient recursions, executed before gathers.
     pub coefficient_program: Vec<Instruction>,
     pub gathers: Vec<Gather>,
+    /// Momentum products of all gathers, parents first.
+    pub products: Vec<Product>,
     /// Pentagon and hexagon moment recursions, executed after gathers.
     pub moment_program: Vec<Instruction>,
     pub terms: Vec<Term>,
@@ -1112,6 +1132,9 @@ impl DirectPlanData {
 
         // Gathers of PV subsets whose moments are needed.
         let mut gathers = Vec::new();
+        let mut products: Vec<Product> = Vec::new();
+        // (origin, exponent of each member's momentum) -> product.
+        let mut product_lookup: HashMap<(usize, [u16; 16]), u32> = HashMap::new();
         let mut gather_scratch = 0usize;
         for (id, subset) in subsets.iter().enumerate() {
             let gram_free = subset.pentagon.is_some_and(|geometry| geometry.dd_rank >= 0);
@@ -1125,7 +1148,17 @@ impl DirectPlanData {
                 subset.moment_rank as u16
             };
             let layout = &layouts[&subset.mask];
+            let pv = subset.pv.unwrap();
+            let origin = subset.members[0];
+            let embed = |kappa: &[u16]| {
+                let mut exponents = [0u16; 16];
+                for (i, &k) in kappa.iter().enumerate() {
+                    exponents[subset.members[i + 1]] = k;
+                }
+                (origin, exponents)
+            };
             let mut kappas = Vec::new();
+            let mut kappa_products = Vec::new();
             let mut kappa_lookup: HashMap<Vec<u16>, u32> = HashMap::new();
             let mut offset = 0u32;
             for degree in 0..=rank {
@@ -1138,6 +1171,22 @@ impl DirectPlanData {
                         parent[last] -= 1;
                         (kappa_lookup[&parent], last as u16, kappa[last])
                     };
+                    let key = embed(&kappa);
+                    let product = match product_lookup.get(&key) {
+                        Some(&product) => product,
+                        None => {
+                            let product = products.len() as u32;
+                            products.push(Product {
+                                degree,
+                                parent: if degree == 0 { u32::MAX } else { kappa_products[parent as usize] },
+                                momentum: pv.p + 4 * u32::from(momentum),
+                                divisor,
+                            });
+                            product_lookup.insert(key, product);
+                            product
+                        }
+                    };
+                    kappa_products.push(product);
                     kappa_lookup.insert(kappa.clone(), kappas.len() as u32);
                     kappas.push(GatherKappa {
                         degree,
@@ -1166,6 +1215,7 @@ impl DirectPlanData {
                 kappas,
                 coefficient,
                 moment_base: subset.moment_base.unwrap(),
+                products: kappa_products,
             });
         }
 
@@ -1295,6 +1345,7 @@ impl DirectPlanData {
             constants: builder.constants,
             coefficient_program,
             gathers,
+            products,
             moment_program,
             terms: builder.terms,
             masters,
@@ -1354,6 +1405,47 @@ mod tests {
                 let plan = DirectPlanData::new(ReductionSettings::new(n, rank)).unwrap();
                 assert_eq!(plan.output.len(), plan.basis.len());
                 assert!(plan.output.iter().all(|&i| (i as usize) < plan.value_count));
+            }
+        }
+    }
+
+    /// Each gather's kappa reads a shared product built along the same chain
+    /// (parent, divisor) from the same momentum `shift(member) - shift(origin)`.
+    #[test]
+    fn shared_products_follow_each_gathers_chain() {
+        for n in 1..=7 {
+            for rank in 0..=6 {
+                let plan = DirectPlanData::new(ReductionSettings::new(n, rank)).unwrap();
+                // Geometry offset of each gathered momentum -> (origin, member).
+                let mut momenta = HashMap::new();
+                for gather in &plan.gathers {
+                    let subset = &plan.subsets[gather.subset];
+                    let pv = subset.pv.unwrap();
+                    for (i, &member) in subset.members[1..].iter().enumerate() {
+                        momenta.insert(pv.p + 4 * i as u32, (subset.members[0], member));
+                    }
+                }
+                let mut used = vec![false; plan.products.len()];
+                for (index, product) in plan.products.iter().enumerate() {
+                    assert!(product.degree == 0 || (product.parent as usize) < index);
+                }
+                for gather in &plan.gathers {
+                    let subset = &plan.subsets[gather.subset];
+                    assert_eq!(gather.products.len(), gather.kappas.len());
+                    for (kappa, &index) in gather.kappas.iter().zip(&gather.products) {
+                        used[index as usize] = true;
+                        let product = plan.products[index as usize];
+                        assert_eq!(product.degree, kappa.degree);
+                        if kappa.degree == 0 {
+                            continue;
+                        }
+                        assert_eq!(product.divisor, kappa.divisor);
+                        assert_eq!(product.parent, gather.products[kappa.parent as usize]);
+                        let member = subset.members[usize::from(kappa.momentum) + 1];
+                        assert_eq!(momenta[&product.momentum], (subset.members[0], member), "N{n} rank {rank}");
+                    }
+                }
+                assert!(used.into_iter().all(|used| used));
             }
         }
     }

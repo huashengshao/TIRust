@@ -37,6 +37,9 @@ pub enum DirectMasters {
     Policy(MasterExecutionPolicy),
 }
 
+/// Marks a monomial not yet reached by the product being built.
+const NO_SLOT: u32 = u32::MAX;
+
 /// Stage timings of the most recent profiled call.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DirectProfile {
@@ -144,9 +147,9 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     g_buffer: Vec<L4<T>>,
     sparse_products: Vec<(u32, C<T>)>,
     product_ranges: Vec<(u32, u32)>,
-    dense: Vec<C<T>>,
-    dense_mark: Vec<bool>,
-    touched: Vec<u32>,
+    /// Per local monomial of the product being built: its entry in
+    /// `sparse_products`, or `NO_SLOT`.
+    product_slot: Vec<u32>,
     qexp_constants: Vec<Vec<T>>,
     binomials: Vec<Vec<T>>,
     tpow: Vec<C<T>>,
@@ -304,9 +307,7 @@ where
             g_buffer: vec![lzero(&zero); gather_degree * (usize::from(plan.settings.rank) / 2 + 1)],
             sparse_products: Vec::new(),
             product_ranges: Vec::new(),
-            dense: vec![zero.clone(); gather_degree],
-            dense_mark: vec![false; gather_degree],
-            touched: Vec::new(),
+            product_slot: vec![NO_SLOT; gather_degree],
             qexp_constants: plan
                 .monomials
                 .qexp
@@ -2212,57 +2213,72 @@ where
         let plan = self.plan.clone();
         let table = &plan.monomials;
         let stride = table.block(usize::from(plan.settings.rank)).end;
+        // 1. Products as sparse (local monomial, value) lists, once for all
+        //    gathers of an origin. Each list is in the order its monomials are
+        //    first reached: that order fixes the order of every later sum, so
+        //    it is kept exactly.
+        self.sparse_products.clear();
+        self.product_ranges.clear();
+        for product in &plan.products {
+            let start = self.sparse_products.len();
+            if product.degree == 0 {
+                self.sparse_products.push((0, self.one.clone()));
+                self.product_ranges.push((start as u32, start as u32 + 1));
+                continue;
+            }
+            let block = table.block(usize::from(product.degree));
+            let parent_block = table.block(usize::from(product.degree) - 1);
+            let rows = &table.multiply[parent_block];
+            let (from, to) = self.product_ranges[product.parent as usize];
+            let inverse = self.prototype.one() / &self.prototype.from_usize(usize::from(product.divisor));
+            let p = product.momentum as usize;
+            let mut axes = [0usize; 4];
+            let mut count = 0;
+            for a in 0..4 {
+                let component = &self.geometry[p + a];
+                if !(component.re.is_zero() && component.im.is_zero()) {
+                    axes[count] = a;
+                    count += 1;
+                }
+            }
+            let axes = &axes[..count];
+            for entry in from as usize..to as usize {
+                let (local, ref value) = self.sparse_products[entry];
+                let value = cscale(value, &inverse);
+                let row = &rows[local as usize];
+                for &a in axes {
+                    let target = row[a] as usize - block.start;
+                    let mut slot = self.product_slot[target];
+                    if slot == NO_SLOT {
+                        // First reached: starts from zero.
+                        slot = self.sparse_products.len() as u32;
+                        self.product_slot[target] = slot;
+                        self.sparse_products.push((target as u32, self.zero.clone()));
+                    }
+                    // slot + value * component (binary64: as written).
+                    cfma(&mut self.sparse_products[slot as usize].1, &value, &self.geometry[p + a]);
+                }
+            }
+            // Release the slots and drop exact zeros, keeping the order.
+            let mut end = start;
+            for index in start..self.sparse_products.len() {
+                let (target, ref value) = self.sparse_products[index];
+                self.product_slot[target as usize] = NO_SLOT;
+                if !(value.re.is_zero() && value.im.is_zero()) {
+                    if end != index {
+                        self.sparse_products.swap(end, index);
+                    }
+                    end += 1;
+                }
+            }
+            self.sparse_products.truncate(end);
+            self.product_ranges.push((start as u32, end as u32));
+        }
         for gather in &plan.gathers {
             let subset = &plan.subsets[gather.subset];
             let geometry = subset.pv.unwrap();
             let rank = usize::from(gather.moment_rank);
             let momenta = subset.members.len() - 1;
-            // 1. Products as sparse (local monomial, value) lists per kappa.
-            self.sparse_products.clear();
-            self.product_ranges.clear();
-            for kappa in &gather.kappas {
-                let start = self.sparse_products.len() as u32;
-                if kappa.degree == 0 {
-                    self.sparse_products.push((0, self.one.clone()));
-                    self.product_ranges.push((start, start + 1));
-                    continue;
-                }
-                let block = table.block(usize::from(kappa.degree));
-                let parent = &gather.kappas[kappa.parent as usize];
-                let parent_start = table.block(usize::from(parent.degree)).start;
-                let (from, to) = self.product_ranges[kappa.parent as usize];
-                let inverse = self.prototype.one() / &self.prototype.from_usize(usize::from(kappa.divisor));
-                let p = geometry.p as usize + 4 * usize::from(kappa.momentum);
-                self.touched.clear();
-                for entry in from..to {
-                    let (local, value) = self.sparse_products[entry as usize].clone();
-                    let value = cscale(&value, &inverse);
-                    let monomial = parent_start + local as usize;
-                    for a in 0..4 {
-                        let component = &self.geometry[p + a];
-                        if component.re.is_zero() && component.im.is_zero() {
-                            continue;
-                        }
-                        let target = table.multiply[monomial][a] as usize - block.start;
-                        if !self.dense_mark[target] {
-                            self.dense_mark[target] = true;
-                            self.dense[target] = self.zero.clone();
-                            self.touched.push(target as u32);
-                        }
-                        // dense + value * component (binary64: as written).
-                        cfma(&mut self.dense[target], &value, component);
-                    }
-                }
-                for &target in &self.touched {
-                    self.dense_mark[target as usize] = false;
-                    let value = self.dense[target as usize].clone();
-                    if !(value.re.is_zero() && value.im.is_zero()) {
-                        self.sparse_products.push((target, value));
-                    }
-                }
-                let end = self.sparse_products.len() as u32;
-                self.product_ranges.push((start, end));
-            }
             // 2. g_lambda blocks; without momenta only degree zero exists.
             let kappas = gather.kappas.len();
             for lambda in 0..=rank / 2 {
@@ -2279,7 +2295,7 @@ where
                     let coefficient = gather.coefficient[lambda * kappas + k];
                     let value = &self.values[coefficient as usize];
                     let block_start = base + table.block(degree).start;
-                    let (from, to) = self.product_ranges[k];
+                    let (from, to) = self.product_ranges[gather.products[k] as usize];
                     for (local, product) in &self.sparse_products[from as usize..to as usize] {
                         lfma_slots::<T, FULL>(&mut self.g_buffer[block_start + *local as usize], product, value);
                     }
