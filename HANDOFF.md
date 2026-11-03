@@ -437,6 +437,22 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    hexagon shared/separate x0.456, COLLIER cache/nocache x0.341, TIRust
    shared / COLLIER cache x9.07 (002: x10.4); pentagon x0.772, x0.597, x4.86
    (002: x6.6); on/off bit-identical, all lanes certified.
+   Upgrade-policy measurement (user: "Yes, measure it", 3 Nov; temporary
+   env switch, reverted): binary64-only on all box-r4/box-r6/pentagon
+   stability points, policies current / gated (N=4 also only above 2^-40) /
+   none. Statuses identical in all; arrays change on 213/461/313 lanes
+   (none) and 14/135/0 (gated); scored vs 256-bit (metric = run.py, matches
+   capture 021 exactly). p99 current -> none: box-r4 5.1e-13 -> 5.3e-12,
+   box-r6 6.8e-13 -> 8.0e-12, pentagon 3.5e-12 -> 8.5e-12 (COLI 9.1e-12,
+   2.2e-11, 9.8e-12); p99.9 -> 3.3e-11, 3.7e-11, 3.6e-11 (COLI 4.4e-11,
+   5.0e-11, 6.6e-11); max box-r4 3.4e-11 -> 6.7e-11 (COLI 6.2e-11; one
+   certified lane, 1703, 1.16x the 2^-34 request), others unchanged;
+   pentagon median 3.0e-15 -> 3.3e-15 (COLI 2.9e-15). Gated: box p99
+   5.5e-13 / 7.6e-13, pentagons unchanged. Time (binary64-only, same run):
+   box-r6 15.2 / 10.1 / 4.4 s, box-r4 2.1 / 2.1 / 1.2 s, pentagon 42.8 /
+   42.9 / 38.9 s; amplitudes (sharing on, 3 interleaved rounds, devopt):
+   hexagon 840 / 809 / 668 ms, pentagon 100 / 100 / 66 ms. Awaiting the
+   user's choice.
    Remaining cost (hexagon amplitude, sharing off, loaded host 5.1 s/call):
    expansion stage 4.1 s = expand_top ~2.0 s (sources spz/shat 0.5 s,
    orders 1.1 s, small-Cayley 0.27 s) + aux executors' boosted triangles
