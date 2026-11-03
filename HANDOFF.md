@@ -452,7 +452,12 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    box-r6 15.2 / 10.1 / 4.4 s, box-r4 2.1 / 2.1 / 1.2 s, pentagon 42.8 /
    42.9 / 38.9 s; amplitudes (sharing on, 3 interleaved rounds, devopt):
    hexagon 840 / 809 / 668 ms, pentagon 100 / 100 / 66 ms. Awaiting the
-   user's choice.
+   user's choice. User: "Drop them" -> f45d36f (estimate flags no longer
+   computed). Published: timing 018 (load ~240), stability 022 (= the
+   measurement; default mode too: box-r4 p99 5.2e-12, max 6.7e-11; box-r6
+   p99 7.5e-12; pentagon median 3.5e-15, p99 1.2e-11 > COLI 9.8e-12),
+   amplitude 004 (hexagon x7.33 vs COLLIER cache, shared/separate x0.472;
+   pentagon x3.33, x0.883). Next: the three accuracy-neutral ideas above.
    Remaining cost (hexagon amplitude, sharing off, loaded host 5.1 s/call):
    expansion stage 4.1 s = expand_top ~2.0 s (sources spz/shat 0.5 s,
    orders 1.1 s, small-Cayley 0.27 s) + aux executors' boosted triangles
