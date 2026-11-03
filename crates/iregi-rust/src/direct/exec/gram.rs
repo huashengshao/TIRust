@@ -110,6 +110,30 @@ struct Grading {
     /// Offset of lambda within rank r: `lambda_start[r * half + lambda]`.
     lambda_start: Vec<usize>,
     half: usize,
+    /// The key of every index.
+    keys: Vec<Key>,
+    /// Neighbours of every index (`NONE` outside the grading): `(lambda - 1,
+    /// kappa)`, `(lambda + 1, kappa)`, then `(lambda, kappa + e_i)` and
+    /// `(lambda, kappa - e_i)` for `i < 3`. The expansions' recursions read
+    /// their terms through these instead of indexing every key.
+    near: Vec<[u32; 8]>,
+}
+
+/// No index (outside the grading).
+const NONE: u32 = u32::MAX;
+
+thread_local! {
+    /// Gradings with their neighbour tables by `(nm, max_rank)`, built once
+    /// per thread.
+    static GRADINGS: std::cell::RefCell<HashMap<(usize, u16), std::rc::Rc<Grading>>> =
+        std::cell::RefCell::new(HashMap::new());
+}
+
+/// The cached grading of `nm` momenta through `max_rank`.
+fn cached_grading(nm: usize, max_rank: u16) -> std::rc::Rc<Grading> {
+    GRADINGS.with(|cache| {
+        cache.borrow_mut().entry((nm, max_rank)).or_insert_with(|| std::rc::Rc::new(Grading::new(nm, max_rank))).clone()
+    })
 }
 
 impl Grading {
@@ -134,7 +158,81 @@ impl Grading {
             next += offset;
         }
         rank_start.push(next);
-        Self { nm, max_rank, rank_start, lambda_start, half }
+        let mut grading = Self { nm, max_rank, rank_start, lambda_start, half, keys: Vec::with_capacity(next), near: Vec::new() };
+        for r in 0..=max_rank {
+            for lambda in 0..=r / 2 {
+                let d = r - 2 * lambda;
+                let kappas = if nm == 1 { vec![[d, 0, 0]] } else { compositions(d, nm) };
+                grading.keys.extend(kappas.into_iter().map(|kappa| (lambda, kappa)));
+            }
+        }
+        let at = |lambda: u16, kappa: [u16; 3]| grading.index(lambda, &kappa).map_or(NONE, |index| index as u32);
+        let near: Vec<[u32; 8]> = grading
+            .keys
+            .iter()
+            .map(|&(lambda, kappa)| {
+                let mut out = [NONE; 8];
+                if lambda > 0 {
+                    out[0] = at(lambda - 1, kappa);
+                }
+                out[1] = at(lambda + 1, kappa);
+                for i in 0..3 {
+                    let mut more = kappa;
+                    more[i] += 1;
+                    out[2 + i] = at(lambda, more);
+                    if kappa[i] > 0 {
+                        let mut less = kappa;
+                        less[i] -= 1;
+                        out[5 + i] = at(lambda, less);
+                    }
+                }
+                out
+            })
+            .collect();
+        grading.near = near;
+        grading
+    }
+
+    /// The key of `index`.
+    fn key(&self, index: usize) -> Key {
+        self.keys[index]
+    }
+
+    /// Indices of the keys `(lambda, kappa)` of rank `r`, kappa as
+    /// `compositions` lists it.
+    fn block(&self, r: u16, lambda: u16) -> std::ops::Range<usize> {
+        let start = self.rank_start[usize::from(r)] + self.lambda_start[usize::from(r) * self.half + usize::from(lambda)];
+        let d = usize::from(r - 2 * lambda);
+        let count = match self.nm {
+            1 => 1,
+            2 => d + 1,
+            _ => (d + 1) * (d + 2) / 2,
+        };
+        start..start + count
+    }
+
+    fn neighbour(&self, index: u32, which: usize) -> u32 {
+        self.near.get(index as usize).map_or(NONE, |near| near[which])
+    }
+
+    /// `(lambda - 1, kappa)` of `index`.
+    fn lower(&self, index: u32) -> u32 {
+        self.neighbour(index, 0)
+    }
+
+    /// `(lambda + 1, kappa)` of `index`.
+    fn higher(&self, index: u32) -> u32 {
+        self.neighbour(index, 1)
+    }
+
+    /// `(lambda, kappa + e_i)` of `index`.
+    fn plus(&self, index: u32, i: usize) -> u32 {
+        self.neighbour(index, 2 + i)
+    }
+
+    /// `(lambda, kappa - e_i)` of `index`.
+    fn minus(&self, index: u32, i: usize) -> u32 {
+        self.neighbour(index, 5 + i)
     }
 
     /// Number of keys of rank at most `r`.
@@ -198,18 +296,29 @@ impl<T: NativeFloat> Coefficients<T> {
         self.get(grading, key).ok_or_else(|| format!("{what}: coefficient {key:?} missing"))
     }
 
+    /// The coefficient at `index` (`NONE` included), or the error "`what`:
+    /// coefficient `key` missing" with the key it stands for.
+    fn need_at(&self, index: u32, key: impl FnOnce() -> Key, what: &str) -> Result<&L4<T>, String> {
+        self.at(index as usize).ok_or_else(|| format!("{what}: coefficient {:?} missing", key()))
+    }
+
     fn insert(&mut self, grading: &Grading, key: Key, value: L4<T>, zero: &C<T>) -> Result<(), String> {
         let index = grading
             .index(key.0, &key.1)
             .ok_or_else(|| format!("small-Gram expansion: coefficient {key:?} outside the expansion ranks"))?;
+        self.insert_at(grading, index, value, zero);
+        Ok(())
+    }
+
+    /// Insert at an index of `grading`.
+    fn insert_at(&mut self, grading: &Grading, index: usize, value: L4<T>, zero: &C<T>) {
         if index >= self.values.len() {
-            let end = grading.end(rank_of(&key));
+            let end = grading.end(rank_of(&grading.key(index)));
             self.values.resize(end, lzero(zero));
             self.present.resize(end, false);
         }
         self.values[index] = value;
         self.present[index] = true;
-        Ok(())
     }
 
     /// The coefficients of index below `end` (a rank prefix).
@@ -618,8 +727,8 @@ where
         // Keys of the expansion (its steps reach one rank above the
         // triangles) and the triangles' layouts by the same graded index
         // (`u32::MAX`: not in the layout).
-        let grading = Grading::new(nm, child_rank + 2);
-        let child_grading = Grading::new(nm - 1, child_rank);
+        let grading = cached_grading(nm, child_rank + 2);
+        let child_grading = cached_grading(nm - 1, child_rank);
         let dense_layout = |layout: &FastMap<(u16, Vec<u16>), u32>| -> Vec<u32> {
             let mut out = vec![u32::MAX; child_grading.end(child_rank)];
             for (&(lambda, ref kappa), &index) in layout {
@@ -683,8 +792,9 @@ where
         let mut shat: Vec<Coefficients<T>> = (0..nm).map(|_| Coefficients::with_capacity(grading.end(child_rank))).collect();
         for r in 0..=child_rank {
             for lambda in 0..=r / 2 {
-                for kappa in compositions(r - 2 * lambda, nm) {
-                    let Some(c0) = spz.get(&grading, (lambda, kappa)) else { continue };
+                for index in grading.block(r, lambda) {
+                    let kappa = grading.key(index).1;
+                    let Some(c0) = spz.at(index) else { continue };
                     for m in 0..nm {
                         let mut out: L4<T> = std::array::from_fn(|slot| csub(&zero, &c0[slot]));
                         if kappa[m] == 0 {
@@ -697,13 +807,16 @@ where
                                 out[slot] = cadd(&out[slot], &source[slot]);
                             }
                         }
-                        shat[m].insert(&grading, (lambda, kappa), out, &zero)?;
+                        shat[m].insert_at(&grading, index, out, &zero);
                     }
                 }
             }
         }
         let shat_of = |m: usize, lambda: u16, kappa: [u16; 3]| -> Result<&L4<T>, String> {
             shat[m].get(&grading, (lambda, kappa)).ok_or_else(|| "small-Gram expansion: Shat outside the triangle ranks".to_string())
+        };
+        let shat_at = |m: usize, index: u32| -> Result<&L4<T>, String> {
+            shat[m].at(index as usize).ok_or_else(|| "small-Gram expansion: Shat outside the triangle ranks".to_string())
         };
         let d0 = self.values[subset.master.unwrap() as usize].clone();
         let real = |x: usize| C::new(self.prototype.from_usize(x), self.prototype.zero());
@@ -736,39 +849,50 @@ where
         let neg_delta = csub(&zero, &delta);
         let two_adj = cscale(&adj[k][l], &two);
         let neg_adj = csub(&zero, &adj[k][l]);
+        // Each step walks its keys by index and reads every term through the
+        // grading's neighbour tables (the order of the keys and of the terms is
+        // that of the recursion above).
+        let what = "small-Gram expansion";
         let step = |cur: &mut Coefficients<T>, prev: Option<&Coefficients<T>>, q: u16| -> Result<(), String> {
             let first = prev.is_none();
             for lambda in (1..=q / 2).rev() {
-                for kappa in compositions(q - 2 * lambda, nm) {
+                for index in grading.block(q, lambda) {
+                    let kappa = grading.key(index).1;
+                    let here = index as u32;
+                    // (lambda - 1, kappa)
+                    let below = grading.lower(here);
                     let mut acc = lzero(&zero);
                     if let Some(prev) = prev {
-                        lfma(&mut acc, &neg_delta, prev.need(&grading, (lambda - 1, add(add(kappa, k), l)), "small-Gram expansion")?);
+                        let at = grading.plus(grading.plus(below, k), l);
+                        lfma(&mut acc, &neg_delta, prev.need_at(at, || (lambda - 1, add(add(kappa, k), l)), what)?);
                     } else {
-                        lfma(&mut acc, &two_adj, spz.get(&grading, (lambda - 1, kappa)).ok_or("small-Gram expansion: C0 outside the triangle ranks")?);
+                        lfma(&mut acc, &two_adj, spz.at(below as usize).ok_or("small-Gram expansion: C0 outside the triangle ranks")?);
                     }
-                    lfma(&mut acc, &xtilde, cur.need(&grading, (lambda - 1, kappa), "small-Gram expansion")?);
+                    lfma(&mut acc, &xtilde, cur.need_at(below, || (lambda - 1, kappa), what)?);
                     if first {
                         for m in 0..nm {
-                            lfma(&mut acc, &adj[m][l], shat_of(m, lambda - 1, add(kappa, k))?);
-                            lfma(&mut acc, &neg_adj, shat_of(m, lambda - 1, add(kappa, m))?);
+                            lfma(&mut acc, &adj[m][l], shat_at(m, grading.plus(below, k))?);
+                            lfma(&mut acc, &neg_adj, shat_at(m, grading.plus(below, m))?);
                         }
                     }
                     for (a, b, w) in &pairs {
                         let (a, b) = (*a, *b);
                         let mut bracket = lzero(&zero);
                         if first {
-                            lfma(&mut bracket, &f[a], shat_of(b, lambda - 1, kappa)?);
+                            lfma(&mut bracket, &f[a], shat_at(b, below)?);
                         }
-                        if let Some(less) = sub(kappa, a) {
+                        if kappa[a] > 0 {
+                            let less = grading.minus(here, a);
                             if first {
-                                lfma(&mut bracket, &real(2 * kappa[a] as usize), shat_of(b, lambda, less)?);
+                                lfma(&mut bracket, &real(2 * kappa[a] as usize), shat_at(b, less)?);
                             }
                             let factor = cscale(&f[b], &(two.clone() * &self.prototype.from_usize(kappa[a] as usize)));
-                            lfma(&mut bracket, &csub(&zero, &factor), cur.need(&grading, (lambda, less), "small-Gram expansion")?);
+                            lfma(&mut bracket, &csub(&zero, &factor), cur.need_at(less, || (lambda, sub(kappa, a).unwrap()), what)?);
                         }
-                        if let Some(less) = sub(kappa, b) {
+                        if kappa[b] > 0 {
+                            let less = grading.minus(here, b);
                             let factor = cscale(&f[a], &(two.clone() * &self.prototype.from_usize(kappa[b] as usize)));
-                            lfma(&mut bracket, &csub(&zero, &factor), cur.need(&grading, (lambda, less), "small-Gram expansion")?);
+                            lfma(&mut bracket, &csub(&zero, &factor), cur.need_at(less, || (lambda, sub(kappa, b).unwrap()), what)?);
                         }
                         let multiplicity = if a == b {
                             kappa[a] as usize * (kappa[a] as usize).saturating_sub(1)
@@ -776,9 +900,9 @@ where
                             kappa[a] as usize * kappa[b] as usize
                         };
                         if multiplicity > 0 {
-                            let less = sub(sub(kappa, a).unwrap(), b).unwrap();
+                            let less = grading.higher(grading.minus(grading.minus(here, a), b));
                             let factor = cscale(&real(multiplicity), &four);
-                            lfma(&mut bracket, &csub(&zero, &factor), cur.need(&grading, (lambda + 1, less), "small-Gram expansion")?);
+                            lfma(&mut bracket, &csub(&zero, &factor), cur.need_at(less, || (lambda + 1, sub(sub(kappa, a).unwrap(), b).unwrap()), what)?);
                         }
                         lfma(&mut acc, &csub(&zero, w), &bracket);
                     }
@@ -786,26 +910,29 @@ where
                     // Divisor (a - 2 eps), a = 2 (lambda + |kappa|) + 4 - N.
                     let a = self.prototype.from_usize(2 * (lambda as usize + kappa.iter().map(|&x| x as usize).sum::<usize>()) + 3 - nm);
                     div_dimension(&mut out, &(self.prototype.one() / &a));
-                    cur.insert(&grading, (lambda, kappa), out, &zero)?;
+                    cur.insert_at(&grading, index, out, &zero);
                 }
             }
             if q >= 2 {
-                for kappa in compositions(q - 1, nm) {
+                for index in grading.block(q - 1, 0) {
+                    let kappa = grading.key(index).1;
+                    let here = index as u32;
                     let mut acc = lzero(&zero);
                     for m in 0..nm {
                         if first {
-                            lfma(&mut acc, &adj[j][m], shat_of(m, 0, kappa)?);
+                            lfma(&mut acc, &adj[j][m], shat_at(m, here)?);
                         }
-                        if let Some(less) = sub(kappa, m) {
+                        if kappa[m] > 0 {
                             let factor = cscale(&adj[j][m], &(two.clone() * &self.prototype.from_usize(kappa[m] as usize)));
-                            lfma(&mut acc, &csub(&zero, &factor), cur.need(&grading, (1, less), "small-Gram expansion")?);
+                            let less = grading.higher(grading.minus(here, m));
+                            lfma(&mut acc, &csub(&zero, &factor), cur.need_at(less, || (1, sub(kappa, m).unwrap()), what)?);
                         }
                     }
                     if let Some(prev) = prev {
-                        lfma(&mut acc, &neg_delta, prev.need(&grading, (0, add(kappa, j)), "small-Gram expansion")?);
+                        lfma(&mut acc, &neg_delta, prev.need_at(grading.plus(here, j), || (0, add(kappa, j)), what)?);
                     }
                     let out: L4<T> = std::array::from_fn(|slot| cmul(&acc[slot], &inv_adjf));
-                    cur.insert(&grading, (0, kappa), out, &zero)?;
+                    cur.insert_at(&grading, index, out, &zero);
                 }
             }
             Ok(())
@@ -1237,6 +1364,42 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn neighbour_tables_match_the_graded_index() {
+        for nm in 1..=3 {
+            let grading = Grading::new(nm, 10);
+            let at = |lambda: u16, kappa: [u16; 3]| grading.index(lambda, &kappa).map_or(NONE, |index| index as u32);
+            for r in 0..=10u16 {
+                for lambda in 0..=r / 2 {
+                    let d = r - 2 * lambda;
+                    let kappas = if nm == 1 { vec![[d, 0, 0]] } else { compositions(d, nm) };
+                    let block: Vec<usize> = grading.block(r, lambda).collect();
+                    assert_eq!(block.len(), kappas.len());
+                    for (&index, &kappa) in block.iter().zip(&kappas) {
+                        assert_eq!(grading.key(index), (lambda, kappa));
+                        let here = index as u32;
+                        assert_eq!(grading.lower(here), if lambda > 0 { at(lambda - 1, kappa) } else { NONE });
+                        assert_eq!(grading.higher(here), at(lambda + 1, kappa));
+                        for i in 0..3 {
+                            let mut more = kappa;
+                            more[i] += 1;
+                            assert_eq!(grading.plus(here, i), at(lambda, more), "nm {nm} {lambda} {kappa:?} + e{i}");
+                            let less = (kappa[i] > 0).then(|| {
+                                let mut less = kappa;
+                                less[i] -= 1;
+                                at(lambda, less)
+                            });
+                            assert_eq!(grading.minus(here, i), less.unwrap_or(NONE));
+                        }
+                    }
+                }
+            }
+            // Outside the grading every neighbour is NONE.
+            assert_eq!(grading.plus(NONE, 0), NONE);
+            assert_eq!(grading.higher(grading.block(10, 5).start as u32), NONE);
+        }
+    }
 
     #[test]
     fn graded_index_numbers_every_key_once_in_rank_order() {
