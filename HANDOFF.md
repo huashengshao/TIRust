@@ -579,6 +579,45 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    1.8x slower), the first amplitude run had COLLIER 4-10% slower and 99%
    intervals up to 4x wider (x4.2, x2.2). Lesson: run timing alone, not
    alongside the stability capture.
+   PROFILE AFTER f06c5f3 (user: "Profile next cost", 3 Nov). Callgrind,
+   steady hexagon amplitude call (4th), sharing on: 3.38 GIr (perf 362 ms);
+   pentagon 0.38 GIr. By call site in DirectHybridWorkspace::reduce_batch
+   (hexagon / pentagon): main pass 25% / 38%, rotated pass of the rotation
+   test 25% / 25% (22 / 6 integrals), checked_retry (method choice,
+   expansions) 42% / 26%, order consensus + third order 4.5%, rescue_tier
+   2% / 9%. Across them: gather 24% / 22%, of which stage 1 (momentum
+   products, exec.rs ~2236-2264) 17% / 14% of the call but only a quarter
+   of it is the cfma (the rest: zero tests, dense_mark, touched, push,
+   clone); DD partial rescue 15% (52 DD box reductions, 914 DD master
+   families: D0 10%, C0 4%), keyed by members in pass order, so the
+   rotated pass recomputes its DD boxes and their masters; Grading::index
+   12% (4.2M calls from the expansion step). Tools (scratchpad prof/):
+   cgi.sh / cgi2.sh (BIN, TAG; --dump-instr), cginstr.py (cost per source
+   line through addr2line inline chains; callgrind addresses = link-time
+   addresses), cgsites.py (inclusive cost by call site), cgcalls2.py.
+   NEIGHBOUR TABLES (user: "Expansion lookups first", 3 Nov), bdf47ab: the
+   grading keeps its keys and per index the indices of (lambda -+ 1, kappa)
+   and (lambda, kappa -+ e_i) (thread-local cache by (nm, max_rank)); the
+   step walks its keys by index range and reads its terms through the
+   tables (same arithmetic, same order). All 27500 binary64-only dumps
+   identical to f06c5f3, amplitude fingerprints unchanged, tests pass.
+   Same-session A/B (alternating rounds, one CPU, bench profile): hexagon
+   366 -> 300 ms median (pairwise x0.82), pentagon 41.4 -> 38.8 ms (x0.94);
+   hexagon instructions 3.38G -> 2.92G (expansions 1.35G -> 0.90G). The
+   small-Cayley variant, alternative PV and setup still index keys (~60
+   MIr, 2%). Next candidates from the profile: gather stage 1 without the
+   sparse bookkeeping (bit-identical if each target keeps its summation
+   order), DD masters shared across origins (rounding-level changes), the
+   rotation test's cost (policy: user decision).
+   Published as timing 022 / stability 026 / amplitude 008 (bdf47ab, each
+   run alone): stability 026 identical to 025 in every TIRust
+   status/error/diagnostic on all 27500 points (summary identical
+   except capture hashes); timing 022 (load ~200) vs 021: medians TIRust
+   +0.5%, COLLIER +0.2%, IREGI -0.8%, TIRust errors/statuses unchanged,
+   outside 7% only batch-1 N1R0 (+9..27%, <=0.14 us) and batch-1 binary64
+   r20 N7R7 (+16%); amplitude 008: hexagon shared 353 -> 263 ms, x4.3 ->
+   x3.3 over COLLIER cache (separate/nocache x2.95 -> x2.24), pentagon
+   x2.3 -> x2.2; fingerprints unchanged; COLLIER cache ratio now 3.0.
 4n. **Improve the amplitude cache (user: "very important", 2 Nov).**
    Miss diagnostic (hexagon amplitude, 32 points, sharing on: 312 reused,
    333 computed per call): of the 333, 103 have an earlier result for the
