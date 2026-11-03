@@ -86,6 +86,10 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     gram_top: Option<u16>,
     /// Auxiliary executor of the alternative-PV stage: skip the expansions.
     gram_alt_only: bool,
+    /// Auxiliary executor of a nested triangle whose expansion cannot
+    /// converge: the alternative PV reduction without its a priori estimate
+    /// (as after a failed expansion).
+    gram_alt_direct: bool,
     /// Auxiliary expansion executor: ranks the next larger boost adds (0 at
     /// the largest). When neither expansion converges and their observed
     /// convergence predicts that those ranks suffice, the executor reports
@@ -283,6 +287,7 @@ where
             gram_external: Vec::new(),
             gram_top: None,
             gram_alt_only: false,
+            gram_alt_direct: false,
             gram_extra_ranks: 0,
             gram_everywhere: false,
             gram_estimated: false,
@@ -2127,6 +2132,7 @@ where
                     u64::from(self.gram_everywhere),
                     u64::from(self.gram_estimated),
                     u64::from(self.gram_alt_only),
+                    u64::from(self.gram_alt_direct),
                     u64::from(self.gram_extra_ranks),
                 ];
                 for (id, subset) in plan.subsets.iter().enumerate() {
