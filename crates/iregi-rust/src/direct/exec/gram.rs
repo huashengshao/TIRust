@@ -45,10 +45,10 @@ use crate::direct::{
 use crate::{KinematicsBatch, LaneStatus, ReductionSettings};
 
 /// Expansion executors of a binary64 executor, by subset size, coefficient
-/// rank and boost.
+/// rank, boost and whether the expansion is skipped (alternative PV only).
 #[derive(Clone)]
 pub(crate) struct GramRescue<T: NativeFloat> {
-    executors: HashMap<(usize, u16, u16), DirectExecutor<T>>,
+    executors: HashMap<(usize, u16, u16, bool), DirectExecutor<T>>,
     /// Boosts tried in order: a smaller one first (fewer high-rank triangles
     /// for its gate to refuse), the largest one only where it fails.
     boosts: Vec<u16>,
@@ -252,6 +252,67 @@ pub(super) fn gram_indicator<T: NativeFloat>(z: &[[C<T>; 3]; 3], f: &[C<T>; 3], 
     (largest > 0.0 && w.is_finite()).then_some(w)
 }
 
+/// COLLIER's a priori convergence factors of the small-Gram expansion and
+/// of its variant for a small modified Cayley determinant (`fac_g` and
+/// `fac_gy` of its CalcCgn/CalcDgn, CalcCgy/CalcDgy):
+/// fac_g = |Delta| / max_j |(Zadj f)_j| * max(1, max |Xtilde| / (2 max_j |(Zadj f)_j|)),
+/// fac_gy = max(max_j |(Zadj f)_j|, |Delta|) / max |Xtilde| * max(1, max |f| / max |Z|).
+pub(super) fn gram_factors<T: NativeFloat>(z: &[[C<T>; 3]; 3], f: &[C<T>; 3], m02: &C<T>, nm: usize) -> Option<(f64, f64)> {
+    let zero = czero(&z[0][0].re);
+    let size = |x: &C<T>| cnorm2(x).to_f64().sqrt();
+    let adj = |i: usize, j: usize| -> C<T> {
+        if nm == 2 {
+            return match (i, j) {
+                (0, 0) => z[1][1].clone(),
+                (1, 1) => z[0][0].clone(),
+                _ => csub(&zero, &z[j][i]),
+            };
+        }
+        let (a, b, c, d) = ((j + 1) % 3, (j + 2) % 3, (i + 1) % 3, (i + 2) % 3);
+        csub(&cmul(&z[a][c], &z[b][d]), &cmul(&z[a][d], &z[b][c]))
+    };
+    let mut delta = zero.clone();
+    for j in 0..nm {
+        delta = cadd(&delta, &cmul(&z[0][j], &adj(j, 0)));
+    }
+    let mut largest = 0.0f64;
+    for j in 0..nm {
+        let mut value = zero.clone();
+        for m in 0..nm {
+            value = cadd(&value, &cmul(&adj(j, m), &f[m]));
+        }
+        largest = largest.max(size(&value));
+    }
+    let two = z[0][0].re.from_usize(2);
+    let mut xtilde = 0.0f64;
+    for a in 0..nm {
+        for b in 0..nm {
+            let mut value = cscale(&cmul(m02, &adj(a, b)), &two);
+            for n1 in 0..nm {
+                for m1 in 0..nm {
+                    if let Some(w) = second_adjugate(z, nm, a, n1, b, m1) {
+                        value = cadd(&value, &cmul(&w, &cmul(&f[n1], &f[m1])));
+                    }
+                }
+            }
+            xtilde = xtilde.max(size(&value));
+        }
+    }
+    let max_z = (0..nm).flat_map(|i| (0..nm).map(move |j| (i, j))).map(|(i, j)| size(&z[i][j])).fold(0.0f64, f64::max);
+    let max_f = (0..nm).map(|i| size(&f[i])).fold(0.0f64, f64::max);
+    let fac_g = size(&delta) / largest * (xtilde / (2.0 * largest)).max(1.0);
+    let fac_gy = largest.max(size(&delta)) / xtilde * (max_f / max_z).max(1.0);
+    (largest > 0.0 && fac_g.is_finite() && fac_gy.is_finite()).then_some((fac_g, fac_gy))
+}
+
+/// Nested triangles (those of an auxiliary box executor) whose small-Gram
+/// expansion and small-Cayley variant both stay above these bounds (log2 of
+/// COLLIER's convergence factor to the power of the largest boost's passes)
+/// go straight to the alternative PV reduction. On all stability-study
+/// points every binary64 array, status and estimate is unchanged by the skip
+/// up to (-24, -30); (-30, -30) moves two heptagon estimates.
+const NESTED_HOPELESS_LOG2: (f64, f64) = (-18.0, -30.0);
+
 /// Largest a priori error estimate of the alternative PV stage (the binary64
 /// retries accept rotated copies within 2^-36).
 const ALTERNATIVE_PV_LIMIT: f64 = 1.0 / (1u64 << 36) as f64;
@@ -307,6 +368,32 @@ impl<T: NativeFloat> DirectExecutor<T>
 where
     Complex<T>: EvaluationDomain,
 {
+    /// COLLIER's convergence factors (`gram_factors`) of PV subset `id` of
+    /// this lane's plan.
+    fn gram_factors_of(&self, id: usize) -> Option<(f64, f64)> {
+        let subset = &self.plan.subsets[id];
+        let nm = subset.members.len().checked_sub(1).filter(|nm| (2..=3).contains(nm))?;
+        let n = self.plan.settings.propagators;
+        let members = &subset.members;
+        let origin = members[0];
+        let zero = czero(&self.prototype);
+        let dist = |i: usize, j: usize| &self.distances[i * n + j];
+        let z: [[C<T>; 3]; 3] = std::array::from_fn(|i| {
+            std::array::from_fn(|j| {
+                if i >= nm || j >= nm {
+                    return zero.clone();
+                }
+                let (a, b) = (members[i + 1], members[j + 1]);
+                csub(&cadd(dist(origin, a), dist(origin, b)), dist(a, b))
+            })
+        });
+        let geometry = subset.pv?;
+        let f: [C<T>; 3] = std::array::from_fn(|i| {
+            if i < nm { self.geometry[geometry.f as usize + i].clone() } else { zero.clone() }
+        });
+        gram_factors(&z, &f, &self.masses[origin], nm)
+    }
+
     /// Evaluate every expansion box of this lane by its auxiliary executor
     /// and inject its coefficients.
     pub(super) fn inject_gram(&mut self, mu: &C<T>) -> Result<(), String> {
@@ -320,10 +407,27 @@ where
                 let rank = self.injection_rank(size, subset.coefficient_rank.max(0) as u16);
                 let count = plan.coefficient_counts[id] as usize;
                 let start = subset.master.ok_or("small-Gram expansion: no master")? as usize;
+                // A nested triangle whose expansion cannot converge at the
+                // largest boost goes straight to the alternative PV at the
+                // first boost (same bubbles and gate as its expansion; a
+                // refused lane still tries the larger boost's expansion).
+                let largest = *gram.boosts.last().unwrap_or(&FIRST_BOOST);
+                let skip = !gram.alternative
+                    && self.gram_top.is_some()
+                    && size == 3
+                    && self.gram_factors_of(id).is_some_and(|(fac_g, fac_gy)| {
+                        // Passes at the largest boost: largest - 1 of the
+                        // expansion, (largest - 2) / 2 of the variant.
+                        let (bound_g, bound_gy) = NESTED_HOPELESS_LOG2;
+                        f64::from(largest - 1) * fac_g.log2() > bound_g
+                            && f64::from((largest - 2) / 2) * fac_gy.log2() > bound_gy
+                    });
                 // The expansion's settings: boosts, alternative PV only, the
-                // auxiliary gate and this executor's gate (its default).
+                // skip, the auxiliary gate and this executor's gate (its
+                // default).
                 let mut config: Vec<u64> = gram.boosts.iter().map(|&b| u64::from(b)).collect();
                 config.push(u64::from(gram.alternative));
+                config.push(u64::from(skip));
                 config.push(gram.aux_threshold.as_ref().map_or(u64::MAX, |t| t.to_f64().to_bits()));
                 config.push(self.stability_threshold.to_f64().to_bits());
                 let key = self.subset_key(2, &subset.members, rank, 0, &config, mu);
@@ -335,8 +439,10 @@ where
                 let mut full = None;
                 let mut failure = String::new();
                 let mut done = false;
-                for boost in gram.boosts.clone() {
-                let executor = match gram.executors.entry((size, rank, boost)) {
+                let attempts: Vec<(u16, bool)> =
+                    gram.boosts.iter().enumerate().map(|(i, &boost)| (boost, skip && i == 0)).collect();
+                for (boost, direct) in attempts {
+                let executor = match gram.executors.entry((size, rank, boost, direct)) {
                     std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
                     std::collections::hash_map::Entry::Vacant(entry) => {
                         let aux = DirectPlanData::with_top_child_boost(ReductionSettings::new(size, rank), boost)
@@ -355,6 +461,7 @@ where
                         );
                         executor.gram_top = Some(rank);
                         executor.gram_alt_only = gram.alternative;
+                        executor.gram_alt_direct = direct;
                         executor.gram_extra_ranks = gram
                             .boosts
                             .iter()
@@ -716,6 +823,10 @@ where
         let mut ratio = 1.0f64;
         let mut best = 1.0f64;
         for order in 0..=passes {
+            if self.gram_alt_only || self.gram_alt_direct {
+                // Alternative PV only: no expansion orders.
+                break;
+            }
             // Order `order` runs through step target + 1 + passes - order.
             let mut fresh: Coefficients<T> = Coefficients::with_capacity(grading.end(target + 1 + passes - order));
             fresh.insert(&grading, (0, [0, 0, 0]), if order == 0 { d0.clone() } else { lzero(&zero) }, &zero)?;
@@ -911,6 +1022,9 @@ where
                 }
                 alt_pv()?
             }
+            // A hopeless nested triangle: the alternative PV, as when its
+            // expansion fails.
+            _ if self.gram_alt_direct => alt_pv()?,
             Some(map) if last_change <= EXPANSION_TOLERANCE => prefer(map, last_change),
             _ => 'gc: {
                 // Small (Zadj f)_j as well (Xtilde >> Zadj f): the expansion
@@ -1149,6 +1263,19 @@ mod tests {
                 assert_eq!(grading.index(0, &beyond), None);
             }
         }
+    }
+
+    #[test]
+    fn collier_factors_of_a_triangle() {
+        // Z = diag(2, 3), f = (1, 1), m0^2 = 1: Delta = 6, Zadj f = (3, 2),
+        // Xtilde = [[5, 1], [1, 3]]; fac_g = 6/3 * max(1, 5/6) = 2,
+        // fac_gy = max(3, 6)/5 * max(1, 1/3) = 6/5.
+        let c = |x: f64| C::new(x, 0.0);
+        let z = [[c(2.0), c(0.0), c(0.0)], [c(0.0), c(3.0), c(0.0)], [c(0.0), c(0.0), c(0.0)]];
+        let f = [c(1.0), c(1.0), c(0.0)];
+        let (fac_g, fac_gy) = gram_factors(&z, &f, &c(1.0), 2).unwrap();
+        assert!((fac_g - 2.0).abs() < 1e-14, "{fac_g}");
+        assert!((fac_gy - 1.2).abs() < 1e-14, "{fac_gy}");
     }
 
     #[test]
