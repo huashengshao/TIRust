@@ -159,10 +159,6 @@ fn compositions(total: u16, nm: usize) -> Vec<[u16; 3]> {
     out
 }
 
-fn binomial(n: u16, k: u16) -> u64 {
-    (0..u64::from(k)).fold(1u64, |acc, i| acc * (u64::from(n) - i) / (i + 1))
-}
-
 /// `-sum_{m,n} eps_{ikm} eps_{jln} Z_mn`: the second adjugate of a 3x3
 /// matrix in the paper's convention (its relations (Zadjadjrelation0-2)
 /// fix the sign; see the test below).
@@ -398,31 +394,37 @@ where
                 .ok_or_else(|| "small-Gram expansion: triangle coefficient outside its layout".to_string())
         };
         // Shifted pinch-zero values C0(lambda, kappa) in the box basis
-        // (Denner, Eq. (2.9); as the PV program's `spz` instructions).
+        // (Denner, Eq. (2.9); as the PV program's `spz` instructions):
+        // (-1)^k0 sum over k0 = a + b + c of the trinomial k0!/(a! b! c!)
+        // times the pinch's C0(lambda, [k1 + b, k2 + c]), computed by the
+        // trinomial recursion spz(k) = -[spz(k - e0) + spz(k - e0 + e1)
+        // + spz(k - e0 + e2)] from spz(0, k1, k2) = C0(lambda, [k1, k2]).
         let mut spz: FastMap<Key, L4<T>> = FastMap::default();
         for r in 0..=child_rank {
             for lambda in 0..=r / 2 {
-                for kappa in compositions(r - 2 * lambda, nm) {
-                    let first = kappa[0];
-                    let mut acc = lzero(&zero);
-                    for total in 0..=first {
-                        // Distributions of `total` over the other momenta.
-                        for e0 in 0..=if nm == 3 { total } else { 0 } {
-                            let e1 = total - e0;
-                            let (count, key) = if nm == 3 {
-                                (binomial(first, total) * binomial(total, e0), vec![kappa[1] + e0, kappa[2] + e1])
-                            } else {
-                                (binomial(first, total), vec![kappa[1] + total])
-                            };
-                            let mut c = self.prototype.from_usize(count as usize);
-                            if first % 2 == 1 {
-                                c = -c;
+                let mut kappas = compositions(r - 2 * lambda, nm);
+                kappas.sort_by_key(|kappa| kappa[0]);
+                for kappa in kappas {
+                    let shifted = if kappa[0] == 0 {
+                        let key = if nm == 3 { vec![kappa[1], kappa[2]] } else { vec![kappa[1]] };
+                        value(zero_child, lambda, key)?.clone()
+                    } else {
+                        let mut lower = kappa;
+                        lower[0] -= 1;
+                        let mut acc = lzero(&zero);
+                        for i in 0..nm {
+                            let mut key = lower;
+                            if i > 0 {
+                                key[i] += 1;
                             }
-                            let source = value(zero_child, lambda, key)?;
-                            lfma(&mut acc, &C::new(c, self.prototype.zero()), source);
+                            let term = spz.get(&(lambda, key)).ok_or("small-Gram expansion: shifted C0 missing")?;
+                            for slot in 0..4 {
+                                acc[slot] = csub(&acc[slot], &term[slot]);
+                            }
                         }
-                    }
-                    spz.insert((lambda, kappa), acc);
+                        acc
+                    };
+                    spz.insert((lambda, kappa), shifted);
                 }
             }
         }
@@ -802,103 +804,142 @@ where
                 }
                 let inv_xt = cinv(&xt[gi][gj]);
                 let y0 = |j: usize| csub(&zero, &adjf[j]);
+                // Order by order in (Delta, Y_0j) as the small-Gram expansion
+                // above: E_0 carries the triangles, E_s (s > 0) the
+                // homogeneous terms and Y_0k E_{s-1}, -Delta E_{s-1}. Metric
+                // coefficients of an order need the previous order at their
+                // rank, momentum coefficients of rank p its metric ones of
+                // rank p + 2 and the previous order's momentum of rank p + 1,
+                // so each order costs two ranks: for orders 0..=S, order s
+                // runs metric ranks through target + 2 + 2 (S - s) and
+                // momentum ranks through target + 2 (S - s), and E_S is pass
+                // S's change.
                 let gc_passes = (child_rank - 1 - target) / 2;
-                let mut previous: Option<FastMap<Key, L4<T>>> = None;
-                let mut gc_change = f64::INFINITY;
-                let mut gc_ratio = 1.0f64;
-                let mut gc_chosen: Option<FastMap<Key, L4<T>>> = None;
-                let mut momentum_rank = child_rank + 1;
-                for t in 0..=gc_passes {
-                    let metric_rank = if t == 0 { child_rank + 1 } else { momentum_rank };
-                    momentum_rank = metric_rank - 2;
-                    let mut cur: FastMap<Key, L4<T>> = FastMap::default();
-                    cur.insert((0, [0, 0, 0]), d0.clone());
-                    let get = |map: &FastMap<Key, L4<T>>, key: Key| -> Result<L4<T>, String> {
-                        map.get(&key).cloned().ok_or_else(|| format!("small-Gram/Cayley expansion: coefficient {key:?} missing"))
-                    };
-                    for r in 2..=metric_rank {
-                        for level in 1..=r / 2 {
-                            let mut kappas = compositions(r - 2 * level, nm);
-                            kappas.sort_by_key(|kappa| std::cmp::Reverse(kappa[l]));
-                            for target_kappa in kappas {
-                                let lambda = level - 1;
-                                let kappa = add(target_kappa, l);
-                                let mut acc = lzero(&zero);
+                let get = |map: &FastMap<Key, L4<T>>, key: Key| -> Result<L4<T>, String> {
+                    map.get(&key).cloned().ok_or_else(|| format!("small-Gram/Cayley expansion: coefficient {key:?} missing"))
+                };
+                let y0k = y0(k);
+                let y0gj = y0(gj);
+                let gc_metric = |cur: &mut FastMap<Key, L4<T>>, prev: Option<&FastMap<Key, L4<T>>>, r: u16| -> Result<(), String> {
+                    for level in 1..=r / 2 {
+                        let mut kappas = compositions(r - 2 * level, nm);
+                        kappas.sort_by_key(|kappa| std::cmp::Reverse(kappa[l]));
+                        for target_kappa in kappas {
+                            let lambda = level - 1;
+                            let kappa = add(target_kappa, l);
+                            let mut acc = lzero(&zero);
+                            if let Some(prev) = prev {
+                                lfma(&mut acc, &y0k, &get(prev, (lambda, kappa))?);
+                                lfma(&mut acc, &neg_delta, &get(prev, (lambda, add(kappa, k)))?);
+                            } else {
                                 for m in 0..nm {
                                     lfma(&mut acc, &adj[k][m], shat_of(m, lambda, kappa)?);
                                 }
-                                if let Some(prev) = &previous {
-                                    lfma(&mut acc, &y0(k), &get(prev, (lambda, kappa))?);
-                                    lfma(&mut acc, &csub(&zero, &delta), &get(prev, (lambda, add(kappa, k)))?);
-                                }
-                                for m in (0..nm).filter(|&m| m != l) {
-                                    if let Some(less) = sub(kappa, m) {
-                                        let factor = cscale(&adj[k][m], &(two.clone() * &self.prototype.from_usize(kappa[m] as usize)));
-                                        lfma(&mut acc, &csub(&zero, &factor), &get(&cur, (level, less))?);
-                                    }
-                                }
-                                let divisor = cinv(&cscale(&adj[k][l], &(two.clone() * &self.prototype.from_usize(kappa[l] as usize))));
-                                let out: L4<T> = std::array::from_fn(|slot| cmul(&acc[slot], &divisor));
-                                cur.insert((level, target_kappa), out);
                             }
+                            for m in (0..nm).filter(|&m| m != l) {
+                                if let Some(less) = sub(kappa, m) {
+                                    let factor = cscale(&adj[k][m], &(two.clone() * &self.prototype.from_usize(kappa[m] as usize)));
+                                    lfma(&mut acc, &csub(&zero, &factor), &get(cur, (level, less))?);
+                                }
+                            }
+                            let divisor = cinv(&cscale(&adj[k][l], &(two.clone() * &self.prototype.from_usize(kappa[l] as usize))));
+                            let out: L4<T> = std::array::from_fn(|slot| cmul(&acc[slot], &divisor));
+                            cur.insert((level, target_kappa), out);
                         }
                     }
-                    for p in 1..=momentum_rank {
-                        for kappa in compositions(p, nm) {
-                            let mut metric = get(&cur, (1, kappa))?;
-                            mul_dimension(&mut metric, &self.prototype.from_usize(p as usize + 4 - nm));
-                            let mut bracket = lzero(&zero);
-                            lfma(&mut bracket, &real(2), &metric);
+                    Ok(())
+                };
+                let gc_momentum = |cur: &mut FastMap<Key, L4<T>>, prev: Option<&FastMap<Key, L4<T>>>, p: u16| -> Result<(), String> {
+                    for kappa in compositions(p, nm) {
+                        let mut metric = get(cur, (1, kappa))?;
+                        mul_dimension(&mut metric, &self.prototype.from_usize(p as usize + 4 - nm));
+                        let mut bracket = lzero(&zero);
+                        lfma(&mut bracket, &real(2), &metric);
+                        if prev.is_none() {
                             lfma(&mut bracket, &csub(&zero, &real(1)), spz.get(&(0, kappa)).ok_or("small-Gram/Cayley expansion: C0 outside the triangle ranks")?);
-                            let mut acc = lzero(&zero);
-                            lfma(&mut acc, &adj[gi][gj], &bracket);
-                            for n1 in 0..nm {
-                                for m1 in 0..nm {
-                                    let Some(w) = second_adjugate(&z, nm, gi, n1, gj, m1) else { continue };
-                                    let wf = cmul(&w, &f[n1]);
+                        }
+                        let mut acc = lzero(&zero);
+                        lfma(&mut acc, &adj[gi][gj], &bracket);
+                        for n1 in 0..nm {
+                            for m1 in 0..nm {
+                                let Some(w) = second_adjugate(&z, nm, gi, n1, gj, m1) else { continue };
+                                let wf = cmul(&w, &f[n1]);
+                                if prev.is_none() {
                                     lfma(&mut acc, &wf, shat_of(m1, 0, kappa)?);
-                                    if let Some(less) = sub(kappa, m1) {
-                                        let factor = cscale(&wf, &(two.clone() * &self.prototype.from_usize(kappa[m1] as usize)));
-                                        lfma(&mut acc, &csub(&zero, &factor), &get(&cur, (1, less))?);
-                                    }
+                                }
+                                if let Some(less) = sub(kappa, m1) {
+                                    let factor = cscale(&wf, &(two.clone() * &self.prototype.from_usize(kappa[m1] as usize)));
+                                    lfma(&mut acc, &csub(&zero, &factor), &get(cur, (1, less))?);
                                 }
                             }
-                            if let Some(prev) = &previous {
-                                lfma(&mut acc, &y0(gj), &get(prev, (0, add(kappa, gi)))?);
+                        }
+                        if let Some(prev) = prev {
+                            lfma(&mut acc, &y0gj, &get(prev, (0, add(kappa, gi)))?);
+                        }
+                        let out: L4<T> = std::array::from_fn(|slot| cmul(&acc[slot], &inv_xt));
+                        cur.insert((0, kappa), out);
+                    }
+                    Ok(())
+                };
+                let mut gc_orders: Vec<FastMap<Key, L4<T>>> = Vec::with_capacity(usize::from(gc_passes) + 1);
+                // Metric and momentum ranks completed per order.
+                let mut gc_done: Vec<(u16, u16)> = Vec::with_capacity(usize::from(gc_passes) + 1);
+                let mut gc_total: FastMap<Key, L4<T>> = FastMap::default();
+                let mut gc_accepted = false;
+                let mut gc_change = f64::INFINITY;
+                let mut gc_ratio = 1.0f64;
+                for order in 0..=gc_passes {
+                    let mut fresh: FastMap<Key, L4<T>> = FastMap::default();
+                    fresh.insert((0, [0, 0, 0]), if order == 0 { d0.clone() } else { lzero(&zero) });
+                    gc_orders.push(fresh);
+                    gc_done.push((1, 0));
+                    for s in 0..=usize::from(order) {
+                        let span = 2 * (order - s as u16);
+                        let (lower, upper) = gc_orders.split_at_mut(s);
+                        for r in gc_done[s].0 + 1..=target + 2 + span {
+                            gc_metric(&mut upper[0], lower.last(), r)?;
+                        }
+                        for p in gc_done[s].1 + 1..=target + span {
+                            gc_momentum(&mut upper[0], lower.last(), p)?;
+                        }
+                        gc_done[s] = (gc_done[s].0.max(target + 2 + span), gc_done[s].1.max(target + span));
+                    }
+                    let latest = &gc_orders[usize::from(order)];
+                    if order == 0 {
+                        gc_total = latest.iter().filter(|(key, _)| rank_of(key) <= target).map(|(key, value)| (*key, value.clone())).collect();
+                        continue;
+                    }
+                    let mut next = gc_total.clone();
+                    let mut change = 0.0f64;
+                    for r in 1..=target {
+                        let (mut diff, mut size) = (0.0f64, 0.0f64);
+                        for (key, value) in latest.iter().filter(|(key, _)| rank_of(key) == r) {
+                            let Some(sum) = next.get_mut(key) else { continue };
+                            for slot in 0..4 {
+                                sum[slot] = cadd(&sum[slot], &value[slot]);
+                                diff = diff.max(cnorm2(&value[slot]).to_f64().sqrt());
+                                size = size.max(cnorm2(&sum[slot]).to_f64().sqrt());
                             }
-                            let out: L4<T> = std::array::from_fn(|slot| cmul(&acc[slot], &inv_xt));
-                            cur.insert((0, kappa), out);
+                        }
+                        if size > 0.0 {
+                            change = change.max(diff / size);
                         }
                     }
-                    if let Some(prev) = &previous {
-                        let mut change = 0.0f64;
-                        for r in 1..=target {
-                            let (mut diff, mut size) = (0.0f64, 0.0f64);
-                            for (key, value) in cur.iter().filter(|(key, _)| rank_of(key) == r) {
-                                let Some(old) = prev.get(key) else { continue };
-                                for slot in 0..4 {
-                                    diff = diff.max(cnorm2(&csub(&value[slot], &old[slot])).to_f64().sqrt());
-                                    size = size.max(cnorm2(&value[slot]).to_f64().sqrt());
-                                }
-                            }
-                            if size > 0.0 {
-                                change = change.max(diff / size);
-                            }
-                        }
-                        if !change.is_finite() || (t >= 2 && change > gc_change) {
-                            break;
-                        }
-                        if gc_change.is_finite() && gc_change > 0.0 {
-                            gc_ratio = (change / gc_change).min(1.0);
-                        }
-                        gc_change = change;
-                        gc_chosen = Some(cur.clone());
-                        if change <= f64::EPSILON {
-                            break;
-                        }
+                    if !change.is_finite() || (order >= 2 && change > gc_change) {
+                        break;
                     }
-                    previous = Some(cur);
+                    if gc_change.is_finite() && gc_change > 0.0 {
+                        gc_ratio = (change / gc_change).min(1.0);
+                    }
+                    gc_change = change;
+                    gc_total = next;
+                    gc_accepted = true;
+                    if change <= f64::EPSILON {
+                        break;
+                    }
                 }
+                drop(gc_orders);
+                let gc_chosen = gc_accepted.then_some(gc_total);
                 // A larger boost adds `extra` passes of the small-Gram
                 // expansion and `extra / 2` of the small-Cayley variant.
                 let extra = i32::from(self.gram_extra_ranks);
