@@ -343,7 +343,7 @@
 // Same-session direct-engine campaign (30 October 2026): TIRust public
 // binary64 default versus original IREGI and COLLIER, interleaved per block.
 // The latest bound capture of each campaign is shown; earlier ones stay in the data.
-#let direct-capture-ids = ("020", "019", "018", "017", "016", "015", "014", "013", "012", "011", "010", "008", "007", "006", "005", "004", "003", "002")
+#let direct-capture-ids = ("021", "020", "019", "018", "017", "016", "015", "014", "013", "012", "011", "010", "008", "007", "006", "005", "004", "003", "002")
 #let direct-campaign-id = direct-capture-ids.find(id => ("direct_engine_20261030_capture" + id) in data)
 #let direct-campaign = if direct-campaign-id != none { data.at("direct_engine_20261030_capture" + direct-campaign-id) } else { data.at("direct_engine_20261030", default: none) }
 #let direct-first-capture = data.at("direct_engine_20261030", default: none)
@@ -633,15 +633,24 @@
     amber with diagnostic times and never enter a ratio. Builds: TIRust release (thin LTO), Fortran
     `-O3`, all baseline x86-64; binary SHA-256 in #raw("validation/benchmark/direct-engine-20261030/summary" + (if direct-campaign-id == none { "" } else { "-" + direct-campaign-id }) + ".json").
     TIRust source: commit #raw(snapshot.at("tirust_source_commit", default: snapshot.tirust_git_head).slice(0, 7)).
-    This capture (020, 3 November, load ≈290) measures TIRust a51d171: the small-Gram expansions store their
-    coefficients in arrays indexed by rank instead of hash maps, with identical results (stability capture
-    024 matches capture 023 in every TIRust status and error on all 27500 points; amplitude capture 006). At
-    this higher load (capture 019: ≈200) COLLIER's rows are a median 3% slower than in capture 019, TIRust's
-    2% and IREGI's 1%. TIRust rows are within 7% of capture 019 except four batch-32 binary64-only rows of
-    N4R6 to N5R6 (+7 to +9%), the batch-1 dotted N3R4 triangle (−11%, back to its capture-018 value, as is
-    IREGI's) and five batch-1 N7R7 modes (+11 to +19%; a rerun of that row with the same binary on the same
-    day put every batch-1 mode within 3% of capture 018, so the capture's values are host noise). Capture
-    019 (TIRust 939bb35): the small-Gram expansions obtain the sums over the pinched triangle's coefficients
+    This capture (021, 3 November, load ≈220) measures TIRust f06c5f3: a triangle of an auxiliary box of the
+    small-Gram expansions whose expansion and small-Cayley variant cannot converge (COLLIER's convergence
+    factors, raised to the number of passes of the largest boost, above 2#super[−18] and 2#super[−30]) goes
+    straight to the alternative PV reduction, with identical results (stability capture 025 matches capture
+    024 in every TIRust status, error and diagnostic on all 27500 points; amplitude capture 007). TIRust's
+    rows are a median 2% faster than in capture 020, COLLIER's 3%, IREGI's unchanged (capture 020: load
+    ≈290). TIRust rows are within 7% of capture 020 except batch-1 N1R0 (−7 to −8%, 0.04 µs), the batch-32
+    2#super[−20] binary64-only rows of N4R6 and N5R5 (−9% and −7%, after +7 to +9% in capture 020),
+    batch-1 binary64-only N5R6 (−7%), batch-32 binary64-only contracted N7R7 (−10%) and the batch-1 N7R7
+    modes (−10 to −18%: every engine's batch-1 N7R7 time is within 1.2% of capture 018, so capture 020's were
+    host noise). This capture ran alone; a first run alongside the stability capture had its extended rows
+    disturbed (IREGI's up to 1.8 times slower than in capture 020) and was repeated. Capture 020 (TIRust
+    a51d171, load ≈290): the small-Gram expansions store their coefficients in arrays indexed by rank instead
+    of hash maps, with identical results (stability capture 024, amplitude capture 006); COLLIER's rows are a
+    median 3% slower than in capture 019 (load ≈200), TIRust's 2% and IREGI's 1%; TIRust rows are within 7%
+    of capture 019 except four batch-32 binary64-only rows of N4R6 to N5R6 (+7 to +9%), the batch-1 dotted
+    N3R4 triangle (−11%, back to its capture-018 value, as is IREGI's) and five batch-1 N7R7 modes (+11 to
+    +19%, host noise). Capture 019 (TIRust 939bb35): the small-Gram expansions obtain the sums over the pinched triangle's coefficients
     from a three-term recursion instead of binomial sums, and the variant for a small Cayley determinant also
     runs order by order; no status changes and arrays move only at the rounding level (stability capture 023,
     amplitude capture 005); its batch-1 jumps against capture 018 (dotted N3R4 +10 to +12%, default N7R7
@@ -752,7 +761,7 @@
 }
 // Binary64 stability study (30 October 2026): cumulative accuracy profiles
 // in the style of Hirschi and Peraro, arXiv:1604.01363, figs. 2-4.
-#let stability-campaign-id = ("024", "023", "022", "021", "020", "019", "018", "017", "016", "015", "013", "012", "011", "010", "009", "008", "007", "006", "005", "004", "003", "002").find(id => ("stability_20261030_capture" + id) in data)
+#let stability-campaign-id = ("025", "024", "023", "022", "021", "020", "019", "018", "017", "016", "015", "013", "012", "011", "010", "009", "008", "007", "006", "005", "004", "003", "002").find(id => ("stability_20261030_capture" + id) in data)
 #let stability-campaign = if stability-campaign-id != none { data.at("stability_20261030_capture" + stability-campaign-id) } else { data.at("stability_20261030", default: none) }
 #let stability-first-capture = data.at("stability_20261030", default: none)
 #let st-style = (
@@ -893,7 +902,7 @@
     )
   ])
   text(size: 8.5pt)[
-    *Findings (capture 024, TIRust #raw(snapshot.tirust_git_head.slice(0, 7))).* TIRust's default returns an
+    *Findings (capture 025, TIRust #raw(snapshot.tirust_git_head.slice(0, 7))).* TIRust's default returns an
     accurate array on every point of all five integrals, worst E/A 6.7×10#super[−11] (capture 021: 5.0×10#super[−11]; capture 010:
     9.6×10#super[−9]). "TIRust binary64 only" (precision rescue disabled) reports every point with a binary64
     array, as COLLIER does: lanes that pass TIRust's checks are certified, the others return their best binary64
@@ -914,7 +923,8 @@
     changes no lane's status; no lane's E/A moves by more than 1.4×10#super[−12], and the worst arrays and 99th
     percentiles of capture 022 are unchanged to two digits. Capture 024 (expansion coefficients stored in arrays,
     timing section) is identical to capture 023 in every TIRust status, error and diagnostic on all 27500
-    points. *How* (since capture 010, following COLLIER and Denner and
+    points, and capture 025 (nested triangles whose expansions cannot converge go straight to the alternative
+    reduction, timing section) is identical to capture 024 in the same way. *How* (since capture 010, following COLLIER and Denner and
     Dittmaier, hep-ph/0509141): boxes get the loop-rotation test; an expansion that has not converged tries
     the next larger boost; every lane the binary64 pass refuses is retried first with COLLIER's per-box choice
     (boxes and triangles whose a priori PV estimate 2#super[−52]w#super[r] exceeds the request, or that the
@@ -1143,7 +1153,7 @@
 // Amplitude benchmark (2 November 2026): the integrals of an amplitude
 // evaluated together, TIRust with per-subset sharing on and off against
 // COLLIER with its global cache on and off, in one session.
-#let amplitude-capture-id = ("006", "005", "004", "003", "002", "001").find(id => ("direct_engine_20261030_amplitude" + id) in data)
+#let amplitude-capture-id = ("007", "006", "005", "004", "003", "002", "001").find(id => ("direct_engine_20261030_amplitude" + id) in data)
 #let amplitude-record = if amplitude-capture-id == none { none } else { data.at("direct_engine_20261030_amplitude" + amplitude-capture-id) }
 #let amp-time-cell(timing) = table.cell(fill: pale, {
   set par(leading: 0.3em, justify: false)
@@ -1226,7 +1236,10 @@
     drops the accuracy reruns of accepted box and pentagon lanes (stability section): ×7.3 and ×3.3. Capture
     005 (TIRust 939bb35) speeds up the expansions further: ×6.6 and ×3.0. Capture 006 (TIRust a51d171) stores
     the expansions' coefficients in arrays instead of hash maps, with TIRust's arrays bit-identical to
-    capture 005's: ×4.7 and ×2.4. The rotated evaluations of TIRust's rotation test start each box from another propagator, so
+    capture 005's: ×4.7 and ×2.4. Capture 007 (TIRust f06c5f3) sends the triangles of the expansions' auxiliary
+    boxes whose expansion cannot converge straight to the alternative PV reduction, with TIRust's arrays
+    bit-identical to capture 006's: ×4.3 and ×2.3 (a first run, with COLLIER's medians 4 to 10% slower than here
+    and intervals up to four times wider, gave ×4.2 and ×2.2 and was repeated). The rotated evaluations of TIRust's rotation test start each box from another propagator, so
     those remain separate computations.
   ]
   pagebreak()
