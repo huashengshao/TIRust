@@ -97,6 +97,128 @@ const FIRST_BOOST: u16 = 8;
 
 type Key = (u16, [u16; 3]);
 
+/// Index of the expansion coefficients `(lambda, kappa)`, kappa over `nm`
+/// (1 to 3) momenta, graded by rank `2 lambda + |kappa|`: every key of rank
+/// `r` comes after those of lower ranks, so a set truncated in rank is a
+/// prefix. Within a rank, lambda ascending, then kappa as `compositions`
+/// lists it. (Hash maps keyed by `Key` took most of the expansions' time.)
+struct Grading {
+    nm: usize,
+    max_rank: u16,
+    /// First index of each rank, then the total.
+    rank_start: Vec<usize>,
+    /// Offset of lambda within rank r: `lambda_start[r * half + lambda]`.
+    lambda_start: Vec<usize>,
+    half: usize,
+}
+
+impl Grading {
+    fn new(nm: usize, max_rank: u16) -> Self {
+        let count = |d: usize| match nm {
+            1 => 1,
+            2 => d + 1,
+            _ => (d + 1) * (d + 2) / 2,
+        };
+        let top = usize::from(max_rank);
+        let half = top / 2 + 1;
+        let mut rank_start = Vec::with_capacity(top + 2);
+        let mut lambda_start = vec![0; (top + 1) * half];
+        let mut next = 0;
+        for r in 0..=top {
+            rank_start.push(next);
+            let mut offset = 0;
+            for lambda in 0..=r / 2 {
+                lambda_start[r * half + lambda] = offset;
+                offset += count(r - 2 * lambda);
+            }
+            next += offset;
+        }
+        rank_start.push(next);
+        Self { nm, max_rank, rank_start, lambda_start, half }
+    }
+
+    /// Number of keys of rank at most `r`.
+    fn end(&self, r: u16) -> usize {
+        self.rank_start[usize::from(r.min(self.max_rank)) + 1]
+    }
+
+    /// Indices of the keys of rank `r`.
+    fn range(&self, r: u16) -> std::ops::Range<usize> {
+        if r > self.max_rank {
+            return 0..0;
+        }
+        self.rank_start[usize::from(r)]..self.rank_start[usize::from(r) + 1]
+    }
+
+    fn index(&self, lambda: u16, kappa: &[u16; 3]) -> Option<usize> {
+        if kappa[self.nm..].iter().any(|&x| x != 0) {
+            return None;
+        }
+        let d: usize = kappa[..self.nm].iter().map(|&x| usize::from(x)).sum();
+        let r = 2 * usize::from(lambda) + d;
+        if r > usize::from(self.max_rank) {
+            return None;
+        }
+        let (a, b) = (usize::from(kappa[0]), usize::from(kappa[1]));
+        let position = match self.nm {
+            1 => 0,
+            2 => a,
+            _ => a * (d + 1) - a * a.saturating_sub(1) / 2 + b,
+        };
+        Some(self.rank_start[r] + self.lambda_start[r * self.half + usize::from(lambda)] + position)
+    }
+}
+
+/// Expansion coefficients stored by their `Grading` index.
+#[derive(Clone)]
+struct Coefficients<T> {
+    values: Vec<L4<T>>,
+    present: Vec<bool>,
+}
+
+impl<T: NativeFloat> Coefficients<T> {
+    fn with_capacity(capacity: usize) -> Self {
+        Self { values: Vec::with_capacity(capacity), present: Vec::with_capacity(capacity) }
+    }
+
+    fn at(&self, index: usize) -> Option<&L4<T>> {
+        self.present.get(index).copied().unwrap_or(false).then(|| &self.values[index])
+    }
+
+    fn at_mut(&mut self, index: usize) -> Option<&mut L4<T>> {
+        if self.present.get(index).copied().unwrap_or(false) { Some(&mut self.values[index]) } else { None }
+    }
+
+    fn get(&self, grading: &Grading, key: Key) -> Option<&L4<T>> {
+        self.at(grading.index(key.0, &key.1)?)
+    }
+
+    /// The coefficient `key`, or the error "`what`: coefficient `key` missing".
+    fn need(&self, grading: &Grading, key: Key, what: &str) -> Result<&L4<T>, String> {
+        self.get(grading, key).ok_or_else(|| format!("{what}: coefficient {key:?} missing"))
+    }
+
+    fn insert(&mut self, grading: &Grading, key: Key, value: L4<T>, zero: &C<T>) -> Result<(), String> {
+        let index = grading
+            .index(key.0, &key.1)
+            .ok_or_else(|| format!("small-Gram expansion: coefficient {key:?} outside the expansion ranks"))?;
+        if index >= self.values.len() {
+            let end = grading.end(rank_of(&key));
+            self.values.resize(end, lzero(zero));
+            self.present.resize(end, false);
+        }
+        self.values[index] = value;
+        self.present[index] = true;
+        Ok(())
+    }
+
+    /// The coefficients of index below `end` (a rank prefix).
+    fn prefix(&self, end: usize) -> Self {
+        let end = end.min(self.values.len());
+        Self { values: self.values[..end].to_vec(), present: self.present[..end].to_vec() }
+    }
+}
+
 /// COLLIER-style indicator of a box or triangle: `w = max_j |(Zadj f)_j| /
 /// |Delta|` (`None` if it vanishes or is not finite). Passarino-Veltman
 /// rounding grows roughly like `w^r`, the alternative PV reduction's like
@@ -386,11 +508,33 @@ where
         if child_rank < target {
             return Err("small-Gram expansion: triangles below the requested rank".into());
         }
+        // Keys of the expansion (its steps reach one rank above the
+        // triangles) and the triangles' layouts by the same graded index
+        // (`u32::MAX`: not in the layout).
+        let grading = Grading::new(nm, child_rank + 2);
+        let child_grading = Grading::new(nm - 1, child_rank);
+        let dense_layout = |layout: &FastMap<(u16, Vec<u16>), u32>| -> Vec<u32> {
+            let mut out = vec![u32::MAX; child_grading.end(child_rank)];
+            for (&(lambda, ref kappa), &index) in layout {
+                if kappa.len() > 3 {
+                    continue;
+                }
+                let key: [u16; 3] = std::array::from_fn(|i| kappa.get(i).copied().unwrap_or(0));
+                if let Some(position) = child_grading.index(lambda, &key) {
+                    out[position] = index;
+                }
+            }
+            out
+        };
+        let children: Vec<Vec<u32>> = children.into_iter().map(dense_layout).collect();
+        let zero_child = dense_layout(zero_child);
         let values = &self.values;
-        let value = |layout: &FastMap<(u16, Vec<u16>), u32>, lambda: u16, kappa: Vec<u16>| -> Result<&L4<T>, String> {
-            layout
-                .get(&(lambda, kappa))
-                .map(|&index| &values[index as usize])
+        let value = |layout: &[u32], lambda: u16, kappa: [u16; 3]| -> Result<&L4<T>, String> {
+            child_grading
+                .index(lambda, &kappa)
+                .and_then(|position| layout.get(position).copied())
+                .filter(|&index| index != u32::MAX)
+                .map(|index| &values[index as usize])
                 .ok_or_else(|| "small-Gram expansion: triangle coefficient outside its layout".to_string())
         };
         // Shifted pinch-zero values C0(lambda, kappa) in the box basis
@@ -399,15 +543,14 @@ where
         // times the pinch's C0(lambda, [k1 + b, k2 + c]), computed by the
         // trinomial recursion spz(k) = -[spz(k - e0) + spz(k - e0 + e1)
         // + spz(k - e0 + e2)] from spz(0, k1, k2) = C0(lambda, [k1, k2]).
-        let mut spz: FastMap<Key, L4<T>> = FastMap::default();
+        let mut spz: Coefficients<T> = Coefficients::with_capacity(grading.end(child_rank));
         for r in 0..=child_rank {
             for lambda in 0..=r / 2 {
                 let mut kappas = compositions(r - 2 * lambda, nm);
                 kappas.sort_by_key(|kappa| kappa[0]);
                 for kappa in kappas {
                     let shifted = if kappa[0] == 0 {
-                        let key = if nm == 3 { vec![kappa[1], kappa[2]] } else { vec![kappa[1]] };
-                        value(zero_child, lambda, key)?.clone()
+                        value(&zero_child, lambda, [kappa[1], kappa[2], 0])?.clone()
                     } else {
                         let mut lower = kappa;
                         lower[0] -= 1;
@@ -417,35 +560,43 @@ where
                             if i > 0 {
                                 key[i] += 1;
                             }
-                            let term = spz.get(&(lambda, key)).ok_or("small-Gram expansion: shifted C0 missing")?;
+                            let term = spz.get(&grading, (lambda, key)).ok_or("small-Gram expansion: shifted C0 missing")?;
                             for slot in 0..4 {
                                 acc[slot] = csub(&acc[slot], &term[slot]);
                             }
                         }
                         acc
                     };
-                    spz.insert((lambda, kappa), shifted);
+                    spz.insert(&grading, (lambda, kappa), shifted, &zero)?;
                 }
             }
         }
         // Shat_n(lambda, kappa) = triangle without member n+1 (if kappa_n = 0)
-        // minus the shifted pinch zero.
-        let mut shat: FastMap<(usize, u16, [u16; 3]), L4<T>> = FastMap::default();
-        for (&(lambda, kappa), c0) in &spz {
-            for m in 0..nm {
-                let mut out: L4<T> = std::array::from_fn(|slot| csub(&zero, &c0[slot]));
-                if kappa[m] == 0 {
-                    let reduced: Vec<u16> = (0..nm).filter(|&i| i != m).map(|i| kappa[i]).collect();
-                    let source = value(children[m], lambda, reduced)?;
-                    for slot in 0..4 {
-                        out[slot] = cadd(&out[slot], &source[slot]);
+        // minus the shifted pinch zero, for every key of `spz`.
+        let mut shat: Vec<Coefficients<T>> = (0..nm).map(|_| Coefficients::with_capacity(grading.end(child_rank))).collect();
+        for r in 0..=child_rank {
+            for lambda in 0..=r / 2 {
+                for kappa in compositions(r - 2 * lambda, nm) {
+                    let Some(c0) = spz.get(&grading, (lambda, kappa)) else { continue };
+                    for m in 0..nm {
+                        let mut out: L4<T> = std::array::from_fn(|slot| csub(&zero, &c0[slot]));
+                        if kappa[m] == 0 {
+                            let mut reduced = [0u16; 3];
+                            for (slot, i) in (0..nm).filter(|&i| i != m).enumerate() {
+                                reduced[slot] = kappa[i];
+                            }
+                            let source = value(&children[m], lambda, reduced)?;
+                            for slot in 0..4 {
+                                out[slot] = cadd(&out[slot], &source[slot]);
+                            }
+                        }
+                        shat[m].insert(&grading, (lambda, kappa), out, &zero)?;
                     }
                 }
-                shat.insert((m, lambda, kappa), out);
             }
         }
         let shat_of = |m: usize, lambda: u16, kappa: [u16; 3]| -> Result<&L4<T>, String> {
-            shat.get(&(m, lambda, kappa)).ok_or_else(|| "small-Gram expansion: Shat outside the triangle ranks".to_string())
+            shat[m].get(&grading, (lambda, kappa)).ok_or_else(|| "small-Gram expansion: Shat outside the triangle ranks".to_string())
         };
         let d0 = self.values[subset.master.unwrap() as usize].clone();
         let real = |x: usize| C::new(self.prototype.from_usize(x), self.prototype.zero());
@@ -478,20 +629,17 @@ where
         let neg_delta = csub(&zero, &delta);
         let two_adj = cscale(&adj[k][l], &two);
         let neg_adj = csub(&zero, &adj[k][l]);
-        let step = |cur: &mut FastMap<Key, L4<T>>, prev: Option<&FastMap<Key, L4<T>>>, q: u16| -> Result<(), String> {
-            let get = |map: &FastMap<Key, L4<T>>, key: Key| -> Result<L4<T>, String> {
-                map.get(&key).cloned().ok_or_else(|| format!("small-Gram expansion: coefficient {key:?} missing"))
-            };
+        let step = |cur: &mut Coefficients<T>, prev: Option<&Coefficients<T>>, q: u16| -> Result<(), String> {
             let first = prev.is_none();
             for lambda in (1..=q / 2).rev() {
                 for kappa in compositions(q - 2 * lambda, nm) {
                     let mut acc = lzero(&zero);
                     if let Some(prev) = prev {
-                        lfma(&mut acc, &neg_delta, &get(prev, (lambda - 1, add(add(kappa, k), l)))?);
+                        lfma(&mut acc, &neg_delta, prev.need(&grading, (lambda - 1, add(add(kappa, k), l)), "small-Gram expansion")?);
                     } else {
-                        lfma(&mut acc, &two_adj, spz.get(&(lambda - 1, kappa)).ok_or("small-Gram expansion: C0 outside the triangle ranks")?);
+                        lfma(&mut acc, &two_adj, spz.get(&grading, (lambda - 1, kappa)).ok_or("small-Gram expansion: C0 outside the triangle ranks")?);
                     }
-                    lfma(&mut acc, &xtilde, &get(cur, (lambda - 1, kappa))?);
+                    lfma(&mut acc, &xtilde, cur.need(&grading, (lambda - 1, kappa), "small-Gram expansion")?);
                     if first {
                         for m in 0..nm {
                             lfma(&mut acc, &adj[m][l], shat_of(m, lambda - 1, add(kappa, k))?);
@@ -509,11 +657,11 @@ where
                                 lfma(&mut bracket, &real(2 * kappa[a] as usize), shat_of(b, lambda, less)?);
                             }
                             let factor = cscale(&f[b], &(two.clone() * &self.prototype.from_usize(kappa[a] as usize)));
-                            lfma(&mut bracket, &csub(&zero, &factor), &get(cur, (lambda, less))?);
+                            lfma(&mut bracket, &csub(&zero, &factor), cur.need(&grading, (lambda, less), "small-Gram expansion")?);
                         }
                         if let Some(less) = sub(kappa, b) {
                             let factor = cscale(&f[a], &(two.clone() * &self.prototype.from_usize(kappa[b] as usize)));
-                            lfma(&mut bracket, &csub(&zero, &factor), &get(cur, (lambda, less))?);
+                            lfma(&mut bracket, &csub(&zero, &factor), cur.need(&grading, (lambda, less), "small-Gram expansion")?);
                         }
                         let multiplicity = if a == b {
                             kappa[a] as usize * (kappa[a] as usize).saturating_sub(1)
@@ -523,7 +671,7 @@ where
                         if multiplicity > 0 {
                             let less = sub(sub(kappa, a).unwrap(), b).unwrap();
                             let factor = cscale(&real(multiplicity), &four);
-                            lfma(&mut bracket, &csub(&zero, &factor), &get(cur, (lambda + 1, less))?);
+                            lfma(&mut bracket, &csub(&zero, &factor), cur.need(&grading, (lambda + 1, less), "small-Gram expansion")?);
                         }
                         lfma(&mut acc, &csub(&zero, w), &bracket);
                     }
@@ -531,7 +679,7 @@ where
                     // Divisor (a - 2 eps), a = 2 (lambda + |kappa|) + 4 - N.
                     let a = self.prototype.from_usize(2 * (lambda as usize + kappa.iter().map(|&x| x as usize).sum::<usize>()) + 3 - nm);
                     div_dimension(&mut out, &(self.prototype.one() / &a));
-                    cur.insert((lambda, kappa), out);
+                    cur.insert(&grading, (lambda, kappa), out, &zero)?;
                 }
             }
             if q >= 2 {
@@ -543,23 +691,23 @@ where
                         }
                         if let Some(less) = sub(kappa, m) {
                             let factor = cscale(&adj[j][m], &(two.clone() * &self.prototype.from_usize(kappa[m] as usize)));
-                            lfma(&mut acc, &csub(&zero, &factor), &get(cur, (1, less))?);
+                            lfma(&mut acc, &csub(&zero, &factor), cur.need(&grading, (1, less), "small-Gram expansion")?);
                         }
                     }
                     if let Some(prev) = prev {
-                        lfma(&mut acc, &neg_delta, &get(prev, (0, add(kappa, j)))?);
+                        lfma(&mut acc, &neg_delta, prev.need(&grading, (0, add(kappa, j)), "small-Gram expansion")?);
                     }
                     let out: L4<T> = std::array::from_fn(|slot| cmul(&acc[slot], &inv_adjf));
-                    cur.insert((0, kappa), out);
+                    cur.insert(&grading, (0, kappa), out, &zero)?;
                 }
             }
             Ok(())
         };
-        let mut orders: Vec<FastMap<Key, L4<T>>> = Vec::with_capacity(usize::from(passes) + 1);
+        let mut orders: Vec<Coefficients<T>> = Vec::with_capacity(usize::from(passes) + 1);
         // Steps completed per order (step 1 is empty).
         let mut steps: Vec<u16> = Vec::with_capacity(usize::from(passes) + 1);
         // Sum of the accepted orders, ranks <= target.
-        let mut total: FastMap<Key, L4<T>> = FastMap::default();
+        let mut total: Coefficients<T> = Coefficients::with_capacity(0);
         let mut accepted = false;
         let mut last_change = f64::INFINITY;
         // Observed change ratio per order (convergence rate), for deciding
@@ -568,8 +716,9 @@ where
         let mut ratio = 1.0f64;
         let mut best = 1.0f64;
         for order in 0..=passes {
-            let mut fresh: FastMap<Key, L4<T>> = FastMap::default();
-            fresh.insert((0, [0, 0, 0]), if order == 0 { d0.clone() } else { lzero(&zero) });
+            // Order `order` runs through step target + 1 + passes - order.
+            let mut fresh: Coefficients<T> = Coefficients::with_capacity(grading.end(target + 1 + passes - order));
+            fresh.insert(&grading, (0, [0, 0, 0]), if order == 0 { d0.clone() } else { lzero(&zero) }, &zero)?;
             orders.push(fresh);
             steps.push(1);
             for s in 0..=usize::from(order) {
@@ -582,7 +731,7 @@ where
             }
             let latest = &orders[usize::from(order)];
             if order == 0 {
-                total = latest.iter().filter(|(key, _)| rank_of(key) <= target).map(|(key, value)| (*key, value.clone())).collect();
+                total = latest.prefix(grading.end(target));
                 if passes == 0 {
                     accepted = true;
                     last_change = 0.0;
@@ -594,8 +743,9 @@ where
             let mut change = 0.0f64;
             for r in 1..=target {
                 let (mut diff, mut size) = (0.0f64, 0.0f64);
-                for (key, value) in latest.iter().filter(|(key, _)| rank_of(key) == r) {
-                    let sum = next.get_mut(key).ok_or("small-Gram expansion: coefficient missing")?;
+                for index in grading.range(r) {
+                    let Some(value) = latest.at(index) else { continue };
+                    let sum = next.at_mut(index).ok_or("small-Gram expansion: coefficient missing")?;
                     for slot in 0..4 {
                         sum[slot] = cadd(&sum[slot], &value[slot]);
                         diff = diff.max(cnorm2(&value[slot]).to_f64().sqrt());
@@ -643,7 +793,7 @@ where
         //       - sum_n X~_0n r_n,
         //   det X C(0, k'+e_i) = X~_i0 [2 ((Q+5-N) - 2 eps) C(1, k') - C0(0, k')]
         //       + sum_n X~_in r_n.
-        let alt_pv = || -> Result<FastMap<Key, L4<T>>, String> {
+        let alt_pv = || -> Result<Coefficients<T>, String> {
             let mut det_x = cmul(&cscale(&m02, &two), &delta);
             for a in 0..nm {
                 for b in 0..nm {
@@ -673,11 +823,8 @@ where
                         .collect()
                 })
                 .collect();
-            let mut cur: FastMap<Key, L4<T>> = FastMap::default();
-            cur.insert((0, [0, 0, 0]), d0.clone());
-            let get = |map: &FastMap<Key, L4<T>>, key: Key| -> Result<L4<T>, String> {
-                map.get(&key).cloned().ok_or_else(|| format!("alternative PV: coefficient {key:?} missing"))
-            };
+            let mut cur: Coefficients<T> = Coefficients::with_capacity(grading.end(target + 1));
+            cur.insert(&grading, (0, [0, 0, 0]), d0.clone(), &zero)?;
             for q in 0..target {
                 for lambda in 0..=q / 2 {
                     for kappa in compositions(q - 2 * lambda, nm) {
@@ -685,13 +832,13 @@ where
                         for n1 in 0..nm {
                             let mut value = shat_of(n1, lambda, kappa)?.clone();
                             if let Some(less) = sub(kappa, n1) {
-                                lfma(&mut value, &csub(&zero, &real(2 * kappa[n1] as usize)), &get(&cur, (lambda + 1, less))?);
+                                lfma(&mut value, &csub(&zero, &real(2 * kappa[n1] as usize)), cur.need(&grading, (lambda + 1, less), "alternative PV")?);
                             }
                             rhs.push(value);
                         }
-                        let c0 = spz.get(&(lambda, kappa)).ok_or("alternative PV: C0 outside the triangle ranks")?;
+                        let c0 = spz.get(&grading, (lambda, kappa)).ok_or("alternative PV: C0 outside the triangle ranks")?;
                         let mut acc = lzero(&zero);
-                        lfma(&mut acc, &det_x, &get(&cur, (lambda, kappa))?);
+                        lfma(&mut acc, &det_x, cur.need(&grading, (lambda, kappa), "alternative PV")?);
                         lfma(&mut acc, &delta, c0);
                         for n1 in 0..nm {
                             lfma(&mut acc, &csub(&zero, &xt0(n1)), &rhs[n1]);
@@ -699,7 +846,7 @@ where
                         let mut metric: L4<T> = std::array::from_fn(|slot| cmul(&acc[slot], &inv_two_delta));
                         let a = self.prototype.from_usize(q as usize + 4 - nm);
                         div_dimension(&mut metric, &(self.prototype.one() / &a));
-                        cur.insert((lambda + 1, kappa), metric.clone());
+                        cur.insert(&grading, (lambda + 1, kappa), metric.clone(), &zero)?;
                         if lambda == 0 {
                             mul_dimension(&mut metric, &a);
                             let mut bracket = lzero(&zero);
@@ -713,7 +860,7 @@ where
                                     lfma(&mut acc, &xtm[i][n1], &rhs[n1]);
                                 }
                                 let out: L4<T> = std::array::from_fn(|slot| cmul(&acc[slot], &inv_det_x));
-                                cur.insert((0, add(kappa, i)), out);
+                                cur.insert(&grading, (0, add(kappa, i)), out, &zero)?;
                             }
                         }
                     }
@@ -727,7 +874,7 @@ where
         // remaining error explains the difference and the alternative PV is
         // the more accurate one (COLLIER keeps the method with the smaller
         // error); otherwise the alternative PV is the one that is off.
-        let prefer = |expansion: FastMap<Key, L4<T>>, change: f64| -> FastMap<Key, L4<T>> {
+        let prefer = |expansion: Coefficients<T>, change: f64| -> Coefficients<T> {
             if change <= 64.0 * f64::EPSILON {
                 return expansion;
             }
@@ -735,8 +882,9 @@ where
             let mut difference = 0.0f64;
             for r in 1..=target {
                 let (mut diff, mut size) = (0.0f64, 0.0f64);
-                for (key, value) in expansion.iter().filter(|(key, _)| rank_of(key) == r) {
-                    let Some(other) = alternative.get(key) else { return expansion.clone() };
+                for index in grading.range(r) {
+                    let Some(value) = expansion.at(index) else { continue };
+                    let Some(other) = alternative.at(index) else { return expansion.clone() };
                     for slot in 0..4 {
                         diff = diff.max(cnorm2(&csub(&value[slot], &other[slot])).to_f64().sqrt());
                         size = size.max(cnorm2(&value[slot]).to_f64().sqrt());
@@ -815,12 +963,9 @@ where
                 // momentum ranks through target + 2 (S - s), and E_S is pass
                 // S's change.
                 let gc_passes = (child_rank - 1 - target) / 2;
-                let get = |map: &FastMap<Key, L4<T>>, key: Key| -> Result<L4<T>, String> {
-                    map.get(&key).cloned().ok_or_else(|| format!("small-Gram/Cayley expansion: coefficient {key:?} missing"))
-                };
                 let y0k = y0(k);
                 let y0gj = y0(gj);
-                let gc_metric = |cur: &mut FastMap<Key, L4<T>>, prev: Option<&FastMap<Key, L4<T>>>, r: u16| -> Result<(), String> {
+                let gc_metric = |cur: &mut Coefficients<T>, prev: Option<&Coefficients<T>>, r: u16| -> Result<(), String> {
                     for level in 1..=r / 2 {
                         let mut kappas = compositions(r - 2 * level, nm);
                         kappas.sort_by_key(|kappa| std::cmp::Reverse(kappa[l]));
@@ -829,8 +974,8 @@ where
                             let kappa = add(target_kappa, l);
                             let mut acc = lzero(&zero);
                             if let Some(prev) = prev {
-                                lfma(&mut acc, &y0k, &get(prev, (lambda, kappa))?);
-                                lfma(&mut acc, &neg_delta, &get(prev, (lambda, add(kappa, k)))?);
+                                lfma(&mut acc, &y0k, prev.need(&grading, (lambda, kappa), "small-Gram/Cayley expansion")?);
+                                lfma(&mut acc, &neg_delta, prev.need(&grading, (lambda, add(kappa, k)), "small-Gram/Cayley expansion")?);
                             } else {
                                 for m in 0..nm {
                                     lfma(&mut acc, &adj[k][m], shat_of(m, lambda, kappa)?);
@@ -839,24 +984,24 @@ where
                             for m in (0..nm).filter(|&m| m != l) {
                                 if let Some(less) = sub(kappa, m) {
                                     let factor = cscale(&adj[k][m], &(two.clone() * &self.prototype.from_usize(kappa[m] as usize)));
-                                    lfma(&mut acc, &csub(&zero, &factor), &get(cur, (level, less))?);
+                                    lfma(&mut acc, &csub(&zero, &factor), cur.need(&grading, (level, less), "small-Gram/Cayley expansion")?);
                                 }
                             }
                             let divisor = cinv(&cscale(&adj[k][l], &(two.clone() * &self.prototype.from_usize(kappa[l] as usize))));
                             let out: L4<T> = std::array::from_fn(|slot| cmul(&acc[slot], &divisor));
-                            cur.insert((level, target_kappa), out);
+                            cur.insert(&grading, (level, target_kappa), out, &zero)?;
                         }
                     }
                     Ok(())
                 };
-                let gc_momentum = |cur: &mut FastMap<Key, L4<T>>, prev: Option<&FastMap<Key, L4<T>>>, p: u16| -> Result<(), String> {
+                let gc_momentum = |cur: &mut Coefficients<T>, prev: Option<&Coefficients<T>>, p: u16| -> Result<(), String> {
                     for kappa in compositions(p, nm) {
-                        let mut metric = get(cur, (1, kappa))?;
+                        let mut metric = cur.need(&grading, (1, kappa), "small-Gram/Cayley expansion")?.clone();
                         mul_dimension(&mut metric, &self.prototype.from_usize(p as usize + 4 - nm));
                         let mut bracket = lzero(&zero);
                         lfma(&mut bracket, &real(2), &metric);
                         if prev.is_none() {
-                            lfma(&mut bracket, &csub(&zero, &real(1)), spz.get(&(0, kappa)).ok_or("small-Gram/Cayley expansion: C0 outside the triangle ranks")?);
+                            lfma(&mut bracket, &csub(&zero, &real(1)), spz.get(&grading, (0, kappa)).ok_or("small-Gram/Cayley expansion: C0 outside the triangle ranks")?);
                         }
                         let mut acc = lzero(&zero);
                         lfma(&mut acc, &adj[gi][gj], &bracket);
@@ -869,28 +1014,29 @@ where
                                 }
                                 if let Some(less) = sub(kappa, m1) {
                                     let factor = cscale(&wf, &(two.clone() * &self.prototype.from_usize(kappa[m1] as usize)));
-                                    lfma(&mut acc, &csub(&zero, &factor), &get(cur, (1, less))?);
+                                    lfma(&mut acc, &csub(&zero, &factor), cur.need(&grading, (1, less), "small-Gram/Cayley expansion")?);
                                 }
                             }
                         }
                         if let Some(prev) = prev {
-                            lfma(&mut acc, &y0gj, &get(prev, (0, add(kappa, gi)))?);
+                            lfma(&mut acc, &y0gj, prev.need(&grading, (0, add(kappa, gi)), "small-Gram/Cayley expansion")?);
                         }
                         let out: L4<T> = std::array::from_fn(|slot| cmul(&acc[slot], &inv_xt));
-                        cur.insert((0, kappa), out);
+                        cur.insert(&grading, (0, kappa), out, &zero)?;
                     }
                     Ok(())
                 };
-                let mut gc_orders: Vec<FastMap<Key, L4<T>>> = Vec::with_capacity(usize::from(gc_passes) + 1);
+                let mut gc_orders: Vec<Coefficients<T>> = Vec::with_capacity(usize::from(gc_passes) + 1);
                 // Metric and momentum ranks completed per order.
                 let mut gc_done: Vec<(u16, u16)> = Vec::with_capacity(usize::from(gc_passes) + 1);
-                let mut gc_total: FastMap<Key, L4<T>> = FastMap::default();
+                let mut gc_total: Coefficients<T> = Coefficients::with_capacity(0);
                 let mut gc_accepted = false;
                 let mut gc_change = f64::INFINITY;
                 let mut gc_ratio = 1.0f64;
                 for order in 0..=gc_passes {
-                    let mut fresh: FastMap<Key, L4<T>> = FastMap::default();
-                    fresh.insert((0, [0, 0, 0]), if order == 0 { d0.clone() } else { lzero(&zero) });
+                    // Order `order` runs metric ranks through target + 2 + 2 (gc_passes - order).
+                    let mut fresh: Coefficients<T> = Coefficients::with_capacity(grading.end(target + 2 + 2 * (gc_passes - order)));
+                    fresh.insert(&grading, (0, [0, 0, 0]), if order == 0 { d0.clone() } else { lzero(&zero) }, &zero)?;
                     gc_orders.push(fresh);
                     gc_done.push((1, 0));
                     for s in 0..=usize::from(order) {
@@ -906,15 +1052,16 @@ where
                     }
                     let latest = &gc_orders[usize::from(order)];
                     if order == 0 {
-                        gc_total = latest.iter().filter(|(key, _)| rank_of(key) <= target).map(|(key, value)| (*key, value.clone())).collect();
+                        gc_total = latest.prefix(grading.end(target));
                         continue;
                     }
                     let mut next = gc_total.clone();
                     let mut change = 0.0f64;
                     for r in 1..=target {
                         let (mut diff, mut size) = (0.0f64, 0.0f64);
-                        for (key, value) in latest.iter().filter(|(key, _)| rank_of(key) == r) {
-                            let Some(sum) = next.get_mut(key) else { continue };
+                        for index in grading.range(r) {
+                            let Some(value) = latest.at(index) else { continue };
+                            let Some(sum) = next.at_mut(index) else { continue };
                             for slot in 0..4 {
                                 sum[slot] = cadd(&sum[slot], &value[slot]);
                                 diff = diff.max(cnorm2(&value[slot]).to_f64().sqrt());
@@ -964,7 +1111,7 @@ where
         for (&(lambda, ref kappa), &index) in layout {
             let key: Key = (lambda, std::array::from_fn(|i| kappa.get(i).copied().unwrap_or(0)));
             self.values[index as usize] = if rank_of(&key) <= target {
-                chosen.get(&key).cloned().ok_or("small-Gram expansion: coefficient missing")?
+                chosen.get(&grading, key).cloned().ok_or("small-Gram expansion: coefficient missing")?
             } else {
                 lzero(&zero)
             };
@@ -976,6 +1123,33 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn graded_index_numbers_every_key_once_in_rank_order() {
+        for nm in 1..=3 {
+            let grading = Grading::new(nm, 12);
+            let mut next = 0;
+            for r in 0..=12u16 {
+                assert_eq!(grading.range(r).start, next);
+                for lambda in 0..=r / 2 {
+                    let d = r - 2 * lambda;
+                    let kappas = if nm == 1 { vec![[d, 0, 0]] } else { compositions(d, nm) };
+                    for kappa in kappas {
+                        assert_eq!(grading.index(lambda, &kappa), Some(next), "nm {nm} lambda {lambda} kappa {kappa:?}");
+                        next += 1;
+                    }
+                }
+                assert_eq!(grading.range(r).end, next);
+                assert_eq!(grading.end(r), next);
+            }
+            assert_eq!(grading.index(7, &[0, 0, 0]), None);
+            if nm < 3 {
+                let mut beyond = [0u16; 3];
+                beyond[nm] = 1;
+                assert_eq!(grading.index(0, &beyond), None);
+            }
+        }
+    }
 
     #[test]
     fn second_adjugate_satisfies_the_paper_identities() {
