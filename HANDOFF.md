@@ -458,6 +458,33 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    p99 7.5e-12; pentagon median 3.5e-15, p99 1.2e-11 > COLI 9.8e-12),
    amplitude 004 (hexagon x7.33 vs COLLIER cache, shared/separate x0.472;
    pentagon x3.33, x0.883). Next: the three accuracy-neutral ideas above.
+   (User upgraded to Max, "Please continue", 3 Nov.) DONE 939bb35: (1) spz
+   by the trinomial recursion, (2) small-Cayley variant order by order
+   (orders cost two ranks: metric through target+2+2(S-s), momentum through
+   target+2(S-s)). vs f45d36f: statuses identical on 19500 stability lanes,
+   arrays at rounding level; binary64-only hexagons 163 -> 141 s, pentagons
+   38.4 -> 32.8 s, heptagons 299 -> 259 s; amplitudes (sharing on) hexagon
+   660 -> 604 ms, pentagon 64.7 -> 56.6 ms. (3) DROPPED after a census
+   (161823 expand_top calls on all stability integrals + the hexagon
+   amplitude, COLLIER's fac_g and fac_gy recorded): nested triangles end in
+   the alternative PV in 91% of calls, but a skip rule that loses no
+   converging expansion (fac_g^(P+extra) > 2^-6) catches only 8.5% of them
+   (2^-18 catches 80% but loses 543 converging/retrying ones); jumping
+   straight to boost 12 by fac_g loses time (in the range where boost 8
+   usually retries, 5288 calls end in the alternative PV and would pay the
+   ~3x dearer boost-12 setup). Hexagon amplitude call (sharing on, 694 ms
+   instrumented): expand_top 409 ms = boxes 281 (boost 8 converged 129, the
+   11 boost-12 boxes 105 + their failed boost-8 runs 35) + nested triangles
+   128; the rest (285 ms) is outside expand_top. Published with 939bb35:
+   stability 023 (every lane's status identical to 022 on all 27500 points,
+   max per-lane E/A change 1.4e-12, worst arrays and p99 unchanged to two
+   digits), timing 019 (load ~200; rows within 7% of 018 except batch-1
+   dotted N3R4, +10-12% with IREGI +9% in the same capture, and batch-1
+   default N7R7 +14%, which a same-binary rerun of that row the same day put
+   at 3.26 ms against 018's 3.24 ms), amplitude 005 (hexagon shared 519 ms,
+   x6.63 vs COLLIER cache, separate x4.80; pentagon 50.7 ms, x2.95, x2.02;
+   all integral lanes certified, sharing on/off bit-identical). The report's
+   pentagon sharing sentence (garbled in 4892274) now says 1.1 times.
    Remaining cost (hexagon amplitude, sharing off, loaded host 5.1 s/call):
    expansion stage 4.1 s = expand_top ~2.0 s (sources spz/shat 0.5 s,
    orders 1.1 s, small-Cayley 0.27 s) + aux executors' boosted triangles

@@ -102,6 +102,10 @@ LATER = {
         "direct_engine_20261030_capture018": ("summary-018.json", True),
         "direct_engine_20261030_build018": ("build-018.json", True),
     },
+    "019": {
+        "direct_engine_20261030_capture019": ("summary-019.json", True),
+        "direct_engine_20261030_build019": ("build-019.json", True),
+    },
     # Amplitude benchmark (amplitude/): TIRust sharing on/off, COLLIER cache on/off.
     "amp001": {
         "direct_engine_20261030_amplitude001": ("amplitude/summary-001.json", True),
@@ -118,6 +122,10 @@ LATER = {
     "amp004": {
         "direct_engine_20261030_amplitude004": ("amplitude/summary-004.json", True),
         "direct_engine_20261030_amplitude_build004": ("amplitude/build-004.json", True),
+    },
+    "amp005": {
+        "direct_engine_20261030_amplitude005": ("amplitude/summary-005.json", True),
+        "direct_engine_20261030_amplitude_build005": ("amplitude/build-005.json", True),
     },
 }
 
