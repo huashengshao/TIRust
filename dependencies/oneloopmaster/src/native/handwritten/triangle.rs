@@ -2,7 +2,7 @@
 use super::super::primitives::{C, NativeFloat, inverse, mul, sqrt};
 use super::sheet::{Sheet, dd};
 use super::{
-    Constants, add, div, is_zero, neg, negative, physical_sqrt, r_function, real, scale,
+    Constants, add, div, is_zero, neg, negative, physical_sqrt, r_function, r_function_real, real, scale,
     sign_nonnegative, sub,
 };
 
@@ -258,6 +258,29 @@ fn r_function_of<T: NativeFloat>(
                 c.one.clone()
             };
             return (real(one), zero());
+        }
+        // Real arguments in double-double: `k² - 4 = λ(p, m_i, m_j)/(m_i m_j)`
+        // with the threshold polynomial (`p (p - 4 m)` for equal masses). Next
+        // to a threshold `k² - 4` cancels the rounding of `k` (relative 2^-106
+        // of 4) down to the square root's argument, which then keeps about half
+        // its bits (1e-24 in C0's imaginary part where p sits on a
+        // binary64-rounded threshold); the polynomial is exact for binary64
+        // invariants and masses. Binary64 and `Float` keep the expression's
+        // form (where exact-zero tests decide a degenerate chart, a `Float`
+        // evaluation follows the expression's own branches).
+        if matches!(T::FIXED_BITS, Some(bits) if bits > 53)
+            && k.im.is_fully_zero()
+            && momentum.im.is_fully_zero()
+            && mass_i.im.is_fully_zero()
+            && mass_j.im.is_fully_zero()
+        {
+            let lambda = if unequal {
+                threshold.re.clone()
+            } else {
+                momentum.re.clone() * &threshold.re
+            };
+            let discriminant = lambda / &(mass_i.re.clone() * &mass_j.re);
+            return r_function_real(&k.re, discriminant, c);
         }
         return r_function(k, c);
     }

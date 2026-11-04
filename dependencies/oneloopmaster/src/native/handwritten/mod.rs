@@ -19,6 +19,10 @@
 //! tests that the expressions form at run time (the far-root series, `1 + x`
 //! rounding to 1), and the contour box keeps every line product of a
 //! parallel chart without binary64's probe (`box_complex::tfun_selected`).
+//! In double-double the triangle forms the r-functions' discriminant `k² - 4`
+//! of real arguments from the exact threshold polynomial instead of the
+//! rounded `k` (`triangle::r_function_of`): the same value, without the
+//! cancellation that left about 1e-24 next to a threshold.
 use super::primitives::{C, NativeFloat, inverse, mul, sqrt};
 
 mod box_contour;
@@ -169,21 +173,26 @@ pub(crate) fn r_function<T: NativeFloat>(k: &C<T>, c: &Constants<T>) -> (C<T>, C
         (scale(&add(k, &difference), &c.half), difference)
     } else {
         let x = &k.re;
-        let discriminant = x.clone() * x - &c.four;
-        if negative(&discriminant) {
-            let root = (-discriminant).sqrt();
-            (
-                C::new(x.clone() * &c.half, -(root.clone() * &c.half)),
-                C::new(x.zero(), -root),
-            )
-        } else {
-            let root = discriminant.sqrt();
-            let difference = if negative(x) { -root } else { root };
-            (
-                C::new((x.clone() + &difference) * &c.half, x.zero()),
-                C::new(difference, x.zero()),
-            )
-        }
+        r_function_real(x, x.clone() * x - &c.four, c)
+    }
+}
+
+/// [r_function] of a real `k = x` given its discriminant `x² - 4`.
+#[inline]
+pub(crate) fn r_function_real<T: NativeFloat>(x: &T, discriminant: T, c: &Constants<T>) -> (C<T>, C<T>) {
+    if negative(&discriminant) {
+        let root = (-discriminant).sqrt();
+        (
+            C::new(x.clone() * &c.half, -(root.clone() * &c.half)),
+            C::new(x.zero(), -root),
+        )
+    } else {
+        let root = discriminant.sqrt();
+        let difference = if negative(x) { -root } else { root };
+        (
+            C::new((x.clone() + &difference) * &c.half, x.zero()),
+            C::new(difference, x.zero()),
+        )
     }
 }
 
@@ -228,10 +237,11 @@ fn d0_with<T: real::BoxReal>(a: &[C<T>; 11], c: &Constants<T>) -> Option<[C<T>; 
 }
 
 
-/// The hand-written box kernels in double-double against the generated
+/// The hand-written kernels in double-double against the generated
 /// double-double code, both against the generated expressions at 256 (or 512)
 /// bits: the randomized kinematics of `tests/native_handwritten.rs` (complex
-/// masses included), and boxes with invariants on two-particle thresholds.
+/// masses and triangle thresholds included), and boxes with invariants on
+/// two-particle thresholds.
 #[cfg(test)]
 mod double_double_tests {
     use crate::{NativeEvaluator, ScalarIntegral};
@@ -264,6 +274,44 @@ mod double_double_tests {
 
     fn real(x: f64) -> C64 {
         C64::new(x, 0.0)
+    }
+
+    /// [p1,p2,p3,m1,m2,m3,mu2] with three or two nonzero masses, some momenta
+    /// on two-particle thresholds (`tests/native_handwritten.rs`).
+    fn triangle_point(rng: &mut Rng) -> Vec<C64> {
+        let mass = |rng: &mut Rng, common: f64| -> C64 {
+            let re = match rng.below(3) {
+                0 => common,
+                1 => (1 + rng.below(4)) as f64 * 0.25,
+                _ => 0.05 + rng.uniform(),
+            };
+            let im = if rng.below(4) == 0 { -0.1 * rng.uniform() } else { 0.0 };
+            C64::new(re, im)
+        };
+        let common = 0.05 + rng.uniform();
+        let mut m: Vec<C64> = (0..3).map(|_| mass(rng, common)).collect();
+        if rng.below(3) == 0 {
+            m[rng.below(3)] = C64::new(0.0, 0.0);
+        }
+        let momentum = |rng: &mut Rng, m: &[C64]| -> f64 {
+            match rng.below(6) {
+                0 => 0.0,
+                1 => m[rng.below(3)].re,
+                2 => {
+                    let (a, b) = (m[rng.below(3)].re.sqrt(), m[rng.below(3)].re.sqrt());
+                    (a + b) * (a + b)
+                }
+                3 => -rng.uniform() * 4.0,
+                _ => rng.nice(6.0),
+            }
+        };
+        let mut p: Vec<C64> = (0..3).map(|_| real(momentum(rng, &m))).collect();
+        if rng.below(5) == 0 {
+            p[rng.below(3)] = p[rng.below(3)];
+        }
+        p.extend(m);
+        p.push(real(0.3 + rng.uniform()));
+        p
     }
 
     /// [p1..p4,s12,s23,m1..m4,mu2] with four or three nonzero masses
@@ -402,6 +450,13 @@ mod double_double_tests {
         );
         assert!(worse <= better + points.len() / 500, "hand-written double-double less accurate: {worse} against {better}");
         assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures.iter().take(20).cloned().collect::<Vec<_>>().join("\n"));
+    }
+
+    #[test]
+    fn double_double_c0_matches_generated_expressions() {
+        let mut rng = Rng(0x9e3779b97f4a7c15);
+        let points: Vec<_> = (0..count(3000, "HANDWRITTEN_POINTS")).map(|_| triangle_point(&mut rng)).collect();
+        run(ScalarIntegral::C0, &points);
     }
 
     #[test]

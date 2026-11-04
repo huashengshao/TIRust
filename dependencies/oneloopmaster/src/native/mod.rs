@@ -128,13 +128,10 @@ impl<T: NativeFloat> NativeEvaluator<T> {
             arguments: (0..family.arity())
                 .map(|_| C::new(T::zero_at(bits), T::zero_at(bits)))
                 .collect(),
-            // Binary64 uses the hand-written sector kernels, double-double the
-            // box kernels: next to two-particle thresholds the triangle kernel
-            // keeps about 1e-24 in double-double where the generated code keeps
-            // 1e-32. `Float` keeps the generated expression code: its exact-zero
-            // tests and precision bookkeeping follow the expression's own
-            // grouping.
-            handwritten: [T::FIXED_BITS == Some(53), T::FIXED_BITS.is_some()],
+            // Binary64 and double-double use the hand-written sector kernels.
+            // `Float` keeps the generated expression code: its exact-zero tests
+            // and precision bookkeeping follow the expression's own grouping.
+            handwritten: [T::FIXED_BITS.is_some(); 2],
             tolerance: {
                 let half = T::zero_at(bits).one() / T::zero_at(bits).from_i64(2);
                 (0..bits + 4).fold(T::zero_at(bits).one(), |acc, _| acc * &half)
@@ -143,9 +140,9 @@ impl<T: NativeFloat> NativeEvaluator<T> {
         })
     }
 
-    /// Select the hand-written sector kernels (the binary64 default; the box
-    /// kernels in double-double) or the generated expression code for every
-    /// sector. For validation only.
+    /// Select the hand-written sector kernels (the binary64 and double-double
+    /// default) or the generated expression code for every sector. For
+    /// validation only.
     #[doc(hidden)]
     pub fn set_handwritten(&mut self, enabled: bool) {
         self.handwritten = [enabled; 2];
