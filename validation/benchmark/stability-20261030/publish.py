@@ -146,6 +146,10 @@ LATER = {
         "stability_20261030_capture031": (HERE / "summary-031.json", True),
         "stability_20261030_build031": (HERE / "build-031.json", True),
     },
+    "032": {
+        "stability_20261030_capture032": (HERE / "summary-032.json", True),
+        "stability_20261030_build032": (HERE / "build-032.json", True),
+    },
 }
 
 

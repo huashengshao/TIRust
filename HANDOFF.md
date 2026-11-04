@@ -850,6 +850,50 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    (codes and contracted); medians, p99, max, flagged, rescued_by_bits
    unchanged everywhere; 2 hexagon diagnostics (cyclic-order agreement
    9.0855e-15 -> 9.0930e-15 and similar).
+   DD TRIANGLES (user: "Yes, C0 next", 4 Nov), commit after 2db8ff8 (see
+   git log "Hand-written C0 in double-double"). Diagnosis (temporary probe
+   of triangle::ordered intermediates in DD vs Float 256): every quantity
+   ~1e-32 except the threshold r-function: k23 = -2.00000000000000044 (p on
+   the binary64-rounded (sqrt m_i + sqrt m_j)^2), d23 = r - 1/r = -4.7e-8
+   with relative error 5.6e-17 from k^2 - 4 cancelling k's rounding -> C0
+   Im error 1.3e-24 (all three labellings alike). Fix (triangle.rs
+   r_function_of, DD only: matches!(FIXED_BITS, Some(bits) if bits > 53)):
+   k^2 - 4 = lambda(p, mi, mj)/(mi mj) from the threshold polynomial it
+   already tests (p (p - 4m) for equal masses), exact for binary64 inputs;
+   r_function_real(x, disc) split out of r_function (binary64 identical).
+   Not for Float: a degenerate point (lambda3 = 0, p3 = 0, two rounded
+   thresholds) then took another exact-zero branch than the 256-bit
+   expression in upstream tests/native_handwritten.rs's logic check (Re
+   0.7518 vs 0.9067; both DD codes give 0.7518). NativeEvaluator
+   handwritten = [FIXED_BITS.is_some(); 2]. Test double_double_c0 (3000
+   triangles, 2610 resolved): 0 worse / 31 better (generated ~1e-25 at
+   thresholds, hand 1e-32). Binary64-only dumps byte-identical (27500);
+   rescue dumps vs 2db8ff8: statuses unchanged, 65 arrays differ, max
+   1.2e-15. Hexagon call 1.955 -> 1.909 GIr; DD C0 242 calls 91.1 -> 44.8
+   MIr; rescue 265 -> 226 MIr; DD masters 184 -> 138 MIr. A/B vs 2db8ff8
+   (load 377-444): instructions x0.976 / x0.980, cycles x0.964 [0.949,
+   1.020] / x0.965 [0.944, 0.984], task-clock 186.1 -> 181.4 / 30.6 ->
+   29.5 ms. Upstream: commit 59d1c7b pushed to branch
+   double-double-box-kernels (PR #18, retitled "Hand-written C0 and D0
+   kernels in double-double", not merged); lib/native_handwritten/
+   native_double_float_d0 pass (logic checks 5.3e-61 as before); full
+   suite 260 passed, the same 29 failures as main 128ea66. Captures of ac7128e (host load ~500
+   at the start, from another project under this account; stability ran
+   first, timing waited for load < 300): stability 032 vs 031: 20 points
+   change in TIRust default fields only (heptagon 4, hexagon 6, pentagon
+   10); no status/flag/binary64-only/summary change; pentagon contracted
+   E/A 99, 1853, 1243 move 9%, 6%, 1.7% (1e-15..1e-14 level), others
+   <= 0.3%. Timing 028 (CPU 233, load 239-271; 25 of 38 measurements
+   on a partly busy core): TIRust median x1.018 vs 027, COLLIER x1.018,
+   IREGI x1.010; TIRust -3..+10% (N1R0 b1 +10% 0.05 us, extended N4R6
+   dot3 +7..+9% incl. binary64-only); N7R7 b32 180.7 -> 175.6 ms,
+   binary64-only 168.8: rescue share 12 -> 7 ms. Amplitude 015 (CPU 255,
+   load 265-271; hexagon core 0.36, pentagon 0.5 busy before): x2.18
+   [1.93, 2.24] and x1.69 [1.66, 1.79]; TIRust shared 187.7 -> 188.8 /
+   31.5 -> 31.6 ms, COLLIER cached 82.6 -> 85.1 / 18.0 -> 18.5; fastest
+   hexagon block 185.9 -> 178.8 (blocks 178.8-193.2); the expected ~3% is
+   within noise. Hexagon fingerprint 627118d8081d80dd -> b89f51302382fec0,
+   on = off, 1824/1824; pentagon unchanged.
 4n. **Improve the amplitude cache (user: "very important", 2 Nov).**
    Miss diagnostic (hexagon amplitude, 32 points, sharing on: 312 reused,
    333 computed per call): of the 333, 103 have an earlier result for the

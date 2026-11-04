@@ -195,6 +195,14 @@ LATER = {
         "direct_engine_20261030_amplitude014": ("amplitude/summary-014.json", True),
         "direct_engine_20261030_amplitude_build014": ("amplitude/build-014.json", True),
     },
+    "028": {
+        "direct_engine_20261030_capture028": ("summary-028.json", True),
+        "direct_engine_20261030_build028": ("build-028.json", True),
+    },
+    "amp015": {
+        "direct_engine_20261030_amplitude015": ("amplitude/summary-015.json", True),
+        "direct_engine_20261030_amplitude_build015": ("amplitude/build-015.json", True),
+    },
 }
 
 
