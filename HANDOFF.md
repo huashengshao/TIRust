@@ -687,6 +687,51 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    251 ms (blocks 233-270), x3.0 [2.65, 3.37] vs COLLIER cache 84.2 ms,
    shared/separate 0.489 -> 0.466; pentagon 38.7 ms, x2.1 [1.93, 2.34];
    moments 455/457 (hexagon), 0/0 (pentagon); fingerprints unchanged.
+   EXPANSION STEPS TRIMMED (user: "Small-Gram expansions", 4 Nov),
+   7022322, bit-identical. (1) On ir_free lanes expand_top's step, the
+   alternative PV and the small-Cayley variant skip the IR slots'
+   multiply-adds (local `fma` -> lfma_slots::<false>), as the recurrences
+   do: their accumulators start at +0 and only add products with zeros,
+   so in binary64 they stay +0 bit for bit (the per-key cmul by the
+   divisor and div_dimension still run on all four slots, keeping the
+   zero signs). (2) The step's scalar factors (-2k f_b, -2k Zadj_jm,
+   -4 mult, -w, 2k) and the (a - 2 eps) divisor powers (dimension_powers,
+   div_dimension_by) are built once per expansion by the same operations.
+   (3) expansion_need: per order, only the coefficients the results (every
+   key of rank <= target of every order) depend on, the recursion's terms
+   walked back (thread-local cache by (nm, max_rank, target, passes, j, k,
+   l)); higher orders read the previous one only along e_k+e_l (metric)
+   and e_j (momentum), so much of the top ranks is never read (rank 5,
+   7 passes: 55% of 4286 keys needed for j=k=l, 90-99% otherwise; unit
+   test pins the counts to an independent Python model, cone.py). Census
+   (temporary instrumentation, removed): hexagon call 114 expansions,
+   ~4100 keys each; 78% of the keys in box expansions that ran all their
+   orders (8, or 12 at the larger boost) without reaching eps (change
+   falls ~10-100x per order; last change median 2e-11 at boost 8, 9e-13
+   at 12); 11 larger-boost reruns (first boost ended just above 2^-30)
+   hold 32% of the keys; only 12 of 73 box expansions met change <= eps.
+   COLLIER's CalcDg stops when the triangles' propagated error exceeds
+   10x its own truncation estimate (Dij_err > 10 Derr): a stopping-rule
+   option that changes numerics (user decision). Hexagon steady call
+   2.567 -> 2.482 GIr (IR slots alone) -> 2.239 GIr (step 544 -> 217
+   MIr, expand_top 780 -> 450); 10-round alternating perf-stat A/B vs
+   06daf37 (load ~90, tools/cycab.py): user cycles x0.913 [0.862, 0.934],
+   task-clock 251.6 -> 228.7 ms (x0.917), instructions x0.872; pentagon
+   cycles x0.999 (instructions x0.977). Fingerprints d5982c2edce61827 /
+   ecd7d3be452f3803 unchanged, 27500 binary64 dumps = bdf47ab,
+   amplitude_sharing/direct_engine/regulators/shifted_pentagon/
+   physical_box and the gram unit tests pass. Hexagon call now (Ir):
+   inject_gram 25% (expand_top 20%, step 10%), dd rescue (inject_external)
+   23%, gather 21%, programs 17%. Captures: stability 029 = 028 on all
+   27500 points; timing 025 (load 63-87, alone) TIRust rows median -0.6%
+   vs 024, COLLIER -0.4%, IREGI -0.2%, no status/error change, all within
+   7% except batch-1 N1R0 (-8.5%, 0.05 us); TIRust/COLLIER ratios moved a
+   median x0.995, TIRust/IREGI x0.993. Amplitude 012 (busy 0, load 62-65):
+   hexagon TIRust shared 251 -> 215 ms (blocks 213-268; three of seven
+   slow for both codes; fastest 233 -> 213 ms), x2.7 [2.30, 3.43] vs
+   COLLIER cache 78.7 ms, shared/separate 0.466 -> 0.452; pentagon 38.7 ->
+   35.8 ms (blocks 34.8-44.1, within noise as the A/B said), x2.0
+   [1.86, 2.35]; moments 455/457; fingerprints unchanged.
 4n. **Improve the amplitude cache (user: "very important", 2 Nov).**
    Miss diagnostic (hexagon amplitude, 32 points, sharing on: 312 reused,
    333 computed per call): of the 333, 103 have an earlier result for the
