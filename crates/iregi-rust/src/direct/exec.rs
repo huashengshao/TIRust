@@ -132,6 +132,8 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     native: [Option<oneloop::NativeEvaluator<T>>; 4],
     native_input: Vec<C<T>>,
     native_output: Vec<C<T>>,
+    /// Key of the current master in the shared store (reused buffer).
+    master_key: Vec<u64>,
     master_inputs: [Vec<C<T>>; 4],
     /// Per lane, per family, per master: four Laurent slots.
     master_values: Vec<L4<T>>,
@@ -346,6 +348,7 @@ where
             master_rows: 0,
             native_input: vec![zero.clone(); 11],
             native_output: vec![zero.clone(); 3],
+            master_key: Vec::with_capacity(25),
             native,
             master_inputs: Default::default(),
             master_values: Vec::new(),
@@ -620,29 +623,33 @@ where
                     input[first_mass + k] = self.masses[member].clone();
                 }
                 input[arity] = mu2.clone();
-                let key = store.as_ref().map(|_| {
-                    let mut key = vec![4, family as u64, arity as u64];
+                let key = &mut self.master_key;
+                let hit = store.as_ref().is_some_and(|store| {
+                    key.clear();
+                    key.extend([4, family as u64, arity as u64]);
                     for z in &input[..arity + 1] {
                         key.extend([z.re.to_f64().to_bits(), z.im.to_f64().to_bits()]);
                     }
-                    key
+                    let (output, prototype) = (&mut self.native_output, &self.prototype);
+                    store
+                        .get_with(key, |stored| {
+                            let Ok(shared) = stored else { return false };
+                            let v = shared[0];
+                            for k in 0..3 {
+                                let (re, im) = if k < 2 { (v[2 * k], v[2 * k + 1]) } else { (v[4], v[5]) };
+                                output[k] = C::new(exact_f64(prototype, re), exact_f64(prototype, im));
+                            }
+                            true
+                        })
+                        .unwrap_or(false)
                 });
-                match (store.as_ref(), key.as_ref()).0.and_then(|store| store.get(key.as_ref().unwrap())) {
-                    Some(Ok(shared)) => {
-                        let v = shared[0];
-                        for k in 0..3 {
-                            let (re, im) = if k < 2 { (v[2 * k], v[2 * k + 1]) } else { (v[4], v[5]) };
-                            self.native_output[k] = C::new(exact_f64(&self.prototype, re), exact_f64(&self.prototype, im));
-                        }
-                    }
-                    _ => {
-                        evaluator.evaluate(&input[..arity + 1], &mut self.native_output)?;
-                        if let (Some(store), Some(key)) = (store.as_ref(), key) {
-                            let o = &self.native_output;
-                            let v = [o[0].re.to_f64(), o[0].im.to_f64(), o[1].re.to_f64(), o[1].im.to_f64(),
-                                o[2].re.to_f64(), o[2].im.to_f64(), 0.0, 0.0];
-                            store.put(key, Ok(vec![v]));
-                        }
+                if !hit {
+                    evaluator.evaluate(&input[..arity + 1], &mut self.native_output)?;
+                    if let Some(store) = store.as_ref() {
+                        let o = &self.native_output;
+                        let v = [o[0].re.to_f64(), o[0].im.to_f64(), o[1].re.to_f64(), o[1].im.to_f64(),
+                            o[2].re.to_f64(), o[2].im.to_f64(), 0.0, 0.0];
+                        store.put(self.master_key.clone(), Ok(vec![v]));
                     }
                 }
                 self.master_rows += 1;
@@ -1561,6 +1568,9 @@ where
     fn lightlike_coefficients(&mut self, mu2: &C<T>) -> Result<(), String> {
         use oneloop::rust_codegen::runtime::primitives::log;
         let plan = self.plan.clone();
+        // Scratch buffers, reused across subsets and entries.
+        let (mut l_values, mut m_values, mut a_powers, mut b_powers): (Vec<C<T>>, Vec<C<T>>, Vec<C<T>>, Vec<C<T>>) =
+            Default::default();
         for (subset, entries) in &plan.lightlike {
             let members = &plan.subsets[*subset].members;
             let a = self.masses[members[0]].clone();
@@ -1576,7 +1586,8 @@ where
                 return Err("lightlike bubble with a negative real squared mass".into());
             }
             // L[n] = int_0^1 x^n log(a + b x) dx, n <= max_k.
-            let mut l_values = vec![self.zero.clone(); max_k + 1];
+            l_values.clear();
+            l_values.resize(max_k + 1, self.zero.clone());
             if a_zero && b_zero {
                 // Scaleless; L is not used.
             } else if b_zero {
@@ -1604,7 +1615,8 @@ where
                 }
             } else {
                 // M[k] = int_0^1 x^k / (a + b x) dx, k <= max_k + 1.
-                let mut m_values = vec![self.zero.clone(); max_k + 2];
+                m_values.clear();
+                m_values.resize(max_k + 2, self.zero.clone());
                 let inverse_a = cinv(&a);
                 let ratio = cmul(&b, &inverse_a);
                 if cnorm2(&ratio) <= self.prototype.one() / &self.prototype.from_usize(4) {
@@ -1653,8 +1665,10 @@ where
                 } else {
                     let (mut i0, mut i1) = (self.zero.clone(), self.zero.clone());
                     // (a + b x)^lambda = sum_i binom(lambda,i) a^(lambda-i) b^i x^i.
-                    let mut a_powers = vec![self.one.clone(); usize::from(lambda) + 1];
-                    let mut b_powers = vec![self.one.clone(); usize::from(lambda) + 1];
+                    a_powers.clear();
+                    a_powers.resize(usize::from(lambda) + 1, self.one.clone());
+                    b_powers.clear();
+                    b_powers.resize(usize::from(lambda) + 1, self.one.clone());
                     for i in 1..=usize::from(lambda) {
                         a_powers[i] = cmul(&a_powers[i - 1], &a);
                         b_powers[i] = cmul(&b_powers[i - 1], &b);
