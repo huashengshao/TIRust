@@ -180,12 +180,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         let stats = amplitude.last_sharing();
         println!(
-            "amplitude ({} integrals), sharing {}: {:.1} ms per call; subset results reused {}, computed {}",
+            "amplitude ({} integrals), sharing {}: {:.1} ms per call; subset results reused {}, computed {}; \
+             moments reused {}, computed {}",
             amplitude.len(),
             if share { "on" } else { "off" },
             ms(started.elapsed() / calls as u32),
             stats.reused,
-            stats.computed
+            stats.computed,
+            stats.moments_reused,
+            stats.moments_computed
         );
         outputs.push(last);
     }

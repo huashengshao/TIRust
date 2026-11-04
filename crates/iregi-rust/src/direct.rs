@@ -41,6 +41,18 @@ impl DirectReductionPlan {
             .collect()
     }
 
+    /// `(size, rank)` of the subsets whose Cartesian moments are gathered
+    /// inside a larger integral (not as the plan's own top subset).
+    pub(crate) fn nested_gathers(&self) -> Vec<(usize, u16)> {
+        let top = self.data.settings.propagators;
+        self.data
+            .gathers
+            .iter()
+            .map(|gather| (self.data.subsets[gather.subset].members.len(), gather.moment_rank))
+            .filter(|&(size, _)| size < top)
+            .collect()
+    }
+
     /// Whether `settings` lie inside the direct engine's implemented domain.
     pub fn supports(settings: &ReductionSettings) -> bool {
         DirectPlanData::supported(settings).is_ok()

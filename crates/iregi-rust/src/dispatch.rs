@@ -1184,6 +1184,15 @@ where
         }
     }
 
+    /// `(size, rank)` of the subsets the direct engine gathers inside `plan`
+    /// below its top subset (empty for other engines).
+    pub(crate) fn direct_nested_gathers(plan: &TensorReductionPlan) -> Vec<(usize, u16)> {
+        match &plan.ordinary {
+            OrdinaryPlan::Direct(direct) => direct.direct.nested_gathers(),
+            _ => Vec::new(),
+        }
+    }
+
     /// Share per-subset results with the other workspaces holding `store`
     /// (direct binary64 engine only; see `crate::AmplitudeWorkspace`).
     pub(crate) fn set_shared_subsets(&mut self, store: Option<std::sync::Arc<crate::direct::shared::SubsetStore>>) {
