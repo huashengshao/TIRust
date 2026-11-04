@@ -39,7 +39,10 @@ use symbolica::{domains::float::Complex, evaluate::EvaluationDomain};
 
 use super::{DirectExecutor, DirectMasters};
 use crate::direct::{
-    numeric::{C, L4, cadd, cinv, cmul, cnorm2, cscale, csub, czero, div_dimension, lfma, lzero, mul_dimension},
+    numeric::{
+        C, L4, cadd, cinv, cmul, cnorm2, cscale, csub, czero, dimension_powers, div_dimension, div_dimension_by, lfma, lfma_slots,
+        lzero, mul_dimension,
+    },
     plan::{DirectPlanData, SubsetKind},
 };
 use crate::{KinematicsBatch, LaneStatus, ReductionSettings};
@@ -134,6 +137,77 @@ fn cached_grading(nm: usize, max_rank: u16) -> std::rc::Rc<Grading> {
     GRADINGS.with(|cache| {
         cache.borrow_mut().entry((nm, max_rank)).or_insert_with(|| std::rc::Rc::new(Grading::new(nm, max_rank))).clone()
     })
+}
+
+/// Coefficients needed per order of a small-Gram expansion, by grading index.
+type Need = std::rc::Rc<Vec<Vec<bool>>>;
+
+thread_local! {
+    /// [`expansion_need`] by `(nm, max_rank, target, passes, j, k, l)`.
+    static NEEDS: std::cell::RefCell<HashMap<(usize, u16, u16, u16, usize, usize, usize), Need>> =
+        std::cell::RefCell::new(HashMap::new());
+}
+
+/// The coefficients of orders `0..=passes` that the expansion's results (every
+/// key of rank at most `target` of every order) depend on: the recursion's
+/// terms walked back from those keys. The others (most of them in the highest
+/// ranks, reached only to keep the rank bookkeeping of the orders simple) are
+/// never read. `pairs` are the `(a, b)` of the second adjugates.
+fn expansion_need(
+    grading: &Grading,
+    target: u16,
+    passes: u16,
+    (j, k, l): (usize, usize, usize),
+    pairs: &[(usize, usize)],
+) -> Need {
+    let key = (grading.nm, grading.max_rank, target, passes, j, k, l);
+    if let Some(need) = NEEDS.with(|cache| cache.borrow().get(&key).cloned()) {
+        return need;
+    }
+    let size = grading.end(grading.max_rank);
+    let orders = usize::from(passes) + 1;
+    let mut need = vec![vec![false; size]; orders];
+    let mut stack: Vec<(usize, u32)> = (0..orders).flat_map(|s| (0..grading.end(target)).map(move |index| (s, index as u32))).collect();
+    while let Some((s, index)) = stack.pop() {
+        if index == NONE || need[s][index as usize] {
+            continue;
+        }
+        need[s][index as usize] = true;
+        let (lambda, kappa) = grading.key(index as usize);
+        if lambda > 0 {
+            // As `expand_top`'s metric step.
+            let below = grading.lower(index);
+            if s > 0 {
+                stack.push((s - 1, grading.plus(grading.plus(below, k), l)));
+            }
+            stack.push((s, below));
+            for &(a, b) in pairs {
+                let (ka, kb) = (usize::from(kappa[a]), usize::from(kappa[b]));
+                if ka > 0 {
+                    stack.push((s, grading.minus(index, a)));
+                }
+                if kb > 0 {
+                    stack.push((s, grading.minus(index, b)));
+                }
+                if (if a == b { ka * ka.saturating_sub(1) } else { ka * kb }) > 0 {
+                    stack.push((s, grading.higher(grading.minus(grading.minus(index, a), b))));
+                }
+            }
+        } else if kappa.iter().any(|&x| x > 0) {
+            // As its momentum step (the scalar of each order is set directly).
+            for m in 0..grading.nm {
+                if kappa[m] > 0 {
+                    stack.push((s, grading.higher(grading.minus(index, m))));
+                }
+            }
+            if s > 0 {
+                stack.push((s - 1, grading.plus(index, j)));
+            }
+        }
+    }
+    let need = std::rc::Rc::new(need);
+    NEEDS.with(|cache| cache.borrow_mut().insert(key, need.clone()));
+    need
 }
 
 impl Grading {
@@ -849,14 +923,44 @@ where
         let neg_delta = csub(&zero, &delta);
         let two_adj = cscale(&adj[k][l], &two);
         let neg_adj = csub(&zero, &adj[k][l]);
+        // On a lane without IR poles every value's IR slots are zero, so their
+        // products (with finite factors) only add zeros: skip them, as the
+        // recurrences do. In binary64 the accumulators, which start at +0,
+        // stay +0 bit for bit either way.
+        let full = !self.ir_free;
+        let fma = |acc: &mut L4<T>, factor: &C<T>, value: &L4<T>| {
+            if full { lfma(acc, factor, value) } else { lfma_slots::<T, false>(acc, factor, value) }
+        };
+        // The recursion's scalar factors, by multiplicity, built once by the
+        // operations each key used to repeat (so the same bits).
+        let top = usize::from(grading.max_rank) + 1;
+        let real2: Vec<C<T>> = (0..=top).map(|x| real(2 * x)).collect();
+        let two_x: Vec<T> = (0..=top).map(|x| two.clone() * &self.prototype.from_usize(x)).collect();
+        let neg_f2: Vec<Vec<C<T>>> =
+            (0..nm).map(|b| two_x.iter().map(|x| csub(&zero, &cscale(&f[b], x))).collect()).collect();
+        let neg_adj2: Vec<Vec<C<T>>> =
+            (0..nm).map(|m| two_x.iter().map(|x| csub(&zero, &cscale(&adj[j][m], x))).collect()).collect();
+        let neg_four: Vec<C<T>> = (0..=top * top).map(|x| csub(&zero, &cscale(&real(x), &four))).collect();
+        let neg_w: Vec<C<T>> = pairs.iter().map(|(_, _, w)| csub(&zero, w)).collect();
+        // Divisor (a - 2 eps) of the metric keys, a = 2 (lambda + |kappa|) + 4 - N,
+        // by lambda + |kappa| - 1 (lambda >= 1).
+        let dims: Vec<[T; 3]> = (1..=top)
+            .map(|s| dimension_powers(&(self.prototype.one() / &self.prototype.from_usize(2 * s + 3 - nm))))
+            .collect();
+        // Only the coefficients the results depend on.
+        let structure: Vec<(usize, usize)> = pairs.iter().map(|&(a, b, _)| (a, b)).collect();
+        let need = expansion_need(&grading, target, passes, (j, k, l), &structure);
         // Each step walks its keys by index and reads every term through the
         // grading's neighbour tables (the order of the keys and of the terms is
         // that of the recursion above).
         let what = "small-Gram expansion";
-        let step = |cur: &mut Coefficients<T>, prev: Option<&Coefficients<T>>, q: u16| -> Result<(), String> {
+        let step = |cur: &mut Coefficients<T>, prev: Option<&Coefficients<T>>, need: &[bool], q: u16| -> Result<(), String> {
             let first = prev.is_none();
             for lambda in (1..=q / 2).rev() {
                 for index in grading.block(q, lambda) {
+                    if !need[index] {
+                        continue;
+                    }
                     let kappa = grading.key(index).1;
                     let here = index as u32;
                     // (lambda - 1, kappa)
@@ -864,72 +968,65 @@ where
                     let mut acc = lzero(&zero);
                     if let Some(prev) = prev {
                         let at = grading.plus(grading.plus(below, k), l);
-                        lfma(&mut acc, &neg_delta, prev.need_at(at, || (lambda - 1, add(add(kappa, k), l)), what)?);
+                        fma(&mut acc, &neg_delta, prev.need_at(at, || (lambda - 1, add(add(kappa, k), l)), what)?);
                     } else {
-                        lfma(&mut acc, &two_adj, spz.at(below as usize).ok_or("small-Gram expansion: C0 outside the triangle ranks")?);
+                        fma(&mut acc, &two_adj, spz.at(below as usize).ok_or("small-Gram expansion: C0 outside the triangle ranks")?);
                     }
-                    lfma(&mut acc, &xtilde, cur.need_at(below, || (lambda - 1, kappa), what)?);
+                    fma(&mut acc, &xtilde, cur.need_at(below, || (lambda - 1, kappa), what)?);
                     if first {
                         for m in 0..nm {
-                            lfma(&mut acc, &adj[m][l], shat_at(m, grading.plus(below, k))?);
-                            lfma(&mut acc, &neg_adj, shat_at(m, grading.plus(below, m))?);
+                            fma(&mut acc, &adj[m][l], shat_at(m, grading.plus(below, k))?);
+                            fma(&mut acc, &neg_adj, shat_at(m, grading.plus(below, m))?);
                         }
                     }
-                    for (a, b, w) in &pairs {
-                        let (a, b) = (*a, *b);
+                    for (&(a, b, _), neg_w) in pairs.iter().zip(&neg_w) {
+                        let (ka, kb) = (usize::from(kappa[a]), usize::from(kappa[b]));
                         let mut bracket = lzero(&zero);
                         if first {
-                            lfma(&mut bracket, &f[a], shat_at(b, below)?);
+                            fma(&mut bracket, &f[a], shat_at(b, below)?);
                         }
-                        if kappa[a] > 0 {
+                        if ka > 0 {
                             let less = grading.minus(here, a);
                             if first {
-                                lfma(&mut bracket, &real(2 * kappa[a] as usize), shat_at(b, less)?);
+                                fma(&mut bracket, &real2[ka], shat_at(b, less)?);
                             }
-                            let factor = cscale(&f[b], &(two.clone() * &self.prototype.from_usize(kappa[a] as usize)));
-                            lfma(&mut bracket, &csub(&zero, &factor), cur.need_at(less, || (lambda, sub(kappa, a).unwrap()), what)?);
+                            fma(&mut bracket, &neg_f2[b][ka], cur.need_at(less, || (lambda, sub(kappa, a).unwrap()), what)?);
                         }
-                        if kappa[b] > 0 {
+                        if kb > 0 {
                             let less = grading.minus(here, b);
-                            let factor = cscale(&f[a], &(two.clone() * &self.prototype.from_usize(kappa[b] as usize)));
-                            lfma(&mut bracket, &csub(&zero, &factor), cur.need_at(less, || (lambda, sub(kappa, b).unwrap()), what)?);
+                            fma(&mut bracket, &neg_f2[a][kb], cur.need_at(less, || (lambda, sub(kappa, b).unwrap()), what)?);
                         }
-                        let multiplicity = if a == b {
-                            kappa[a] as usize * (kappa[a] as usize).saturating_sub(1)
-                        } else {
-                            kappa[a] as usize * kappa[b] as usize
-                        };
+                        let multiplicity = if a == b { ka * ka.saturating_sub(1) } else { ka * kb };
                         if multiplicity > 0 {
                             let less = grading.higher(grading.minus(grading.minus(here, a), b));
-                            let factor = cscale(&real(multiplicity), &four);
-                            lfma(&mut bracket, &csub(&zero, &factor), cur.need_at(less, || (lambda + 1, sub(sub(kappa, a).unwrap(), b).unwrap()), what)?);
+                            fma(&mut bracket, &neg_four[multiplicity], cur.need_at(less, || (lambda + 1, sub(sub(kappa, a).unwrap(), b).unwrap()), what)?);
                         }
-                        lfma(&mut acc, &csub(&zero, w), &bracket);
+                        fma(&mut acc, neg_w, &bracket);
                     }
                     let mut out: L4<T> = std::array::from_fn(|slot| cmul(&acc[slot], &inv_two_adj));
-                    // Divisor (a - 2 eps), a = 2 (lambda + |kappa|) + 4 - N.
-                    let a = self.prototype.from_usize(2 * (lambda as usize + kappa.iter().map(|&x| x as usize).sum::<usize>()) + 3 - nm);
-                    div_dimension(&mut out, &(self.prototype.one() / &a));
+                    div_dimension_by(&mut out, &dims[usize::from(lambda) + kappa.iter().map(|&x| usize::from(x)).sum::<usize>() - 1]);
                     cur.insert_at(&grading, index, out, &zero);
                 }
             }
             if q >= 2 {
                 for index in grading.block(q - 1, 0) {
+                    if !need[index] {
+                        continue;
+                    }
                     let kappa = grading.key(index).1;
                     let here = index as u32;
                     let mut acc = lzero(&zero);
                     for m in 0..nm {
                         if first {
-                            lfma(&mut acc, &adj[j][m], shat_at(m, here)?);
+                            fma(&mut acc, &adj[j][m], shat_at(m, here)?);
                         }
                         if kappa[m] > 0 {
-                            let factor = cscale(&adj[j][m], &(two.clone() * &self.prototype.from_usize(kappa[m] as usize)));
                             let less = grading.higher(grading.minus(here, m));
-                            lfma(&mut acc, &csub(&zero, &factor), cur.need_at(less, || (1, sub(kappa, m).unwrap()), what)?);
+                            fma(&mut acc, &neg_adj2[m][usize::from(kappa[m])], cur.need_at(less, || (1, sub(kappa, m).unwrap()), what)?);
                         }
                     }
                     if let Some(prev) = prev {
-                        lfma(&mut acc, &neg_delta, prev.need_at(grading.plus(here, j), || (0, add(kappa, j)), what)?);
+                        fma(&mut acc, &neg_delta, prev.need_at(grading.plus(here, j), || (0, add(kappa, j)), what)?);
                     }
                     let out: L4<T> = std::array::from_fn(|slot| cmul(&acc[slot], &inv_adjf));
                     cur.insert_at(&grading, index, out, &zero);
@@ -963,7 +1060,7 @@ where
                 let through = target + 1 + order - s as u16;
                 let (lower, upper) = orders.split_at_mut(s);
                 for q in steps[s] + 1..=through {
-                    step(&mut upper[0], lower.last(), q)?;
+                    step(&mut upper[0], lower.last(), &need[s], q)?;
                 }
                 steps[s] = through;
             }
@@ -1070,16 +1167,16 @@ where
                         for n1 in 0..nm {
                             let mut value = shat_of(n1, lambda, kappa)?.clone();
                             if let Some(less) = sub(kappa, n1) {
-                                lfma(&mut value, &csub(&zero, &real(2 * kappa[n1] as usize)), cur.need(&grading, (lambda + 1, less), "alternative PV")?);
+                                fma(&mut value, &csub(&zero, &real(2 * kappa[n1] as usize)), cur.need(&grading, (lambda + 1, less), "alternative PV")?);
                             }
                             rhs.push(value);
                         }
                         let c0 = spz.get(&grading, (lambda, kappa)).ok_or("alternative PV: C0 outside the triangle ranks")?;
                         let mut acc = lzero(&zero);
-                        lfma(&mut acc, &det_x, cur.need(&grading, (lambda, kappa), "alternative PV")?);
-                        lfma(&mut acc, &delta, c0);
+                        fma(&mut acc, &det_x, cur.need(&grading, (lambda, kappa), "alternative PV")?);
+                        fma(&mut acc, &delta, c0);
                         for n1 in 0..nm {
-                            lfma(&mut acc, &csub(&zero, &xt0(n1)), &rhs[n1]);
+                            fma(&mut acc, &csub(&zero, &xt0(n1)), &rhs[n1]);
                         }
                         let mut metric: L4<T> = std::array::from_fn(|slot| cmul(&acc[slot], &inv_two_delta));
                         let a = self.prototype.from_usize(q as usize + 4 - nm);
@@ -1088,14 +1185,14 @@ where
                         if lambda == 0 {
                             mul_dimension(&mut metric, &a);
                             let mut bracket = lzero(&zero);
-                            lfma(&mut bracket, &real(2), &metric);
-                            lfma(&mut bracket, &csub(&zero, &real(1)), c0);
+                            fma(&mut bracket, &real(2), &metric);
+                            fma(&mut bracket, &csub(&zero, &real(1)), c0);
                             let first = (0..nm).find(|&i| kappa[i] > 0).unwrap_or(nm);
                             for i in 0..nm.min(first + 1) {
                                 let mut acc = lzero(&zero);
-                                lfma(&mut acc, &xt0(i), &bracket);
+                                fma(&mut acc, &xt0(i), &bracket);
                                 for n1 in 0..nm {
-                                    lfma(&mut acc, &xtm[i][n1], &rhs[n1]);
+                                    fma(&mut acc, &xtm[i][n1], &rhs[n1]);
                                 }
                                 let out: L4<T> = std::array::from_fn(|slot| cmul(&acc[slot], &inv_det_x));
                                 cur.insert(&grading, (0, add(kappa, i)), out, &zero)?;
@@ -1215,17 +1312,17 @@ where
                             let kappa = add(target_kappa, l);
                             let mut acc = lzero(&zero);
                             if let Some(prev) = prev {
-                                lfma(&mut acc, &y0k, prev.need(&grading, (lambda, kappa), "small-Gram/Cayley expansion")?);
-                                lfma(&mut acc, &neg_delta, prev.need(&grading, (lambda, add(kappa, k)), "small-Gram/Cayley expansion")?);
+                                fma(&mut acc, &y0k, prev.need(&grading, (lambda, kappa), "small-Gram/Cayley expansion")?);
+                                fma(&mut acc, &neg_delta, prev.need(&grading, (lambda, add(kappa, k)), "small-Gram/Cayley expansion")?);
                             } else {
                                 for m in 0..nm {
-                                    lfma(&mut acc, &adj[k][m], shat_of(m, lambda, kappa)?);
+                                    fma(&mut acc, &adj[k][m], shat_of(m, lambda, kappa)?);
                                 }
                             }
                             for m in (0..nm).filter(|&m| m != l) {
                                 if let Some(less) = sub(kappa, m) {
                                     let factor = cscale(&adj[k][m], &(two.clone() * &self.prototype.from_usize(kappa[m] as usize)));
-                                    lfma(&mut acc, &csub(&zero, &factor), cur.need(&grading, (level, less), "small-Gram/Cayley expansion")?);
+                                    fma(&mut acc, &csub(&zero, &factor), cur.need(&grading, (level, less), "small-Gram/Cayley expansion")?);
                                 }
                             }
                             let divisor = cinv(&cscale(&adj[k][l], &(two.clone() * &self.prototype.from_usize(kappa[l] as usize))));
@@ -1240,27 +1337,27 @@ where
                         let mut metric = cur.need(&grading, (1, kappa), "small-Gram/Cayley expansion")?.clone();
                         mul_dimension(&mut metric, &self.prototype.from_usize(p as usize + 4 - nm));
                         let mut bracket = lzero(&zero);
-                        lfma(&mut bracket, &real(2), &metric);
+                        fma(&mut bracket, &real(2), &metric);
                         if prev.is_none() {
-                            lfma(&mut bracket, &csub(&zero, &real(1)), spz.get(&grading, (0, kappa)).ok_or("small-Gram/Cayley expansion: C0 outside the triangle ranks")?);
+                            fma(&mut bracket, &csub(&zero, &real(1)), spz.get(&grading, (0, kappa)).ok_or("small-Gram/Cayley expansion: C0 outside the triangle ranks")?);
                         }
                         let mut acc = lzero(&zero);
-                        lfma(&mut acc, &adj[gi][gj], &bracket);
+                        fma(&mut acc, &adj[gi][gj], &bracket);
                         for n1 in 0..nm {
                             for m1 in 0..nm {
                                 let Some(w) = second_adjugate(&z, nm, gi, n1, gj, m1) else { continue };
                                 let wf = cmul(&w, &f[n1]);
                                 if prev.is_none() {
-                                    lfma(&mut acc, &wf, shat_of(m1, 0, kappa)?);
+                                    fma(&mut acc, &wf, shat_of(m1, 0, kappa)?);
                                 }
                                 if let Some(less) = sub(kappa, m1) {
                                     let factor = cscale(&wf, &(two.clone() * &self.prototype.from_usize(kappa[m1] as usize)));
-                                    lfma(&mut acc, &csub(&zero, &factor), cur.need(&grading, (1, less), "small-Gram/Cayley expansion")?);
+                                    fma(&mut acc, &csub(&zero, &factor), cur.need(&grading, (1, less), "small-Gram/Cayley expansion")?);
                                 }
                             }
                         }
                         if let Some(prev) = prev {
-                            lfma(&mut acc, &y0gj, prev.need(&grading, (0, add(kappa, gi)), "small-Gram/Cayley expansion")?);
+                            fma(&mut acc, &y0gj, prev.need(&grading, (0, add(kappa, gi)), "small-Gram/Cayley expansion")?);
                         }
                         let out: L4<T> = std::array::from_fn(|slot| cmul(&acc[slot], &inv_xt));
                         cur.insert(&grading, (0, kappa), out, &zero)?;
@@ -1364,6 +1461,24 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn expansion_need_is_the_dependency_cone_of_the_results() {
+        // A box (nm = 3) at rank 5 with seven passes (triangles of rank 12):
+        // every key of rank <= 5 of every order, and of the others what their
+        // terms reach. The counts come from an independent model of the
+        // recursion's terms; the momentum direction j and the adjugate's (k, l)
+        // decide how much of the higher ranks the results reach.
+        let grading = Grading::new(3, 14);
+        for ((j, k, l), expected) in [((0, 0, 0), 2356), ((0, 0, 1), 3868), ((0, 1, 1), 3903), ((0, 1, 2), 4230)] {
+            let pairs: Vec<(usize, usize)> =
+                (0..3).flat_map(|a| (0..3).map(move |b| (a, b))).filter(|&(a, b)| a != k && b != l).collect();
+            let need = expansion_need(&grading, 5, 7, (j, k, l), &pairs);
+            assert_eq!(need.len(), 8);
+            assert_eq!(need.iter().flatten().filter(|&&x| x).count(), expected, "(j, k, l) = {:?}", (j, k, l));
+            assert!(need.iter().all(|order| order[..grading.end(5)].iter().all(|&x| x)));
+        }
+    }
 
     #[test]
     fn neighbour_tables_match_the_graded_index() {
