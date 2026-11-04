@@ -1,4 +1,5 @@
-//! Hand-written binary64 kernels for the dominant C0/D0 mass sectors.
+//! Hand-written binary64 and double-double kernels for the dominant C0/D0
+//! mass sectors.
 //!
 //! Each kernel is a direct transcription of the exact expressions, branch for
 //! branch: the three-mass triangle of `triangle.rs` (OneLOop `trif3`), the
@@ -9,15 +10,20 @@
 //! by [`sheet::Sheet`]). Unlike the generated code they evaluate one sector
 //! dispatch per call, never evaluate inactive branches, and keep real values
 //! and predicates real. Sectors not covered return `None` and use the
-//! generated code, which also remains the implementation for `DoubleFloat` and
-//! `Float`: those types track precision through the expression's own grouping.
+//! generated code, which also remains the implementation for `Float`: its
+//! tracked precision follows the expression's own grouping.
 //!
-//! The triangle kernel is generic over [`NativeFloat`]; the box kernels are
-//! binary64 only.
+//! The triangle kernel is generic over [`NativeFloat`]; the box kernels run in
+//! binary64 and double-double ([`real::BoxReal`]). Double-double takes the
+//! expressions' double-double branches: the arithmetic decides the precision
+//! tests that the expressions form at run time (the far-root series, `1 + x`
+//! rounding to 1), and the contour box keeps every line product of a
+//! parallel chart without binary64's probe (`box_complex::tfun_selected`).
 use super::primitives::{C, NativeFloat, inverse, mul, sqrt};
 
 mod box_contour;
 mod boxes;
+mod real;
 pub(crate) mod sheet;
 pub(crate) mod triangle;
 
@@ -194,15 +200,237 @@ pub(crate) fn c0<T: NativeFloat>(a: &[C<T>], c: &Constants<T>) -> Option<[C<T>; 
     Some([finite, zero.clone(), zero])
 }
 
-/// D0 `[finite, pole, double pole]` for the covered sectors (binary64 only).
+/// D0 `[finite, pole, double pole]` for the covered sectors (binary64 and
+/// double-double).
 #[inline]
 pub(crate) fn d0<T: NativeFloat>(a: &[C<T>], c: &Constants<T>) -> Option<[C<T>; 3]> {
     use core::any::Any;
+    use symbolica::domains::float::DoubleFloat;
     let a: &[C<T>; 11] = a.try_into().ok()?;
-    let a = (a as &dyn Any).downcast_ref::<[C<f64>; 11]>()?;
-    let c = (c as &dyn Any).downcast_ref::<Constants<f64>>()?;
-    let finite = boxes::d0(a, c)?;
-    let zero = C::new(0.0, 0.0);
-    let values: [C<f64>; 3] = [finite, zero, zero];
-    (&values as &dyn Any).downcast_ref::<[C<T>; 3]>().cloned()
+    let c = c as &dyn Any;
+    let values = a as &dyn Any;
+    if let (Some(a), Some(c)) = (values.downcast_ref::<[C<f64>; 11]>(), c.downcast_ref::<Constants<f64>>()) {
+        let values = d0_with(a, c)?;
+        return (&values as &dyn Any).downcast_ref::<[C<T>; 3]>().cloned();
+    }
+    if let (Some(a), Some(c)) = (values.downcast_ref::<[C<DoubleFloat>; 11]>(), c.downcast_ref::<Constants<DoubleFloat>>()) {
+        let values = d0_with(a, c)?;
+        return (&values as &dyn Any).downcast_ref::<[C<T>; 3]>().cloned();
+    }
+    None
+}
+
+#[inline]
+fn d0_with<T: real::BoxReal>(a: &[C<T>; 11], c: &Constants<T>) -> Option<[C<T>; 3]> {
+    let finite = boxes::d0(&a.clone().map(real::Z::of), c)?;
+    let zero = C::new(T::lit(0.0), T::lit(0.0));
+    Some([finite.c(), zero.clone(), zero])
+}
+
+
+/// The hand-written box kernels in double-double against the generated
+/// double-double code, both against the generated expressions at 256 (or 512)
+/// bits: the randomized kinematics of `tests/native_handwritten.rs` (complex
+/// masses included), and boxes with invariants on two-particle thresholds.
+#[cfg(test)]
+mod double_double_tests {
+    use crate::{NativeEvaluator, ScalarIntegral};
+    use symbolica::domains::float::{Complex, DoubleFloat, Float, FloatLike, RealLike};
+
+    type C64 = Complex<f64>;
+
+    struct Rng(u64);
+
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            self.0
+        }
+        fn uniform(&mut self) -> f64 {
+            (self.next() >> 11) as f64 / (1u64 << 53) as f64
+        }
+        fn below(&mut self, n: usize) -> usize {
+            (self.next() % n as u64) as usize
+        }
+        fn nice(&mut self, scale: f64) -> f64 {
+            match self.below(4) {
+                0 => (self.below(9) as f64 - 4.0) * scale / 4.0,
+                _ => (2.0 * self.uniform() - 1.0) * scale,
+            }
+        }
+    }
+
+    fn real(x: f64) -> C64 {
+        C64::new(x, 0.0)
+    }
+
+    /// [p1..p4,s12,s23,m1..m4,mu2] with four or three nonzero masses
+    /// (`tests/native_handwritten.rs`).
+    fn box_point(rng: &mut Rng, complex: bool) -> Vec<C64> {
+        let common = 0.05 + rng.uniform();
+        let mut m: Vec<C64> = (0..4)
+            .map(|_| {
+                let re = match rng.below(3) {
+                    0 | 1 => common,
+                    _ => 0.05 + rng.uniform(),
+                };
+                let im = if complex && rng.below(2) == 0 { -0.05 * rng.uniform() } else { 0.0 };
+                C64::new(re, im)
+            })
+            .collect();
+        if rng.below(3) == 0 {
+            m[rng.below(4)] = C64::new(0.0, 0.0);
+        }
+        let mut p: Vec<C64> = (0..6)
+            .map(|_| {
+                real(match rng.below(6) {
+                    0 => 0.0,
+                    1 => m[rng.below(4)].re,
+                    2 => -rng.uniform() * 3.0,
+                    _ => rng.nice(8.0),
+                })
+            })
+            .collect();
+        if rng.below(4) == 0 {
+            p[rng.below(6)] = p[rng.below(6)];
+        }
+        p.extend(m);
+        p.push(real(0.3 + rng.uniform()));
+        p
+    }
+
+    fn wide(x: &DoubleFloat, bits: u32) -> Float {
+        let pair = x.into_inner();
+        Float::with_val(bits, pair.hi()) + Float::with_val(bits, pair.lo())
+    }
+
+    fn evaluate_dd(evaluator: &mut NativeEvaluator<DoubleFloat>, hand: bool, input: &[C64]) -> Vec<Complex<DoubleFloat>> {
+        evaluator.set_handwritten(hand);
+        let input: Vec<_> = input.iter().map(|z| Complex::new(DoubleFloat::from(z.re), DoubleFloat::from(z.im))).collect();
+        let zero = Complex::new(DoubleFloat::from(0.0), DoubleFloat::from(0.0));
+        let mut out = vec![zero; 3];
+        evaluator.evaluate(&input, &mut out).unwrap();
+        out
+    }
+
+    fn evaluate_float(evaluator: &mut NativeEvaluator<Float>, input: &[C64], bits: u32) -> Vec<Complex<Float>> {
+        evaluator.set_handwritten(false);
+        let input: Vec<_> = input.iter().map(|z| Complex::new(Float::with_val(bits, z.re), Float::with_val(bits, z.im))).collect();
+        let mut out: Vec<_> = (0..3).map(|_| Complex::new(Float::new(bits), Float::new(bits))).collect();
+        evaluator.evaluate(&input, &mut out).unwrap();
+        out
+    }
+
+    fn tracked_bits(values: &[Complex<Float>]) -> u32 {
+        values.iter().flat_map(|z| [&z.re, &z.im]).filter(|x| !x.is_fully_zero()).map(|x| x.prec()).min().unwrap_or(u32::MAX)
+    }
+
+    /// max_k |a_k - b_k| / max_k |b_k| (infinite for a NaN).
+    fn difference(a: &[Complex<DoubleFloat>], b: &[Complex<Float>]) -> f64 {
+        let scale = b.iter().map(|z| z.re.to_f64().hypot(z.im.to_f64())).fold(0.0, f64::max).max(1e-300);
+        a.iter()
+            .zip(b)
+            .map(|(x, y)| {
+                let re = (wide(&x.re, 512) - &y.re).to_f64();
+                let im = (wide(&x.im, 512) - &y.im).to_f64();
+                re.hypot(im) / scale
+            })
+            .fold(0.0, |w: f64, d| if d.is_nan() { f64::INFINITY } else { w.max(d) })
+    }
+
+    fn count(default: usize, variable: &str) -> usize {
+        std::env::var(variable).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+    }
+
+    /// As `tests/native_handwritten.rs` in binary64: near thresholds both
+    /// codes lose digits to the same conditioning and which one is luckier
+    /// varies point by point, so those cases are counted both ways (beyond
+    /// 2^-90, well above double-double rounding); a gross deviation (beyond
+    /// 2^-40 and 16 times the generated code's) fails.
+    fn run(family: ScalarIntegral, points: &[Vec<C64>]) {
+        let mut dd = NativeEvaluator::<DoubleFloat>::new(family).unwrap();
+        let mut precise = NativeEvaluator::<Float>::with_binary_precision(family, 256).unwrap();
+        let mut very_precise = NativeEvaluator::<Float>::with_binary_precision(family, 512).unwrap();
+        let show = std::env::var("HANDWRITTEN_SHOW").is_ok();
+        let (mut worst_hand, mut worst_generated) = (0.0f64, 0.0f64);
+        let (mut unresolved, mut compared, mut worse, mut better) = (0, 0, 0, 0);
+        let mut failures = vec![];
+        for input in points {
+            let mut truth = evaluate_float(&mut precise, input, 256);
+            if tracked_bits(&truth) < 140 {
+                truth = evaluate_float(&mut very_precise, input, 512);
+            }
+            // A reference that comes out exactly zero (where it is not) is
+            // unresolved, as one with fewer tracked bits or a nonfinite one.
+            let zero = truth.iter().all(|z| z.re.is_fully_zero() && z.im.is_fully_zero());
+            let nonfinite = truth.iter().any(|z| !z.re.to_f64().is_finite() || !z.im.to_f64().is_finite());
+            if zero || nonfinite || tracked_bits(&truth) < 120 {
+                unresolved += 1;
+                continue;
+            }
+            compared += 1;
+            let hand = evaluate_dd(&mut dd, true, input);
+            let generated = evaluate_dd(&mut dd, false, input);
+            let (h, g) = (difference(&hand, &truth), difference(&generated, &truth));
+            worst_hand = worst_hand.max(h);
+            if g.is_finite() {
+                worst_generated = worst_generated.max(g);
+            }
+            let small = 2f64.powi(-90);
+            let report = |label: &str| {
+                if show {
+                    eprintln!("{label}: hand {h:.2e} generated {g:.2e}: {input:?}\n  hand={:?}\n  generated={:?}", hand[0], generated[0]);
+                }
+            };
+            if h > small && h > 16.0 * g {
+                worse += 1;
+                report("worse");
+            }
+            if g > small && g > 16.0 * h {
+                better += 1;
+                report("better");
+            }
+            if h > 2f64.powi(-40) && !(h <= 16.0 * g) {
+                failures.push(format!("hand {h:.2e} generated {g:.2e}: {input:?}"));
+            }
+        }
+        eprintln!(
+            "{family:?} double-double: {} points, {compared} compared ({unresolved} unresolved): worst hand {worst_hand:.2e}, generated {worst_generated:.2e}; hand more than 16x less accurate on {worse}, more accurate on {better}",
+            points.len()
+        );
+        assert!(worse <= better + points.len() / 500, "hand-written double-double less accurate: {worse} against {better}");
+        assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures.iter().take(20).cloned().collect::<Vec<_>>().join("\n"));
+    }
+
+    #[test]
+    fn double_double_d0_matches_generated_expressions() {
+        let mut rng = Rng(0x2545f4914f6cdd1d);
+        let points: Vec<_> = (0..count(600, "HANDWRITTEN_BOX_POINTS")).map(|i| box_point(&mut rng, i % 3 == 0)).collect();
+        run(ScalarIntegral::D0, &points);
+    }
+
+    /// Invariants on the two-particle thresholds `(√mi ± √mj)²` of their
+    /// propagator pairs (rounded to binary64).
+    #[test]
+    fn double_double_d0_thresholds() {
+        // Propagator pairs of p1..p4, s12, s23.
+        const PAIRS: [(usize, usize); 6] = [(0, 1), (1, 2), (2, 3), (3, 0), (0, 2), (1, 3)];
+        let mut rng = Rng(0x5851f42d4c957f2d);
+        let points: Vec<_> = (0..count(600, "HANDWRITTEN_BOX_POINTS"))
+            .map(|i| {
+                let mut x = box_point(&mut rng, i % 4 == 0);
+                for (slot, &(a, b)) in PAIRS.iter().enumerate() {
+                    if rng.below(3) == 0 {
+                        let (ra, rb) = (x[6 + a].re.sqrt(), x[6 + b].re.sqrt());
+                        let root = if rng.below(4) == 0 { ra - rb } else { ra + rb };
+                        x[slot] = real(root * root);
+                    }
+                }
+                x
+            })
+            .collect();
+        run(ScalarIntegral::D0, &points);
+    }
 }

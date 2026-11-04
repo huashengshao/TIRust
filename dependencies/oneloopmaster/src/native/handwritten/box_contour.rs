@@ -1,112 +1,90 @@
-//! Binary64 port of the contour box `box_complex.rs` (OneLOop `boxc`:
-//! Dao Thi Nhung & Le Duc Ninh, 't Hooft & Veltman), branch for branch.
+//! Port of the contour box `box_complex.rs` (OneLOop `boxc`:
+//! Dao Thi Nhung & Le Duc Ninh, 't Hooft & Veltman), branch for branch, in
+//! binary64 and double-double ([`super::real::BoxReal`]).
 //!
 //! Function names follow the registered `__olo_boxc_*` definitions. Every
 //! exact zero test, comparison, infinitesimal direction ("Continued" first and
 //! second coefficients) and sheet choice is the expression's; only the
 //! evaluation order differs (inactive branches are never evaluated).
 #![allow(clippy::too_many_arguments)] // The source's named polynomial coefficients.
-use super::super::primitives::{C, NativeFloat, inverse};
+use super::super::primitives::NativeFloat;
 use super::Constants;
-use super::sheet::{Sheet, dd, dd_given};
+use super::sheet::Sheet;
 use core::cell::Cell;
 
 mod vertex;
 
-pub(super) type Z = C<f64>;
-
-const ZERO: Z = Z { re: 0.0, im: 0.0 };
-const ONE: Z = Z { re: 1.0, im: 0.0 };
-
-#[inline(always)]
-pub(super) fn r(x: f64) -> Z {
-    Z { re: x, im: 0.0 }
-}
-
-#[inline(always)]
-pub(super) fn dv(a: Z, b: Z) -> Z {
-    a * inverse(&b)
-}
-
-#[inline(always)]
-pub(super) fn nz(a: Z) -> bool {
-    a.re != 0.0 || a.im != 0.0
-}
-
-#[inline(always)]
-fn norm(a: Z) -> f64 {
-    a.re * a.re + a.im * a.im
-}
+pub(super) use super::real::{BoxReal, Z, dd, dd_given, dv, inverse, norm, nz, one, r, rv, zero, zsheet, zupper, SheetZ};
 
 /// `coefficient_sum`: the left-to-right sum of `terms`, or the invariant
 /// `exact` it equals when the sum cancels by more than 2^16.
 #[inline]
-fn coefficient_sum(terms: &[Z], exact: Z) -> Z {
-    let numeric = terms.iter().fold(ZERO, |sum, &term| sum + term);
-    let scale: f64 = terms.iter().map(|&term| norm(term)).sum();
-    if negative(4294967296.0 * norm(exact) - scale) { exact } else { numeric }
+fn coefficient_sum<T: BoxReal>(terms: &[Z<T>], exact: Z<T>) -> Z<T> {
+    let numeric = terms.iter().fold(zero(), |sum, &term| sum + term);
+    let scale = terms.iter().fold(T::lit(-0.0), |sum, &term| sum + norm(term));
+    if negative(T::lit(4294967296.0) * norm(exact) - scale) { exact } else { numeric }
 }
 
 /// `negative` of a real value: `x - |x|` is nonzero (x < 0, inf or NaN).
 #[inline(always)]
-pub(super) fn negative(x: f64) -> bool {
-    x - x.abs() != 0.0
+pub(super) fn negative<T: BoxReal>(x: T) -> bool {
+    !(x - x.abs()).is_fully_zero()
 }
 
 /// `box_complex::below`: `2^bits x < y` for squared norms (binary64's half
 /// precision for 52 and 56, as on every expression route).
 #[inline(always)]
-fn below(bits: i32, x: f64, y: f64) -> bool {
-    negative(2f64.powi(bits) * x - y)
+fn below<T: BoxReal>(bits: i32, x: T, y: T) -> bool {
+    negative(T::lit(2f64.powi(bits)) * x - y)
 }
 
 /// `box_complex::agree`: `|v - w| < 2^-26 |w|`.
 #[inline(always)]
-fn agree(v: Z, w: Z) -> bool {
+fn agree<T: BoxReal>(v: Z<T>, w: Z<T>) -> bool {
     below(52, norm(v - w), norm(w))
 }
 
 /// `box_complex::close`: `|v - w| < 2^-bits |w|`.
 #[inline(always)]
-fn close(bits: i32, v: Z, w: Z) -> bool {
+fn close<T: BoxReal>(bits: i32, v: Z<T>, w: Z<T>) -> bool {
     below(2 * bits, norm(v - w), norm(w))
 }
 
 /// Finite real and imaginary parts.
 #[inline(always)]
-fn finite(z: Z) -> bool {
+fn finite<T: BoxReal>(z: Z<T>) -> bool {
     z.re.is_finite() && z.im.is_finite()
 }
 
 /// `sign_nonnegative` of a real value.
 #[inline(always)]
-fn sgn(x: f64) -> i32 {
+fn sgn<T: BoxReal>(x: T) -> i32 {
     if negative(x) { -1 } else { 1 }
 }
 
 /// `imaginary_sign(z, fallback)`.
 #[inline(always)]
-fn isign(z: Z, fallback: i32) -> i32 {
-    if z.im != 0.0 { sgn(z.im) } else { fallback }
+fn isign<T: BoxReal>(z: Z<T>, fallback: i32) -> i32 {
+    if !z.im.is_fully_zero() { sgn(z.im) } else { fallback }
 }
 
 /// A value and the first two coefficients of its infinitesimal continuation.
 #[derive(Clone, Copy, Debug)]
-struct Cont {
-    v: Z,
-    f: Z,
-    s: Z,
+struct Cont<T> {
+    v: Z<T>,
+    f: Z<T>,
+    s: Z<T>,
 }
 
-impl Cont {
+impl<T: BoxReal> Cont<T> {
     #[inline]
     fn sign(&self) -> i32 {
         isign(self.v, isign(self.f, isign(self.s, 1)))
     }
 
     #[inline]
-    fn sheet(&self) -> Sheet<f64> {
-        Sheet::with_sign(self.v, self.sign())
+    fn sheet(&self) -> Sheet<T> {
+        zsheet(self.v, self.sign())
     }
 
     #[inline]
@@ -130,13 +108,13 @@ impl Cont {
 
 /// `mass_directions`: -i*|Re m| for exactly real masses.
 #[inline]
-fn mass_directions(m: [Z; 4]) -> [Z; 4] {
+fn mass_directions<T: BoxReal>(m: [Z<T>; 4]) -> [Z<T>; 4] {
     m.map(|mass| {
-        if mass.im != 0.0 {
-            ZERO
+        if !mass.im.is_fully_zero() {
+            zero()
         } else {
             Z {
-                re: 0.0,
+                re: T::lit(0.0),
                 im: -mass.re.abs(),
             }
         }
@@ -144,13 +122,13 @@ fn mass_directions(m: [Z; 4]) -> [Z; 4] {
 }
 
 #[inline]
-fn continued_root(y: Z, k: Z, l: Z, dl: Z, dn: Z, dn2: Z) -> Cont {
+fn continued_root<T: BoxReal>(y: Z<T>, k: Z<T>, l: Z<T>, dl: Z<T>, dn: Z<T>, dn2: Z<T>) -> Cont<T> {
     continued_root_with_slope(y, r(2.0) * k * y + l, k, dl, dn, dn2)
 }
 
 /// `continued_root` given the slope `2 k y + l` at the root.
 #[inline]
-fn continued_root_with_slope(y: Z, derivative: Z, k: Z, dl: Z, dn: Z, dn2: Z) -> Cont {
+fn continued_root_with_slope<T: BoxReal>(y: Z<T>, derivative: Z<T>, k: Z<T>, dl: Z<T>, dn: Z<T>, dn2: Z<T>) -> Cont<T> {
     let inv = inverse(&derivative);
     let first = -((dl * y + dn) * inv);
     let second = -((k * first * first + dl * first + dn2) * inv);
@@ -163,11 +141,11 @@ fn continued_root_with_slope(y: Z, derivative: Z, k: Z, dl: Z, dn: Z, dn2: Z) ->
 
 /// `principal_sqrt`: exact axes and rectangular components off the axis.
 #[inline]
-fn principal_sqrt(v: Z) -> Z {
-    if v.im == 0.0 {
+fn principal_sqrt<T: BoxReal>(v: Z<T>) -> Z<T> {
+    if v.im.is_fully_zero() {
         if negative(v.re) {
             Z {
-                re: 0.0,
+                re: T::lit(0.0),
                 im: (-v.re).sqrt(),
             }
         } else {
@@ -177,18 +155,18 @@ fn principal_sqrt(v: Z) -> Z {
             }
         }
     } else {
-        let absolute = <f64 as NativeFloat>::hypot(&v.re, &v.im);
+        let absolute = <T as NativeFloat>::hypot(&v.re, &v.im);
         if negative(v.re) {
-            let w = sgn(v.im) as f64 * ((absolute - v.re) / 2.0).sqrt();
+            let w = T::lit(sgn(v.im) as f64) * ((absolute - v.re) / T::lit(2.0)).sqrt();
             Z {
-                re: v.im / (2.0 * w),
+                re: v.im / (T::lit(2.0) * w),
                 im: w,
             }
         } else {
-            let u = ((absolute + v.re) / 2.0).sqrt();
+            let u = ((absolute + v.re) / T::lit(2.0)).sqrt();
             Z {
                 re: u,
-                im: v.im / (2.0 * u),
+                im: v.im / (T::lit(2.0) * u),
             }
         }
     }
@@ -197,19 +175,19 @@ fn principal_sqrt(v: Z) -> Z {
 /// `kallen`: λ(p, mi, mj) = (p - (√mi + √mj)²)(p - (√mi - √mj)²), each factor
 /// formed from the invariants (exactly zero at a threshold).
 #[inline]
-fn kallen(p: Z, mi: Z, mj: Z) -> Z {
-    if p.im == 0.0 && mi.im == 0.0 && mj.im == 0.0 && !negative(mi.re) && !negative(mj.re) {
+fn kallen<T: BoxReal>(p: Z<T>, mi: Z<T>, mj: Z<T>) -> Z<T> {
+    if p.im.is_fully_zero() && mi.im.is_fully_zero() && mj.im.is_fully_zero() && !negative(mi.re) && !negative(mj.re) {
         // Real masses and invariant: the same operations in real arithmetic.
         let (p, mi, mj) = (p.re, mi.re, mj.re);
-        let plus = (mi + mj) + 2.0 * (mi * mj).sqrt();
-        let minus = if mj == 0.0 {
+        let plus = (mi + mj) + T::lit(2.0) * (mi * mj).sqrt();
+        let minus = if mj.is_fully_zero() {
             mi
-        } else if mi == 0.0 {
+        } else if mi.is_fully_zero() {
             mj
         } else {
             (mi - mj) * (mi - mj) / plus
         };
-        return r((p - plus) * (p - minus));
+        return rv((p - plus) * (p - minus));
     }
     let plus = (mi + mj) + r(2.0) * principal_sqrt(mi * mj);
     let minus = if !nz(mj) {
@@ -226,18 +204,18 @@ fn kallen(p: Z, mi: Z, mj: Z) -> Z {
 /// `edge_kallens`: [λ_a, λ_abc, λ_bc] of a `tfun` conic with corner values
 /// `f`, `q10`, `q11`.
 #[inline]
-fn edge_kallens(a: Z, b: Z, abc: Z, f: Z, q10: Z, q11: Z) -> [Z; 3] {
+fn edge_kallens<T: BoxReal>(a: Z<T>, b: Z<T>, abc: Z<T>, f: Z<T>, q10: Z<T>, q11: Z<T>) -> [Z<T>; 3] {
     [kallen(a, q10, f), kallen(abc, q11, f), kallen(b, q11, q10)]
 }
 
 /// `root_1`, `root_2` (solabc labels and product relation).
 #[inline]
-fn roots(a: Z, b: Z, c: Z) -> [Z; 2] {
+fn roots<T: BoxReal>(a: Z<T>, b: Z<T>, c: Z<T>) -> [Z<T>; 2] {
     if !nz(c) {
-        return [if nz(a) { -dv(b, a) } else { ZERO }, ZERO];
+        return [if nz(a) { -dv(b, a) } else { zero() }, zero()];
     }
     if !nz(a) {
-        let linear = if nz(b) { -dv(c, b) } else { ZERO };
+        let linear = if nz(b) { -dv(c, b) } else { zero() };
         return [linear, linear];
     }
     let delta = principal_sqrt(b * b - r(4.0) * a * c);
@@ -252,33 +230,33 @@ fn roots(a: Z, b: Z, c: Z) -> [Z; 2] {
 
 /// `eta(a, sa, b, sb, c, sc)` = i*pi*sc*(1+sa*sb)*(1-sa*sc)/2.
 #[inline]
-fn eta(a: Z, sa: i32, b: Z, sb: i32, c: Z, sc: i32, k: &Constants<f64>) -> Z {
+fn eta<T: BoxReal>(a: Z<T>, sa: i32, b: Z<T>, sb: i32, c: Z<T>, sc: i32, k: &Constants<T>) -> Z<T> {
     let sa = isign(a, sa);
     let sb = isign(b, sb);
     let sc = isign(c, sc);
     let value = sc * (1 + sa * sb) * (1 - sa * sc) / 2;
     if value == 0 {
-        ZERO
+        zero()
     } else {
         Z {
-            re: 0.0,
-            im: k.pi * value as f64,
+            re: T::lit(0.0),
+            im: k.pi * T::lit(value as f64),
         }
     }
 }
 
 #[inline]
-fn lom(q: &Sheet<f64>, k: &Constants<f64>) -> Z {
-    q.log_over_one_minus(k)
+fn lom<T: BoxReal>(q: &Sheet<T>, k: &Constants<T>) -> Z<T> {
+    q.zlom(k)
 }
 
-fn r0(y1: &Cont, y2: &Cont, k: &Constants<f64>) -> Z {
+fn r0<T: BoxReal>(y1: &Cont<T>, y2: &Cont<T>, k: &Constants<T>) -> Z<T> {
     let (q0, n0, q1, n1) = r0_quotients(y1, y2);
-    let value = dv(lom(&q0, k), y1.v) + dv(lom(&q1, k), ONE - y1.v);
+    let value = dv(lom(&q0, k), y1.v) + dv(lom(&q1, k), one() - y1.v);
     let winding = n0 - n1;
     if winding != 0 {
-        let pi_n = k.pi * winding as f64;
-        value + dv(Z { re: 0.0, im: pi_n }, y1.v - y2.v)
+        let pi_n = k.pi * T::lit(winding as f64);
+        value + dv(Z { re: T::lit(0.0), im: pi_n }, y1.v - y2.v)
     } else {
         value
     }
@@ -287,10 +265,10 @@ fn r0(y1: &Cont, y2: &Cont, k: &Constants<f64>) -> Z {
 /// The unwound quotients `y2/y1` and `(1 - y2)/(1 - y1)` of `r0` and their
 /// windings.
 #[inline(always)]
-fn r0_quotients(y1: &Cont, y2: &Cont) -> (Sheet<f64>, i32, Sheet<f64>, i32) {
+fn r0_quotients<T: BoxReal>(y1: &Cont<T>, y2: &Cont<T>) -> (Sheet<T>, i32, Sheet<T>, i32) {
     // `r0`: the windings of the two quotients are taken out and added as
     // i pi (n0 - n1)/(y1 - y2), with the exact pole difference.
-    let split = |q: Sheet<f64>| {
+    let split = |q: Sheet<T>| {
         let winding = if q.odd { 0 } else { q.phase };
         (
             Sheet {
@@ -308,39 +286,39 @@ fn r0_quotients(y1: &Cont, y2: &Cont) -> (Sheet<f64>, i32, Sheet<f64>, i32) {
 /// `r0_line`: `r0` given `delta = y1 - y2`, as `(log(q0) - log(q1) + i pi
 /// (n0 - n1))/delta` with the logarithms from the offsets `-delta/y1` and
 /// `delta/(1 - y1)`; `r0` itself at `delta = 0`.
-fn r0_line(y1: &Cont, y2: &Cont, delta: Z, k: &Constants<f64>) -> Z {
+fn r0_line<T: BoxReal>(y1: &Cont<T>, y2: &Cont<T>, delta: Z<T>, k: &Constants<T>) -> Z<T> {
     if !nz(delta) {
         return r0(y1, y2, k);
     }
     let (q0, n0, q1, n1) = r0_quotients(y1, y2);
     // -delta/y1 and delta/(1 - y1) from one reciprocal.
-    let oy1 = ONE - y1.v;
+    let oy1 = one() - y1.v;
     let scaled = delta * inverse(&(y1.v * oy1));
-    let mut logarithms = q0.log_given(&-(scaled * oy1), k) - q1.log_given(&(scaled * y1.v), k);
-    logarithms.im += k.pi * (n0 - n1) as f64;
+    let mut logarithms = q0.zlog_given(-(scaled * oy1), k) - q1.zlog_given(scaled * y1.v, k);
+    logarithms.im = logarithms.im + k.pi * T::lit((n0 - n1) as f64);
     dv(logarithms, delta)
 }
 
 /// `far_root_series`: `r1` for a far root, fy log(-z) - sum_{n<=8} M_n/(n zⁿ).
-fn far_root_series(zz: &Cont, yy1: &Cont, yy2: &Cont, fy: Z, k: &Constants<f64>) -> Z {
-    let l2 = yy2.complement(1.0).sheet().log(k) - yy2.complement(0.0).sheet().log(k);
+fn far_root_series<T: BoxReal>(zz: &Cont<T>, yy1: &Cont<T>, yy2: &Cont<T>, fy: Z<T>, k: &Constants<T>) -> Z<T> {
+    let l2 = yy2.complement(1.0).sheet().zlog(k) - yy2.complement(0.0).sheet().zlog(k);
     let sum_y = yy1.v + yy2.v;
     let product_y = yy1.v * yy2.v;
     let inv = inverse(&zz.v);
-    let mut m = [ZERO; 9];
+    let mut m = [zero(); 9];
     m[0] = fy;
     m[1] = yy1.v * fy + l2;
     for n in 2..=8 {
-        m[n] = r(1.0 / (n - 1) as f64) + sum_y * m[n - 1] - product_y * m[n - 2];
+        m[n] = rv(T::lit(1.0) / T::lit((n - 1) as f64)) + sum_y * m[n - 1] - product_y * m[n - 2];
     }
     let mut sum = m[8] * r(1.0 / 8.0);
     for n in (1..8).rev() {
-        sum = m[n] * r(1.0 / n as f64) + inv * sum;
+        sum = m[n] * rv(T::lit(1.0) / T::lit(n as f64)) + inv * sum;
     }
-    fy * zz.complement(0.0).sheet().log(k) - inv * sum
+    fy * zz.complement(0.0).sheet().zlog(k) - inv * sum
 }
 
-fn r1(zz: &Cont, yy1: &Cont, yy2: &Cont, fy: Z, k: &Constants<f64>) -> Z {
+fn r1<T: BoxReal>(zz: &Cont<T>, yy1: &Cont<T>, yy2: &Cont<T>, fy: Z<T>, k: &Constants<T>) -> Z<T> {
     r1_with(zz, yy1, yy2, fy, None, k)
 }
 
@@ -349,9 +327,9 @@ fn r1(zz: &Cont, yy1: &Cont, yy2: &Cont, fy: Z, k: &Constants<f64>) -> Z {
 /// `(y1 - z)(y2 - z)` (`LineProduct`) over the farther pole's, except at
 /// coincident poles (the product's two factors are then one offset).
 #[inline(always)]
-fn r1_with(zz: &Cont, yy1: &Cont, yy2: &Cont, fy: Z, line: Option<&LineProduct>, k: &Constants<f64>) -> Z {
+fn r1_with<T: BoxReal>(zz: &Cont<T>, yy1: &Cont<T>, yy2: &Cont<T>, fy: Z<T>, line: Option<&LineProduct<'_, T>>, k: &Constants<T>) -> Z<T> {
     let (z, y1, y2) = (zz.v, yy1.v, yy2.v);
-    let oz = ONE - z;
+    let oz = one() - z;
     let (mut yz1, mut yz2) = (y1 - z, y2 - z);
     let (mut hz1, mut hz2) = (norm(yz1), norm(yz2));
     let hzz = norm(z);
@@ -359,11 +337,11 @@ fn r1_with(zz: &Cont, yy1: &Cont, yy2: &Cont, fy: Z, line: Option<&LineProduct>,
     if let Some(line) = line {
         let nearer_first = negative(hz1 - hz2);
         let nearer = if nearer_first { hz1 } else { hz2 };
-        if negative(4096.0 * nearer - hzz) && nz(y1 - y2) {
+        if negative(T::lit(4096.0) * nearer - hzz) && nz(y1 - y2) {
             // An exactly real `y - z` stays real (its lip follows the
             // directions); a vanishing product keeps `y - z`.
-            let over = |near: Z, far: Z| {
-                line.over(far).map(|offset| if near.im != 0.0 { offset } else { r(offset.re) })
+            let over = |near: Z<T>, far: Z<T>| {
+                line.over(far).map(|offset| if !near.im.is_fully_zero() { offset } else { rv(offset.re) })
             };
             if nearer_first {
                 if let Some(offset) = over(yz1, yz2) {
@@ -383,7 +361,7 @@ fn r1_with(zz: &Cont, yy1: &Cont, yy2: &Cont, fy: Z, line: Option<&LineProduct>,
     let q1 = Cont { v: yz1, ..yy1.minus(zz) }.sheet();
     let q2 = Cont { v: yz2, ..yy2.minus(zz) }.sheet();
     let offsets = [yz1, yz2];
-    let r0 = |y: &Cont, z: &Cont, index: usize, k: &Constants<f64>| {
+    let r0 = |y: &Cont<T>, z: &Cont<T>, index: usize, k: &Constants<T>| {
         if given[index] { r0_line(y, z, offsets[index], k) } else { r0(y, z, k) }
     };
     let qz = zz.complement(0.0).sheet();
@@ -391,50 +369,50 @@ fn r1_with(zz: &Cont, yy1: &Cont, yy2: &Cont, fy: Z, line: Option<&LineProduct>,
     let h12 = norm(y1 - y2);
     let hoz = norm(oz);
     // `far_root`; below |z|² = 2^14 its bound is at least 2^-52.
-    if hzz >= 16384.0 {
-        let larger = |a: f64, b: f64| if negative(a - b) { b } else { a };
-        let scale = larger(larger(1.0, norm(y1)), norm(y2));
+    if hzz >= T::lit(16384.0) {
+        let larger = |a: T, b: T| if negative(a - b) { b } else { a };
+        let scale = larger(larger(T::lit(1.0), norm(y1)), norm(y2));
         let ratio = scale / hzz;
         let squared = ratio * ratio;
-        let bound = 16.0 * squared * squared;
-        if (1.0 + bound) - 1.0 == 0.0 {
+        let bound = T::lit(16.0) * squared * squared;
+        if ((T::lit(1.0) + bound) - T::lit(1.0)).is_fully_zero() {
             return far_root_series(zz, yy1, yy2, fy, k);
         }
     }
     let zsmall = negative(hzz - hz1) && negative(hzz - hz2) && negative(hzz - hoz);
     let osmall = negative(hoz - hz1) && negative(hoz - hz2);
     let logarithms = if zsmall || osmall {
-        let product_log = q1.log(k) + q2.log(k);
+        let product_log = q1.zlog(k) + q2.zlog(k);
         let y2sq = y2 * y2;
         let inv_y2sq = inverse(&y2sq);
         let yratio = Cont {
-            v: dv(y2 - ONE, y2),
+            v: dv(y2 - one(), y2),
             f: yy2.f * inv_y2sq,
             s: yy2.s * inv_y2sq - yy2.f * yy2.f * inverse(&(y2sq * y2)),
         };
-        let ylog = yratio.sheet().log(k);
+        let ylog = yratio.sheet().zlog(k);
         let ratio = lom(&q1.div(&q2), k);
-        let half = product_log * 0.5;
+        let half = product_log * T::lit(0.5);
         let bracket = if zsmall {
-            half + ylog - qo.log(k)
+            half + ylog - qo.zlog(k)
         } else {
-            -half + ylog + qz.log(k)
+            -half + ylog + qz.zlog(k)
         };
-        fy * q1.log(k) - dv(bracket * ratio, yz2)
+        fy * q1.zlog(k) - dv(bracket * ratio, yz2)
     } else if !negative(hz2 - h12) && !negative(hz1 - hz2) {
-        fy * q1.log(k) - r0(yy2, zz, 1, k) * lom(&q1.div(&q2), k)
+        fy * q1.zlog(k) - r0(yy2, zz, 1, k) * lom(&q1.div(&q2), k)
     } else if !negative(hz1 - h12) && !negative(hz2 - hz1) {
-        fy * q2.log(k) - r0(yy1, zz, 0, k) * lom(&q2.div(&q1), k)
+        fy * q2.zlog(k) - r0(yy1, zz, 0, k) * lom(&q2.div(&q1), k)
     } else {
         let first = if nz(yz1) {
-            yz1 * q1.log(k) * r0(yy1, zz, 0, k)
+            yz1 * q1.zlog(k) * r0(yy1, zz, 0, k)
         } else {
-            ZERO
+            zero()
         };
         let second = if nz(yz2) {
-            yz2 * q2.log(k) * r0(yy2, zz, 1, k)
+            yz2 * q2.zlog(k) * r0(yy2, zz, 1, k)
         } else {
-            ZERO
+            zero()
         };
         dv(first - second, y1 - y2)
     };
@@ -445,75 +423,75 @@ fn r1_with(zz: &Cont, yy1: &Cont, yy2: &Cont, fy: Z, line: Option<&LineProduct>,
         if nz(z) {
             dv(dd_given(&qz.div(&q1), || dv(y1, yz1), &qz.div(&q2), || dv(y2, yz2), k) * z, yz1 * yz2)
         } else {
-            ZERO
+            zero()
         }
     } else {
         dv(dd_given(&q1.div(&qz), || dv(y1, z), &q2.div(&qz), || dv(y2, z), k), z)
     };
     let dilog_o = if !zsmall && osmall {
         if nz(oz) {
-            dv(dd_given(&qo.div(&q1), || dv(y1 - ONE, yz1), &qo.div(&q2), || dv(y2 - ONE, yz2), k) * oz, yz1 * yz2)
+            dv(dd_given(&qo.div(&q1), || dv(y1 - one(), yz1), &qo.div(&q2), || dv(y2 - one(), yz2), k) * oz, yz1 * yz2)
         } else {
-            ZERO
+            zero()
         }
     } else {
-        dv(dd_given(&q1.div(&qo), || dv(ONE - y1, oz), &q2.div(&qo), || dv(ONE - y2, oz), k), oz)
+        dv(dd_given(&q1.div(&qo), || dv(one() - y1, oz), &q2.div(&qo), || dv(one() - y2, oz), k), oz)
     };
     logarithms + dilog_z + dilog_o
 }
 
-fn s3_double_real(y1: Z, y2: Z, z: Z, a: Z, k: &Constants<f64>) -> Z {
+fn s3_double_real<T: BoxReal>(y1: Z<T>, y2: Z<T>, z: Z<T>, a: Z<T>, k: &Constants<T>) -> Z<T> {
     let a1 = z - y1;
     let a2 = z - y2;
-    let oz = ONE - z;
-    let q01 = Sheet::upper(-y1).div(&Sheet::upper(a1));
-    let q02 = Sheet::upper(-y2).div(&Sheet::upper(a2));
-    let q11 = Sheet::upper(ONE - y1).div(&Sheet::upper(a1));
-    let q12 = Sheet::upper(ONE - y2).div(&Sheet::upper(a2));
-    let log = |x: Z| super::super::primitives::log(&x);
+    let oz = one() - z;
+    let q01 = zupper(-y1).div(&zupper(a1));
+    let q02 = zupper(-y2).div(&zupper(a2));
+    let q11 = zupper(one() - y1).div(&zupper(a1));
+    let q12 = zupper(one() - y2).div(&zupper(a2));
+    let log = |x: Z<T>| Z::of(super::super::primitives::log(&x.c()));
     let jdd = dv(
         z * dd(&q01, &q02, k) + oz * dd(&q11, &q12, k)
-            - dv(z * log(z) * lom(&q01.div(&q02), k), q02.value())
-            - dv(oz * log(oz) * lom(&q11.div(&q12), k), q12.value()),
+            - dv(z * log(z) * lom(&q01.div(&q02), k), q02.zvalue())
+            - dv(oz * log(oz) * lom(&q11.div(&q12), k), q12.zvalue()),
         a1 * a2,
     );
-    let pole = |y: Z| Cont {
+    let pole = |y: Z<T>| Cont {
         v: y,
-        f: ZERO,
-        s: ZERO,
+        f: zero(),
+        s: zero(),
     };
     r0(&pole(y1), &pole(y2), k) * log(a) + r(2.0) * jdd
 }
 
 #[inline]
-fn outside_closed_interval(y: Z) -> bool {
-    y.im != 0.0 || negative(y.re) || negative(1.0 - y.re)
+fn outside_closed_interval<T: BoxReal>(y: Z<T>) -> bool {
+    !y.im.is_fully_zero() || negative(y.re) || negative(T::lit(1.0) - y.re)
 }
 
 /// `s3`: the y1, y2 poles are mapped by y -> (d + y)/e; a quadratic passes
 /// its two-point subgraph `[lambda, p, near, far]` (`Edge`), and a linear
 /// b x + c passes `far` = b + c.
-fn s3(
-    y1: &Cont, y2: &Cont, d: Z, e: Z, a: Z, b: Z, c: Z, db: Z, dc: Z, edge: [Z; 4],
-    k: &Constants<f64>,
-) -> Z {
+fn s3<T: BoxReal>(
+    y1: &Cont<T>, y2: &Cont<T>, d: Z<T>, e: Z<T>, a: Z<T>, b: Z<T>, c: Z<T>, db: Z<T>, dc: Z<T>, edge: [Z<T>; 4],
+    k: &Constants<T>,
+) -> Z<T> {
     s3_with(y1, y2, d, e, a, b, c, db, dc, edge, None, k)
 }
 
 /// `s3` (no line) or, for `a = db = 0`, `s3_line`: the linear term with the
 /// line's product of the mapped poles' offsets from its root.
 #[inline(always)]
-fn s3_with(
-    y1: &Cont, y2: &Cont, d: Z, e: Z, a: Z, b: Z, c: Z, db: Z, dc: Z, [lambda, p, near, far]: [Z; 4],
-    line: Option<&LineProduct>,
-    k: &Constants<f64>,
-) -> Z {
+fn s3_with<T: BoxReal>(
+    y1: &Cont<T>, y2: &Cont<T>, d: Z<T>, e: Z<T>, a: Z<T>, b: Z<T>, c: Z<T>, db: Z<T>, dc: Z<T>, [lambda, p, near, far]: [Z<T>; 4],
+    line: Option<&LineProduct<'_, T>>,
+    k: &Constants<T>,
+) -> Z<T> {
     if !nz(e) {
-        return ZERO;
+        return zero();
     }
     let simc = isign(c, isign(dc, isign(b, isign(db, -1))));
     let inv_e = inverse(&e);
-    let map = |y: &Cont| Cont {
+    let map = |y: &Cont<T>| Cont {
         v: (d + y.v) * inv_e,
         f: y.f * inv_e,
         s: y.s * inv_e,
@@ -524,19 +502,19 @@ fn s3_with(
     let value = if nz(a) {
         // A massless end (far = 0 or near = 0) is a root.
         let z0 = if !nz(far) {
-            ONE
+            one()
         } else if !nz(near) {
-            ZERO
+            zero()
         } else {
             -dv(b, r(2.0) * a)
         };
         let double = !nz(lambda);
-        let real_coefficients = a.im == 0.0 && b.im == 0.0 && c.im == 0.0;
+        let real_coefficients = a.im.is_fully_zero() && b.im.is_fully_zero() && c.im.is_fully_zero();
         let double_root = double
             && real_coefficients
             && negative(-a.re)
             && negative(-z0.re)
-            && negative(z0.re - 1.0)
+            && negative(z0.re - T::lit(1.0))
             && outside_closed_interval(y1.v)
             && outside_closed_interval(y2.v);
         if double_root {
@@ -546,18 +524,18 @@ fn s3_with(
             let (mut z1, mut z2) = if double {
                 // An exact double root splits like sqrt(eps), one root up and
                 // one down, dominating every first-order shift of y1 and y2.
-                let size = |z: Z| z.re.hypot(z.im);
-                let dominant = 2.0 * (1.0 + size(y1.f) + size(y1.s) + size(y2.f) + size(y2.s));
+                let size = |z: Z<T>| z.re.libm_hypot(z.im);
+                let dominant = T::lit(2.0) * (T::lit(1.0) + size(y1.f) + size(y1.s) + size(y2.f) + size(y2.s));
                 let centre = z0;
                 (
-                    Cont { v: centre, f: Z { re: 0.0, im: dominant }, s: ZERO },
-                    Cont { v: centre, f: Z { re: 0.0, im: -dominant }, s: ZERO },
+                    Cont { v: centre, f: Z { re: T::lit(0.0), im: dominant }, s: zero() },
+                    Cont { v: centre, f: Z { re: T::lit(0.0), im: -dominant }, s: zero() },
                 )
             } else if !nz(far) || !nz(near) {
                 // A massless end is a root and the other lies slope/p from it,
                 // with the slope from the invariants; both continue from the
                 // end value's direction.
-                let (end, slope, direction) = if !nz(far) { (ONE, near - p, db + dc) } else { (ZERO, p - far, dc) };
+                let (end, slope, direction) = if !nz(far) { (one(), near - p, db + dc) } else { (zero(), p - far, dc) };
                 let inv_slope = inverse(&slope);
                 let end_first = direction * inv_slope;
                 let near_first = -dv(db, a) - direction * inv_slope;
@@ -568,14 +546,14 @@ fn s3_with(
                         s: (a * end_first * end_first + db * end_first) * inv_slope,
                     },
                     Cont {
-                        v: end + dv(slope, r(p.re)),
+                        v: end + dv(slope, rv(p.re)),
                         f: near_first,
                         s: dv(near_first * a * direction, slope * slope),
                     },
                 )
             } else {
                 // Roots with slopes 2 a z + b = +sqrt(lambda), -sqrt(lambda).
-                let ra = r(a.re);
+                let ra = rv(a.re);
                 let delta = principal_sqrt(lambda);
                 let plus = -b + delta;
                 let minus = -b - delta;
@@ -585,65 +563,65 @@ fn s3_with(
                     (dv(plus, r(2.0) * ra), dv(r(2.0) * c, plus))
                 };
                 (
-                    continued_root_with_slope(root1, delta, a, db, dc, ZERO),
-                    continued_root_with_slope(root2, -delta, a, db, dc, ZERO),
+                    continued_root_with_slope(root1, delta, a, db, dc, zero()),
+                    continued_root_with_slope(root2, -delta, a, db, dc, zero()),
                 )
             };
             let fallback1 = simc * rea * sgn(z2.v.re);
             let fallback2 = simc * rea * sgn(z1.v.re);
             for (z, fallback) in [(&mut z1, fallback1), (&mut z2, fallback2)] {
-                let known = z.v.im != 0.0 || z.f.im != 0.0 || z.s.im != 0.0;
+                let known = !z.v.im.is_fully_zero() || !z.f.im.is_fully_zero() || !z.s.im.is_fully_zero();
                 if !known {
                     z.s = Z {
-                        re: 0.0,
-                        im: fallback as f64 * z.v.re.abs(),
+                        re: T::lit(0.0),
+                        im: T::lit(fallback as f64) * z.v.re.abs(),
                     };
                 }
             }
             let s1 = z1.sign();
             let s2 = z2.sign();
-            fy * (Sheet::with_sign(a, simc).log(k)
-                + eta(-z1.v, -s1, -z2.v, -s2, ZERO, simc * rea, k))
+            fy * (zsheet(a, simc).zlog(k)
+                + eta(-z1.v, -s1, -z2.v, -s2, zero(), simc * rea, k))
                 + r1(&z1, &y1, &y2, fy, k)
                 + r1(&z2, &y1, &y2, fy, k)
         }
     } else if nz(b) {
-        let root = if nz(far) { -dv(c, b) } else { ONE };
-        let mut z = continued_root(root, ZERO, b, db, dc, ZERO);
-        let known = z.v.im != 0.0 || z.f.im != 0.0 || z.s.im != 0.0;
+        let root = if nz(far) { -dv(c, b) } else { one() };
+        let mut z = continued_root(root, zero(), b, db, dc, zero());
+        let known = !z.v.im.is_fully_zero() || !z.f.im.is_fully_zero() || !z.s.im.is_fully_zero();
         if !known {
             z.s = Z {
-                re: 0.0,
-                im: -(simc * sgn(b.re)) as f64 * z.v.re.abs(),
+                re: T::lit(0.0),
+                im: T::lit(-(simc * sgn(b.re)) as f64) * z.v.re.abs(),
             };
         }
         let sz = z.sign();
         let sb = isign(db, simc);
-        fy * (Sheet::with_sign(b, sb).log(k) + eta(b, sb, -z.v, -sz, c, simc, k))
+        fy * (zsheet(b, sb).zlog(k) + eta(b, sb, -z.v, -sz, c, simc, k))
             + r1_with(&z, &y1, &y2, fy, line, k)
     } else if nz(c) {
-        Sheet::with_sign(c, simc).log(k) * fy
+        zsheet(c, simc).zlog(k) * fy
     } else {
-        ZERO
+        zero()
     };
     value * inv_e
 }
 
 /// `planar`; `real` marks exactly real logarithm arguments
 /// (`real_intersections_absent`).
-fn planar(y1: &Cont, y2: &Cont, p1: bool, p2: bool, a: Z, b: Z, c: Z, dc: Z, real: bool, k: &Constants<f64>) -> Z {
+fn planar<T: BoxReal>(y1: &Cont<T>, y2: &Cont<T>, p1: bool, p2: bool, a: Z<T>, b: Z<T>, c: Z<T>, dc: Z<T>, real: bool, k: &Constants<T>) -> Z<T> {
     if !p1 && !p2 {
-        return ZERO;
+        return zero();
     }
     let x1 = b * y1.v + c;
     let x2 = b * y2.v + c;
-    let sheet = |y: &Cont, value: Z| {
+    let sheet = |y: &Cont<T>, value: Z<T>| {
         let first = b * y.f + dc;
         let second = b * y.s;
         let v2 = value * value;
         let ratio = dv(a, value);
         Cont {
-            v: if real { r(ratio.re) } else { ratio },
+            v: if real { rv(ratio.re) } else { ratio },
             f: -dv(a * first, v2),
             s: dv(a * first * first, v2 * value) - dv(a * second, v2),
         }
@@ -654,29 +632,29 @@ fn planar(y1: &Cont, y2: &Cont, p1: bool, p2: bool, a: Z, b: Z, c: Z, dc: Z, rea
         let q2 = sheet(y2, x2);
         dv(lom(&q2.div(&q1), k) * b, x2)
     } else if p1 {
-        dv(sheet(y1, x1).log(k), y1.v - y2.v)
+        dv(sheet(y1, x1).zlog(k), y1.v - y2.v)
     } else {
-        dv(sheet(y2, x2).log(k), y2.v - y1.v)
+        dv(sheet(y2, x2).zlog(k), y2.v - y1.v)
     };
     // 2*i*pi*value
     Z {
-        re: -2.0 * k.pi * value.im,
-        im: 2.0 * k.pi * value.re,
+        re: T::lit(-2.0) * k.pi * value.im,
+        im: T::lit(2.0) * k.pi * value.re,
     }
 }
 
 /// `s3` of a linear `b x + c`, with `far` = b + c.
 #[inline]
-fn s3_linear(y1: &Cont, y2: &Cont, d: Z, e: Z, b: Z, c: Z, dc: Z, far: Z, k: &Constants<f64>) -> Z {
-    s3(y1, y2, d, e, ZERO, b, c, ZERO, dc, [ZERO, ZERO, c, far], k)
+fn s3_linear<T: BoxReal>(y1: &Cont<T>, y2: &Cont<T>, d: Z<T>, e: Z<T>, b: Z<T>, c: Z<T>, dc: Z<T>, far: Z<T>, k: &Constants<T>) -> Z<T> {
+    s3(y1, y2, d, e, zero(), b, c, zero(), dc, [zero(), zero(), c, far], k)
 }
 
 /// `s3_line`: a line edge of `tfun_selected` (its `[d, e, b, c, far]` in
 /// the `LineProduct`), whose product is given only for a line nearly parallel
 /// to the contour direction (`parallel`).
-fn s3_line(y1: &Cont, y2: &Cont, dc: Z, line: &LineProduct, parallel: bool, k: &Constants<f64>) -> Z {
+fn s3_line<T: BoxReal>(y1: &Cont<T>, y2: &Cont<T>, dc: Z<T>, line: &LineProduct<'_, T>, parallel: bool, k: &Constants<T>) -> Z<T> {
     let [d, e, b, c, far] = line.line;
-    s3_with(y1, y2, d, e, ZERO, b, c, ZERO, dc, [ZERO, ZERO, c, far], parallel.then_some(line), k)
+    s3_with(y1, y2, d, e, zero(), b, c, zero(), dc, [zero(), zero(), c, far], parallel.then_some(line), k)
 }
 
 /// `line_product`: the product `(Y1 - z)(Y2 - z)` of the mapped poles'
@@ -688,31 +666,31 @@ fn s3_line(y1: &Cont, y2: &Cont, dc: Z, line: &LineProduct, parallel: bool, k: &
 /// over the farther one, with one division. `a1` is the poles' own, or its
 /// rounding level `2^-52 g` where it vanishes (`tfun_selected`); `conic`
 /// holds `b, e, f` and then `a, c, d`.
-struct LineProduct<'a> {
-    line: [Z; 5],
-    ratio: [Z; 2],
-    conic: &'a [Z; 6],
-    data: &'a BetaData,
-    a1: Z,
-    probe: Option<&'a Cell<Probe>>,
+struct LineProduct<'a, T> {
+    line: [Z<T>; 5],
+    ratio: [Z<T>; 2],
+    conic: &'a [Z<T>; 6],
+    data: &'a BetaData<T>,
+    a1: Z<T>,
+    probe: Option<&'a Cell<Probe<T>>>,
 }
 
 /// The largest disagreement of a product offset with the `y - z` it
 /// replaces, in units of that subtraction's rounding `2^-52 |z|` (squared),
 /// with its pole and the pole's shift `e (offset - (y - z))` that the
 /// product implies (`tfun_selected`).
-type Probe = (f64, usize, Z);
+type Probe<T> = (T, usize, Z<T>);
 
-impl LineProduct<'_> {
+impl<T: BoxReal> LineProduct<'_, T> {
     /// Records the product `offset` that replaces the rounded `y - z`
     /// (`direct`, with `nearer = |y - z|²` and `hzz = |z|²`) of pole `index`.
-    fn record(&self, index: usize, offset: Z, direct: Z, nearer: f64, hzz: f64) {
+    fn record(&self, index: usize, offset: Z<T>, direct: Z<T>, nearer: T, hzz: T) {
         if let Some(probe) = self.probe
             && nz(offset)
         {
             let difference = offset - direct;
             let units = norm(difference) * nearer
-                / (f64::EPSILON * f64::EPSILON * hzz * norm(offset));
+                / (T::lit(f64::EPSILON) * T::lit(f64::EPSILON) * hzz * norm(offset));
             if negative(probe.get().0 - units) {
                 probe.set((units, index, difference * self.line[1]));
             }
@@ -723,21 +701,21 @@ impl LineProduct<'_> {
     /// or `None` where the product vanishes or the line's intersection with
     /// the edge lies on the conic to within the square root of the rounding
     /// (`line_product`; the expression's `r1_line` then keeps `y - z`).
-    fn over(&self, far_offset: Z) -> Option<Z> {
+    fn over(&self, far_offset: Z<T>) -> Option<Z<T>> {
         let [d, e, b, c, far] = self.line;
         let [qb, qe, qf, ..] = *self.conic;
         let BetaData { b: b1, c: c1, k: kk, .. } = *self.data;
         let a1 = self.a1;
-        let (scale, scaled_u) = if nz(far) { (b, -(e * c + d * b)) } else { (ONE, e - d) };
+        let (scale, scaled_u) = if nz(far) { (b, -(e * c + d * b)) } else { (one(), e - d) };
         // ratio = 0 for a vanishing denominator, as the expression's if_nonzero.
-        let [num, den] = if nz(self.ratio[1]) { self.ratio } else { [ZERO, ONE] };
+        let [num, den] = if nz(self.ratio[1]) { self.ratio } else { [zero(), one()] };
         let quadratic = (qb * scaled_u + qe * scale) * scaled_u + qf * scale * scale;
         let linear = b1 * scaled_u + c1 * scale;
         let value = den * quadratic - num * scale * linear;
         // The conic's value against its coefficients, with the value's scale
         // den s² (`line_product`).
-        let conic_norm = self.conic.iter().fold(0.0, |sum, &q| sum + norm(q));
-        if !negative(conic_norm * norm(den * scale * scale) - 4503599627370496.0 * norm(value)) {
+        let conic_norm = self.conic.iter().fold(T::lit(0.0), |sum, &q| sum + norm(q));
+        if !negative(conic_norm * norm(den * scale * scale) - T::lit(4503599627370496.0) * norm(value)) {
             return None;
         }
         let numerator = a1 * value;
@@ -745,7 +723,7 @@ impl LineProduct<'_> {
             return None;
         }
         let denominator = kk * scale * scale * den * e * e * far_offset;
-        Some(if nz(far_offset) && nz(e) { dv(numerator, denominator) } else { ZERO })
+        Some(if nz(far_offset) && nz(e) { dv(numerator, denominator) } else { zero() })
     }
 }
 
@@ -762,14 +740,14 @@ impl LineProduct<'_> {
 /// `probe` records it with that disagreement (or its own where larger).
 #[cold]
 #[inline(never)]
-fn products_kept(lines: &[LineProduct; 3], data: &BetaData, scale: f64) -> [bool; 3] {
+fn products_kept<T: BoxReal>(lines: &[LineProduct<'_, T>; 3], data: &BetaData<T>, scale: T) -> [bool; 3] {
     let mut kept = [true; 3];
     // An a1 within 16 units of its rounding (`2^96 |a1|² < scale`) keeps them all.
-    if negative(79228162514264337593543950336.0 * norm(lines[0].a1) - scale) {
+    if negative(T::lit(79228162514264337593543950336.0) * norm(lines[0].a1) - scale) {
         return kept;
     }
     let mut chart = true;
-    let mut unscaled: [Option<Probe>; 3] = [None; 3];
+    let mut unscaled: [Option<Probe<T>>; 3] = [None; 3];
     for (index, line) in lines.iter().enumerate() {
         let [d, e, b, c, far] = line.line;
         if !nz(e) || !nz(b) {
@@ -777,40 +755,40 @@ fn products_kept(lines: &[LineProduct; 3], data: &BetaData, scale: f64) -> [bool
         }
         let inv_e = inverse(&e);
         let [p1, p2] = data.y.map(|y| (d + y.v) * inv_e);
-        let z = if nz(far) { -dv(c, b) } else { ONE };
+        let z = if nz(far) { -dv(c, b) } else { one() };
         let [o1, o2] = [p1 - z, p2 - z];
         let [n1, n2] = [norm(o1), norm(o2)];
         let (pole, nearer, far_offset) = if negative(n1 - n2) { (p1, n1, o2) } else { (p2, n2, o1) };
         let hzz = norm(z);
-        if !(negative(4096.0 * nearer - hzz) && nz(p1 - p2)) {
+        if !(negative(T::lit(4096.0) * nearer - hzz) && nz(p1 - p2)) {
             continue;
         }
         let product = line.over(far_offset);
         // A product where the rounded `y - z` vanishes keeps them all.
-        if nearer == 0.0 && product.is_some() {
+        if nearer.is_fully_zero() && product.is_some() {
             return [true; 3];
         }
         let Some(offset) = product else {
             chart = false;
             continue;
         };
-        let [to_zero, to_one] = [norm(pole), norm(pole - ONE)];
+        let [to_zero, to_one] = [norm(pole), norm(pole - one())];
         let end = if negative(to_zero - to_one) { to_zero } else { to_one };
-        if negative(end - 64.0 * nearer) {
+        if negative(end - T::lit(64.0) * nearer) {
             kept[index] = false;
-        } else if negative(1048576.0 * hzz * norm(line.a1) - nearer * scale) {
+        } else if negative(T::lit(1048576.0) * hzz * norm(line.a1) - nearer * scale) {
             // The disagreement `r1_with` records for this product (an exactly
             // real `y - z` takes the product's real part), at least 128 units.
             let first = negative(n1 - n2);
             let direct = if first { o1 } else { o2 };
-            let offset = if direct.im != 0.0 { offset } else { r(offset.re) };
+            let offset = if !direct.im.is_fully_zero() { offset } else { rv(offset.re) };
             let difference = offset - direct;
             let units = if nz(offset) {
-                norm(difference) * nearer / (f64::EPSILON * f64::EPSILON * hzz * norm(offset))
+                norm(difference) * nearer / (T::lit(f64::EPSILON) * T::lit(f64::EPSILON) * hzz * norm(offset))
             } else {
-                0.0
+                T::lit(0.0)
             };
-            let units = if negative(units - 128.0) { 128.0 } else { units };
+            let units = if negative(units - T::lit(128.0)) { T::lit(128.0) } else { units };
             unscaled[index] = Some((units, if first { 0 } else { 1 }, difference * e));
         }
     }
@@ -838,57 +816,57 @@ enum Products {
 }
 
 /// `t1`; `gh`, `gj`, `ghj` are the line's g + h, g + j, g + h + j.
-fn t1(
-    [a, c, g, h, d, e, f, j, dpe, dd_, de, df, dj, ddpe, ac, lambda_ac, far_ac, lambda_a, far_a, gh, gj, ghj]: [Z; 22],
-    k: &Constants<f64>,
-) -> Z {
+fn t1<T: BoxReal>(
+    [a, c, g, h, d, e, f, j, dpe, dd_, de, df, dj, ddpe, ac, lambda_ac, far_ac, lambda_a, far_a, gh, gj, ghj]: [Z<T>; 22],
+    k: &Constants<T>,
+) -> Z<T> {
     let kk = h * a - c * g;
     let l = h * d - c * j - e * g;
     let n = h * f - e * j;
     let dl = h * dd_ - c * dj - de * g;
     let dn = h * df - de * j - e * dj;
-    let dn2 = -de * dj - Z { re: 0.0, im: f.re.abs() } * h;
+    let dn2 = -de * dj - Z { re: T::lit(0.0), im: f.re.abs() } * h;
     let [r1_, r2_] = roots(kk, l, n);
     let y1 = continued_root(r1_, kk, l, dl, dn, dn2);
     let y2 = continued_root(r2_, kk, l, dl, dn, dn2);
     let sum = coefficient_sum(&[a, c], ac);
     dv(
-        -s3(&y1, &y2, ZERO, ONE, sum, dpe, f, ddpe, df, [lambda_ac, ac, f, far_ac], k)
-            + s3_linear(&y1, &y2, ZERO, ONE, gh, j, dj, ghj, k)
-            - s3_linear(&y1, &y2, ZERO, ONE, g, j, dj, gj, k)
-            + s3(&y1, &y2, ZERO, ONE, a, d, f, dd_, df, [lambda_a, a, f, far_a], k),
+        -s3(&y1, &y2, zero(), one(), sum, dpe, f, ddpe, df, [lambda_ac, ac, f, far_ac], k)
+            + s3_linear(&y1, &y2, zero(), one(), gh, j, dj, ghj, k)
+            - s3_linear(&y1, &y2, zero(), one(), g, j, dj, gj, k)
+            + s3(&y1, &y2, zero(), one(), a, d, f, dd_, df, [lambda_a, a, f, far_a], k),
         kk,
     )
 }
 
-fn t13(
+fn t13<T: BoxReal>(
     [
         a, c, g, h, d, e, f, j, dpe, dpj, dpf, dd_, de, df, dj, ddpe, ddpj, ddpf, lambda_ae, lambda_gj,
         lambda_gh, lambda_ac, far_ae, far_gj, gh, ac,
-    ]: [Z; 26],
-    k: &Constants<f64>,
-) -> Z {
+    ]: [Z<T>; 26],
+    k: &Constants<T>,
+) -> Z<T> {
     let kk = h * a - c * g;
     let l = a * d + h * e - d * g - c * j;
     let n = d * (e - j) + (h - c) * f;
     let dl = (a - g) * dd_ + h * de - c * dj;
     let dn = dd_ * (e - j) + d * (de - dj) + (h - c) * df;
-    let dn2 = dd_ * (de - dj) - Z { re: 0.0, im: f.re.abs() } * (h - c);
+    let dn2 = dd_ * (de - dj) - Z { re: T::lit(0.0), im: f.re.abs() } * (h - c);
     let [r1_, r2_] = roots(kk, l, n);
     let y1 = continued_root(r1_, kk, l, dl, dn, dn2);
     let y2 = continued_root(r2_, kk, l, dl, dn, dn2);
     dv(
-        -s3(&y1, &y2, ZERO, ONE, a, e + c, dpf, de, ddpf, [lambda_ae, a, dpf, far_ae], k)
-            + s3(&y1, &y2, ZERO, ONE, g, j + h, dpf, dj, ddpf, [lambda_gj, g, dpf, far_gj], k)
-            - s3(&y1, &y2, ZERO, ONE, g + h, dpj, f, ddpj, df, [lambda_gh, gh, f, far_gj], k)
-            + s3(&y1, &y2, ZERO, ONE, a + c, dpe, f, ddpe, df, [lambda_ac, ac, f, far_ae], k),
+        -s3(&y1, &y2, zero(), one(), a, e + c, dpf, de, ddpf, [lambda_ae, a, dpf, far_ae], k)
+            + s3(&y1, &y2, zero(), one(), g, j + h, dpf, dj, ddpf, [lambda_gj, g, dpf, far_gj], k)
+            - s3(&y1, &y2, zero(), one(), g + h, dpj, f, ddpj, df, [lambda_gh, gh, f, far_gj], k)
+            + s3(&y1, &y2, zero(), one(), a + c, dpe, f, ddpe, df, [lambda_ac, ac, f, far_ae], k),
         kk,
     )
 }
 
 /// Barycentric coordinates in the triangle (0, -beta, 1-beta).
 #[inline]
-fn coordinates(beta: Z, y: Z) -> [f64; 2] {
+fn coordinates<T: BoxReal>(beta: Z<T>, y: Z<T>) -> [T; 2] {
     let sum = -y.im / beta.im;
     let x2 = y.re + beta.re * sum;
     let x1 = sum - x2;
@@ -896,18 +874,18 @@ fn coordinates(beta: Z, y: Z) -> [f64; 2] {
 }
 
 #[inline]
-fn continued_nonnegative(value: f64, first: f64, second: f64) -> bool {
-    if value != 0.0 {
+fn continued_nonnegative<T: BoxReal>(value: T, first: T, second: T) -> bool {
+    if !value.is_fully_zero() {
         !negative(value)
-    } else if first != 0.0 {
+    } else if !first.is_fully_zero() {
         !negative(first)
     } else {
         !negative(second)
     }
 }
 
-fn inside(beta: Z, y: &Cont) -> bool {
-    if beta.im == 0.0 {
+fn inside<T: BoxReal>(beta: Z<T>, y: &Cont<T>) -> bool {
+    if beta.im.is_fully_zero() {
         return false;
     }
     let [x1, x2] = coordinates(beta, y.v);
@@ -915,34 +893,34 @@ fn inside(beta: Z, y: &Cont) -> bool {
     let [dd1, dd2] = coordinates(beta, y.s);
     continued_nonnegative(x1, d1, dd1)
         && continued_nonnegative(x2, d2, dd2)
-        && continued_nonnegative(1.0 - x1 - x2, -d1 - d2, -dd1 - dd2)
+        && continued_nonnegative(T::lit(1.0) - x1 - x2, -d1 - d2, -dd1 - dd2)
 }
 
-fn distance(beta: Z, y: &Cont) -> f64 {
+fn distance<T: BoxReal>(beta: Z<T>, y: &Cont<T>) -> T {
     if inside(beta, y) {
         let [x1, x2] = coordinates(beta, y.v);
         if negative(x1 - x2) { x1 } else { x2 }
     } else {
-        1.0
+        T::lit(1.0)
     }
 }
 
-struct BetaData {
-    a: Z,
-    b: Z,
-    c: Z,
-    dc: Z,
-    k: Z,
-    y: [Cont; 2],
+struct BetaData<T> {
+    a: Z<T>,
+    b: Z<T>,
+    c: Z<T>,
+    dc: Z<T>,
+    k: Z<T>,
+    y: [Cont<T>; 2],
 }
 
 /// `beta_data`; `w` is beta - 1, and nearer 1 than 0 the coefficients are
 /// expanded about beta = 1 (`dpe` = d + e, `ddpe` = dd + de).
 #[inline(always)]
-fn beta_data(
-    beta: Z, w: Z, b: Z, c: Z, g: Z, h: Z, d: Z, e: Z, f: Z, j: Z, dpe: Z, dd_: Z, de: Z, df: Z,
-    dj: Z, ddpe: Z, far_pole: bool,
-) -> BetaData {
+fn beta_data<T: BoxReal>(
+    beta: Z<T>, w: Z<T>, b: Z<T>, c: Z<T>, g: Z<T>, h: Z<T>, d: Z<T>, e: Z<T>, f: Z<T>, j: Z<T>, dpe: Z<T>, dd_: Z<T>, de: Z<T>, df: Z<T>,
+    dj: Z<T>, ddpe: Z<T>, far_pole: bool,
+) -> BetaData<T> {
     let (a1, b1, c1, dc1) = if negative(norm(w) - norm(beta)) {
         ((g + h) + w * h, (c + r(2.0) * b) + r(2.0) * w * b, dpe + w * e, ddpe + w * de)
     } else {
@@ -956,13 +934,13 @@ fn beta_data(
     let kk = if nz(kk) || !far_pole {
         kk
     } else if nz(l) {
-        -dv(l, r(4503599627370496.0 * (1.0 + norm(dv(n, l)))))
+        -dv(l, rv(T::lit(4503599627370496.0) * (T::lit(1.0) + norm(dv(n, l)))))
     } else {
-        ZERO
+        zero()
     };
     let dl = de * a1 - h * dc1 - dj * b1;
     let dn = df * a1 - dj * c1 - j * dc1;
-    let dn2 = -dj * dc1 - Z { re: 0.0, im: f.re.abs() } * a1;
+    let dn2 = -dj * dc1 - Z { re: T::lit(0.0), im: f.re.abs() } * a1;
     let [r1_, r2_] = roots(kk, l, n);
     BetaData {
         a: a1,
@@ -980,10 +958,10 @@ fn beta_data(
 /// `beta_data` with `K` replaced by `kk` (`box_complex::tfun_chart`'s chart
 /// with K at its rounding level).
 #[cold]
-fn beta_data_with_k(
-    beta: Z, w: Z, b: Z, c: Z, g: Z, h: Z, d: Z, e: Z, f: Z, j: Z, dpe: Z, dd_: Z, de: Z, df: Z,
-    dj: Z, ddpe: Z, kk: Z,
-) -> BetaData {
+fn beta_data_with_k<T: BoxReal>(
+    beta: Z<T>, w: Z<T>, b: Z<T>, c: Z<T>, g: Z<T>, h: Z<T>, d: Z<T>, e: Z<T>, f: Z<T>, j: Z<T>, dpe: Z<T>, dd_: Z<T>, de: Z<T>, df: Z<T>,
+    dj: Z<T>, ddpe: Z<T>, kk: Z<T>,
+) -> BetaData<T> {
     let (a1, b1, c1, dc1) = if negative(norm(w) - norm(beta)) {
         ((g + h) + w * h, (c + r(2.0) * b) + r(2.0) * w * b, dpe + w * e, ddpe + w * de)
     } else {
@@ -993,7 +971,7 @@ fn beta_data_with_k(
     let n = f * a1 - j * c1;
     let dl = de * a1 - h * dc1 - dj * b1;
     let dn = df * a1 - dj * c1 - j * dc1;
-    let dn2 = -dj * dc1 - Z { re: 0.0, im: f.re.abs() } * a1;
+    let dn2 = -dj * dc1 - Z { re: T::lit(0.0), im: f.re.abs() } * a1;
     let [r1_, r2_] = roots(kk, l, n);
     BetaData {
         a: a1,
@@ -1010,21 +988,21 @@ fn beta_data_with_k(
 
 /// `real_intersections_absent`: real coefficients whose line and conic meet at
 /// complex conjugate points (`n^T adj(M) n > 0`).
-fn real_intersections_absent(coefficients: [Z; 9]) -> bool {
-    if coefficients.iter().any(|z| z.im != 0.0) {
+fn real_intersections_absent<T: BoxReal>(coefficients: [Z<T>; 9]) -> bool {
+    if coefficients.iter().any(|z| !z.im.is_fully_zero()) {
         return false;
     }
     let [a, b, c, g, h, d, e, f, j] = coefficients.map(|z| z.re);
-    let adj11 = b * f - e * e / 4.0;
-    let adj22 = a * f - d * d / 4.0;
-    let adj33 = a * b - c * c / 4.0;
-    let adj12 = d * e / 4.0 - c * f / 2.0;
-    let adj13 = c * e / 4.0 - b * d / 2.0;
-    let adj23 = c * d / 4.0 - a * e / 2.0;
+    let adj11 = b * f - e * e / T::lit(4.0);
+    let adj22 = a * f - d * d / T::lit(4.0);
+    let adj33 = a * b - c * c / T::lit(4.0);
+    let adj12 = d * e / T::lit(4.0) - c * f / T::lit(2.0);
+    let adj13 = c * e / T::lit(4.0) - b * d / T::lit(2.0);
+    let adj23 = c * d / T::lit(4.0) - a * e / T::lit(2.0);
     let delta = g * g * adj11
         + h * h * adj22
         + j * j * adj33
-        + 2.0 * (g * h * adj12 + g * j * adj13 + h * j * adj23);
+        + T::lit(2.0) * (g * h * adj12 + g * j * adj13 + h * j * adj23);
     negative(-delta)
 }
 
@@ -1036,13 +1014,16 @@ fn real_intersections_absent(coefficients: [Z; 9]) -> bool {
 /// `y - z` everywhere as 09b2c74 took) whose value moves less is taken
 /// (`tfun_probed`). `w` is beta - 1 and the sums are the line's g + h,
 /// g + j and g + h + j.
-fn tfun_selected(
-    a: Z, b: Z, c: Z, g: Z, h: Z, d: Z, e: Z, f: Z, j: Z, dpe: Z, dpf: Z, beta: Z, w: Z,
-    data: &BetaData, dd_: Z, de: Z, df: Z, dj: Z, ddpe: Z, ddpf: Z, abc: Z,
-    edges: [Z; 5], sums: [Z; 3], k: &Constants<f64>,
-) -> Z {
-    let probe = Cell::new((0.0, 0, ZERO));
+fn tfun_selected<T: BoxReal>(
+    a: Z<T>, b: Z<T>, c: Z<T>, g: Z<T>, h: Z<T>, d: Z<T>, e: Z<T>, f: Z<T>, j: Z<T>, dpe: Z<T>, dpf: Z<T>, beta: Z<T>, w: Z<T>,
+    data: &BetaData<T>, dd_: Z<T>, de: Z<T>, df: Z<T>, dj: Z<T>, ddpe: Z<T>, ddpf: Z<T>, abc: Z<T>,
+    edges: [Z<T>; 5], sums: [Z<T>; 3], k: &Constants<T>,
+) -> Z<T> {
     let coefficients = [a, b, c, g, h, d, e, f, j, dpe, dpf, dd_, de, df, dj, ddpe, ddpf, abc];
+    if !T::BINARY64 {
+        return tfun_lines(coefficients, beta, w, data, edges, sums, Products::Kept, None, k);
+    }
+    let probe = Cell::new((T::lit(0.0), 0, zero()));
     let value = tfun_lines(coefficients, beta, w, data, edges, sums, Products::Kept, Some(&probe), k);
     probed(coefficients, beta, w, data, edges, sums, value, probe.get(), k)
 }
@@ -1050,11 +1031,11 @@ fn tfun_selected(
 /// `value` (`tfun_lines` with the products), or where `probe` shows a pole
 /// that a product disagrees with by more than 8 units, `tfun_probed`.
 #[inline(always)]
-fn probed(
-    coefficients: [Z; 18], beta: Z, w: Z, data: &BetaData, edges: [Z; 5], sums: [Z; 3], value: Z,
-    (units, index, shift): Probe, k: &Constants<f64>,
-) -> Z {
-    if negative(64.0 - units) {
+fn probed<T: BoxReal>(
+    coefficients: [Z<T>; 18], beta: Z<T>, w: Z<T>, data: &BetaData<T>, edges: [Z<T>; 5], sums: [Z<T>; 3], value: Z<T>,
+    (units, index, shift): Probe<T>, k: &Constants<T>,
+) -> Z<T> {
+    if negative(T::lit(64.0) - units) {
         tfun_probed(coefficients, beta, w, data, edges, sums, value, index, shift, k)
     } else {
         value
@@ -1074,13 +1055,13 @@ fn probed(
 /// (the near-threshold boxes of tests/data/near_threshold_boxes.txt).
 #[cold]
 #[inline(never)]
-fn tfun_probed(
-    coefficients: [Z; 18], beta: Z, w: Z, data: &BetaData, edges: [Z; 5], sums: [Z; 3], value: Z,
-    index: usize, shift: Z, k: &Constants<f64>,
-) -> Z {
+fn tfun_probed<T: BoxReal>(
+    coefficients: [Z<T>; 18], beta: Z<T>, w: Z<T>, data: &BetaData<T>, edges: [Z<T>; 5], sums: [Z<T>; 3], value: Z<T>,
+    index: usize, shift: Z<T>, k: &Constants<T>,
+) -> Z<T> {
     let mut moved = BetaData { y: data.y, ..*data };
     moved.y[index].v = moved.y[index].v + shift;
-    let lines = |data: &BetaData, products: Products| tfun_lines(coefficients, beta, w, data, edges, sums, products, None, k);
+    let lines = |data: &BetaData<T>, products: Products| tfun_lines(coefficients, beta, w, data, edges, sums, products, None, k);
     let moved_products = lines(&moved, Products::Kept);
     let direct = lines(data, Products::None);
     let moved_direct = lines(&moved, Products::None);
@@ -1091,12 +1072,12 @@ fn tfun_probed(
 /// `tfun_lines`; the line products only where `products` (and the line is
 /// nearly parallel to the contour direction; `Products::Kept` those of
 /// `products_kept`), recording their disagreement with `y - z` in `probe`.
-fn tfun_lines(
-    [a, b, c, g, h, d, e, f, j, dpe, dpf, dd_, de, df, dj, ddpe, ddpf, abc]: [Z; 18],
-    beta: Z, w: Z, data: &BetaData,
-    [lambda_a, lambda_abc, lambda_bc, q10, q11]: [Z; 5], [gh, gj, ghj]: [Z; 3],
-    products: Products, probe: Option<&Cell<Probe>>, k: &Constants<f64>,
-) -> Z {
+fn tfun_lines<T: BoxReal>(
+    [a, b, c, g, h, d, e, f, j, dpe, dpf, dd_, de, df, dj, ddpe, ddpf, abc]: [Z<T>; 18],
+    beta: Z<T>, w: Z<T>, data: &BetaData<T>,
+    [lambda_a, lambda_abc, lambda_bc, q10, q11]: [Z<T>; 5], [gh, gj, ghj]: [Z<T>; 3],
+    products: Products, probe: Option<&Cell<Probe<T>>>, k: &Constants<T>,
+) -> Z<T> {
     let [y1, y2] = &data.y;
     let p1 = inside(beta, y1);
     let p2 = inside(beta, y2);
@@ -1108,27 +1089,27 @@ fn tfun_lines(
     // (a1 = g + beta h cancels by more than 64), with an a1 that rounds to
     // zero at its rounding level 2^-52 g (`box_complex::tfun_selected`).
     let scale = norm(g) + norm(beta * h);
-    let parallel = products != Products::None && negative(4096.0 * norm(data.a) - scale);
+    let parallel = products != Products::None && negative(T::lit(4096.0) * norm(data.a) - scale);
     let a1 = if nz(data.a) { data.a } else { g * r(1.0 / 4503599627370496.0) };
-    let line = |line: [Z; 5], ratio: [Z; 2]| LineProduct { line, ratio, conic: &conic, data, a1, probe };
+    let line = |line: [Z<T>; 5], ratio: [Z<T>; 2]| LineProduct { line, ratio, conic: &conic, data, a1, probe };
     let lines = [
-        line([beta, ONE, h, gj, ghj], [r(-1.0), ONE]),
-        line([ZERO, -w, gh, j, ghj], [j, gh]),
-        line([ZERO, -beta, g, j, gj], [j, g]),
+        line([beta, one(), h, gj, ghj], [r(-1.0), one()]),
+        line([zero(), -w, gh, j, ghj], [j, gh]),
+        line([zero(), -beta, g, j, gj], [j, g]),
     ];
     let kept = match (parallel, products) {
         (false, _) => [false; 3],
-        (true, Products::Kept) => products_kept(&lines, data, scale),
+        (true, Products::Kept) if T::BINARY64 => products_kept(&lines, data, scale),
         (true, _) => [true; 3],
     };
     let integral = s3_line(y1, y2, dj, &lines[0], kept[0], k) - s3_line(y1, y2, dj, &lines[1], kept[1], k)
         + s3_line(y1, y2, dj, &lines[2], kept[2], k)
-        - s3(y1, y2, beta, ONE, b, c + e, a + dpf, de, ddpf, [lambda_bc, b, q10, q11], k)
-        + s3(y1, y2, ZERO, -w, sum, dpe, f, ddpe, df, [lambda_abc, abc, f, q11], k)
-        - s3(y1, y2, ZERO, -beta, a, d, f, dd_, df, [lambda_a, a, f, q10], k);
+        - s3(y1, y2, beta, one(), b, c + e, a + dpf, de, ddpf, [lambda_bc, b, q10, q11], k)
+        + s3(y1, y2, zero(), -w, sum, dpe, f, ddpe, df, [lambda_abc, abc, f, q11], k)
+        - s3(y1, y2, zero(), -beta, a, d, f, dd_, df, [lambda_a, a, f, q10], k);
     let real = real_intersections_absent([a, b, c, g, h, d, e, f, j]);
     let residue = planar(y1, y2, p1, p2, data.a, data.b, data.c, data.dc, real, k);
-    let residue = if negative(0.0 - beta.im) { -residue } else { residue };
+    let residue = if negative(T::lit(0.0) - beta.im) { -residue } else { residue };
     dv(integral + residue, data.k)
 }
 
@@ -1148,58 +1129,59 @@ fn tfun_lines(
 /// bits under that move (`box_complex::tfun_chart`).
 #[cold]
 #[inline(never)]
-fn tfun_checked(
-    [a, b, c, g, h, d, e, f, j, dpe, dpf, dd_, de, df, dj, ddpe, ddpf, abc]: [Z; 18],
-    [beta, w, other_beta, other_w]: [Z; 4],
-    [data, other]: [&BetaData; 2],
+fn tfun_checked<T: BoxReal>(
+    [a, b, c, g, h, d, e, f, j, dpe, dpf, dd_, de, df, dj, ddpe, ddpf, abc]: [Z<T>; 18],
+    [beta, w, other_beta, other_w]: [Z<T>; 4],
+    [data, other]: [&BetaData<T>; 2],
     check: bool,
     flat: bool,
-    edges: [Z; 5],
-    sums: [Z; 3],
-    k: &Constants<f64>,
-) -> Z {
+    edges: [Z<T>; 5],
+    sums: [Z<T>; 3],
+    k: &Constants<T>,
+) -> Z<T> {
     let coefficients = [a, b, c, g, h, d, e, f, j, dpe, dpf, dd_, de, df, dj, ddpe, ddpf, abc];
-    let chart_with = |beta: Z, w: Z, data: &BetaData, products: Products, probe: Option<&Cell<Probe>>| {
+    let chart_with = |beta: Z<T>, w: Z<T>, data: &BetaData<T>, products: Products, probe: Option<&Cell<Probe<T>>>| {
         let far = (!nz(data.k)).then(|| beta_data(beta, w, b, c, g, h, d, e, f, j, dpe, dd_, de, df, dj, ddpe, true));
         let data = far.unwrap_or(BetaData { y: data.y, ..*data });
         (tfun_lines(coefficients, beta, w, &data, edges, sums, products, probe, k), data)
     };
-    let chart = |beta: Z, w: Z, data: &BetaData, products: Products| chart_with(beta, w, data, products, None).0;
+    let chart = |beta: Z<T>, w: Z<T>, data: &BetaData<T>, products: Products| chart_with(beta, w, data, products, None).0;
     // The chart with the line's g moved to `g (1 + 2^-52)` (its sums by the
     // same exact amount), and the chart with K at the rounding level of its
     // terms, `2^-52 (|b a1| + |h b1|)`, both with every line product.
-    let moved_line = |beta: Z, w: Z| {
+    let moved_line = |beta: Z<T>, w: Z<T>| {
         let shifted = g * r(1.0 + f64::EPSILON);
         let delta = shifted - g;
         let moved = beta_data(beta, w, b, c, shifted, h, d, e, f, j, dpe, dd_, de, df, dj, ddpe, true);
         tfun_lines([a, b, c, shifted, h, d, e, f, j, dpe, dpf, dd_, de, df, dj, ddpe, ddpf, abc], beta, w, &moved, edges, sums.map(|sum| sum + delta), Products::All, None, k)
     };
-    let rounding_k = |beta: Z, w: Z, data: &BetaData| {
-        let magnitude = |z: Z| z.re.abs() + z.im.abs();
-        let rounding = r((magnitude(b * data.a) + magnitude(h * data.b)) / 4503599627370496.0);
+    let rounding_k = |beta: Z<T>, w: Z<T>, data: &BetaData<T>| {
+        let magnitude = |z: Z<T>| z.re.abs() + z.im.abs();
+        let rounding = rv((magnitude(b * data.a) + magnitude(h * data.b)) / T::lit(4503599627370496.0));
         let probe = beta_data_with_k(beta, w, b, c, g, h, d, e, f, j, dpe, dd_, de, df, dj, ddpe, rounding);
         tfun_lines(coefficients, beta, w, &probe, edges, sums, Products::All, None, k)
     };
     // The tests and the agreement compare the charts with every line product
     // (`used`, `Products::All`); a chart they keep gives `result`, with the
     // products that `products_kept` keeps.
-    let tested = |beta: Z, w: Z, data: &BetaData, used: Z, result: Z, flat: bool, zero: bool| {
-        let keeps = |moved: Z, bits: i32| finite(moved) && close(bits, used, moved);
+    let tested = |beta: Z<T>, w: Z<T>, data: &BetaData<T>, used: Z<T>, result: Z<T>, flat: bool, zero: bool| {
+        let keeps = |moved: Z<T>, bits: i32| finite(moved) && close(bits, used, moved);
         if flat && !keeps(moved_line(beta, w), 10) {
-            return Z { re: f64::NAN, im: f64::NAN };
+            return Z { re: T::lit(f64::NAN), im: T::lit(f64::NAN) };
         }
         if zero && !keeps(rounding_k(beta, w, data), 13) {
-            return Z { re: f64::NAN, im: f64::NAN };
+            return Z { re: T::lit(f64::NAN), im: T::lit(f64::NAN) };
         }
         result
     };
     // The selected chart, tested with every line product; where the tests keep
     // it, its value (with the products kept) is probed as in `tfun_selected`.
-    let probe = Cell::new((0.0, 0, ZERO));
-    let (value, used) = chart_with(beta, w, data, Products::Kept, Some(&probe));
+    let probe = Cell::new((T::lit(0.0), 0, zero()));
+    // Binary64 alone probes (`tfun_selected`): without records, `probed` keeps the value.
+    let (value, used) = chart_with(beta, w, data, Products::Kept, T::BINARY64.then_some(&probe));
     let all = chart(beta, w, data, Products::All);
-    let probed = |result: Z| {
-        if finite(value) && result.re.to_bits() == value.re.to_bits() && result.im.to_bits() == value.im.to_bits() {
+    let probed = |result: Z<T>| {
+        if finite(value) && result.re.same(value.re) && result.im.same(value.im) {
             probed(coefficients, beta, w, &used, edges, sums, value, probe.get(), k)
         } else {
             result
@@ -1220,12 +1202,12 @@ fn tfun_checked(
                 if finite(line)
                     && (!finite(at_rounding)
                         || !negative(
-                            norm(at_rounding - regular) * norm(all) - 1048576.0 * norm(line - all) * norm(regular),
+                            norm(at_rounding - regular) * norm(all) - T::lit(1048576.0) * norm(line - all) * norm(regular),
                         ))
                 {
-                    let keeps = |moved: Z, bits: i32| finite(moved) && close(bits, all, moved);
+                    let keeps = |moved: Z<T>, bits: i32| finite(moved) && close(bits, all, moved);
                     let kept = keeps(line, 20) && (nz(data.k) || keeps(rounding_k(beta, w, data), 13));
-                    return probed(if kept { value } else { Z { re: f64::NAN, im: f64::NAN } });
+                    return probed(if kept { value } else { Z { re: T::lit(f64::NAN), im: T::lit(f64::NAN) } });
                 }
             }
             let kept = chart(other_beta, other_w, other, Products::Kept);
@@ -1239,12 +1221,12 @@ fn tfun_checked(
 /// `tfun`; `edges` holds `[λ_a, λ_abc, λ_bc, q10, q11]` (`edge_kallens` and
 /// the conic's values at the corners (1, 0) and (1, 1)), `line_sums` the
 /// line's g + h, g + j and g + h + j from the invariants.
-fn tfun(
-    [a, b, c, gin, hin, d, e, f, jin, dpe, dpf, dd_, de, df, djin, ddpe, ddpf, abc]: [Z; 18],
-    edges: [Z; 5],
-    line_sums: [Z; 3],
-    k: &Constants<f64>,
-) -> Z {
+fn tfun<T: BoxReal>(
+    [a, b, c, gin, hin, d, e, f, jin, dpe, dpf, dd_, de, df, djin, ddpe, ddpf, abc]: [Z<T>; 18],
+    edges: [Z<T>; 5],
+    line_sums: [Z<T>; 3],
+    k: &Constants<T>,
+) -> Z<T> {
     let [lambda_a, lambda_abc, lambda_bc, q10, q11] = edges;
     let sj = isign(jin, isign(djin, -1));
     let s = r(-(sj as f64));
@@ -1257,14 +1239,14 @@ fn tfun(
         if nz(a) {
             let [root1, root2] = roots(b, c, a);
             // beta - 1, the root nearer 1 from (beta1 - 1)(beta2 - 1) = abc/b.
-            let [o1, o2] = [root1 - ONE, root2 - ONE];
+            let [o1, o2] = [root1 - one(), root2 - one()];
             let w1 = if negative(norm(o1) - norm(o2)) { dv(abc, b * o2) } else { o1 };
             let w2 = if negative(norm(o2) - norm(o1)) { dv(abc, b * o1) } else { o2 };
             let swap = negative(norm(root2) - norm(root1));
             let ((beta1, w1), (beta2, w2)) = if swap { ((root2, w2), (root1, w1)) } else { ((root1, w1), (root2, w2)) };
             let data1 = beta_data(beta1, w1, b, c, g, h, d, e, f, j, dpe, dd_, de, df, dj, ddpe, false);
             let data2 = beta_data(beta2, w2, b, c, g, h, d, e, f, j, dpe, dd_, de, df, dj, ddpe, false);
-            let min = |x: f64, y: f64| if negative(x - y) { x } else { y };
+            let min = |x: T, y: T| if negative(x - y) { x } else { y };
             let d1 = min(distance(beta1, &data1.y[0]), distance(beta1, &data1.y[1]));
             let d2 = min(distance(beta2, &data2.y[0]), distance(beta2, &data2.y[1]));
             // By default the first (`tfun`). Where the selected contour's a1
@@ -1273,9 +1255,9 @@ fn tfun(
             // other chart is computed too and taken unless the two agree to
             // 2^-26; otherwise the chart is tested against a1 moved by one
             // rounding unit (`tfun_chart`).
-            let use_first = if d1 - 1.0 != 0.0 { negative(d2 - d1) } else { true };
-            let flat = |data: &BetaData, beta: Z| below(56, norm(data.a), norm(g) + norm(beta * h));
-            let near = |data: &BetaData| negative(norm(data.y[0].v) - 16384.0) || negative(norm(data.y[1].v) - 16384.0);
+            let use_first = if !(d1 - T::lit(1.0)).is_fully_zero() { negative(d2 - d1) } else { true };
+            let flat = |data: &BetaData<T>, beta: Z<T>| below(56, norm(data.a), norm(g) + norm(beta * h));
+            let near = |data: &BetaData<T>| negative(norm(data.y[0].v) - T::lit(16384.0)) || negative(norm(data.y[1].v) - T::lit(16384.0));
             let ((beta, data), (other_beta, other)) = if use_first { ((beta1, &data1), (beta2, &data2)) } else { ((beta2, &data2), (beta1, &data1)) };
             let flat_selected = flat(data, beta);
             let check = flat_selected && !flat(other, other_beta) && near(other);
@@ -1330,7 +1312,7 @@ fn tfun(
 }
 
 /// `opposite_regular`: the auxiliary poles avoid the integration endpoints.
-fn opposite_regular(p: [Z; 6], m: [Z; 4]) -> bool {
+fn opposite_regular<T: BoxReal>(p: [Z<T>; 6], m: [Z<T>; 4]) -> bool {
     if nz(p[0]) || nz(p[2]) {
         return false;
     }
@@ -1347,7 +1329,7 @@ fn opposite_regular(p: [Z; 6], m: [Z; 4]) -> bool {
     nz(n * (kk + l + n))
 }
 
-fn opposite_chart(p: [Z; 6], m: [Z; 4], k: &Constants<f64>) -> Z {
+fn opposite_chart<T: BoxReal>(p: [Z<T>; 6], m: [Z<T>; 4], k: &Constants<T>) -> Z<T> {
     let dm = mass_directions(m);
     let a = p[4] - p[0];
     let c = p[3] - p[4] - p[2];
@@ -1396,7 +1378,7 @@ fn opposite_chart(p: [Z; 6], m: [Z; 4], k: &Constants<f64>) -> Z {
     )
 }
 
-fn opposite(p: [Z; 6], m: [Z; 4], k: &Constants<f64>) -> Z {
+fn opposite<T: BoxReal>(p: [Z<T>; 6], m: [Z<T>; 4], k: &Constants<T>) -> Z<T> {
     const CYCLES: [[usize; 6]; 4] = [
         [0, 1, 2, 3, 4, 5],
         [1, 2, 3, 0, 5, 4],
@@ -1429,14 +1411,14 @@ fn opposite(p: [Z; 6], m: [Z; 4], k: &Constants<f64>) -> Z {
 /// (1, 0) (`vertex::zero_external_suspicious`), and the reflected chart does
 /// not select a flat contour without a regular alternative where the
 /// original selects none (`vertex::reflection_unresolved`).
-fn zero_external(p: [Z; 6], m: [Z; 4], k: &Constants<f64>) -> Z {
+fn zero_external<T: BoxReal>(p: [Z<T>; 6], m: [Z<T>; 4], k: &Constants<T>) -> Z<T> {
     if !nz(m[2]) && nz(m[3]) && nz(p[1]) {
         let at_10 = m[0] - m[1] + p[1] - p[4];
         let at_00 = m[0] - m[1] + p[5] - p[3];
-        if negative(64.0 * norm(at_10) - 63.0 * norm(at_00)) {
+        if negative(T::lit(64.0) * norm(at_10) - T::lit(63.0) * norm(at_00)) {
             let reflected = [p[0], p[3], p[2], p[1], p[5], p[4]];
             let reflected_m = [m[1], m[0], m[3], m[2]];
-            let distinct = |a: Z, b: Z, c: Z| {
+            let distinct = |a: Z<T>, b: Z<T>, c: Z<T>| {
                 let [cc, ab] = [c * c, r(4.0) * a * b];
                 !below(52, norm(cc - ab), norm(cc) + norm(ab))
             };
@@ -1453,7 +1435,7 @@ fn zero_external(p: [Z; 6], m: [Z; 4], k: &Constants<f64>) -> Z {
     zero_external_chart(p, m, k)
 }
 
-fn zero_external_chart(p: [Z; 6], m: [Z; 4], k: &Constants<f64>) -> Z {
+fn zero_external_chart<T: BoxReal>(p: [Z<T>; 6], m: [Z<T>; 4], k: &Constants<T>) -> Z<T> {
     let dm = mass_directions(m);
     let a = p[2];
     let b = p[1];
@@ -1530,7 +1512,7 @@ fn zero_external_chart(p: [Z; 6], m: [Z; 4], k: &Constants<f64>) -> Z {
     )
 }
 
-fn ordered(p: [Z; 6], m: [Z; 4], k: &Constants<f64>) -> Z {
+fn ordered<T: BoxReal>(p: [Z<T>; 6], m: [Z<T>; 4], k: &Constants<T>) -> Z<T> {
     let dm = mass_directions(m);
     let a = p[2];
     let b = p[1];
@@ -1553,7 +1535,7 @@ fn ordered(p: [Z; 6], m: [Z; 4], k: &Constants<f64>) -> Z {
     let def = m[1] - p[5];
     let [x1, x2] = roots(g, j, b);
     let alpha = if negative(x1.re * x1.re - x2.re * x2.re) { x2 } else { x1 };
-    let o1 = ONE - alpha;
+    let o1 = one() - alpha;
     let j1 = j + r(2.0) * g * alpha;
     let e1 = e + kk * alpha;
     let de1 = dm[1] - dm[2] + (dm[0] - dm[1]) * alpha;
@@ -1565,7 +1547,7 @@ fn ordered(p: [Z; 6], m: [Z; 4], k: &Constants<f64>) -> Z {
     let l02 = kallen(p[4], m[0], m[2]);
     let l13 = kallen(p[5], m[1], m[3]);
     // The lines and their coefficient sums (g + h, g + j, g + h + j).
-    let sums = |[g, h, j]: [Z; 3]| [g + h, g + j, (g + h) + j];
+    let sums = |[g, h, j]: [Z<T>; 3]| [g + h, g + j, (g + h) + j];
     let line1 = [c + r(2.0) * b + (h + j) * alpha, j1, e1];
     let line2 = [c + h * alpha, o1 * j1, e1];
     let line3 = [c + h * alpha, -j1 * alpha, e1];
@@ -1682,14 +1664,14 @@ const PRM_B: [usize; 24] = [
 ];
 
 /// `sort_four`: the leaf of the expression's comparison tree (1-based).
-fn sort_four(a: f64, b: f64, c: f64, d: f64) -> usize {
+fn sort_four<T: BoxReal>(a: T, b: T, c: T, d: T) -> usize {
     const OUTPUTS: [usize; 24] = [
         10, 9, 8, 4, 11, 12, 7, 3, 24, 23, 22, 2, 14, 13, 18, 5, 15, 16, 17, 6, 19, 20, 21, 1,
     ];
     let leaf = |index: usize| OUTPUTS[index - 1];
     // le(x, y) = 1 - less(y, x)
-    let le = |x: f64, y: f64| !negative(y - x);
-    let choose = |x: f64, y: f64, yes: usize, no: usize| if le(x, y) { yes } else { no };
+    let le = |x: T, y: T| !negative(y - x);
+    let choose = |x: T, y: T, yes: usize, no: usize| if le(x, y) { yes } else { no };
     let branch1 = || choose(c, d, leaf(1), choose(b, d, leaf(2), choose(a, d, leaf(3), leaf(4))));
     let branch2 = || choose(b, d, leaf(5), choose(c, d, leaf(6), choose(a, d, leaf(7), leaf(8))));
     let branch3 = || choose(b, d, leaf(9), choose(a, d, leaf(10), choose(c, d, leaf(11), leaf(12))));
@@ -1715,14 +1697,14 @@ fn sort_four(a: f64, b: f64, c: f64, d: f64) -> usize {
 
 /// Re of the four Källén functions of the three-point sub-kinematics.
 #[inline]
-fn lambdas(p: [Z; 6]) -> [f64; 4] {
+fn lambdas<T: BoxReal>(p: [Z<T>; 6]) -> [T; 4] {
     [(0, 1, 4), (1, 2, 5), (2, 3, 4), (3, 0, 5)].map(|(a, b, c)| {
         let x = p[c] - p[a] - p[b];
         (x * x - r(4.0) * p[a] * p[b]).re
     })
 }
 
-fn general(p: [Z; 6], m: [Z; 4], k: &Constants<f64>) -> Z {
+fn general<T: BoxReal>(p: [Z<T>; 6], m: [Z<T>; 4], k: &Constants<T>) -> Z<T> {
     let lambda = lambdas(p);
     let sorted = sort_four(lambda[0], lambda[1], lambda[2], lambda[3]);
     let all_positive = lambda.iter().all(|l| !negative(*l));
@@ -1738,7 +1720,7 @@ fn general(p: [Z; 6], m: [Z; 4], k: &Constants<f64>) -> Z {
 }
 
 /// `__olo_boxc_box`: the finite contour box for one mass/momentum labeling.
-pub(super) fn boxc(p: [Z; 6], m: [Z; 4], k: &Constants<f64>) -> Z {
+pub(super) fn boxc<T: BoxReal>(p: [Z<T>; 6], m: [Z<T>; 4], k: &Constants<T>) -> Z<T> {
     const PERM: [[usize; 6]; 16] = [
         [0, 1, 2, 3, 4, 5],
         [0, 1, 2, 3, 4, 5],
@@ -1772,7 +1754,7 @@ pub(super) fn boxc(p: [Z; 6], m: [Z; 4], k: &Constants<f64>) -> Z {
 }
 
 /// `supported_kinematics` of the contour representation.
-pub(super) fn supported_kinematics(p: [Z; 6]) -> bool {
+pub(super) fn supported_kinematics<T: BoxReal>(p: [Z<T>; 6]) -> bool {
     if !nz(p[4]) || !nz(p[5]) {
         return false;
     }
@@ -1790,7 +1772,15 @@ mod expression_tests {
     use super::*;
     use crate::definitions::FunctionMap;
     use symbolica::atom::{Atom, AtomCore};
+    use symbolica::domains::float::Complex;
     use symbolica::prelude::RealLike;
+
+    // The binary64 port.
+    type Z = super::Z<f64>;
+    type Cont = super::Cont<f64>;
+    type BetaData = super::BetaData<f64>;
+    const ZERO: Z = Z { re: 0.0, im: 0.0 };
+    const ONE: Z = Z { re: 1.0, im: 0.0 };
 
     struct Rng(u64);
     impl Rng {
@@ -1833,11 +1823,12 @@ mod expression_tests {
             .direct_translation(true)
             .build()
             .unwrap()
-            .map_coeff(&|v| Z::new(v.re.to_f64(), v.im.to_f64()));
+            .map_coeff(&|v| Complex::new(v.re.to_f64(), v.im.to_f64()));
         move |input: &[Z]| {
-            let mut out = [ZERO];
-            evaluator.evaluate(input, &mut out);
-            out[0]
+            let input: Vec<Complex<f64>> = input.iter().map(|z| z.c()).collect();
+            let mut out = [Complex::new(0.0, 0.0)];
+            evaluator.evaluate(&input, &mut out);
+            Z::of(out[0])
         }
     }
 
@@ -2012,7 +2003,7 @@ mod expression_tests {
             // of the root, where the product replaces its offset.
             let conic = [ZERO, ZERO, ONE, ZERO, ZERO, ZERO];
             let data = |product: Z| BetaData { a: product, b: ZERO, c: ZERO, dc: ZERO, k: ONE, y: [Cont { v: ZERO, f: ZERO, s: ZERO }; 2] };
-            fn given<'a>(data: &'a BetaData, conic: &'a [Z; 6]) -> LineProduct<'a> {
+            fn given<'a>(data: &'a BetaData, conic: &'a [Z; 6]) -> LineProduct<'a, f64> {
                 LineProduct { line: [ZERO, ONE, ONE, ZERO, ONE], ratio: [ZERO, ONE], conic, data, a1: data.a, probe: None }
             }
             let near = |rng: &mut Rng, root: Z| root + Z { re: 1e-6 * rng.real(), im: 1e-6 * rng.real() };
