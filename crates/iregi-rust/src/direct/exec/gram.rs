@@ -510,19 +510,18 @@ fn rank_of(key: &Key) -> u16 {
 /// Every `kappa` with `|kappa| = total` over `nm` (2 or 3) momenta, padded
 /// with zeros to three components.
 fn compositions(total: u16, nm: usize) -> Vec<[u16; 3]> {
-    let mut out = Vec::new();
-    if nm == 2 {
-        for a in 0..=total {
-            out.push([a, total - a, 0]);
-        }
-        return out;
-    }
-    for a in 0..=total {
-        for b in 0..=total - a {
-            out.push([a, b, total - a - b]);
-        }
-    }
+    let t = usize::from(total);
+    let mut out = Vec::with_capacity(if nm == 2 { t + 1 } else { (t + 1) * (t + 2) / 2 });
+    out.extend(composition_iter(total, nm));
     out
+}
+
+/// [compositions] in the same order, without a vector.
+fn composition_iter(total: u16, nm: usize) -> impl Iterator<Item = [u16; 3]> {
+    (0..=total).flat_map(move |a| {
+        let last = if nm == 2 { 0 } else { total - a };
+        (0..=last).map(move |b| if nm == 2 { [a, total - a, 0] } else { [a, b, total - a - b] })
+    })
 }
 
 /// `-sum_{m,n} eps_{ikm} eps_{jln} Z_mn`: the second adjugate of a 3x3
@@ -1160,10 +1159,11 @@ where
                 .collect();
             let mut cur: Coefficients<T> = Coefficients::with_capacity(grading.end(target + 1));
             cur.insert(&grading, (0, [0, 0, 0]), d0.clone(), &zero)?;
+            let mut rhs: Vec<L4<T>> = Vec::with_capacity(nm);
             for q in 0..target {
                 for lambda in 0..=q / 2 {
-                    for kappa in compositions(q - 2 * lambda, nm) {
-                        let mut rhs: Vec<L4<T>> = Vec::with_capacity(nm);
+                    for kappa in composition_iter(q - 2 * lambda, nm) {
+                        rhs.clear();
                         for n1 in 0..nm {
                             let mut value = shat_of(n1, lambda, kappa)?.clone();
                             if let Some(less) = sub(kappa, n1) {
@@ -1333,7 +1333,7 @@ where
                     Ok(())
                 };
                 let gc_momentum = |cur: &mut Coefficients<T>, prev: Option<&Coefficients<T>>, p: u16| -> Result<(), String> {
-                    for kappa in compositions(p, nm) {
+                    for kappa in composition_iter(p, nm) {
                         let mut metric = cur.need(&grading, (1, kappa), "small-Gram/Cayley expansion")?.clone();
                         mul_dimension(&mut metric, &self.prototype.from_usize(p as usize + 4 - nm));
                         let mut bracket = lzero(&zero);

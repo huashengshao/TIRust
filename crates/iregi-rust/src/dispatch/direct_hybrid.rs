@@ -589,6 +589,107 @@ where
         }
     }
 
+    /// The double-double tier's looser gate, checked a posteriori where the
+    /// rotation test applies: the lanes it accepted (`outcomes`, written to
+    /// `result`) are evaluated again with rotated propagators, and a
+    /// disagreement refuses the lane (the caller escalates it). Lanes whose
+    /// binary64 estimate is mild (refused by a rotation difference d <= 2^-20:
+    /// a double-double error ~ d 2^-53) are not checked again.
+    fn check_double_double(
+        &mut self,
+        batch: &KinematicsBatch<T>,
+        lanes: &[usize],
+        conditions: &[Option<f64>],
+        outcomes: &mut [(LaneStatus, Option<f64>)],
+        result: &BatchResult<T>,
+        profile: &mut ExecutionProfile,
+    ) -> Result<(), ReductionError> {
+        if !rotation_tested(self.plan.direct.settings()) {
+            return Ok(());
+        }
+        let bits = RESCUE_BITS[0];
+        let accepted: Vec<usize> = lanes
+            .iter()
+            .zip(outcomes.iter())
+            .filter(|(lane, (status, _))| {
+                *status == LaneStatus::Success
+                    && !conditions.get(**lane).copied().flatten().is_some_and(|c| c >= RESCUE_CHECK_CONDITION)
+            })
+            .map(|(&lane, _)| lane)
+            .collect();
+        if accepted.is_empty() {
+            return Ok(());
+        }
+        let n = self.plan.direct.settings().propagators;
+        let mut check = result.clone();
+        let checks = self.rescue_tier(0, &rotated(batch, n), &accepted, &mut check, profile)?;
+        let stride = result.basis.len() * 4;
+        let width = 5 * n + 1;
+        for (&lane, (status, _)) in accepted.iter().zip(checks) {
+            let difference = if status == LaneStatus::Success {
+                let mu = batch.values[lane * width + 5 * n].re.to_f64();
+                lane_difference(
+                    &result.basis,
+                    &result.values[lane * stride..(lane + 1) * stride],
+                    &check.values[lane * stride..(lane + 1) * stride],
+                    mu,
+                )
+            } else {
+                f64::INFINITY
+            };
+            if difference > RESCUE_ROTATION_TOLERANCE {
+                let index = lanes.iter().position(|&other| other == lane).unwrap();
+                outcomes[index] = (
+                    LaneStatus::Unstable(format!(
+                        "loop-rotation test at {bits} bits: arrays differ by E/A {difference:e}"
+                    )),
+                    Some(0.0),
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// With the precision rescue on, lanes the a priori method choice kept
+    /// without a clear agreement (`HARDER_AGREEMENT`) are evaluated by the
+    /// double-double tier (with its rotation check) before the binary64 retry
+    /// with every box and triangle off PV, which costs about four times as
+    /// much per lane and bettered only part of them. A lane the tier accepts
+    /// takes its double-double array; the lanes it refuses are returned (for
+    /// that binary64 retry) with the choice's array.
+    fn upgrade_to_double_double(
+        &mut self,
+        batch: &KinematicsBatch<T>,
+        lanes: &[usize],
+        conditions: &[Option<f64>],
+        result: &mut BatchResult<T>,
+        profile: &mut ExecutionProfile,
+    ) -> Result<Vec<usize>, ReductionError> {
+        let mut trial = result.clone();
+        let mut outcomes = self.rescue_tier(0, batch, lanes, &mut trial, profile)?;
+        self.check_double_double(batch, lanes, conditions, &mut outcomes, &trial, profile)?;
+        let stride = result.basis.len() * 4 * result.components;
+        let bits = RESCUE_BITS[0];
+        let mut successes = 0;
+        let mut refused = Vec::new();
+        for (&lane, (status, _)) in lanes.iter().zip(outcomes) {
+            if status == LaneStatus::Success {
+                successes += 1;
+                result.values[lane * stride..(lane + 1) * stride]
+                    .clone_from_slice(&trial.values[lane * stride..(lane + 1) * stride]);
+                result.fallback_used[lane] = true;
+                result.estimated_errors[lane] = None;
+                self.diagnostics[lane].push(format!("direct engine at {bits} bits: accepted"));
+            } else {
+                self.diagnostics[lane].push(format!("direct engine at {bits} bits: {status:?}"));
+                refused.push(lane);
+            }
+        }
+        self.last.fallback_successes += successes;
+        self.last.precision_rescue.push(DirectRescueTier { bits, rows: lanes.len(), successes });
+        Ok(refused)
+    }
+
     /// Precision rescue of the conditioning-refused lanes among `retry`.
     /// Returns the lanes left for the symbolic engine.
     fn precision_rescue(
@@ -620,51 +721,8 @@ where
             }
             let bits = RESCUE_BITS[tier];
             let mut outcomes = self.rescue_tier(tier, batch, &lanes, result, profile)?;
-            if tier == 0 && rotation_tested(self.plan.direct.settings()) {
-                // The double-double tier's looser gate is checked a posteriori:
-                // the accepted lanes are evaluated again with rotated
-                // propagators; a disagreement escalates the lane.
-                // Lanes whose binary64 estimate is mild (refused by a rotation
-                // difference d <= 2^-20: a double-double error ~ d 2^-53) are
-                // not checked again.
-                let accepted: Vec<usize> = lanes
-                    .iter()
-                    .zip(&outcomes)
-                    .filter(|(lane, (status, _))| {
-                        *status == LaneStatus::Success
-                            && !conditions.get(**lane).copied().flatten().is_some_and(|c| c >= RESCUE_CHECK_CONDITION)
-                    })
-                    .map(|(&lane, _)| lane)
-                    .collect();
-                if !accepted.is_empty() {
-                    let n = self.plan.direct.settings().propagators;
-                    let mut check = result.clone();
-                    let checks = self.rescue_tier(tier, &rotated(batch, n), &accepted, &mut check, profile)?;
-                    let stride = result.basis.len() * 4;
-                    let width = 5 * n + 1;
-                    for (&lane, (status, _)) in accepted.iter().zip(checks) {
-                        let difference = if status == LaneStatus::Success {
-                            let mu = batch.values[lane * width + 5 * n].re.to_f64();
-                            lane_difference(
-                                &result.basis,
-                                &result.values[lane * stride..(lane + 1) * stride],
-                                &check.values[lane * stride..(lane + 1) * stride],
-                                mu,
-                            )
-                        } else {
-                            f64::INFINITY
-                        };
-                        if difference > RESCUE_ROTATION_TOLERANCE {
-                            let index = lanes.iter().position(|&other| other == lane).unwrap();
-                            outcomes[index] = (
-                                LaneStatus::Unstable(format!(
-                                    "loop-rotation test at {bits} bits: arrays differ by E/A {difference:e}"
-                                )),
-                                Some(0.0),
-                            );
-                        }
-                    }
-                }
+            if tier == 0 {
+                self.check_double_double(batch, &lanes, conditions, &mut outcomes, result, profile)?;
             }
             let mut successes = 0;
             for (&lane, (status, condition)) in lanes.iter().zip(outcomes) {
@@ -1135,6 +1193,15 @@ where
         // below COLLIER's, for 20% of the hexagon and 34% of the pentagon
         // amplitude's time).
         let binary64_retries = !(self.precision_rescue == PrecisionRescue::Automatic && n >= 7);
+        // With the precision rescue on, lanes the a priori choice does not keep
+        // go to the rescue directly: the binary64 retries below (below the
+        // gate, by the expansions, by the alternative PV, every box and
+        // triangle off PV) kept 2 of 8 such box lanes of the hexagon amplitude
+        // at about 2 ms per lane, where the double-double tier takes about
+        // 0.6 ms per box lane and gives 106 bits (on stability-20261030 the 15
+        // box points these retries kept reach E/A 2e-31 or below that way).
+        let rescue_after_choice =
+            choice_enabled && binary64_retries && self.precision_rescue == PrecisionRescue::Automatic;
         let estimated: Vec<usize> = if choice_enabled && binary64_retries {
             (0..batch.rows)
                 .filter(|&lane| matches!(result.statuses[lane], LaneStatus::Unstable(_)))
@@ -1148,7 +1215,9 @@ where
             checked.retain(|&lane| result.statuses[lane] != LaneStatus::Success);
             // Lanes the pass refused and the choice kept without a clear
             // agreement: every box and triangle with w > 2 off PV as well,
-            // kept where its rotated copy agrees better.
+            // kept where its rotated copy agrees better; with the precision
+            // rescue on, the double-double tier first
+            // (`upgrade_to_double_double`), this retry for the lanes it refuses.
             if n >= 5 {
                 let harder: Vec<usize> = estimated
                     .iter()
@@ -1159,12 +1228,17 @@ where
                     })
                     .map(|(&lane, _)| lane)
                     .collect();
+                let harder = if self.precision_rescue == PrecisionRescue::Automatic && !harder.is_empty() {
+                    self.upgrade_to_double_double(batch, &harder, &conditions, &mut result, &mut profile)?
+                } else {
+                    harder
+                };
                 if !harder.is_empty() {
                     self.checked_retry(batch, &harder, tolerance, &mut result, &mut profile, 3)?;
                 }
             }
         }
-        if !checked.is_empty() {
+        if !checked.is_empty() && !rescue_after_choice {
             checked.sort_unstable();
             checked.dedup();
             self.checked_retry(batch, &checked, tolerance, &mut result, &mut profile, 0)?;
@@ -1190,7 +1264,7 @@ where
         // certified only gate-refused lanes, and on the opening N7R7 batch of
         // 32 (precision rescue disabled) it kept none of its 12 such lanes in
         // 0.51 s of 0.80 s.
-        if checkable && binary64_retries {
+        if checkable && binary64_retries && !rescue_after_choice {
             let rest: Vec<usize> = (0..batch.rows)
                 .filter(|&lane| {
                     matches!(result.statuses[lane], LaneStatus::Unstable(_))

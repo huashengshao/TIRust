@@ -142,6 +142,14 @@ impl SubsetStore {
         value
     }
 
+    /// Pass the stored result for `key` to `read` (a hit), without copying it.
+    pub(crate) fn get_with<R>(&self, key: &[u64], read: impl FnOnce(&SharedValue) -> R) -> Option<R> {
+        let map = self.map.lock().unwrap_or_else(|e| e.into_inner());
+        let value = map.get(key)?;
+        self.hits.fetch_add(1, Ordering::Relaxed);
+        Some(read(value))
+    }
+
     /// Store a freshly computed result (a miss).
     pub(crate) fn put(&self, key: Vec<u64>, value: SharedValue) {
         self.misses.fetch_add(1, Ordering::Relaxed);
