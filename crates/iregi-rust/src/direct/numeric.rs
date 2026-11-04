@@ -223,17 +223,26 @@ pub(crate) fn mul_dimension<T: NativeFloat>(value: &mut L4<T>, a: &T) {
 /// Multiply by `(a - 2 epsilon)^-1` through the finite term, `a != 0`.
 /// `inv_a = 1/a` is supplied by the caller at working precision.
 pub(crate) fn div_dimension<T: NativeFloat>(value: &mut L4<T>, inv_a: &T) {
-    let two = inv_a.from_usize(2);
-    let four = inv_a.from_usize(4);
+    div_dimension_by(value, &dimension_powers(inv_a));
+}
+
+/// `1/a`, `2/a^2` and `4/a^3` from `inv_a = 1/a`: the factors of
+/// [`div_dimension_by`], for callers that divide many values by one `a`.
+pub(crate) fn dimension_powers<T: NativeFloat>(inv_a: &T) -> [T; 3] {
     let inv2 = inv_a.clone() * inv_a;
     let inv3 = inv2.clone() * inv_a;
+    [inv_a.clone(), inv_a.from_usize(2) * &inv2, inv_a.from_usize(4) * &inv3]
+}
+
+/// [`div_dimension`] with its factors from [`dimension_powers`].
+pub(crate) fn div_dimension_by<T: NativeFloat>(value: &mut L4<T>, [inv_a, two_inv2, four_inv3]: &[T; 3]) {
     let [uv, ir1, ir2, finite] = value.clone();
     value[0] = cscale(&uv, inv_a);
-    value[1] = cadd(&cscale(&ir1, inv_a), &cscale(&ir2, &(two.clone() * &inv2)));
+    value[1] = cadd(&cscale(&ir1, inv_a), &cscale(&ir2, two_inv2));
     value[2] = cscale(&ir2, inv_a);
     value[3] = cadd(
-        &cadd(&cscale(&finite, inv_a), &cscale(&cadd(&uv, &ir1), &(two * &inv2))),
-        &cscale(&ir2, &(four * &inv3)),
+        &cadd(&cscale(&finite, inv_a), &cscale(&cadd(&uv, &ir1), two_inv2)),
+        &cscale(&ir2, four_inv3),
     );
 }
 
