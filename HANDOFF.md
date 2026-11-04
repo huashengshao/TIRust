@@ -732,6 +732,58 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    COLLIER cache 78.7 ms, shared/separate 0.466 -> 0.452; pentagon 38.7 ->
    35.8 ms (blocks 34.8-44.1, within noise as the A/B said), x2.0
    [1.86, 2.35]; moments 455/457; fingerprints unchanged.
+   DD PRODUCTS WITH A REAL FACTOR (user: "Double-double rescue", 4 Nov),
+   c8b8264, bit-identical. Rescue = inject_external 512.5 MIr of the
+   2.239 GIr hexagon call (22.9%): 62 DD subset reductions (60 boxes), 914
+   master evaluations, 468 MIr in oneloopmaster's generated DD expressions
+   (D0 335 MIr = 5.6 MIr per box; C0 121), 282 MIr of it in DD complex_mul
+   (1.1M calls, ~246 Ir each). Operand census (temporary instrumentation,
+   removed): 76% of the products have two real factors (zero imaginary
+   limbs), 17.5% one; 44% have a +-1 factor, 65% a power of two, 0
+   nonfinite. Fix (oneloopmaster native/double_double.rs, upstream PR
+   below): complex_mul skips the products with a zero imaginary part when
+   every limb is finite (sum of the limbs finite), else the full kernel
+   (complex_mul_full). Bitwise: every component sum starts from +0, a zero
+   product changes neither the leading sum nor the error terms, zeros come
+   out +0 either way (step-by-step derivation; test over zeros with every
+   limb sign, tiny, huge and ordinary limbs). The test is on values at run
+   time: complex squared masses take the full kernel where both factors are
+   complex (user: "should also allow the complex-mass-based calculation in
+   the future"); native::complex_mass_tests evaluates D0/C0/B0 with
+   top/W/Z/H widths and real masses through the generated DD code, fast vs
+   full kernel (test-only switch), bit for bit; a value mutation in the
+   one-real path fails both tests (a -0 mutation is caught by the kernel
+   test only). Hexagon call 2.239 -> 2.106 GIr (rescue 512 -> 396 MIr,
+   complex_mul 282 -> 154, D0 5.6 -> 3.9 MIr per box); 10-round perf A/B vs
+   7022322 (load 118-136): instructions x0.940 (both amplitudes), cycles
+   x0.974 [0.912, 1.033] hexagon, x0.964 [0.949, 0.982] pentagon (the
+   skipped products were independent, cheap flops). Fingerprints
+   d5982c2edce61827 / ecd7d3be452f3803 unchanged; rescue-enabled dumps
+   (ab_dump with default options) of all 27500 stability points
+   byte-identical to the old kernel's. Remaining in the rescue (measured,
+   not done): repeated masters per hexagon amplitude call D0 60/55 distinct,
+   C0 242/185, B0 366/170, A0 246/1 (DD B0 ~17k Ir, A0 less): a DD master
+   cache in the amplitude store (exact limbs as key) would save ~44 MIr
+   (~2%); logs per DD D0 320 (255 distinct), dilogs 76 (75 distinct), so
+   memoizing within an evaluation saves ~3% of a D0. The large lever is
+   algorithmic: the hand-written C0/D0 sector kernels serve binary64 only
+   (DD uses the generated expressions, which need those ~255 logs and 75
+   dilogs per box); a DD port changes rescued bits (user decision).
+   Captures of c8b8264: stability 030 = 029 in every TIRust status, error
+   and diagnostic on all 27500 points. Timing 026 (CPU 158, load 141-225;
+   13 of 38 batch measurements began on a partly busy core, 0.14-1.0):
+   TIRust rows median +0.6% vs 025 (busy +1.2%, others +0.4%), COLLIER
+   +0.6%, IREGI +0.5%; within 5% except N7R7 (batch 1 +4..+11%; batch 32
+   default -12%, contracted -4%, binary64-only -1..+8%, core fully busy).
+   Amplitude 013 (CPU 171, load 125-130; 012: 62-65): x2.65 [2.25, 2.92]
+   and x2.01 [1.78, 2.13]; TIRust shared 214.5 -> 221.8 / 35.8 -> 38.4 ms,
+   COLLIER cached 78.7 -> 82.4 / 18.8 -> 19.8 ms, hexagon separate and
+   uncached fell (510 -> 455, 296 -> 249 ms); fastest TIRust blocks 212.7
+   -> 204.4 and 34.8 -> 35.1 ms; fingerprints, moments 455/457 unchanged.
+   Upstream: alphal00p/oneloopmaster branch
+   real-factor-double-double-products (e53d179 on main 128ea66); the PR
+   is opened once the full suite fails alike on main and the branch
+   (PR number in the next report commit).
 4n. **Improve the amplitude cache (user: "very important", 2 Nov).**
    Miss diagnostic (hexagon amplitude, 32 points, sharing on: 312 reused,
    333 computed per call): of the 333, 103 have an earlier result for the
