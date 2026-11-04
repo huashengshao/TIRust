@@ -894,6 +894,54 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    hexagon block 185.9 -> 178.8 (blocks 178.8-193.2); the expected ~3% is
    within noise. Hexagon fingerprint 627118d8081d80dd -> b89f51302382fec0,
    on = off, 1824/1824; pentagon unchanged.
+   RETRY LADDER + ALLOCATIONS (user: "Yes, binary64 next", then "Retry
+   ladder + allocs", 4 Nov), e76dd38. Profile of ac7128e
+   hexagon call (1.909 GIr; devopt trace, 203 ms): first pass 59 ms,
+   rotated copies ~54, retries 65 (boxes 46: stage 4 kept 20/28 in 29 ms,
+   stage 3 rest 2/8 in 16 ms; harder stage 3 on accepted n>=5 lanes 11
+   ms), rescue+consensus ~25. Kernels arithmetic-bound (gather, PV,
+   expansion recursion). DHAT steady state 372k allocations/call: native
+   masters' store keys 145k (exec.rs vec!+extend), store get copies 39k,
+   lightlike_coefficients scratch 81k, gram compositions 53k, gram.rs
+   per-kappa rhs 16k. Change (direct_hybrid.rs): rescue_after_choice
+   (choice on, binary64 retries, rescue Automatic) skips stages 0/1/2 and
+   3-rest -> refused lanes go to the rescue (DD ~0.6 ms per box lane vs ~2
+   ms stage 3); harder lanes -> upgrade_to_double_double (tier 0 +
+   check_double_double, refactored out of precision_rescue) first, stage 3
+   only for lanes DD refuses (without that fallback 5 hexagon lanes got
+   worse, e.g. 3.1e-14 -> 6.8e-13). Binary64-only ladder unchanged.
+   Allocations (bit-identical): master_key buffer + SubsetStore::get_with,
+   hoisted scratch vectors, composition_iter / exact capacity, rhs reuse.
+   Evidence: binary64-only dumps byte-identical (27500); rescue dumps vs
+   ac7128e: statuses unchanged, box-r4 1, box-r6 14, pentagon 31, hexagon
+   11 arrays differ (<= 1.5e-10); stability (devopt driver, scratchpad
+   ladder-rl/ladder-rl2) vs capture 032: box 15 better, pentagon 31
+   better, hexagon 5 better, 0 worse, binary64-only identical; TIRust
+   flagged (= fallback_used) rises accordingly. Variant measurements
+   (devopt, one run): hexagon 209 -> 191 (rest skip) / 191 (harder skip)
+   / 178 (both) ms. Callgrind (before the DD-refused fallback): hexagon
+   1.909 -> 1.698 GIr, retries 632 -> 375 MIr, realloc 138k -> 3.8k.
+   Suites pass (iregi-rust 7, masters 5). Final bench build: callgrind
+   hexagon 1.698 GIr (unchanged by the DD-refused fallback); A/B vs
+   ac7128e (10 rounds, perf): hexagon cycles x0.902 [0.845, 0.942],
+   instructions x0.890, task-clock 182.3 -> 162.7 ms; pentagon cycles
+   x0.899 [0.887, 0.911], instructions x0.883, 29.7 -> 26.5 ms.
+   Captures (chain-rl.sh/final033.sh; timing waited 1 min for load < 300,
+   CPU 153; amplitude CPU 155): stability 033 vs 032 (matched by index):
+   box-r4 1, box-r6 14, pentagon 31, hexagon 5 better (max 5.2e-12 ->
+   < 1e-28 boxes, 0 pentagons/hexagons), 0 worse, binary64-only and
+   heptagons identical; rescued_by_bits 106 up by 1/14/31/5,
+   expansion_kept 1/13/21/7 -> 0/0/0/6, checked_kept box-r6 1 -> 0;
+   medians down <= 3.6%, worst arrays unchanged. Timing 029 (load 225 to
+   238) vs 028: every error and status identical; medians TIRust +0.1%,
+   COLLIER +1.2%, IREGI +0.7%; TIRust within -7/+5% except b1 N1R0
+   b64 contracted +8%; dot3 N4R6 -2..-7% (028 had +5..+9%); 19/38 busy;
+   N7R7 b32 171.5 ms (b64-only 166.3). Amplitude 016 (load 223 to 229):
+   x1.95 [1.92, 2.06] and x1.50 [1.42, 1.53]; TIRust shared 165.6/27.1
+   ms (015: 188.8/31.6), separate 296.6/29.7 (pentagon separate over
+   COLLIER no-cache x0.98 [0.94, 0.99]); COLLIER cache 84.7/18.1; blocks
+   do not overlap 015's; hexagon fingerprint fb38d648191764a4 (computed
+   3160 -> 3097), pentagon ecd7d3be452f3803 unchanged.
 4n. **Improve the amplitude cache (user: "very important", 2 Nov).**
    Miss diagnostic (hexagon amplitude, 32 points, sharing on: 312 reused,
    333 computed per call): of the 333, 103 have an earlier result for the
