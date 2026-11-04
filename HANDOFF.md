@@ -780,10 +780,76 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    COLLIER cached 78.7 -> 82.4 / 18.8 -> 19.8 ms, hexagon separate and
    uncached fell (510 -> 455, 296 -> 249 ms); fastest TIRust blocks 212.7
    -> 204.4 and 34.8 -> 35.1 ms; fingerprints, moments 455/457 unchanged.
-   Upstream: alphal00p/oneloopmaster branch
-   real-factor-double-double-products (e53d179 on main 128ea66); the PR
-   is opened once the full suite fails alike on main and the branch
-   (PR number in the next report commit).
+   Upstream: alphal00p/oneloopmaster PR #17 (branch
+   real-factor-double-double-products, e53d179 on main 128ea66; full
+   suite 261 passed against 257 on main, the same 29 failures as main).
+   Not merged (the user merges).
+   DD BOX KERNELS (user: "Yes, port them", 4 Nov; hand-written C0/D0
+   kernels for the DD rescue, changing rescued bits), 2db8ff8. The
+   vendored oneloopmaster box kernels (box_contour.rs boxc, boxes.rs
+   four-mass DNS/chart, vertex.rs) are generic over handwritten/real.rs
+   BoxReal (f64, DoubleFloat) on Z<T>, a Copy complex pair whose products
+   use T::complex_mul (binary64: Complex<f64>'s formula; DD: the fused
+   commutative kernel). Conversion: scratchpad ddport/convert.py + fix1.py
+   (every replacement asserted), then compiler-guided. DD semantics follow
+   the expressions: rounds_like_binary64 is 0 in DD, so tfun_selected keeps
+   every product of a parallel chart (no products_kept) and never probes
+   (BoxReal::BINARY64 gates tfun_lines, tfun_selected, tfun_checked's
+   probe); the `float` gates are 0 in both; run-time precision tests (far
+   root `(1+bound)-1 == 0`) are decided by T; far-root 1/n now a T division
+   (exact rational in DD). NativeEvaluator.handwritten is now [c0, d0]:
+   binary64 both, DD D0 only; C0 stays generated in DD because the
+   (already generic) triangle kernel keeps ~1e-24 next to two-particle
+   thresholds where generated DD keeps 1e-32 (11 of 2620 random triangles
+   >16x worse, 1 better; the rest of the losses are thresholds). Tests:
+   handwritten::double_double_tests (DD hand vs DD generated vs 256/512-bit
+   generated Float): random boxes 507 resolved, worst 3.9e-28 vs 1.1e-28,
+   0 worse/0 better; threshold boxes 476 resolved, both lose digits, 1
+   worse (7.8e-16 vs 3.0e-17) / 6 better, no gross deviation (2^-40).
+   Binary64 bit-identical: binary64-only dumps of all 27500 points
+   byte-identical to 7022322; box_contour expression tests unchanged.
+   Rescue dumps vs c8b8264: all statuses unchanged, 60/27500 arrays differ,
+   max 3.0e-15 of the array's largest entry (heptagon 124). Hexagon call
+   2.106 -> 1.955 GIr; rescue 396 -> 265 MIr; DD family_values 334 -> 184
+   MIr (DD complex_mul calls 1.22M -> 0.41M; logs 26.2k and dilogs 7.4k
+   per call unchanged, now dominant: DD log ~1960 Ir, dilog ~4800 Ir).
+   10-round perf A/B vs c8b8264 (load 221-258): instructions x0.929 /
+   x0.915, cycles x0.894 [0.842, 0.965] / x0.872 [0.835, 0.940],
+   task-clock 215.3 -> 194.2 ms / 35.3 -> 31.1 ms (hexagon / pentagon).
+   Suites pass: iregi-rust amplitude_sharing 3, direct_engine 19,
+   legacy_rescue 1, mixed_precision_accuracy 6, physical_box 1,
+   regulators 1, shifted_pentagon 4 (+1 ignored); iregi-masters masters
+   10, nonfinite_d0_repair 1, numeric_boundaries 4, pseudothreshold 5,
+   small_momentum_b0 1; oneloop native 18. Upstream: alphal00p/
+   oneloopmaster PR #18 (branch double-double-box-kernels, 12689e9 on main
+   128ea66; independent of #17): native_double_float_d0 (DD four-mass box,
+   every labelling, 1e-29) and native_handwritten pass; full suite 259
+   passed against 257 on main, the same 29 failures. Not merged. Per hexagon call (callgrind callees of
+   family_values<DD>): D0 60 generated 234.1 MIr -> 39 boxc 78.1 MIr + 21
+   four_masses_chart 5.4 MIr (83.5 MIr, x0.36); generated DD C0 242 calls
+   91.1 MIr unchanged, now the largest master cost. Next levers: the DD
+   triangle kernel's threshold accuracy (then C0 in DD), cheaper DD
+   log/dilog.
+   Captures of 2db8ff8: timing 027 (CPU 135, load 201-212; 14 of 38
+   batch measurements began on a partly busy core, 0.06-1.0): TIRust rows
+   median x1.000 vs 026 (-4.2..+5.7% outside N7R7), COLLIER x0.999, IREGI
+   x1.003; lane-0 errors and statuses unchanged. N7R7 batch 32 (12 rescued
+   lanes) 193.4 -> 180.7 ms per call (025: 219.2), binary64-only 166-168
+   ms in 025-027: rescue share 51 -> 27 -> 12 ms. N7R7 batch 1 default and
+   contracted -9..-10% (back to 025), IREGI N4R6 b32 -10% (back to 025).
+   Amplitude 014 (CPU 202, load 195; pentagon core 0.44 busy before):
+   x2.28 [2.24, 2.54] and x1.75 [1.72, 1.77]; TIRust shared 221.9 ->
+   187.7 / 38.4 -> 31.5 ms, separate 455 -> 369 / 40.2 -> 34.0, COLLIER
+   cached 82.4 -> 82.6 / 19.8 -> 18.0; blocks 186-205 / 30.9-32.1 ms;
+   hexagon fingerprint d5982c2edce61827 -> 627118d8081d80dd (rescued last
+   bits), on = off, 1824/1824; pentagon ecd7d3be452f3803 unchanged.
+   Stability 031 vs 030: 19 of 27500 points change in TIRust default
+   fields only (box-r4 1, pentagon 3, hexagon 11, heptagon 4); no status,
+   flag or binary64-only change; E/A relative change <= 6e-3 except box-r4
+   7388 (1.85e-17 -> 1.31e-17), which moves one curve grid point by 1e-4
+   (codes and contracted); medians, p99, max, flagged, rescued_by_bits
+   unchanged everywhere; 2 hexagon diagnostics (cyclic-order agreement
+   9.0855e-15 -> 9.0930e-15 and similar).
 4n. **Improve the amplitude cache (user: "very important", 2 Nov).**
    Miss diagnostic (hexagon amplitude, 32 points, sharing on: 312 reused,
    333 computed per call): of the 333, 103 have an earlier result for the

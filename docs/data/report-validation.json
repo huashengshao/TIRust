@@ -1,14 +1,14 @@
 {
  "schema_version": 1,
- "recorded_utc": "2026-11-04T10:22:25.768447+00:00",
+ "recorded_utc": "2026-11-04T13:59:13.964910+00:00",
  "status": "passed_stability_study_report_rebuild",
  "scope": "Binary64 stability study (TIRust, original IREGI, COLLIER against a confirmed high-precision reference) and the direct-engine precision rescue; all previous records unchanged.",
  "report_artifacts": {
-  "HANDOFF.md": "5c3b8d44b2a36504cc9e41fc59359ed3b02c831b18548acfff3cb96e16cef464",
+  "HANDOFF.md": "d9e62aaa415e048d93894ee8f75d40f954f03485fcb3a8ff0a9ba61d3ee0ce81",
   "README.md": "875b37f99f1dc25a4d56ec01283941e5352e0fa0a3f5ea6e14ebcf3ff085c04f",
   "docs/algebra-reuse.typ": "c4b1b2449f07d6e2d68cb707986b27165e7fae5c2775c8edb8fc1a5fce8a2e43",
-  "docs/benchmark.pdf": "8a1ca5728a5b40ccaf2f2f7f7599d575c587027bbcb17b1be116819583e0f1ea",
-  "docs/benchmark.typ": "cd22cd32fd16ef30f4b24dbc2eb8d38803a4aa09fa456542bfa3c190718173b6",
+  "docs/benchmark.pdf": "00907c1e73cec67714c67ad5cc859fffa9705b1c5075cc8ce5f2186a91dd983c",
+  "docs/benchmark.typ": "fc9c89deb6b22a29adc5475fd34121f07af673263d3957cf49d1d6a8b5d23fd2",
   "docs/checkpoints/rank6-current-20261026.md": "c80623ebea605ce88b78ac1478857202ab15bb3d99aa5af5a9bad04d177a3fe5",
   "docs/checkpoints/rank6-dual-precision-boundary-20261026.md": "6338ef15664907acf4aa7bcf172b1dd52f36d65c08a17e7ce33c4115077b6f55",
   "docs/checkpoints/rank6-dual-resource-boundaries-20261026.md": "c4520d220257784e1399afd3b27aebaf1b17fd016c3d750e7a9b5a9f804b7ca4",
@@ -33,7 +33,7 @@
   "docs/data/rank6-functional-completion-saved-replays-20261026.json": "2eafcee7593304e626814ef72182e54814a3ac0db89bc6bde12d5a34903d6d56",
   "docs/data/rank6-generalized-followup-20261026.json": "23d9edad5d4e4f4a89a3f612e1b808161c49956f3e6be7edb7c7d2e958a3c0a5",
   "docs/data/rank6-ordinary-closure-and-dual-route-20261026.json": "ce82c600c323ac682caaa667c9f6260055c84211cfab8705b0a44167396282ac",
-  "docs/data/results.json": "2619975caf31ba8c84c9b97b258c17818a5f7b6178920e2615c29c13c8f1d96d",
+  "docs/data/results.json": "ad2c3cd41c6268e6b8bb52da73dd17f44af31593d88d6f63ab6725cdd10773b3",
   "scripts/build-benchmark-report.sh": "2ccb0a7980c2f366199ad3a6a4ef86333fc3754f2400e52d1a651941e13408f0",
   "scripts/check-benchmark-report.py": "ed5ac011874fb36a4fc8417e551bd0107d3da0b439565c43b18d719e35a4d003",
   "validation/benchmark/opening-collier-20261026/manifest.json": "f5c87288d38db4eb70a4dced6ee91619100838d1d053461e453b20ef7193100f",
@@ -66,7 +66,7 @@
  "byte_identical_rebuild": true,
  "page_count": 87,
  "render_check": "Root inspected actual pages1-4; all-binary64 large cells, measured error and mode labels fit; pentagons unflagged; nonfinite N6 and refused dotted diagnostic durations explicit; no clipping.",
- "source_ledger_count": 575,
+ "source_ledger_count": 581,
  "source_ledger": [
   {
    "key": "n6_specialized_diagnostic",
@@ -2942,6 +2942,36 @@
    "key": "stability_20261030_build030",
    "source": "validation/benchmark/stability-20261030/build-030.json",
    "sha256": "c4d0dca9e89636d4ec095137eed3d20474c30510c5c14c7a1c4fb0d75fc036ae"
+  },
+  {
+   "key": "direct_engine_20261030_capture027",
+   "source": "validation/benchmark/direct-engine-20261030/summary-027.json",
+   "sha256": "1ffdd117e1248345d874b46021c266f5f6ae6335c7738cc3cc85aea53e422df5"
+  },
+  {
+   "key": "direct_engine_20261030_build027",
+   "source": "validation/benchmark/direct-engine-20261030/build-027.json",
+   "sha256": "9d30458be74eec00efe255b9b3dc9f15a822b9458a53e27e08e965bdfd3f47b6"
+  },
+  {
+   "key": "direct_engine_20261030_amplitude014",
+   "source": "validation/benchmark/direct-engine-20261030/amplitude/summary-014.json",
+   "sha256": "391496e6ecc96607375bdfb10265fa4ea51e6b95b25d2d86da2819f3761c7d78"
+  },
+  {
+   "key": "direct_engine_20261030_amplitude_build014",
+   "source": "validation/benchmark/direct-engine-20261030/amplitude/build-014.json",
+   "sha256": "e4c753e9bf179f64090a0259eaa6bb06f7f7a4c9c103aca42b944b7c51130161"
+  },
+  {
+   "key": "stability_20261030_capture031",
+   "source": "validation/benchmark/stability-20261030/summary-031.json",
+   "sha256": "cb40229e911514f2b1b10f5afaa39bece6855730bd23bfca44c2264f1905934a"
+  },
+  {
+   "key": "stability_20261030_build031",
+   "source": "validation/benchmark/stability-20261030/build-031.json",
+   "sha256": "be38a20267ad5a9a427b7e2041f23034e2db2e015a3eb6681101a05a5de56494"
   }
  ],
  "independent_arithmetic_review": {
@@ -36279,6 +36309,36 @@
   "new_result_records": [
    "stability_20261030_capture030",
    "stability_20261030_build030"
+  ],
+  "campaign": "validation/benchmark/stability-20261030",
+  "note": "All listed artifacts rehashed; historical result members preserved byte-for-byte."
+ },
+ "direct_engine_checkpoint_20261030_capture027": {
+  "base_commit": "2db8ff8",
+  "previous_proof_sha256": "5f3d9ad856210f82b1a905ac1aee5ef3c0422d23a3539ecb6659544d72a5ca34",
+  "new_result_records": [
+   "direct_engine_20261030_capture027",
+   "direct_engine_20261030_build027"
+  ],
+  "campaign": "validation/benchmark/direct-engine-20261030",
+  "note": "Previous proof was stale for HANDOFF.md at the base commit; all listed artifacts are rehashed here. Historical result members are preserved byte-for-byte."
+ },
+ "direct_engine_checkpoint_20261030_captureamp014": {
+  "base_commit": "2db8ff8",
+  "previous_proof_sha256": "91ab2e5c358da6eff135014f7d1b939a297a112730aef46c100d3eb45596f653",
+  "new_result_records": [
+   "direct_engine_20261030_amplitude014",
+   "direct_engine_20261030_amplitude_build014"
+  ],
+  "campaign": "validation/benchmark/direct-engine-20261030",
+  "note": "Previous proof was stale for HANDOFF.md at the base commit; all listed artifacts are rehashed here. Historical result members are preserved byte-for-byte."
+ },
+ "stability_checkpoint_20261030_capture031": {
+  "base_commit": "2db8ff8",
+  "previous_proof_sha256": "ab9c6f86dd2efbf94254f4cc0d14e4e788983fd65b24ba9cf1199fb64f927bc8",
+  "new_result_records": [
+   "stability_20261030_capture031",
+   "stability_20261030_build031"
   ],
   "campaign": "validation/benchmark/stability-20261030",
   "note": "All listed artifacts rehashed; historical result members preserved byte-for-byte."
