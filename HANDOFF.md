@@ -645,6 +645,48 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    251-310 ms) and was repeated as 010 (same build-record binaries):
    hexagon 263 -> 253 ms, x3.1 [2.75, 3.23] vs COLLIER cache 80.7 ms;
    pentagon 39.8 -> 37.6 ms, x2.1; fingerprints unchanged.
+   MOMENTS SHARED (user: "Share moments next", 3 Nov), 06daf37: the
+   amplitude store also keeps gathered Cartesian moments (own map in
+   SubsetStore: moments_with / put_moments; SubsetSharingStats
+   moments_reused / moments_computed, also in amplitude_timing FINAL/RESULT).
+   Key (tag 5): FULL, rank, momenta count, gather_scale bits, the momenta
+   and origin geometry bits, then the coefficient values of the computed
+   slots (all four, or 0 and 3 on IR-free lanes, which is all lfma_slots
+   and step 3 read) in summation order: everything the gather reads, so a
+   hit is exact by construction, wherever the coefficients came from.
+   Stored: the computed slots only (IR-free: slots 1 and 2 are rebuilt as
+   cscale(0, gather_scale), exactly as step 3 leaves them). A hit skips the
+   gather and the products only it uses (product_needed; a product's parent
+   belongs to every gather using it). Finding: boxes are NOT gathered
+   inside pentagon/hexagon integrals (Gram-free pentagons are gathered
+   directly), so the only repeats are the hexagon's pentagons (gathered by
+   the pentagon integrals first). Sharing every gather (606 hits of 3099)
+   made the pentagon amplitude +6.4% user cycles (+1.5% Ir: ~20 MB/call of
+   keys and moments); so only (size, rank) that some plan gathers below
+   its top subset are shared (DirectReductionPlan::nested_gathers ->
+   store.share_moments in AmplitudeWorkspace::new). The store map hashes
+   with an Fx-style KeyHasher (coefficient gets 26 -> 14 MIr). Hexagon
+   amplitude: 455 reused / 457 computed per call; steady call 2.738 ->
+   2.567 GIr (gather 635 -> 481 MIr); 10-round alternating perf-stat A/B
+   (load ~125; per call = difference of runs with N more calls): user cycles x0.955,
+   task-clock x0.950; pentagon amplitude nothing shared, x1.00 (wall-time
+   A/B at load ~210 could not resolve 5%). Bit-identical: fingerprints
+   d5982c2edce61827 / ecd7d3be452f3803 unchanged, 27500 binary64 dumps =
+   bdf47ab, tests incl. new shared_moments_with_ir_poles_are_bit_identical
+   (massless: all four slots shared). Hexagon call now (Ir): small-Gram
+   expansions (inject_gram/expand_top) 35%, double-double partial rescue
+   (inject_external) 20%, gather 19%, coefficient+moment programs 15%,
+   geometry 3%: the expansions and the rescue are the next levers (they
+   are shared only between equal keys, not across the rotation test's
+   origins). Captures (all on 06daf37, report commit after it):
+   stability 028 = 027 on all 27500 points (st024.py: no differing
+   field); timing 024 (CPU 136, load 165 -> 85) errors identical row by
+   row, TIRust rows median x0.986 vs 023, COLLIER x0.977, IREGI x0.981
+   (load 300 -> 120); TIRust/COLLIER median x1.01, TIRust/IREGI x1.00;
+   amplitude 011 (CPU 156, load ~77-110, busy 0): hexagon shared
+   251 ms (blocks 233-270), x3.0 [2.65, 3.37] vs COLLIER cache 84.2 ms,
+   shared/separate 0.489 -> 0.466; pentagon 38.7 ms, x2.1 [1.93, 2.34];
+   moments 455/457 (hexagon), 0/0 (pentagon); fingerprints unchanged.
 4n. **Improve the amplitude cache (user: "very important", 2 Nov).**
    Miss diagnostic (hexagon amplitude, 32 points, sharing on: 312 reused,
    333 computed per call): of the 333, 103 have an earlier result for the
