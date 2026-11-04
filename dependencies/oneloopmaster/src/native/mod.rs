@@ -348,3 +348,54 @@ pub(crate) fn validate_point<T: NativeFloat>(
     }
     Ok(())
 }
+
+#[cfg(all(test, feature = "generated-evaluators"))]
+mod complex_mass_tests {
+    use super::double_double;
+    use crate::{NativeEvaluator, ScalarIntegral};
+    use symbolica::domains::float::{Complex, DoubleFloat};
+
+    fn bits(z: &Complex<DoubleFloat>) -> [u64; 4] {
+        let (re, im) = (z.re.into_inner(), z.im.into_inner());
+        [re.hi().to_bits(), re.lo().to_bits(), im.hi().to_bits(), im.lo().to_bits()]
+    }
+
+    /// Masters with complex squared masses (m^2 - i m Gamma, as in the
+    /// complex-mass scheme) and with real ones, through the generated
+    /// double-double expressions: the fast paths must not change a bit.
+    #[test]
+    fn complex_mass_masters_are_bitwise_the_full_kernel() {
+        let real = |x: f64| Complex::new(DoubleFloat::from(x), DoubleFloat::from(0.0));
+        // (mass, width): top, W, Z, Higgs-like, massless and stable.
+        let masses = [(1.73, 0.0135), (0.804, 0.0209), (0.912, 0.0250), (1.25, 0.004), (0.0, 0.0), (1.73, 0.0)];
+        let squared = |(m, w): (f64, f64)| Complex::new(DoubleFloat::from(m * m), DoubleFloat::from(-m * w));
+        let invariant = |k: usize| {
+            // Deterministic invariants in [-12, 12], some on thresholds.
+            let x = ((k as u64 * 2_654_435_761) % 10_007) as f64 / 10_007.0;
+            if k % 7 == 0 { 0.0 } else { 24.0 * x - 12.0 }
+        };
+        let mut evaluated = 0;
+        for (family, momenta, propagators) in [(ScalarIntegral::D0, 6, 4), (ScalarIntegral::C0, 3, 3), (ScalarIntegral::B0, 1, 2)] {
+            let mut evaluator = NativeEvaluator::<DoubleFloat>::new(family).expect("double-double evaluator");
+            for point in 0..24 {
+                let mut input: Vec<_> = (0..momenta).map(|i| real(invariant(point * 11 + i + 1))).collect();
+                input.extend((0..propagators).map(|i| squared(masses[(point + 3 * i) % masses.len()])));
+                input.push(real(1.0));
+                let mut output = vec![real(0.0); 3];
+                let mut full = output.clone();
+                if evaluator.evaluate(&input, &mut output).is_err() {
+                    continue;
+                }
+                double_double::FULL_KERNEL.with(|f| f.set(true));
+                let result = evaluator.evaluate(&input, &mut full);
+                double_double::FULL_KERNEL.with(|f| f.set(false));
+                result.expect("same domain");
+                for (fast, full) in output.iter().zip(&full) {
+                    assert_eq!(bits(fast), bits(full), "{family:?} point {point}");
+                }
+                evaluated += 1;
+            }
+        }
+        assert!(evaluated >= 60, "{evaluated}");
+    }
+}
