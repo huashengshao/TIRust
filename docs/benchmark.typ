@@ -343,7 +343,7 @@
 // Same-session direct-engine campaign (30 October 2026): TIRust public
 // binary64 default versus original IREGI and COLLIER, interleaved per block.
 // The latest bound capture of each campaign is shown; earlier ones stay in the data.
-#let direct-capture-ids = ("023", "022", "021", "020", "019", "018", "017", "016", "015", "014", "013", "012", "011", "010", "008", "007", "006", "005", "004", "003", "002")
+#let direct-capture-ids = ("024", "023", "022", "021", "020", "019", "018", "017", "016", "015", "014", "013", "012", "011", "010", "008", "007", "006", "005", "004", "003", "002")
 #let direct-campaign-id = direct-capture-ids.find(id => ("direct_engine_20261030_capture" + id) in data)
 #let direct-campaign = if direct-campaign-id != none { data.at("direct_engine_20261030_capture" + direct-campaign-id) } else { data.at("direct_engine_20261030", default: none) }
 #let direct-first-capture = data.at("direct_engine_20261030", default: none)
@@ -633,7 +633,14 @@
     amber with diagnostic times and never enter a ratio. Builds: TIRust release (thin LTO), Fortran
     `-O3`, all baseline x86-64; binary SHA-256 in #raw("validation/benchmark/direct-engine-20261030/summary" + (if direct-campaign-id == none { "" } else { "-" + direct-campaign-id }) + ".json").
     TIRust source: commit #raw(snapshot.at("tirust_source_commit", default: snapshot.tirust_git_head).slice(0, 7)).
-    This capture (023, 3 November, load ≈300) measures TIRust 0b607e9: when TIRust assembles the Cartesian
+    This capture (024, 4 November, load 85 to 165) measures TIRust 06daf37: the amplitude store also shares
+    the Cartesian moments of subsets that an integral gathers inside a larger one (amplitude section). These
+    rows evaluate each integral alone, without the store, so nothing they compute changes: their errors are
+    identical row by row (stability capture 028 matches capture 027 in every TIRust status, error and
+    diagnostic on all 27500 points; amplitude capture 011 is bit-identical to capture 010). TIRust's rows are a
+    median 1.4% faster than in capture 023, COLLIER's 2.3% and IREGI's 1.9% (capture 023: load ≈300), and
+    within 8% of capture 023 except batch-1 N1R0 (+12%, 0.06 µs). It ran alone. Capture 023 (TIRust 0b607e9,
+    load ≈300): when TIRust assembles the Cartesian
     moments of the subsets that start from the same propagator, it builds the products of their momenta once
     per call instead of once per subset, with identical results (stability capture 027 matches capture 026 in
     every TIRust status, error and diagnostic on all 27500 points; amplitude captures 009 and 010 are
@@ -775,7 +782,7 @@
 }
 // Binary64 stability study (30 October 2026): cumulative accuracy profiles
 // in the style of Hirschi and Peraro, arXiv:1604.01363, figs. 2-4.
-#let stability-campaign-id = ("027", "026", "025", "024", "023", "022", "021", "020", "019", "018", "017", "016", "015", "013", "012", "011", "010", "009", "008", "007", "006", "005", "004", "003", "002").find(id => ("stability_20261030_capture" + id) in data)
+#let stability-campaign-id = ("028", "027", "026", "025", "024", "023", "022", "021", "020", "019", "018", "017", "016", "015", "013", "012", "011", "010", "009", "008", "007", "006", "005", "004", "003", "002").find(id => ("stability_20261030_capture" + id) in data)
 #let stability-campaign = if stability-campaign-id != none { data.at("stability_20261030_capture" + stability-campaign-id) } else { data.at("stability_20261030", default: none) }
 #let stability-first-capture = data.at("stability_20261030", default: none)
 #let st-style = (
@@ -916,7 +923,7 @@
     )
   ])
   text(size: 8.5pt)[
-    *Findings (capture 027, TIRust #raw(snapshot.tirust_git_head.slice(0, 7))).* TIRust's default returns an
+    *Findings (capture 028, TIRust #raw(snapshot.tirust_git_head.slice(0, 7))).* TIRust's default returns an
     accurate array on every point of all five integrals, worst E/A 6.7×10#super[−11] (capture 021: 5.0×10#super[−11]; capture 010:
     9.6×10#super[−9]). "TIRust binary64 only" (precision rescue disabled) reports every point with a binary64
     array, as COLLIER does: lanes that pass TIRust's checks are certified, the others return their best binary64
@@ -939,7 +946,7 @@
     timing section) is identical to capture 023 in every TIRust status, error and diagnostic on all 27500
     points; in the same way, capture 025 (nested triangles whose expansions cannot converge go straight to the
     alternative reduction, timing section) is identical to capture 024, capture 026 (precomputed
-    neighbour tables in the expansions' recursion, timing section) to capture 025, and capture 027 (momentum products of the Cartesian moments built once per call, timing section) to capture 026. *How* (since capture 010, following COLLIER and Denner and
+    neighbour tables in the expansions' recursion, timing section) to capture 025, capture 027 (momentum products of the Cartesian moments built once per call, timing section) to capture 026, and capture 028 (Cartesian moments shared between the integrals of an amplitude, timing section) to capture 027. *How* (since capture 010, following COLLIER and Denner and
     Dittmaier, hep-ph/0509141): boxes get the loop-rotation test; an expansion that has not converged tries
     the next larger boost; every lane the binary64 pass refuses is retried first with COLLIER's per-box choice
     (boxes and triangles whose a priori PV estimate 2#super[−52]w#super[r] exceeds the request, or that the
@@ -1168,7 +1175,7 @@
 // Amplitude benchmark (2 November 2026): the integrals of an amplitude
 // evaluated together, TIRust with per-subset sharing on and off against
 // COLLIER with its global cache on and off, in one session.
-#let amplitude-capture-id = ("010", "009", "008", "007", "006", "005", "004", "003", "002", "001").find(id => ("direct_engine_20261030_amplitude" + id) in data)
+#let amplitude-capture-id = ("011", "010", "009", "008", "007", "006", "005", "004", "003", "002", "001").find(id => ("direct_engine_20261030_amplitude" + id) in data)
 #let amplitude-record = if amplitude-capture-id == none { none } else { data.at("direct_engine_20261030_amplitude" + amplitude-capture-id) }
 #let amp-time-cell(timing) = table.cell(fill: pale, {
   set par(leading: 0.3em, justify: false)
@@ -1189,7 +1196,10 @@
     scalar master, every binary64 PV sub-integral's coefficients, and every box or triangle that its checks
     send to the double-double partial rescue or to the small-Gram expansions is computed once per call and
     reused by every integral (and every pass and retry) that needs it, under an exact key (method settings,
-    rank, the subset's propagators and mu#super[2] bit for bit). Boxes and triangles of the rescue and the
+    rank, the subset's propagators and mu#super[2] bit for bit). Since capture 011 the same holds for the
+    Cartesian moments of subsets that some integral gathers inside a larger one (a pentagon integral's
+    Gram-free pentagon, gathered again by the hexagon), keyed by every value the gather reads (its
+    coefficients, momenta, origin and rank, bit for bit). Boxes and triangles of the rescue and the
     expansions are computed at the amplitude's highest rank for their size, a pinched integral using the
     leading coefficients, with sharing on and off alike, so the arrays are bit-identical with sharing off;
     the integrals share the amplitude's loop-momentum routing. COLLIER 1.2.10 (COLI, TenRed 6, requested accuracy
@@ -1230,7 +1240,8 @@
   text(size: 8.5pt)[
     #for a in snapshot.amplitudes [
       *#a.label:* TIRust reused #a.tirust_final.reused and computed #a.tirust_final.computed per-subset results per
-      call; its #a.tirust_final.integrals integrals' arrays, statuses and estimates are
+      call#if "moments_reused" in a.tirust_final [ (Cartesian moments: #a.tirust_final.moments_reused reused,
+      #a.tirust_final.moments_computed gathered and stored)]; its #a.tirust_final.integrals integrals' arrays, statuses and estimates are
       #if a.tirust_final.differing_integrals == 0 [bit-identical] else [*not* identical (#a.tirust_final.differing_integrals integrals)]
       with sharing on and off (#a.tirust_final.successful_integral_lanes of
       #(a.tirust_final.integrals * a.tirust_final.lanes) integral lanes certified). COLLIER's coefficient sums per
@@ -1242,10 +1253,10 @@
     The binary64 arrays of these integrals are what TIRust's checks certify (rotation test, method-choice
     retries, double-double boxes), and on these physical points the checks, not the binary64 pass, take most of
     TIRust's time (see the stability section for both codes' accuracy on the same points). Sharing removes the
-    repeats of that work: 2.0 times faster on the hexagon amplitude (capture 005: 2.1; capture 003: 2.2; capture 002: 2.3; capture 001, with only
+    repeats of that work: 2.1 times faster on the hexagon amplitude (capture 010: 2.0; capture 005: 2.1; capture 003: 2.2; capture 002: 2.3; capture 001, with only
     the double-double boxes and the expansions shared and without rank floors: 1.8 times), 1.1 times on the
-    pentagon amplitude (captures 003 and 001: 1.3 and 1.1 times). COLLIER's cache reuses whole sub-integrals between calls (3.3
-    and 1.8 times faster; capture 008: 3.0 and 1.7). Capture 003 (TIRust a71e29d) runs the small-Gram expansions order by order in Δ and
+    pentagon amplitude (captures 003 and 001: 1.3 and 1.1 times). COLLIER's cache reuses whole sub-integrals between calls (3.0
+    and 1.7 times faster; capture 010: 3.3 and 1.8; capture 008: 3.0 and 1.7). Capture 003 (TIRust a71e29d) runs the small-Gram expansions order by order in Δ and
     stops those that cannot converge (timing section): TIRust shared over COLLIER's cache ×9.1 on the hexagon
     and ×4.9 on the pentagon amplitude (capture 002, TIRust 8ec79e9: ×10.4 and ×6.6; separate sessions). Capture 004 (TIRust f45d36f) also
     drops the accuracy reruns of accepted box and pentagon lanes (stability section): ×7.3 and ×3.3. Capture
@@ -1262,7 +1273,13 @@
     with TIRust's arrays bit-identical to capture 008's: ×3.1 and ×2.1 (TIRust's shared medians 263 → 253 ms
     and 39.8 → 37.6 ms; COLLIER's cached medians 81.7 → 80.7 ms and 17.7 → 17.8 ms). It repeats capture 009
     (same build), which ran on a core already about half busy (block times spread by up to 23% for TIRust and
-    37% for COLLIER) and gave ×3.2 and ×2.1 with a hexagon interval of ×2.4 to ×3.5. The rotated evaluations of TIRust's rotation test start each box from another propagator, so
+    37% for COLLIER) and gave ×3.2 and ×2.1 with a hexagon interval of ×2.4 to ×3.5. Capture 011 (TIRust
+    06daf37) shares the Cartesian moments of the hexagon's Gram-free pentagons, which their own pentagon
+    integrals have already gathered, with TIRust's arrays bit-identical to capture 010's: ×3.0 and ×2.1
+    (hexagon interval ×2.6 to ×3.4; TIRust's shared medians 253 → 251 ms and 37.6 → 38.7 ms; COLLIER's
+    cached medians 80.7 → 84.2 ms and 17.8 → 17.5 ms). The pentagon amplitude gathers no subset twice. The
+    hexagon's change is within the spread of its blocks (TIRust shared 233 to 270 ms, capture 010: 247 to
+    261 ms); measured in the same rounds, its shared over separate went from 0.49 to 0.47. The rotated evaluations of TIRust's rotation test start each box from another propagator, so
     those remain separate computations.
   ]
   pagebreak()
