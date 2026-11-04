@@ -18,7 +18,7 @@ use super::{
         C, L4, cadd, cfma, cfma_real, cinv, cmul, cnorm2, cscale, csub, czero, div_dimension, lfma,
         lfma_slots, lzero, mul_dimension, solve_in_place,
     },
-    plan::{DirectPlanData, NO_GEOMETRY, PostOp, SubsetKind},
+    plan::{DirectPlanData, Gather, NO_GEOMETRY, PostOp, SubsetKind},
     shared::{SharedValue, SubsetStore},
 };
 use crate::{
@@ -150,6 +150,8 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     /// Per local monomial of the product being built: its entry in
     /// `sparse_products`, or `NO_SLOT`.
     product_slot: Vec<u32>,
+    /// Products some gather of this lane computes (moments sharing on).
+    product_needed: Vec<bool>,
     qexp_constants: Vec<Vec<T>>,
     binomials: Vec<Vec<T>>,
     tpow: Vec<C<T>>,
@@ -308,6 +310,7 @@ where
             sparse_products: Vec::new(),
             product_ranges: Vec::new(),
             product_slot: vec![NO_SLOT; gather_degree],
+            product_needed: Vec::new(),
             qexp_constants: plan
                 .monomials
                 .qexp
@@ -780,6 +783,45 @@ where
             });
         }
         Ok(())
+    }
+
+    /// Laurent slots a gather computes: all four, or the UV and finite ones
+    /// of an IR-free lane (the others are then zero times the scale).
+    const fn gather_slots<const FULL: bool>() -> &'static [usize] {
+        if FULL { &[0, 1, 2, 3] } else { &[0, 3] }
+    }
+
+    /// Exact key of a gather's Cartesian moments: everything the gather
+    /// reads (the computed slots, the scale, rank, momenta and origin, and
+    /// the coefficient values of those slots in the order they are summed).
+    fn moment_key<const FULL: bool>(&self, gather: &Gather) -> Vec<u64> {
+        let subset = &self.plan.subsets[gather.subset];
+        let pv = subset.pv.unwrap();
+        let rank = usize::from(gather.moment_rank);
+        let momenta = subset.members.len() - 1;
+        let bits = |z: &C<T>| [z.re.to_f64().to_bits(), z.im.to_f64().to_bits()];
+        let slots = Self::gather_slots::<FULL>();
+        let used = gather.coefficient.iter().filter(|&&index| index != u32::MAX).count();
+        let mut key = Vec::with_capacity(5 + 8 * (momenta + 1) + 2 * slots.len() * used);
+        key.extend([5, u64::from(FULL), rank as u64, momenta as u64, self.gather_scale.to_f64().to_bits()]);
+        let p = pv.p as usize;
+        for z in self.geometry[p..p + 4 * momenta].iter().chain(&self.geometry[pv.origin as usize..pv.origin as usize + 4]) {
+            key.extend(bits(z));
+        }
+        let kappas = gather.kappas.len();
+        for lambda in 0..=rank / 2 {
+            let top = if momenta == 0 { 0 } else { rank - 2 * lambda };
+            for (k, kappa) in gather.kappas.iter().enumerate() {
+                if usize::from(kappa.degree) <= top {
+                    let value = &self.values[gather.coefficient[lambda * kappas + k] as usize];
+                    for &slot in slots {
+                        key.extend(bits(&value[slot]));
+                    }
+                }
+            }
+        }
+        debug_assert_eq!(key.len(), 5 + 8 * (momenta + 1) + 2 * slots.len() * used);
+        key
     }
 
     /// Evaluate every external subset of this lane in double-double and
@@ -2213,14 +2255,77 @@ where
         let plan = self.plan.clone();
         let table = &plan.monomials;
         let stride = table.block(usize::from(plan.settings.rank)).end;
+        // 0. Moments shared with the other integrals of an amplitude (binary64
+        //    only, sizes and ranks the store shares): stored moments are
+        //    written now and their gathers skipped; the others are stored
+        //    once gathered. The key holds every input, so a stored entry is
+        //    exactly what the gather computes.
+        enum Moments {
+            Stored,
+            Store(Vec<u64>),
+            Compute,
+        }
+        let store = self.shared.clone().filter(|store| store.enabled());
+        let slots = Self::gather_slots::<FULL>();
+        let mut moments: Vec<Moments> = Vec::new();
+        if let Some(store) = store.as_ref() {
+            // The slots a gather leaves: zero times the scale (step 3).
+            let left = cscale(&lzero(&self.zero)[1], &self.gather_scale);
+            self.product_needed.clear();
+            self.product_needed.resize(plan.products.len(), false);
+            for gather in &plan.gathers {
+                let size = plan.subsets[gather.subset].members.len();
+                if !store.shares_moments(size, gather.moment_rank) {
+                    // Computed here and not stored.
+                    for &product in &gather.products {
+                        self.product_needed[product as usize] = true;
+                    }
+                    moments.push(Moments::Compute);
+                    continue;
+                }
+                let key = self.moment_key::<FULL>(gather);
+                let base = gather.moment_base as usize;
+                let len = table.block(usize::from(gather.moment_rank)).end;
+                let (values, prototype) = (&mut self.values, &self.prototype);
+                let hit = store.moments_with(&key, |stored| {
+                    if stored.len() != 2 * slots.len() * len {
+                        return false;
+                    }
+                    for (e, v) in stored.chunks_exact(2 * slots.len()).enumerate() {
+                        let moment = &mut values[base + e];
+                        if !FULL {
+                            moment[1] = left.clone();
+                            moment[2] = left.clone();
+                        }
+                        for (k, &slot) in slots.iter().enumerate() {
+                            moment[slot] = C::new(exact_f64(prototype, v[2 * k]), exact_f64(prototype, v[2 * k + 1]));
+                        }
+                    }
+                    true
+                });
+                if hit {
+                    moments.push(Moments::Stored);
+                } else {
+                    for &product in &gather.products {
+                        self.product_needed[product as usize] = true;
+                    }
+                    moments.push(Moments::Store(key));
+                }
+            }
+        }
         // 1. Products as sparse (local monomial, value) lists, once for all
-        //    gathers of an origin. Each list is in the order its monomials are
-        //    first reached: that order fixes the order of every later sum, so
-        //    it is kept exactly.
+        //    gathers of an origin (only those a computed gather uses). Each
+        //    list is in the order its monomials are first reached: that order
+        //    fixes the order of every later sum, so it is kept exactly. A
+        //    product's parent belongs to every gather using the product.
         self.sparse_products.clear();
         self.product_ranges.clear();
-        for product in &plan.products {
+        for (index, product) in plan.products.iter().enumerate() {
             let start = self.sparse_products.len();
+            if store.is_some() && !self.product_needed[index] {
+                self.product_ranges.push((start as u32, start as u32));
+                continue;
+            }
             if product.degree == 0 {
                 self.sparse_products.push((0, self.one.clone()));
                 self.product_ranges.push((start as u32, start as u32 + 1));
@@ -2274,7 +2379,12 @@ where
             self.sparse_products.truncate(end);
             self.product_ranges.push((start as u32, end as u32));
         }
-        for gather in &plan.gathers {
+        for (index, gather) in plan.gathers.iter().enumerate() {
+            let key = match moments.get_mut(index).map(|m| std::mem::replace(m, Moments::Compute)) {
+                Some(Moments::Stored) => continue,
+                Some(Moments::Store(key)) => Some(key),
+                Some(Moments::Compute) | None => None,
+            };
             let subset = &plan.subsets[gather.subset];
             let geometry = subset.pv.unwrap();
             let rank = usize::from(gather.moment_rank);
@@ -2350,6 +2460,16 @@ where
                         self.values[moment_base + line[j] as usize] = total;
                     }
                 }
+            }
+            if let (Some(store), Some(key)) = (store.as_ref(), key) {
+                let len = table.block(rank).end;
+                let mut stored = Vec::with_capacity(2 * slots.len() * len);
+                for moment in &self.values[moment_base..moment_base + len] {
+                    for &slot in slots {
+                        stored.extend([moment[slot].re.to_f64(), moment[slot].im.to_f64()]);
+                    }
+                }
+                store.put_moments(key, stored);
             }
         }
     }

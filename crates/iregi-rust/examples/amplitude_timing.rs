@@ -100,7 +100,8 @@ fn main() -> Fallible<()> {
                 let ns = started.elapsed().as_nanos() as f64 / iterations as f64;
                 let stats = amplitude.last_sharing();
                 writeln!(out, "RESULT {}", json!({"ns_per_call": ns, "share": share, "iterations": iterations,
-                    "reused": stats.reused, "computed": stats.computed}))?;
+                    "reused": stats.reused, "computed": stats.computed,
+                    "moments_reused": stats.moments_reused, "moments_computed": stats.moments_computed}))?;
             }
             ["FINAL"] => {
                 amplitude.set_subset_sharing(false);
@@ -120,6 +121,7 @@ fn main() -> Fallible<()> {
                     "fingerprint_on": format!("{:016x}", fingerprint(&on)),
                     "successful_integral_lanes": success, "best_effort_integral_lanes": best_effort,
                     "reused": stats.reused, "computed": stats.computed,
+                    "moments_reused": stats.moments_reused, "moments_computed": stats.moments_computed,
                 }))?;
             }
             _ => return Err(format!("invalid request: {line}").into()),

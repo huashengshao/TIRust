@@ -54,8 +54,14 @@ impl Default for AmplitudeOptions {
 /// Per-subset results of the last call: reused from the store and computed.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SubsetSharingStats {
+    /// Coefficient results (scalar masters, PV sub-integrals, rescues,
+    /// expansions).
     pub reused: u64,
     pub computed: u64,
+    /// Cartesian moments of gathered subsets (of the sizes and ranks some
+    /// integral gathers inside a larger one).
+    pub moments_reused: u64,
+    pub moments_computed: u64,
 }
 
 /// One workspace per integral of an amplitude, evaluated together.
@@ -91,6 +97,11 @@ where
         for plan in plans {
             for (size, rank) in TensorWorkspace::<T>::direct_subset_ranks(plan) {
                 store.raise_floor(size, rank);
+            }
+            // Moments of subsets an integral gathers inside a larger one
+            // (another integral may gather them as its own).
+            for (size, rank) in TensorWorkspace::<T>::direct_nested_gathers(plan) {
+                store.share_moments(size, rank);
             }
         }
         let mut amplitude = Self { workspaces, store, share: false, last: SubsetSharingStats::default() };
@@ -151,7 +162,8 @@ where
             .map(|(workspace, batch)| workspace.reduce_batch(batch))
             .collect::<Result<Vec<_>, _>>();
         let (reused, computed) = self.store.counts();
-        self.last = SubsetSharingStats { reused, computed };
+        let (moments_reused, moments_computed) = self.store.moment_counts();
+        self.last = SubsetSharingStats { reused, computed, moments_reused, moments_computed };
         self.store.clear();
         results
     }
