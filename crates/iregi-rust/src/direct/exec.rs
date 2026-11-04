@@ -16,7 +16,7 @@ use symbolica::{domains::float::Complex, evaluate::EvaluationDomain};
 use super::{
     numeric::{
         C, L4, cadd, cfma, cfma_real, cinv, cmul, cnorm2, cscale, csub, czero, div_dimension, lfma,
-        lfma_slots, lzero, mul_dimension, solve_in_place,
+        lfma_slots, lzero, mul_dimension, real_lfma_slots, solve_in_place,
     },
     plan::{DirectPlanData, Gather, NO_GEOMETRY, PostOp, SubsetKind},
     shared::{SharedValue, SubsetStore},
@@ -72,6 +72,29 @@ enum GeometryFailure {
 pub(crate) struct PartialRescue {
     executors: HashMap<(usize, u16), DirectExecutor<symbolica::domains::float::DoubleFloat>>,
     threshold: f64,
+}
+
+/// Most step-1 schedules an executor keeps (one per zero pattern of the
+/// momenta; real kinematics rarely have more than a few).
+const MAX_PRODUCT_SCHEDULES: usize = 8;
+
+/// A recorded step-1 pass of [`DirectExecutor::real_products`]: where every
+/// term of the sparse product lists goes, for one plan and zero pattern.
+#[derive(Clone, Debug)]
+struct ProductSchedule {
+    plan: Arc<DirectPlanData>,
+    /// Per distinct momentum: its nonzero components (bits 0-3); then, when
+    /// products are skipped, `u8::MAX` and whether each product is needed.
+    key: Vec<u8>,
+    /// Local monomial of every entry before exact zeros are dropped, in order.
+    locals: Vec<u32>,
+    /// Whether each of those entries is kept (not an exact zero).
+    keep: Vec<bool>,
+    /// Per product: its entries before and after dropping exact zeros.
+    counts: Vec<(u32, u32)>,
+    /// Entry (from the product's first) each (parent entry, axis) term
+    /// accumulates into, in order.
+    slots: Vec<u32>,
 }
 
 #[derive(Clone)]
@@ -148,6 +171,16 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     /// `g_lambda` blocks, `lambda * stride + monomial`.
     g_buffer: Vec<L4<T>>,
     sparse_products: Vec<(u32, C<T>)>,
+    /// `sparse_products` of real momenta (binary64, see `gather_with`).
+    sparse_real: Vec<(u32, T)>,
+    /// Recorded step-1 passes of `real_products` by zero pattern.
+    product_schedules: Vec<ProductSchedule>,
+    /// Distinct momenta (geometry offsets) of the products of a plan, and
+    /// each product's index among them (`u16::MAX` for degree zero).
+    product_momenta: Option<(Arc<DirectPlanData>, Vec<u32>, Vec<u16>)>,
+    /// Zero pattern of the current pass and its recorded entries.
+    schedule_key: Vec<u8>,
+    schedule_slots: Vec<u32>,
     product_ranges: Vec<(u32, u32)>,
     /// Per local monomial of the product being built: its entry in
     /// `sparse_products`, or `NO_SLOT`.
@@ -310,6 +343,11 @@ where
             masses: vec![zero.clone(); plan.settings.propagators],
             g_buffer: vec![lzero(&zero); gather_degree * (usize::from(plan.settings.rank) / 2 + 1)],
             sparse_products: Vec::new(),
+            sparse_real: Vec::new(),
+            product_schedules: Vec::new(),
+            product_momenta: None,
+            schedule_key: Vec::new(),
+            schedule_slots: Vec::new(),
             product_ranges: Vec::new(),
             product_slot: vec![NO_SLOT; gather_degree],
             product_needed: Vec::new(),
@@ -2248,6 +2286,325 @@ where
         }
     }
 
+    /// Step 1 of [`Self::gather_with`]: the momentum products as sparse
+    /// complex lists.
+    fn complex_products(&mut self, plan: &DirectPlanData, skip_unneeded: bool) {
+        let table = &plan.monomials;
+        self.sparse_products.clear();
+        self.product_ranges.clear();
+        for (index, product) in plan.products.iter().enumerate() {
+            let start = self.sparse_products.len();
+            if skip_unneeded && !self.product_needed[index] {
+                self.product_ranges.push((start as u32, start as u32));
+                continue;
+            }
+            if product.degree == 0 {
+                self.sparse_products.push((0, self.one.clone()));
+                self.product_ranges.push((start as u32, start as u32 + 1));
+                continue;
+            }
+            let block = table.block(usize::from(product.degree));
+            let parent_block = table.block(usize::from(product.degree) - 1);
+            let rows = &table.multiply[parent_block];
+            let (from, to) = self.product_ranges[product.parent as usize];
+            let inverse = self.prototype.one() / &self.prototype.from_usize(usize::from(product.divisor));
+            let p = product.momentum as usize;
+            let mut axes = [0usize; 4];
+            let mut count = 0;
+            for a in 0..4 {
+                let component = &self.geometry[p + a];
+                if !(component.re.is_zero() && component.im.is_zero()) {
+                    axes[count] = a;
+                    count += 1;
+                }
+            }
+            let axes = &axes[..count];
+            for entry in from as usize..to as usize {
+                let (local, ref value) = self.sparse_products[entry];
+                let value = cscale(value, &inverse);
+                let row = &rows[local as usize];
+                for &a in axes {
+                    let target = row[a] as usize - block.start;
+                    let mut slot = self.product_slot[target];
+                    if slot == NO_SLOT {
+                        // First reached: starts from zero.
+                        slot = self.sparse_products.len() as u32;
+                        self.product_slot[target] = slot;
+                        self.sparse_products.push((target as u32, self.zero.clone()));
+                    }
+                    // slot + value * component (binary64: as written).
+                    cfma(&mut self.sparse_products[slot as usize].1, &value, &self.geometry[p + a]);
+                }
+            }
+            // Release the slots and drop exact zeros, keeping the order.
+            let mut end = start;
+            for index in start..self.sparse_products.len() {
+                let (target, ref value) = self.sparse_products[index];
+                self.product_slot[target as usize] = NO_SLOT;
+                if !(value.re.is_zero() && value.im.is_zero()) {
+                    if end != index {
+                        self.sparse_products.swap(end, index);
+                    }
+                    end += 1;
+                }
+            }
+            self.sparse_products.truncate(end);
+            self.product_ranges.push((start as u32, end as u32));
+        }
+    }
+
+    /// Step 1 of [`Self::gather_with`] for binary64 with real momenta: the
+    /// products as sparse real lists, in the order and with the values of
+    /// [`Self::complex_products`] (their imaginary parts are +0). `false`,
+    /// with nothing usable written, when a momentum is not real or a product
+    /// is not finite.
+    ///
+    /// Where the lists go depends only on which momentum components are
+    /// zero (and which products are needed) and on which sums cancel to an
+    /// exact zero (dropped; massless momenta along an axis cancel exactly).
+    /// A pass is recorded as a [`ProductSchedule`] for its zero pattern, and
+    /// later passes with that pattern replay it, the same terms in the same
+    /// order without finding the entries again, if their exact zeros are the
+    /// recorded ones (otherwise this pass runs and replaces the record).
+    fn real_products(&mut self, plan: &Arc<DirectPlanData>, skip_unneeded: bool) -> bool {
+        let table = &plan.monomials;
+        // The zero pattern: per distinct momentum of the products, its
+        // nonzero components (bits 0-3); then, when products are skipped,
+        // which ones are needed.
+        if !self.product_momenta.as_ref().is_some_and(|(of, _, _)| Arc::ptr_eq(of, plan)) {
+            let mut offsets: Vec<u32> = Vec::new();
+            let momentum_of = plan
+                .products
+                .iter()
+                .map(|product| {
+                    if product.degree == 0 {
+                        return u16::MAX;
+                    }
+                    let index = offsets.iter().position(|&offset| offset == product.momentum).unwrap_or_else(|| {
+                        offsets.push(product.momentum);
+                        offsets.len() - 1
+                    });
+                    index as u16
+                })
+                .collect();
+            self.product_momenta = Some((plan.clone(), offsets, momentum_of));
+        }
+        let (_, offsets, _) = self.product_momenta.as_ref().expect("set above");
+        self.schedule_key.clear();
+        for &offset in offsets {
+            let mut mask = 0u8;
+            for a in 0..4 {
+                let component = &self.geometry[offset as usize + a];
+                if !component.im.is_zero() {
+                    return false;
+                }
+                if !component.re.is_zero() {
+                    mask |= 1 << a;
+                }
+            }
+            self.schedule_key.push(mask);
+        }
+        if skip_unneeded {
+            self.schedule_key.push(u8::MAX);
+            self.schedule_key.extend(self.product_needed.iter().map(|&needed| u8::from(needed)));
+        }
+        let found = self
+            .product_schedules
+            .iter()
+            .position(|schedule| Arc::ptr_eq(&schedule.plan, plan) && schedule.key == self.schedule_key);
+        if let Some(index) = found {
+            if let Some(finite) = self.replay_products(plan, index) {
+                return finite;
+            }
+        }
+        self.sparse_real.clear();
+        self.product_ranges.clear();
+        self.schedule_slots.clear();
+        let mut locals = Vec::new();
+        let mut keep = Vec::new();
+        let mut counts = Vec::with_capacity(plan.products.len());
+        let mut finite = true;
+        for (index, product) in plan.products.iter().enumerate() {
+            let start = self.sparse_real.len();
+            if skip_unneeded && !self.product_needed[index] {
+                self.product_ranges.push((start as u32, start as u32));
+                counts.push((0, 0));
+                continue;
+            }
+            if product.degree == 0 {
+                self.sparse_real.push((0, self.one.re.clone()));
+                self.product_ranges.push((start as u32, start as u32 + 1));
+                locals.push(0);
+                keep.push(true);
+                counts.push((1, 1));
+                continue;
+            }
+            let block = table.block(usize::from(product.degree));
+            let parent_block = table.block(usize::from(product.degree) - 1);
+            let rows = &table.multiply[parent_block];
+            let (from, to) = self.product_ranges[product.parent as usize];
+            let inverse = self.prototype.one() / &self.prototype.from_usize(usize::from(product.divisor));
+            let p = product.momentum as usize;
+            let mut axes = [0usize; 4];
+            let mut count = 0;
+            for a in 0..4 {
+                if !self.geometry[p + a].re.is_zero() {
+                    axes[count] = a;
+                    count += 1;
+                }
+            }
+            let axes = &axes[..count];
+            for entry in from as usize..to as usize {
+                let (local, ref value) = self.sparse_real[entry];
+                let value = value.clone() * &inverse;
+                let row = &rows[local as usize];
+                for &a in axes {
+                    let target = row[a] as usize - block.start;
+                    let mut slot = self.product_slot[target];
+                    if slot == NO_SLOT {
+                        slot = self.sparse_real.len() as u32;
+                        self.product_slot[target] = slot;
+                        self.sparse_real.push((target as u32, self.zero.re.clone()));
+                    }
+                    self.schedule_slots.push(slot - start as u32);
+                    let total = &mut self.sparse_real[slot as usize].1;
+                    *total = total.clone() + value.clone() * &self.geometry[p + a].re;
+                }
+            }
+            // Release the slots and drop exact zeros, keeping the order.
+            let mut end = start;
+            for index in start..self.sparse_real.len() {
+                let (target, ref value) = self.sparse_real[index];
+                self.product_slot[target as usize] = NO_SLOT;
+                finite &= value.to_f64().is_finite();
+                let kept = !value.is_zero();
+                locals.push(target);
+                keep.push(kept);
+                if kept {
+                    if end != index {
+                        self.sparse_real.swap(end, index);
+                    }
+                    end += 1;
+                }
+            }
+            counts.push(((self.sparse_real.len() - start) as u32, (end - start) as u32));
+            self.sparse_real.truncate(end);
+            self.product_ranges.push((start as u32, end as u32));
+        }
+        if finite {
+            let schedule = ProductSchedule {
+                plan: plan.clone(),
+                key: self.schedule_key.clone(),
+                locals,
+                keep,
+                counts,
+                slots: self.schedule_slots.clone(),
+            };
+            match found {
+                // Its replay found other exact zeros: this pass replaces it.
+                Some(index) => self.product_schedules[index] = schedule,
+                None => {
+                    if self.product_schedules.len() >= MAX_PRODUCT_SCHEDULES {
+                        self.product_schedules.remove(0);
+                    }
+                    self.product_schedules.push(schedule);
+                }
+            }
+        }
+        finite
+    }
+
+    /// [`Self::real_products`] by its recorded schedule `index`: `None` when
+    /// the exact zeros (dropped entries) are not the recorded ones.
+    fn replay_products(&mut self, plan: &DirectPlanData, index: usize) -> Option<bool> {
+        let slots = std::mem::take(&mut self.product_schedules[index].slots);
+        let recorded = &self.product_schedules[index];
+        let (_, _, momentum_of) = self.product_momenta.as_ref().expect("set by real_products");
+        self.sparse_real.clear();
+        self.product_ranges.clear();
+        let mut cursor = 0;
+        let mut at = 0;
+        let mut same = true;
+        'products: for (k, product) in plan.products.iter().enumerate() {
+            let start = self.sparse_real.len();
+            let (before, after) = (recorded.counts[k].0 as usize, recorded.counts[k].1 as usize);
+            if before == 0 {
+                self.product_ranges.push((start as u32, start as u32));
+                continue;
+            }
+            if product.degree == 0 {
+                self.sparse_real.push((0, self.one.re.clone()));
+                self.product_ranges.push((start as u32, start as u32 + 1));
+                at += 1;
+                continue;
+            }
+            let zero = &self.zero.re;
+            self.sparse_real.extend(recorded.locals[at..at + before].iter().map(|&local| (local, zero.clone())));
+            let (from, to) = self.product_ranges[product.parent as usize];
+            let inverse = self.prototype.one() / &self.prototype.from_usize(usize::from(product.divisor));
+            let p = product.momentum as usize;
+            let mask = self.schedule_key[usize::from(momentum_of[k])];
+            let mut components: [T; 4] = std::array::from_fn(|_| self.zero.re.clone());
+            let mut count = 0;
+            for a in 0..4 {
+                if mask & (1 << a) != 0 {
+                    components[count] = self.geometry[p + a].re.clone();
+                    count += 1;
+                }
+            }
+            let components = &components[..count];
+            let terms = (to - from) as usize * count;
+            let product_slots = &slots[cursor..cursor + terms];
+            cursor += terms;
+            if count > 0 {
+                // Parents precede the product's entries; each term adds to
+                // one of them (slots from the product's first entry).
+                let (parents, entries) = self.sparse_real.split_at_mut(start);
+                let parents = &parents[from as usize..to as usize];
+                for ((_, parent), terms) in parents.iter().zip(product_slots.chunks_exact(count)) {
+                    let value = parent.clone() * &inverse;
+                    for (&slot, component) in terms.iter().zip(components) {
+                        let total = &mut entries[slot as usize].1;
+                        *total = total.clone() + value.clone() * component;
+                    }
+                }
+            }
+            if after != before {
+                // Drop the recorded exact zeros, which must be the only ones.
+                let mut end = start;
+                for (i, &kept) in recorded.keep[at..at + before].iter().enumerate() {
+                    let index = start + i;
+                    if !self.sparse_real[index].1.is_zero() != kept {
+                        same = false;
+                        break 'products;
+                    }
+                    if kept {
+                        if end != index {
+                            self.sparse_real.swap(end, index);
+                        }
+                        end += 1;
+                    }
+                }
+                self.sparse_real.truncate(end);
+            }
+            at += before;
+            self.product_ranges.push((start as u32, (start + after) as u32));
+        }
+        self.product_schedules[index].slots = slots;
+        if !same {
+            return None;
+        }
+        // No other exact zero; finite (the dropped zeros are).
+        let mut finite = true;
+        let mut zero = false;
+        for (_, value) in &self.sparse_real {
+            let x = value.to_f64();
+            finite &= x.is_finite();
+            zero |= x == 0.0;
+        }
+        (!zero).then_some(finite)
+    }
+
     /// Cartesian moments of every gathered PV subset.
     ///
     /// 1. Momentum products `P_k(z) = prod_i (p_i.z)^(k_i)/k_i!`.
@@ -2332,66 +2689,39 @@ where
         //    list is in the order its monomials are first reached: that order
         //    fixes the order of every later sum, so it is kept exactly. A
         //    product's parent belongs to every gather using the product.
-        self.sparse_products.clear();
-        self.product_ranges.clear();
-        for (index, product) in plan.products.iter().enumerate() {
-            let start = self.sparse_products.len();
-            if store.is_some() && !self.product_needed[index] {
-                self.product_ranges.push((start as u32, start as u32));
+        //    Binary64 with real momenta (real kinematics) and finite
+        //    coefficients: the products are real and kept as reals, and step
+        //    2 multiplies by a real factor. Bit-identical: the complex
+        //    arithmetic adds only the zero products of a zero imaginary part,
+        //    and an accumulator started at +0 never becomes -0, so adding a
+        //    zero leaves it unchanged; a non-finite product falls back.
+        let mut finite = T::FIXED_BITS == Some(53);
+        'check: for (index, gather) in plan.gathers.iter().enumerate().filter(|_| finite) {
+            if matches!(moments.get(index), Some(Moments::Stored)) {
                 continue;
             }
-            if product.degree == 0 {
-                self.sparse_products.push((0, self.one.clone()));
-                self.product_ranges.push((start as u32, start as u32 + 1));
-                continue;
-            }
-            let block = table.block(usize::from(product.degree));
-            let parent_block = table.block(usize::from(product.degree) - 1);
-            let rows = &table.multiply[parent_block];
-            let (from, to) = self.product_ranges[product.parent as usize];
-            let inverse = self.prototype.one() / &self.prototype.from_usize(usize::from(product.divisor));
-            let p = product.momentum as usize;
-            let mut axes = [0usize; 4];
-            let mut count = 0;
-            for a in 0..4 {
-                let component = &self.geometry[p + a];
-                if !(component.re.is_zero() && component.im.is_zero()) {
-                    axes[count] = a;
-                    count += 1;
-                }
-            }
-            let axes = &axes[..count];
-            for entry in from as usize..to as usize {
-                let (local, ref value) = self.sparse_products[entry];
-                let value = cscale(value, &inverse);
-                let row = &rows[local as usize];
-                for &a in axes {
-                    let target = row[a] as usize - block.start;
-                    let mut slot = self.product_slot[target];
-                    if slot == NO_SLOT {
-                        // First reached: starts from zero.
-                        slot = self.sparse_products.len() as u32;
-                        self.product_slot[target] = slot;
-                        self.sparse_products.push((target as u32, self.zero.clone()));
+            let rank = usize::from(gather.moment_rank);
+            let momenta = plan.subsets[gather.subset].members.len() - 1;
+            let kappas = gather.kappas.len();
+            for lambda in 0..=rank / 2 {
+                let top = if momenta == 0 { 0 } else { rank - 2 * lambda };
+                for (k, kappa) in gather.kappas.iter().enumerate() {
+                    if usize::from(kappa.degree) > top {
+                        continue;
                     }
-                    // slot + value * component (binary64: as written).
-                    cfma(&mut self.sparse_products[slot as usize].1, &value, &self.geometry[p + a]);
-                }
-            }
-            // Release the slots and drop exact zeros, keeping the order.
-            let mut end = start;
-            for index in start..self.sparse_products.len() {
-                let (target, ref value) = self.sparse_products[index];
-                self.product_slot[target as usize] = NO_SLOT;
-                if !(value.re.is_zero() && value.im.is_zero()) {
-                    if end != index {
-                        self.sparse_products.swap(end, index);
+                    let value = &self.values[gather.coefficient[lambda * kappas + k] as usize];
+                    let finite_slot =
+                        |slot: usize| value[slot].re.to_f64().is_finite() && value[slot].im.to_f64().is_finite();
+                    if !slots.iter().all(|&slot| finite_slot(slot)) {
+                        finite = false;
+                        break 'check;
                     }
-                    end += 1;
                 }
             }
-            self.sparse_products.truncate(end);
-            self.product_ranges.push((start as u32, end as u32));
+        }
+        let real = finite && self.real_products(&plan, store.is_some());
+        if !real {
+            self.complex_products(&plan, store.is_some());
         }
         for (index, gather) in plan.gathers.iter().enumerate() {
             let key = match moments.get_mut(index).map(|m| std::mem::replace(m, Moments::Compute)) {
@@ -2420,8 +2750,15 @@ where
                     let value = &self.values[coefficient as usize];
                     let block_start = base + table.block(degree).start;
                     let (from, to) = self.product_ranges[gather.products[k] as usize];
-                    for (local, product) in &self.sparse_products[from as usize..to as usize] {
-                        lfma_slots::<T, FULL>(&mut self.g_buffer[block_start + *local as usize], product, value);
+                    if real {
+                        for (local, product) in &self.sparse_real[from as usize..to as usize] {
+                            let total = &mut self.g_buffer[block_start + *local as usize];
+                            real_lfma_slots::<T, FULL>(total, product, value);
+                        }
+                    } else {
+                        for (local, product) in &self.sparse_products[from as usize..to as usize] {
+                            lfma_slots::<T, FULL>(&mut self.g_buffer[block_start + *local as usize], product, value);
+                        }
                     }
                 }
             }

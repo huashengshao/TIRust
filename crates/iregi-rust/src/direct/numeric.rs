@@ -210,6 +210,26 @@ pub(crate) fn lfma_slots<T: NativeFloat, const FULL: bool>(
     }
 }
 
+/// [`lfma_slots`] for a real factor (binary64 gathers of real momenta):
+/// `acc + factor value` per component, which is what the complex product
+/// computes for a factor with a +0 imaginary part (the zero terms it adds
+/// leave an accumulator started at +0 unchanged).
+#[inline(always)]
+pub(crate) fn real_lfma_slots<T: NativeFloat, const FULL: bool>(acc: &mut L4<T>, factor: &T, value: &L4<T>) {
+    let mut add = |slot: usize| {
+        acc[slot].re = acc[slot].re.clone() + factor.clone() * &value[slot].re;
+        acc[slot].im = acc[slot].im.clone() + factor.clone() * &value[slot].im;
+    };
+    if FULL {
+        for slot in 0..4 {
+            add(slot);
+        }
+    } else {
+        add(0);
+        add(3);
+    }
+}
+
 /// Multiply by `(a - 2 epsilon)` through the finite term.
 pub(crate) fn mul_dimension<T: NativeFloat>(value: &mut L4<T>, a: &T) {
     let two = a.from_usize(2);
