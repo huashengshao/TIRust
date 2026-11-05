@@ -214,6 +214,15 @@ pub struct BatchResult<T: FloatLike> {
     pub best_effort: Vec<bool>,
 }
 
+/// `n` copies of `value` in a vector allocated by `malloc`, never `calloc`:
+/// glibc's `calloc` bypasses the per-thread cache `malloc` uses, which cost a
+/// batch-1 call about 50 instructions per small zero-filled vector.
+pub(crate) fn filled<V: Clone>(n: usize, value: V) -> Vec<V> {
+    let mut out = Vec::with_capacity(n);
+    out.resize(n, value);
+    out
+}
+
 /// A lane's array with its accuracy information (`BatchResult::lane_with_estimate`).
 #[derive(Clone, Copy, Debug)]
 pub struct LaneEstimate<'a, T: FloatLike> {

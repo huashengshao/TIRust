@@ -22,6 +22,7 @@ use super::{
     shared::{SharedValue, SubsetStore},
 };
 use crate::{
+    types::filled,
     BatchResult, Convention, KinematicsBatch, LaneStatus, ReductionError, TensorWeights,
     types::ResultMetadata,
 };
@@ -498,8 +499,13 @@ where
         if self.masses.iter().any(|mass| mass.im > mass.im.zero()) {
             return Err("squared masses require nonpositive imaginary parts".into());
         }
+        // Upper triangle only: d(j, i) equals d(i, j) bit for bit (the
+        // difference changes sign, which neither its square nor the error
+        // bound below sees), and d(i, i) is the zero the tolerance test
+        // below returns for it.
         for i in 0..n {
-            for j in 0..n {
+            self.distances[i * n + i] = self.zero.clone();
+            for j in i + 1..n {
                 let mut value = self.zero.clone();
                 let mut size = self.prototype.zero();
                 for a in 0..4 {
@@ -527,6 +533,7 @@ where
                 if cnorm2(&value).sqrt() <= size * &self.rounding {
                     value = self.zero.clone();
                 }
+                self.distances[j * n + i] = value.clone();
                 self.distances[i * n + j] = value;
             }
         }
@@ -622,8 +629,7 @@ where
 
     /// Evaluate this lane's masters with the direct oneloopmaster kernels, writing
     /// the four native Laurent slots straight into the value array.
-    fn native_masters(&mut self, mu2: &C<T>) -> Result<(), String> {
-        let plan = self.plan.clone();
+    fn native_masters(&mut self, plan: &DirectPlanData, mu2: &C<T>) -> Result<(), String> {
         let n = plan.settings.propagators;
         // Scalar masters shared with the other integrals of an amplitude,
         // keyed by family and arguments bit for bit (binary64).
@@ -1129,13 +1135,12 @@ where
     }
 
     /// Compute every subset's numeric geometry for the current variant.
-    fn geometry(&mut self) -> Result<(), GeometryFailure> {
+    fn geometry(&mut self, plan: &DirectPlanData) -> Result<(), GeometryFailure> {
         self.failed_condition = None;
         self.external.clear();
         self.gram_external.clear();
         self.gram_top_active = false;
         self.estimate_tripped = false;
-        let plan = self.plan.clone();
         let n = plan.settings.propagators;
         let threshold = self.stability_threshold.clone();
         for relation in &plan.relations {
@@ -2062,8 +2067,7 @@ where
     /// Recurrence program on Taylor jets: order k accumulates
     /// `sum_(a+b=k) geometry_a constant value_b`.
     #[inline(never)]
-    fn run_program_jets(&mut self, program_is_moments: bool) {
-        let plan = self.plan.clone();
+    fn run_program_jets(&mut self, plan: &DirectPlanData, program_is_moments: bool) {
         let k_len = plan.jet.map_or(1, |(_, k)| k);
         let program = if program_is_moments {
             &plan.moment_program
@@ -2119,38 +2123,37 @@ where
 
     /// Gather the Cartesian moments of Taylor order `order` (zero is the
     /// ordinary value array). The gather is linear and mass independent.
-    fn gather_order(&mut self, order: usize) {
+    fn gather_order(&mut self, plan: &Arc<DirectPlanData>, order: usize) {
         if order == 0 {
-            self.gather();
+            self.gather(plan);
         } else {
             std::mem::swap(&mut self.values, &mut self.values_jet[order - 1]);
-            self.gather();
+            self.gather(plan);
             std::mem::swap(&mut self.values, &mut self.values_jet[order - 1]);
         }
     }
 
-    fn run_program(&mut self, program_is_moments: bool) {
+    fn run_program(&mut self, plan: &DirectPlanData, program_is_moments: bool) {
         match (self.plan.jet, self.ir_free) {
-            (Some((_, 2)), true) => self.run_program_jet::<false, 2>(program_is_moments),
-            (Some((_, 2)), false) => self.run_program_jet::<true, 2>(program_is_moments),
-            (Some((_, 3)), true) => self.run_program_jet::<false, 3>(program_is_moments),
-            (Some((_, 3)), false) => self.run_program_jet::<true, 3>(program_is_moments),
-            (Some((_, 4)), true) => self.run_program_jet::<false, 4>(program_is_moments),
-            (Some((_, 4)), false) => self.run_program_jet::<true, 4>(program_is_moments),
-            (Some((_, 5)), true) => self.run_program_jet::<false, 5>(program_is_moments),
-            (Some((_, 5)), false) => self.run_program_jet::<true, 5>(program_is_moments),
-            (Some(_), _) => self.run_program_jets(program_is_moments),
-            (None, true) => self.run_program_ordinary::<false>(program_is_moments),
-            (None, false) => self.run_program_ordinary::<true>(program_is_moments),
+            (Some((_, 2)), true) => self.run_program_jet::<false, 2>(plan, program_is_moments),
+            (Some((_, 2)), false) => self.run_program_jet::<true, 2>(plan, program_is_moments),
+            (Some((_, 3)), true) => self.run_program_jet::<false, 3>(plan, program_is_moments),
+            (Some((_, 3)), false) => self.run_program_jet::<true, 3>(plan, program_is_moments),
+            (Some((_, 4)), true) => self.run_program_jet::<false, 4>(plan, program_is_moments),
+            (Some((_, 4)), false) => self.run_program_jet::<true, 4>(plan, program_is_moments),
+            (Some((_, 5)), true) => self.run_program_jet::<false, 5>(plan, program_is_moments),
+            (Some((_, 5)), false) => self.run_program_jet::<true, 5>(plan, program_is_moments),
+            (Some(_), _) => self.run_program_jets(plan, program_is_moments),
+            (None, true) => self.run_program_ordinary::<false>(plan, program_is_moments),
+            (None, false) => self.run_program_ordinary::<true>(plan, program_is_moments),
         }
     }
 
     /// Whether every master (and closed-form) value of this lane has
     /// vanishing IR slots. Recurrences are linear and never move UV or
     /// finite parts into IR slots, so those slots then stay exactly zero.
-    fn detect_ir_free(&mut self) {
+    fn detect_ir_free(&mut self, plan: &DirectPlanData) {
         let zero = |z: &C<T>| z.re.is_zero() && z.im.is_zero();
-        let plan = self.plan.clone();
         let mut free = true;
         for family in &plan.masters {
             for &(_, index) in family {
@@ -2174,8 +2177,7 @@ where
     /// Taylor length `K`: order `k` accumulates `sum_(a+b=k) g_a v_b`, skipping
     /// the vanishing orders of mass-independent geometry.
     #[inline(never)]
-    fn run_program_jet<const FULL: bool, const K: usize>(&mut self, program_is_moments: bool) {
-        let plan = self.plan.clone();
+    fn run_program_jet<const FULL: bool, const K: usize>(&mut self, plan: &DirectPlanData, program_is_moments: bool) {
         let program = if program_is_moments {
             &plan.moment_program
         } else {
@@ -2222,8 +2224,7 @@ where
     }
 
     #[inline(never)]
-    fn run_program_ordinary<const FULL: bool>(&mut self, program_is_moments: bool) {
-        let plan = self.plan.clone();
+    fn run_program_ordinary<const FULL: bool>(&mut self, plan: &DirectPlanData, program_is_moments: bool) {
         let program = if program_is_moments {
             &plan.moment_program
         } else {
@@ -2652,17 +2653,16 @@ where
     /// 4. Translation to the loop momentum, `M(e) = sum_f binom(e,f)
     ///    (-o)^(e-f) L(f)`, as separable 1-D binomial transforms along the
     ///    nonzero axes of the subset origin `o`.
-    fn gather(&mut self) {
+    fn gather(&mut self, plan: &Arc<DirectPlanData>) {
         if self.ir_free {
-            self.gather_with::<false>();
+            self.gather_with::<false>(plan, plan);
         } else {
-            self.gather_with::<true>();
+            self.gather_with::<true>(plan, plan);
         }
     }
 
     #[inline(never)]
-    fn gather_with<const FULL: bool>(&mut self) {
-        let plan = self.plan.clone();
+    fn gather_with<const FULL: bool>(&mut self, plan_arc: &Arc<DirectPlanData>, plan: &DirectPlanData) {
         let table = &plan.monomials;
         let stride = table.block(usize::from(plan.settings.rank)).end;
         // 0. Moments shared with the other integrals of an amplitude (binary64
@@ -2740,7 +2740,7 @@ where
         //    momentum, would also compare empty keys, whose dangling pointers
         //    cost glibc's memcmp about 200 cycles in its masked loads on AMD
         //    Zen 4).
-        let mut finite = T::FIXED_BITS == Some(53) && self.distinct_momenta(&plan) >= REAL_PRODUCT_MOMENTA;
+        let mut finite = T::FIXED_BITS == Some(53) && self.distinct_momenta(plan_arc) >= REAL_PRODUCT_MOMENTA;
         'check: for (index, gather) in plan.gathers.iter().enumerate().filter(|_| finite) {
             if matches!(moments.get(index), Some(Moments::Stored)) {
                 continue;
@@ -2764,9 +2764,9 @@ where
                 }
             }
         }
-        let real = finite && self.real_products(&plan, store.is_some());
+        let real = finite && self.real_products(plan_arc, store.is_some());
         if !real {
-            self.complex_products(&plan, store.is_some());
+            self.complex_products(plan, store.is_some());
         }
         for (index, gather) in plan.gathers.iter().enumerate() {
             let key = match moments.get_mut(index).map(|m| std::mem::replace(m, Moments::Compute)) {
@@ -2897,8 +2897,8 @@ where
                 self.profile.masters += started.elapsed();
             }
         }
-        let base_plan = self.base_plan.clone();
-        let basis_len = base_plan.basis.len();
+        let basis_len = self.base_plan.basis.len();
+        let (convention, tensor_weights) = (self.base_plan.settings.convention, self.base_plan.settings.tensor_weights);
         let mut values = Vec::with_capacity(batch.rows * basis_len * 4);
         let mut statuses = Vec::with_capacity(batch.rows);
         self.lane_conditions.clear();
@@ -2907,7 +2907,6 @@ where
         self.lane_gram.resize(batch.rows, false);
         self.lane_estimate.clear();
         self.lane_estimate.resize(batch.rows, false);
-        let settings = &base_plan.settings;
         for row in 0..batch.rows {
             let lane_values = values.len();
             values.resize(lane_values + basis_len * 4, self.zero.clone());
@@ -2926,13 +2925,16 @@ where
             // hold here, restart from the base plan. Each affinely dependent
             // subset the geometry discovers switches to a relation variant.
             let mut failure = None;
-            loop {
-                match self.geometry() {
-                    Ok(()) => break,
+            // The lane's plan, cloned once (an atomic increment and
+            // decrement) and lent to every step below.
+            let plan = loop {
+                let plan = self.plan.clone();
+                match self.geometry(&plan) {
+                    Ok(()) => break plan,
                     Err(GeometryFailure::Relation(error)) => {
                         if self.relation_profile.is_empty() && self.lightlike_profile.is_empty() {
                             failure = Some(error);
-                            break;
+                            break plan;
                         }
                         self.relation_profile.clear();
                         self.lightlike_profile.clear();
@@ -2943,7 +2945,7 @@ where
                             failure = Some(format!(
                                 "lightlike bubble {mask:#b} unsupported for dotted propagators"
                             ));
-                            break;
+                            break plan;
                         }
                         self.lightlike_profile.push(mask);
                         self.lightlike_profile.sort_unstable();
@@ -2951,7 +2953,7 @@ where
                     }
                     Err(GeometryFailure::Unstable(error)) => {
                         failure = Some(error);
-                        break;
+                        break plan;
                     }
                     Err(GeometryFailure::Singular(mask, error)) => {
                         match self.relation_support(mask) {
@@ -2965,19 +2967,18 @@ where
                             }
                             _ => {
                                 failure = Some(error);
-                                break;
+                                break plan;
                             }
                         }
                     }
                 }
-            }
+            };
             self.lane_estimate[row] = self.estimate_tripped;
             if let Some(error) = failure {
                 self.lane_conditions[row] = self.failed_condition;
                 statuses.push(LaneStatus::Unstable(error));
                 continue;
             }
-            let plan = self.plan.clone();
             if let Some(started) = started {
                 self.profile.geometry += started.elapsed();
             }
@@ -2993,7 +2994,7 @@ where
             } else {
                 let mu2 = self.mu_squared(batch, row);
                 self.lane_mu2 = Some(mu2.clone());
-                if let Err(error) = self.native_masters(&mu2) {
+                if let Err(error) = self.native_masters(&plan, &mu2) {
                     statuses.push(LaneStatus::MasterFailure(error));
                     continue;
                 }
@@ -3046,9 +3047,9 @@ where
             if let Some(unit) = plan.unit_finite {
                 self.values[unit as usize] = [self.zero.clone(), self.zero.clone(), self.zero.clone(), self.one.clone()];
             }
-            self.detect_ir_free();
+            self.detect_ir_free(&plan);
             let started = self.timer();
-            self.run_program(false);
+            self.run_program(&plan, false);
             if let Some(started) = started {
                 self.profile.recurrence += started.elapsed();
             }
@@ -3066,14 +3067,14 @@ where
             }
             let started = self.timer();
             match self.plan.jet {
-                None => self.gather(),
+                None => self.gather(&plan),
                 // Without moment recursions only the requested order is used.
                 Some((_, k_len)) if self.plan.moment_program.is_empty() => {
-                    self.gather_order(k_len - 1)
+                    self.gather_order(&plan, k_len - 1)
                 }
                 Some((_, k_len)) => {
                     for order in 0..k_len {
-                        self.gather_order(order);
+                        self.gather_order(&plan, order);
                     }
                 }
             }
@@ -3081,7 +3082,7 @@ where
                 self.profile.gather += started.elapsed();
             }
             let started = self.timer();
-            self.run_program(true);
+            self.run_program(&plan, true);
             if let Some(started) = started {
                 self.profile.recurrence += started.elapsed();
             }
@@ -3100,7 +3101,7 @@ where
             for (index, flags) in self.output_flags.iter().enumerate() {
                 let v = &source[plan.output[index] as usize];
                 let uv = if flags.uv_zero { self.zero.clone() } else { v[0].clone() };
-                let mut out: L4<T> = match settings.convention {
+                let mut out: L4<T> = match convention {
                     Convention::OneLoop => [uv, v[1].clone(), v[2].clone(), v[3].clone()],
                     Convention::MadLoop => {
                         let mut out = [uv, v[1].clone(), v[2].clone(), v[3].clone()];
@@ -3146,15 +3147,15 @@ where
         let rows = batch.rows;
         let _ = cnorm2::<T>;
         Ok(BatchResult {
-            basis: base_plan.basis.clone(),
+            basis: self.base_plan.basis.clone(),
             components: 1,
-            metadata: ResultMetadata::new(settings.convention, settings.tensor_weights, None),
+            metadata: ResultMetadata::new(convention, tensor_weights, None),
             values,
             statuses,
-            fallback_used: vec![false; rows],
-            analytic_used: vec![false; rows],
-            primal_envelopes: vec![None; rows],
-            primal_envelope_errors: vec![None; rows],
+            fallback_used: filled(rows, false),
+            analytic_used: filled(rows, false),
+            primal_envelopes: std::iter::repeat_with(|| None).take(rows).collect(),
+            primal_envelope_errors: std::iter::repeat_with(|| None).take(rows).collect(),
             estimated_errors: Vec::new(), best_effort: Vec::new(),
         })
     }
