@@ -1347,23 +1347,32 @@ where
                         for &target_kappa in kappas {
                             let lambda = level - 1;
                             let kappa = add(target_kappa, l);
+                            // Every key below is read through the grading's
+                            // neighbour tables from the target's index (the
+                            // target, of rank r <= max_rank - 1, is inside).
+                            let here = grading.index(level, &target_kappa).ok_or_else(|| {
+                                format!("small-Gram expansion: coefficient {:?} outside the expansion ranks", (level, target_kappa))
+                            })? as u32;
+                            let source = grading.plus(grading.lower(here), l);
                             let mut acc = lzero(&zero);
                             if let Some(prev) = prev {
-                                fma(&mut acc, &y0k, prev.need(&grading, (lambda, kappa), "small-Gram/Cayley expansion")?);
-                                fma(&mut acc, &neg_delta, prev.need(&grading, (lambda, add(kappa, k)), "small-Gram/Cayley expansion")?);
+                                fma(&mut acc, &y0k, prev.need_at(source, || (lambda, kappa), "small-Gram/Cayley expansion")?);
+                                fma(&mut acc, &neg_delta, prev.need_at(grading.plus(source, k), || (lambda, add(kappa, k)), "small-Gram/Cayley expansion")?);
                             } else {
                                 for m in 0..nm {
-                                    fma(&mut acc, &adj[k][m], shat_of(m, lambda, kappa)?);
+                                    fma(&mut acc, &adj[k][m], shat_at(m, source)?);
                                 }
                             }
                             for m in (0..nm).filter(|&m| m != l) {
                                 if let Some(less) = sub(kappa, m) {
-                                    fma(&mut acc, &gc_neg_adj[m][usize::from(kappa[m])], cur.need(&grading, (level, less), "small-Gram/Cayley expansion")?);
+                                    // (level, target - e_m + e_l), of rank r.
+                                    let at = grading.plus(grading.minus(here, m), l);
+                                    fma(&mut acc, &gc_neg_adj[m][usize::from(kappa[m])], cur.need_at(at, || (level, less), "small-Gram/Cayley expansion")?);
                                 }
                             }
                             let divisor = &gc_divisor[usize::from(kappa[l])];
                             let out: L4<T> = std::array::from_fn(|slot| cmul(&acc[slot], divisor));
-                            cur.insert(&grading, (level, target_kappa), out, &zero)?;
+                            cur.insert_at(&grading, here as usize, out, &zero);
                         }
                     }
                     Ok(())
@@ -1371,12 +1380,16 @@ where
                 let gc_momentum = |cur: &mut Coefficients<T>, prev: Option<&Coefficients<T>>, p: u16| -> Result<(), String> {
                     let dimension = self.prototype.from_usize(p as usize + 4 - nm);
                     for kappa in composition_iter(p, nm) {
-                        let mut metric = cur.need(&grading, (1, kappa), "small-Gram/Cayley expansion")?.clone();
+                        // (1, kappa) of rank p + 2 <= max_rank - 1 and its
+                        // neighbours through the grading's tables.
+                        let metric_at = grading.index(1, &kappa).map_or(NONE, |index| index as u32);
+                        let here = grading.lower(metric_at);
+                        let mut metric = cur.need_at(metric_at, || (1, kappa), "small-Gram/Cayley expansion")?.clone();
                         mul_dimension(&mut metric, &dimension);
                         let mut bracket = lzero(&zero);
                         fma(&mut bracket, &gc_two, &metric);
                         if prev.is_none() {
-                            fma(&mut bracket, &gc_neg_one, spz.get(&grading, (0, kappa)).ok_or("small-Gram/Cayley expansion: C0 outside the triangle ranks")?);
+                            fma(&mut bracket, &gc_neg_one, spz.at(here as usize).ok_or("small-Gram/Cayley expansion: C0 outside the triangle ranks")?);
                         }
                         let mut acc = lzero(&zero);
                         fma(&mut acc, &adj[gi][gj], &bracket);
@@ -1384,18 +1397,21 @@ where
                             for m1 in 0..nm {
                                 let Some(wf) = &gc_wf[n1][m1] else { continue };
                                 if prev.is_none() {
-                                    fma(&mut acc, wf, shat_of(m1, 0, kappa)?);
+                                    fma(&mut acc, wf, shat_at(m1, here)?);
                                 }
                                 if let Some(less) = sub(kappa, m1) {
-                                    fma(&mut acc, &gc_neg_wf[n1][m1][usize::from(kappa[m1])], cur.need(&grading, (1, less), "small-Gram/Cayley expansion")?);
+                                    fma(&mut acc, &gc_neg_wf[n1][m1][usize::from(kappa[m1])], cur.need_at(grading.minus(metric_at, m1), || (1, less), "small-Gram/Cayley expansion")?);
                                 }
                             }
                         }
                         if let Some(prev) = prev {
-                            fma(&mut acc, &y0gj, prev.need(&grading, (0, add(kappa, gi)), "small-Gram/Cayley expansion")?);
+                            fma(&mut acc, &y0gj, prev.need_at(grading.plus(here, gi), || (0, add(kappa, gi)), "small-Gram/Cayley expansion")?);
                         }
                         let out: L4<T> = std::array::from_fn(|slot| cmul(&acc[slot], &inv_xt));
-                        cur.insert(&grading, (0, kappa), out, &zero)?;
+                        let here = grading.index(0, &kappa).ok_or_else(|| {
+                            format!("small-Gram expansion: coefficient {:?} outside the expansion ranks", (0u16, kappa))
+                        })?;
+                        cur.insert_at(&grading, here, out, &zero);
                     }
                     Ok(())
                 };
