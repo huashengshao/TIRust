@@ -942,6 +942,76 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    COLLIER no-cache x0.98 [0.94, 0.99]); COLLIER cache 84.7/18.1; blocks
    do not overlap 015's; hexagon fingerprint fb38d648191764a4 (computed
    3160 -> 3097), pentagon ecd7d3be452f3803 unchanged.
+   AMPLITUDE CACHE ANALYSIS (user: "Amplitude cache next", 4 Nov, e76dd38;
+   no code change). Hexagon amplitude, 32 points, sharing on, by integral
+   size (amp_driver_rl, sub-amplitude JSONs in scratchpad cache/): all 171
+   ms; alone: hexagon 81 (separate 94), 6 pentagons 92 (137), 15 boxes 50
+   (54), triangles 3.8, bubbles 0.8; cumulative: up to triangles 4.6, +
+   boxes 54.9, + pentagons 145.5, + hexagon 171. Pentagons gain nothing
+   expensive from the boxes (callgrind: alone 925 MIr, on top of the boxes
+   914 MIr; the boxes give them 2300 cheap hits: masters, PV subsets); the
+   hexagon reuses the pentagons (25 ms on top against 81 alone). Order of
+   evaluation (largest first) computes the same 3097 results: no gain.
+   Store trace (tags 1 partial rescue, 2 expansions; steady call, traced
+   274 ms): order-only misses (same subset, other cyclic order) 45 ms, new
+   122 - 45 = 77 ms (box integrals' own expansions 51). Order-only reuse of
+   binary64 expansions would let the rotation test compare a value with a
+   translated copy of itself: not done. Safe part: double-double partial
+   rescue across orders (translate DD coefficients to the other origin),
+   ~16 ms traced (~6% of the call): not done (user chose the gather).
+   COLLIER's cache saves more because its hexagon call computes all
+   sub-integrals once; TIRust certifies each integral by its own rotation
+   test (other cyclic orders), which is distinct work.
+   GATHER (user: "Speed up the gather", 4 Nov), 13d3eab. Gather = 466 of
+   1698 MIr of the hexagon call (27%; pentagons 676k Ir per gather); step
+   1 (sparse momentum products) ~270 MIr, mostly bookkeeping (slot lookup,
+   push, zero drop), step 2 (g_lambda multiply-adds) ~95. Change
+   (exec.rs, numeric.rs): binary64 with real momenta and finite
+   coefficients keeps the products real (sparse_real) and step 2 uses
+   real_lfma_slots (bit-identical: zero terms added to accumulators started
+   at +0, which never become -0); real_products records a ProductSchedule
+   per plan and zero pattern (masks of distinct momenta via product_momenta,
+   plus needed products when the moment store skips some): pre-drop locals,
+   keep flags (exact zeros: massless beam momenta along z cancel, 201 of
+   2661 gathers per call), counts, slots relative to the product start;
+   replay checks the exact zeros, else the recording pass runs and
+   replaces it; complex momenta / non-finite / other T -> complex_products
+   (old code). MAX_PRODUCT_SCHEDULES 8. Steps: real only 1.643 GIr; +
+   schedules 1.516; + key per distinct momentum and chunked replay 1.480;
+   + recorded drops 1.447 (gather 214, real_products 92 MIr). Evidence:
+   binary64-only and rescue dumps of all 27500 stability points
+   byte-identical to e76dd38 (the stored rescue-rl hexagon dump predated
+   the final e76dd38 build; regenerated as rescue-rlfinal); suites pass
+   (iregi-rust 7, twice); A/B 10 rounds vs e76dd38: hexagon cycles x0.874
+   [0.824, 0.968], instructions x0.852; pentagon x0.866 [0.797, 0.943],
+   x0.842. Next in the hexagon call: run_program 365, DD reduce 354,
+   inject_gram 341 MIr.
+   Captures (final034.sh; timing waited 8 min for load < 300, CPU 153;
+   amplitude CPU 243): stability 034 = 033 on every row matched by index
+   (all TIRust modes; only the line order differs, parallel workers).
+   Timing 030 (load 295) vs 029: every TIRust error and status identical;
+   medians TIRust +1.4%, COLLIER +2.5%, IREGI +2.8%; ordinary n >= 4
+   -11.5..+1.4% (references -3..+7%); N7R7 b32 164.7 ms (b64-only 148.8;
+   029: 171.5/166.3); 26/38 busy. Slower: N1R0 +21..+56% (b32 0.256 ->
+   0.39 us per point), N1R6 and dotted N1R6 +4..+12%, b1 N2R1 +12..+14%
+   (references +4..+5%). Cause (perf; e76dd38 direct_timing rebuilt in a
+   scratch worktree; n1-r0 b32, CPU 189, 6 alternating rounds): cycles
+   per lane 743 -> 1130 (x1.52), instructions 2648 -> 2899 (+251), IPC
+   3.56 -> 2.57; 19% of the cycles in __memcmp_evex_movbe, on its masked
+   vpcmpnequb: a tadpole has no product with a momentum, so its schedule
+   key is empty, and == on two empty Vec<u8> calls memcmp with their
+   dangling pointers (0x1); glibc's < 32-byte path does masked loads
+   (mask 0) from them, about 200 cycles each on this Zen 4c. Instructions
+   per lane (perf, 13d3eab - e76dd38): n1-r0 +251, n2-r1 +285, n1-r6
+   +364, dotted n1-r6 +360, n3-r2 +240, n4-r6 -40846. Fix: no schedule
+   when no product has a momentum (next commit). Amplitude 017 (load 291
+   to 294): x1.70 [1.66, 1.79] and x1.29 [1.29, 1.32]; TIRust shared
+   148.5/24.4 ms, separate 273.4/27.2 (separate over COLLIER no-cache
+   x1.04 [1.01, 1.08] and x0.86 [0.84, 0.89]); COLLIER cache 87.3/18.7;
+   blocks do not overlap 016's; fingerprints fb38d648191764a4 and
+   ecd7d3be452f3803 unchanged. Report seal: 099469a recorded page_count
+   176 (a regex counted every page's /Type /Page twice), its PDF has 88
+   pages (/Count 88); this seal records 88. Count pages from /Count.
 4n. **Improve the amplitude cache (user: "very important", 2 Nov).**
    Miss diagnostic (hexagon amplitude, 32 points, sharing on: 312 reused,
    333 computed per call): of the 333, 103 have an earlier result for the
