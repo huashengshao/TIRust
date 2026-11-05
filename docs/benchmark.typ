@@ -343,7 +343,7 @@
 // Same-session direct-engine campaign (30 October 2026): TIRust public
 // binary64 default versus original IREGI and COLLIER, interleaved per block.
 // The latest bound capture of each campaign is shown; earlier ones stay in the data.
-#let direct-capture-ids = ("031", "030", "029", "028", "027", "026", "025", "024", "023", "022", "021", "020", "019", "018", "017", "016", "015", "014", "013", "012", "011", "010", "008", "007", "006", "005", "004", "003", "002")
+#let direct-capture-ids = ("032", "031", "030", "029", "028", "027", "026", "025", "024", "023", "022", "021", "020", "019", "018", "017", "016", "015", "014", "013", "012", "011", "010", "008", "007", "006", "005", "004", "003", "002")
 #let direct-campaign-id = direct-capture-ids.find(id => ("direct_engine_20261030_capture" + id) in data)
 #let direct-campaign = if direct-campaign-id != none { data.at("direct_engine_20261030_capture" + direct-campaign-id) } else { data.at("direct_engine_20261030", default: none) }
 #let direct-first-capture = data.at("direct_engine_20261030", default: none)
@@ -633,7 +633,30 @@
     amber with diagnostic times and never enter a ratio. Builds: TIRust release (thin LTO), Fortran
     `-O3`, all baseline x86-64; binary SHA-256 in #raw("validation/benchmark/direct-engine-20261030/summary" + (if direct-campaign-id == none { "" } else { "-" + direct-campaign-id }) + ".json").
     TIRust source: commit #raw(snapshot.at("tirust_source_commit", default: snapshot.tirust_git_head).slice(0, 7)).
-    This capture (031, 5 November, load 239 to 252) measures TIRust e266351. The gather keeps its real
+    This capture (032, 5 November, load 218 to 207) measures TIRust 93a4914, which finds and removes the
+    cause of capture 031's batch-1 N2R1 slowdown. Inlining had folded the paths a small call skips (batched
+    masters, Taylor jets, the pentagon and hexagon systems, the rotation test and the retries of refused
+    lanes) into the functions it runs, so the instructions of one batch-1 N2R1 call were spread over 75
+    distinct 4 KiB code pages (TIRust e76dd38: 70), more than the 64 entries of this processor's
+    first-level instruction TLB (AMD Zen 4c): 54 misses per call against 6.5, and about 200 more cycles in
+    which the front end delivered no instruction, for the same work. These paths now sit in functions of
+    their own (the retries run only when a lane is refused), and the gather's loop over the terms of the
+    untranslated moments takes their constants alongside, without an index (26 → 19 instructions per term
+    on N2R6 at batch 32). One N2R1 call now touches 60 pages, without misses, and runs 9888 instead of
+    10307 instructions. Results are unchanged bit for bit (TIRust's outputs of the 19 rows at batch 32, in
+    all 96 row and mode pairs, are byte-identical to those of TIRust e266351, timing fields aside; every
+    TIRust error and status is that of capture 031; stability capture 036 equals capture 035). Against
+    capture 031, COLLIER's rows are a median 1.3% faster, NinjaRS's and IREGI's 1.5% (26 of the 38
+    measurements started on a core already partly busy; capture 031: 21), and TIRust's binary64-only rows
+    2.7% (×0.86 to ×1.00 in every row). Batch-1 N2R1 is 7.4 to 13.8% faster in every mode (binary64-only
+    1.07 µs per point; capture 031: 1.24 µs, capture 029: 1.14 µs), now below COLLIER's 1.13 µs (×0.94),
+    and batch-1 N1R0 8.1 to 11.8% (0.48 µs; COLLIER 0.39 µs, ×1.22), both on a core 96 to 100% busy
+    before; at batch 32 N1R0 is 4.9 to 7.2% and N2R1 3.1 to 5.5% faster. Rows with four to seven
+    propagators: −5.9 to +0.3% in every mode; N7R7 batch 32 takes 158 ms per call (capture 031: 161 ms),
+    its binary64-only mode 143 ms (145 ms). An alternating A/B on one idle core puts batch-1 N6R6 about 2%
+    above TIRust e266351 in cycles for 0.7% fewer instructions (more branch mispredictions in the
+    recurrence at its new address); this capture has it at ×0.99. It ran alone. Capture 031 (TIRust
+    e266351, 5 November, load 239 to 252): the gather keeps its real
     products and replayed layouts (capture 030 below) only from two distinct momenta, triangles and up:
     tadpoles and bubbles have few products, so recording and replaying their layout costs more than the real
     arithmetic saves, and a tadpole's empty key reached glibc's memcmp. They keep the complex products of
@@ -655,7 +678,8 @@
     above TIRust e76dd38's for 0.6% more instructions and the same branch misses, with each of eight
     environment sizes (which move the stack), and the extra cycles are spread over many functions, among
     them ones neither commit changes (glibc's logarithm and memmove, the B0 master): an effect of code
-    placement rather than of more work, as far as these counters show. Rows with four to seven propagators
+    placement rather than of more work, as far as these counters show (capture 032 above finds it in the
+    instruction TLB). Rows with four to seven propagators
     keep capture 030's speed-up: −15.5 to +1.4% against capture 029 in every mode (COLLIER's and IREGI's
     −2.2 to +2.0%); N7R7 batch 32 takes 161 ms per call (capture 030: 165 ms, capture 029: 171 ms), its
     binary64-only mode 145 ms (149 ms, 166 ms). It ran alone. Capture 030 (TIRust 13d3eab, 5 November,
@@ -894,7 +918,7 @@
 }
 // Binary64 stability study (30 October 2026): cumulative accuracy profiles
 // in the style of Hirschi and Peraro, arXiv:1604.01363, figs. 2-4.
-#let stability-campaign-id = ("035", "034", "033", "032", "031", "030", "029", "028", "027", "026", "025", "024", "023", "022", "021", "020", "019", "018", "017", "016", "015", "013", "012", "011", "010", "009", "008", "007", "006", "005", "004", "003", "002").find(id => ("stability_20261030_capture" + id) in data)
+#let stability-campaign-id = ("036", "035", "034", "033", "032", "031", "030", "029", "028", "027", "026", "025", "024", "023", "022", "021", "020", "019", "018", "017", "016", "015", "013", "012", "011", "010", "009", "008", "007", "006", "005", "004", "003", "002").find(id => ("stability_20261030_capture" + id) in data)
 #let stability-campaign = if stability-campaign-id != none { data.at("stability_20261030_capture" + stability-campaign-id) } else { data.at("stability_20261030", default: none) }
 #let stability-first-capture = data.at("stability_20261030", default: none)
 #let st-style = (
@@ -1035,7 +1059,7 @@
     )
   ])
   text(size: 8.5pt)[
-    *Findings (capture 035, TIRust #raw(snapshot.tirust_git_head.slice(0, 7))).* TIRust's default returns an
+    *Findings (capture 036, TIRust #raw(snapshot.tirust_git_head.slice(0, 7))).* TIRust's default returns an
     accurate array on every point of all five integrals, worst E/A 6.7×10#super[−11] (capture 021: 5.0×10#super[−11]; capture 010:
     9.6×10#super[−9]). "TIRust binary64 only" (precision rescue disabled) reports every point with a binary64
     array, as COLLIER does: lanes that pass TIRust's checks are certified, the others return their best binary64
@@ -1058,7 +1082,7 @@
     timing section) is identical to capture 023 in every TIRust status, error and diagnostic on all 27500
     points; in the same way, capture 025 (nested triangles whose expansions cannot converge go straight to the
     alternative reduction, timing section) is identical to capture 024, capture 026 (precomputed
-    neighbour tables in the expansions' recursion, timing section) to capture 025, capture 027 (momentum products of the Cartesian moments built once per call, timing section) to capture 026, capture 028 (Cartesian moments shared between the integrals of an amplitude, timing section) to capture 027, capture 029 (small-Gram expansions that compute only the coefficients their results depend on, timing section) to capture 028, and capture 030 (double-double products with a real factor, timing section) to capture 029. Capture 031 (hand-written double-double boxes, timing section) differs from capture 030 only in TIRust's default errors on 19 points that use the double-double rescue: no status, flag or binary64-only value changes, an E/A changes by at most 6×10#super[−3] of itself except on one box (1.8 → 1.3×10#super[−17]), and one point of the box-r4 curves moves by 10#super[−4]. Capture 032 (hand-written double-double triangles, timing section) differs from capture 031 only in TIRust's default errors on 20 points: no status, flag, binary64-only value or summary statistic changes; the contracted E/A of three pentagon points at 10#super[−15] to 10#super[−14] moves by 2 to 9% (largest 1.4 → 1.3×10#super[−15]) and every other changed E/A by at most 0.3% of itself. Capture 033 (the precision rescue right after the a priori method choice, timing section) differs from capture 032 only on the 51 points whose refused lanes the default now sends to the double-double tier instead of keeping them by a binary64 retry (1 rank-4 box, 14 rank-6 boxes, 31 pentagons, 5 hexagons): each one's E/A falls from at most 5.2×10#super[−12] (19 pentagons and all 5 hexagons above 10#super[−14]) to below 10#super[−28] (boxes) or 0 (pentagons and hexagons, equal to the reference after rounding), and each now counts as rescued at 106 bits; no binary64-only value, status or worst array changes, the only 99th percentile that moves is the contracted rank-6 boxes' (1.54 → 1.47×10#super[−11]), and the default medians fall by up to 3.6% (pentagons). Capture 034 (real momentum products in the gather, timing section) matches capture 033 in every TIRust status, error and diagnostic on all 27500 points, and capture 035 (tadpoles and bubbles back on the complex products, timing section) matches capture 034 in the same way. *How* (since capture 010, following COLLIER and Denner and
+    neighbour tables in the expansions' recursion, timing section) to capture 025, capture 027 (momentum products of the Cartesian moments built once per call, timing section) to capture 026, capture 028 (Cartesian moments shared between the integrals of an amplitude, timing section) to capture 027, capture 029 (small-Gram expansions that compute only the coefficients their results depend on, timing section) to capture 028, and capture 030 (double-double products with a real factor, timing section) to capture 029. Capture 031 (hand-written double-double boxes, timing section) differs from capture 030 only in TIRust's default errors on 19 points that use the double-double rescue: no status, flag or binary64-only value changes, an E/A changes by at most 6×10#super[−3] of itself except on one box (1.8 → 1.3×10#super[−17]), and one point of the box-r4 curves moves by 10#super[−4]. Capture 032 (hand-written double-double triangles, timing section) differs from capture 031 only in TIRust's default errors on 20 points: no status, flag, binary64-only value or summary statistic changes; the contracted E/A of three pentagon points at 10#super[−15] to 10#super[−14] moves by 2 to 9% (largest 1.4 → 1.3×10#super[−15]) and every other changed E/A by at most 0.3% of itself. Capture 033 (the precision rescue right after the a priori method choice, timing section) differs from capture 032 only on the 51 points whose refused lanes the default now sends to the double-double tier instead of keeping them by a binary64 retry (1 rank-4 box, 14 rank-6 boxes, 31 pentagons, 5 hexagons): each one's E/A falls from at most 5.2×10#super[−12] (19 pentagons and all 5 hexagons above 10#super[−14]) to below 10#super[−28] (boxes) or 0 (pentagons and hexagons, equal to the reference after rounding), and each now counts as rescued at 106 bits; no binary64-only value, status or worst array changes, the only 99th percentile that moves is the contracted rank-6 boxes' (1.54 → 1.47×10#super[−11]), and the default medians fall by up to 3.6% (pentagons). Capture 034 (real momentum products in the gather, timing section) matches capture 033 in every TIRust status, error and diagnostic on all 27500 points, capture 035 (tadpoles and bubbles back on the complex products, timing section) matches capture 034 in the same way, and capture 036 (rarely used code out of the hot functions, timing section) matches capture 035 in the same way. *How* (since capture 010, following COLLIER and Denner and
     Dittmaier, hep-ph/0509141): boxes get the loop-rotation test; an expansion that has not converged tries
     the next larger boost; every lane the binary64 pass refuses is retried first with COLLIER's per-box choice
     (boxes and triangles whose a priori PV estimate 2#super[−52]w#super[r] exceeds the request, or that the
@@ -1287,7 +1311,7 @@
 // Amplitude benchmark (2 November 2026): the integrals of an amplitude
 // evaluated together, TIRust with per-subset sharing on and off against
 // COLLIER with its global cache on and off, in one session.
-#let amplitude-capture-id = ("018", "017", "016", "015", "014", "013", "012", "011", "010", "009", "008", "007", "006", "005", "004", "003", "002", "001").find(id => ("direct_engine_20261030_amplitude" + id) in data)
+#let amplitude-capture-id = ("019", "018", "017", "016", "015", "014", "013", "012", "011", "010", "009", "008", "007", "006", "005", "004", "003", "002", "001").find(id => ("direct_engine_20261030_amplitude" + id) in data)
 #let amplitude-record = if amplitude-capture-id == none { none } else { data.at("direct_engine_20261030_amplitude" + amplitude-capture-id) }
 #let amp-time-cell(timing) = table.cell(fill: pale, {
   set par(leading: 0.3em, justify: false)
@@ -1365,10 +1389,10 @@
     The binary64 arrays of these integrals are what TIRust's checks certify (rotation test, method-choice
     retries, double-double boxes), and on these physical points the checks, not the binary64 pass, take most of
     TIRust's time (see the stability section for both codes' accuracy on the same points). Sharing removes the
-    repeats of that work: 1.8 times faster on the hexagon amplitude (capture 017: 1.8; capture 016: 1.8; capture 015: 1.9; capture 014: 1.9; capture 013: 2.1; capture 012: 2.2; capture 011: 2.1; capture 010: 2.0; capture 005: 2.1; capture 003: 2.2; capture 002: 2.3; capture 001, with only
+    repeats of that work: 1.9 times faster on the hexagon amplitude (capture 018: 1.8; capture 017: 1.8; capture 016: 1.8; capture 015: 1.9; capture 014: 1.9; capture 013: 2.1; capture 012: 2.2; capture 011: 2.1; capture 010: 2.0; capture 005: 2.1; capture 003: 2.2; capture 002: 2.3; capture 001, with only
     the double-double boxes and the expansions shared and without rank floors: 1.8 times), 1.1 times on the
-    pentagon amplitude (captures 003 and 001: 1.3 and 1.1 times). COLLIER's cache reuses whole sub-integrals between calls (3.0
-    and 1.7 times faster; capture 017: 3.0 and 1.7; capture 016: 3.0 and 1.7; capture 015: 2.9 and 1.7; capture 014: 3.0 and 1.7; capture 013: 3.0 and 1.6; capture 012: 2.9 and 1.7; capture 011: 3.0 and 1.7; capture 010: 3.3 and 1.8; capture 008: 3.0 and 1.7). Capture 003 (TIRust a71e29d) runs the small-Gram expansions order by order in Δ and
+    pentagon amplitude (captures 003 and 001: 1.3 and 1.1 times). COLLIER's cache reuses whole sub-integrals between calls (2.9
+    and 1.7 times faster; capture 018: 3.0 and 1.7; capture 017: 3.0 and 1.7; capture 016: 3.0 and 1.7; capture 015: 2.9 and 1.7; capture 014: 3.0 and 1.7; capture 013: 3.0 and 1.6; capture 012: 2.9 and 1.7; capture 011: 3.0 and 1.7; capture 010: 3.3 and 1.8; capture 008: 3.0 and 1.7). Capture 003 (TIRust a71e29d) runs the small-Gram expansions order by order in Δ and
     stops those that cannot converge (timing section): TIRust shared over COLLIER's cache ×9.1 on the hexagon
     and ×4.9 on the pentagon amplitude (capture 002, TIRust 8ec79e9: ×10.4 and ×6.6; separate sessions). Capture 004 (TIRust f45d36f) also
     drops the accuracy reruns of accepted box and pentagon lanes (stability section): ×7.3 and ×3.3. Capture
@@ -1457,7 +1481,14 @@
     22.0 to 22.4 ms against 24.1 to 24.6 ms; COLLIER's cached pentagon 7% faster). Without sharing, TIRust's
     hexagon takes 267 ms (×1.07 against COLLIER without its cache, interval ×1.05 to ×1.07) and its
     pentagon 25.4 ms (×0.87, interval ×0.85 to ×0.88). Both amplitudes' arrays are bit-identical to capture
-    017's (same fingerprints; 3097 and 1251 integrals computed per call).
+    017's (same fingerprints; 3097 and 1251 integrals computed per call). Capture 019 (TIRust 93a4914)
+    keeps rarely used code out of the hot functions (timing section): ×1.70 and ×1.27 (hexagon interval
+    ×1.61 to ×1.74, pentagon ×1.20 to ×1.32; TIRust's shared medians 144 → 138 ms and 22.1 → 22.5 ms;
+    COLLIER's cached medians 83.8 → 84.1 ms and 17.4 → 17.7 ms; load 207, with the hexagon's core 2% and
+    the pentagon's 37% busy in the half second before). Without sharing, TIRust's hexagon takes 262 ms
+    (×1.08 against COLLIER without its cache, interval ×1.02 to ×1.11) and its pentagon 25.5 ms (×0.86,
+    interval ×0.83 to ×0.90). Both amplitudes' arrays are bit-identical to capture 018's (same
+    fingerprints; 3097 and 1251 integrals computed per call).
     The rotated evaluations of TIRust's rotation test start each box from another propagator, so
     those remain separate computations.
   ]

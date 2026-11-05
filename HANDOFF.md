@@ -1043,6 +1043,60 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    shared 144.5/22.1 ms, separate 267.0/25.4 (over COLLIER no-cache
    x1.07 [1.05, 1.07], x0.87 [0.85, 0.88]); COLLIER cache 83.8/17.4;
    fingerprints unchanged.
+   CODE LAYOUT FIX, 93a4914 (the open b1 N2R1 item above): the cause was
+   the L1 instruction TLB (64 entries on Zen 4). perf per call (iteration
+   difference, idle core and sibling): e76dd38 / e266351 cycles 3393 /
+   3621, front-end no-op cycles (de_no_dispatch_per_slot cmask 6) 446 /
+   649, bp_l1_tlb_miss_l2_tlb_hit 6.5 / 53.8, icache misses 299 / 314.
+   callgrind --dump-instr per call (toggle and dump on TensorWorkspace
+   reduce_batch, call 7): 70 / 75 distinct 4 KiB code pages, 671 / 688
+   64-byte lines (> 512 of the 32 KiB L1i). Only gather and
+   complex_products changed instructions; the rest was the same code over
+   other page boundaries (B0 branch_1 5 -> 7 pages). Hot functions were
+   20-44 KB (DirectExecutor reduce_batch 43 KB, run_program 44 KB, hybrid
+   reduce_batch 43 KB, geometry 29 KB, gather 20 KB) because inlining
+   folded rarely used single-call paths into them; a bubble call ran
+   400-1900 instructions in each, scattered over most of their pages.
+   Fix (code motion): #[inline(never)] on evaluate_masters,
+   relation_support, lightlike_coefficients, geometry_jets,
+   run_program_jets, run_program_jet, run_program_ordinary, gather_with,
+   order_consensus, precision_rescue; geometry_pentagon and
+   geometry_hexagon split out; hybrid rotation_test and resolve_refused
+   split out (resolve_refused only when a lane is Unstable or
+   MasterFailure: every stage filtered on those, fallback_rows defaults to
+   0, best-effort loop had no candidates). Outlining gather_with added an
+   instruction to its step-3 loop (register allocation; N2R6 b32 +0.6%
+   instructions, +3% cycles), so step 3 now zips qexp with
+   qexp_constants (built one per term): 27 -> 19 instructions per term,
+   N2R6 b32 1.998 -> 1.868 M per call. Bubble call after: 60 pages, 639
+   lines, 9888 instructions (10307), L1 ITLB misses 0. A/B cycles per call
+   vs e266351 (CPU 150, 3-7 rounds): N1R0 b1 x0.87-0.94, N2R1 b1
+   x0.90-0.96 (below e76dd38: 3349 vs 3424), N3R2 b1 x0.98-1.00; median
+   over 38 row/batch pairs x0.987; N6R6 b1 about +2% (branch
+   mispredictions 1130 -> 1889 per call, in run_program_ordinary at its
+   new address; instructions -0.7%). Remaining footprint per bubble call:
+   DirectExecutor reduce_batch 113 lines, oneloop B0 branch_1 112, hybrid
+   74 (now inlined into TensorWorkspace), geometry 59, solve_in_place 44,
+   gather 43, allocator and BatchResult building about 35 (9 allocations
+   per call); oneloop family_values and branch_1 are spread the same way
+   (vendored: upstream PR if touched). Tools: scratchpad n2r1/ (pages.py,
+   lines.py, clusters.py, hotblocks.py, fe2.py, ab_all.py).
+   Evidence: cmpres over 96 timing results identical to e266351; suites
+   pass.
+   Captures (final036.sh; timing CPU 232, load 218 -> 207; amplitude CPU
+   172, load 207): stability 036 = 035 (capdiff: 0 changed in every
+   integral and mode; summaries differ only in provenance). Timing 032:
+   every TIRust error and status = 031's; vs 031 binary64-only median
+   x0.973 (x0.862..0.997 every row), COLLIER x0.987, NinjaRS and IREGI
+   x0.985; b1 N2R1 x0.862..0.926 all modes (b64-only 1.068 us, COLLIER
+   1.129: x0.944, first time below COLLIER), b1 N1R0 x0.882..0.919
+   (0.476 us, COLLIER x1.221), both on cores 96-100% busy before; b32
+   N1R0 x0.928..0.951, N2R1 x0.945..0.969; n >= 4 x0.941..1.003; N7R7
+   b32 158.3 ms (b64-only 143.2); 26/38 busy. Amplitude 019: x1.70
+   [1.61, 1.74] and x1.27 [1.20, 1.32]; TIRust shared 138.4/22.5 ms,
+   separate 261.7/25.5 (over COLLIER no-cache x1.08 [1.02, 1.11], x0.86
+   [0.83, 0.90]); COLLIER cache 84.1/17.7; pentagon core 37% busy
+   before; fingerprints unchanged.
 4n. **Improve the amplitude cache (user: "very important", 2 Nov).**
    Miss diagnostic (hexagon amplitude, 32 points, sharing on: 312 reused,
    333 computed per call): of the 333, 103 have an earlier result for the
