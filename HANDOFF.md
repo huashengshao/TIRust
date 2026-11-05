@@ -1210,6 +1210,28 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    separate 239.7/23.53 (over COLLIER no-cache x0.92 [0.88, 1.08],
    x0.745 [0.73, 0.79]); COLLIER cache 82.9/18.4; fingerprints
    unchanged; computed/reused 5220/39794 and 1742/9267.
+   EXPANSION KEYS, 16e441a: gc_metric/gc_momentum (small-Gram/Cayley
+   expansion) compute the target's grading index once and reach the other
+   keys through Grading::near (lower/plus/minus); (level, kappa - e_m) as
+   plus(minus(T, m), l) so no step leaves the grading; error texts keep
+   their keys. Pentagon amplitude 200.9 -> 195.1 MIr, hexagon 1205.9 ->
+   1198.6; A/B vs e942ef5 (CPU 177, 5 rounds) x0.965 and x0.977 in time.
+   Remaining expansion cost (pentagon amp, callgrind): closures #40/#41
+   (gc stages) 12.7 MIr, step #29 6.0, expand_top 4.4, Grading::index
+   4.5 (spz/shat building, alt_pv, insert), insert_at 3.6.
+   Captures (final039.sh; timing CPU 254, amplitude CPU 251): stability
+   039 = 038 (capdiff 0); timing 035 cmpres 96/96 vs e942ef5, errors and
+   statuses = 034's; quieter host (load 198 -> 130): vs 034 TIRust
+   x0.991, b64-only x0.994, COLLIER x0.985, NinjaRS x0.971, IREGI x0.992.
+   Amplitude 022 (load 127): x1.55 [1.54, 1.64] and x1.11 [1.06, 1.15]
+   vs COLLIER's cache; TIRust shared 121.3/20.4 ms, separate 224.8/22.4
+   (x1.00 [0.98, 1.03], x0.73 [0.58, 0.79] vs COLLIER no-cache); COLLIER
+   cache 77.9/18.0; fingerprints unchanged.
+   Repository renamed huashengshao/iregi-rust -> huashengshao/TIRust (5
+   Nov; origin updated, GitHub redirects the old URL; Cargo.toml,
+   pyproject.toml, notebooks and docs still name the old URL). A
+   collaborator (Valentin Hirschi) now also pushes to main: fetch before
+   work and before every push, never force-push.
 4n. **Improve the amplitude cache (user: "very important", 2 Nov).**
    Miss diagnostic (hexagon amplitude, 32 points, sharing on: 312 reused,
    333 computed per call): of the 333, 103 have an earlier result for the
