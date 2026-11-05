@@ -78,6 +78,10 @@ pub(crate) struct PartialRescue {
 /// momenta; real kinematics rarely have more than a few).
 const MAX_PRODUCT_SCHEDULES: usize = 8;
 
+/// The fewest distinct momenta for which the gather keeps real products
+/// (see [`DirectExecutor::gather_with`]).
+const REAL_PRODUCT_MOMENTA: usize = 2;
+
 /// A recorded step-1 pass of [`DirectExecutor::real_products`]: where every
 /// term of the sparse product lists goes, for one plan and zero pattern.
 #[derive(Clone, Debug)]
@@ -2353,24 +2357,9 @@ where
         }
     }
 
-    /// Step 1 of [`Self::gather_with`] for binary64 with real momenta: the
-    /// products as sparse real lists, in the order and with the values of
-    /// [`Self::complex_products`] (their imaginary parts are +0). `false`,
-    /// with nothing usable written, when a momentum is not real or a product
-    /// is not finite.
-    ///
-    /// Where the lists go depends only on which momentum components are
-    /// zero (and which products are needed) and on which sums cancel to an
-    /// exact zero (dropped; massless momenta along an axis cancel exactly).
-    /// A pass is recorded as a [`ProductSchedule`] for its zero pattern, and
-    /// later passes with that pattern replay it, the same terms in the same
-    /// order without finding the entries again, if their exact zeros are the
-    /// recorded ones (otherwise this pass runs and replaces the record).
-    fn real_products(&mut self, plan: &Arc<DirectPlanData>, skip_unneeded: bool) -> bool {
-        let table = &plan.monomials;
-        // The zero pattern: per distinct momentum of the products, its
-        // nonzero components (bits 0-3); then, when products are skipped,
-        // which ones are needed.
+    /// The number of distinct momenta of `plan`'s products (offsets into the
+    /// geometry), recorded with each product's index among them.
+    fn distinct_momenta(&mut self, plan: &Arc<DirectPlanData>) -> usize {
         if !self.product_momenta.as_ref().is_some_and(|(of, _, _)| Arc::ptr_eq(of, plan)) {
             let mut offsets: Vec<u32> = Vec::new();
             let momentum_of = plan
@@ -2389,6 +2378,28 @@ where
                 .collect();
             self.product_momenta = Some((plan.clone(), offsets, momentum_of));
         }
+        self.product_momenta.as_ref().expect("set above").1.len()
+    }
+
+    /// Step 1 of [`Self::gather_with`] for binary64 with real momenta: the
+    /// products as sparse real lists, in the order and with the values of
+    /// [`Self::complex_products`] (their imaginary parts are +0). `false`,
+    /// with nothing usable written, when a momentum is not real or a product
+    /// is not finite.
+    ///
+    /// Where the lists go depends only on which momentum components are
+    /// zero (and which products are needed) and on which sums cancel to an
+    /// exact zero (dropped; massless momenta along an axis cancel exactly).
+    /// A pass is recorded as a [`ProductSchedule`] for its zero pattern, and
+    /// later passes with that pattern replay it, the same terms in the same
+    /// order without finding the entries again, if their exact zeros are the
+    /// recorded ones (otherwise this pass runs and replaces the record).
+    fn real_products(&mut self, plan: &Arc<DirectPlanData>, skip_unneeded: bool) -> bool {
+        let table = &plan.monomials;
+        // The zero pattern: per distinct momentum of the products, its
+        // nonzero components (bits 0-3); then, when products are skipped,
+        // which ones are needed.
+        self.distinct_momenta(plan);
         let (_, offsets, _) = self.product_momenta.as_ref().expect("set above");
         self.schedule_key.clear();
         for &offset in offsets {
@@ -2694,8 +2705,14 @@ where
         //    2 multiplies by a real factor. Bit-identical: the complex
         //    arithmetic adds only the zero products of a zero imaginary part,
         //    and an accumulator started at +0 never becomes -0, so adding a
-        //    zero leaves it unchanged; a non-finite product falls back.
-        let mut finite = T::FIXED_BITS == Some(53);
+        //    zero leaves it unchanged; a non-finite product falls back. Only
+        //    from two distinct momenta (triangles and up): the lists of
+        //    tadpoles and bubbles are short, and recording and replaying them
+        //    costs more than the real arithmetic saves (a tadpole, with no
+        //    momentum, would also compare empty keys, whose dangling pointers
+        //    cost glibc's memcmp about 200 cycles in its masked loads on AMD
+        //    Zen 4).
+        let mut finite = T::FIXED_BITS == Some(53) && self.distinct_momenta(&plan) >= REAL_PRODUCT_MOMENTA;
         'check: for (index, gather) in plan.gathers.iter().enumerate().filter(|_| finite) {
             if matches!(moments.get(index), Some(Moments::Stored)) {
                 continue;
