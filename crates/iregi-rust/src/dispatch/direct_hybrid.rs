@@ -48,6 +48,7 @@ use super::{
     TensorWorkspaceOptions,
 };
 use crate::{
+    types::filled,
     BatchResult, DirectMasters, DirectProfile, DirectReductionPlan, DirectWorkspace, ExecutionProfile,
     InputLayout, KinematicsBatch, LaneStatus, ReductionError, ReductionSettings,
     basis::Monomial, direct::shared::SubsetStore,
@@ -352,6 +353,12 @@ pub(crate) struct DirectHybridWorkspace<T: NativeFloat> {
     prototype: T,
     options: TensorWorkspaceOptions,
     accuracy_bits: Option<u32>,
+    /// `rotation_tolerance()`, set with the accuracy.
+    rotation_tolerance: f64,
+    /// Reused per-call buffers of `reduce_batch` (lane conditions and
+    /// lanes refused by the rotation test): no allocation per call.
+    conditions_buffer: Vec<Option<f64>>,
+    order_refused_buffer: Vec<bool>,
     profiling: bool,
     precision_rescue: PrecisionRescue,
     /// Per-subset results shared with the other integrals of an amplitude
@@ -424,6 +431,9 @@ where
             prototype,
             options,
             accuracy_bits: None,
+            rotation_tolerance: ROTATION_TOLERANCE,
+            conditions_buffer: Vec::new(),
+            order_refused_buffer: Vec::new(),
             profiling: options.profiling,
             precision_rescue: options.precision_rescue,
             checked: None,
@@ -450,6 +460,7 @@ where
             )));
         }
         self.accuracy_bits = Some(bits);
+        self.rotation_tolerance = 2f64.powi(19 - bits as i32);
         if let Some(fallback) = &mut self.fallback {
             fallback.set_accuracy_precision(bits)?;
         }
@@ -496,10 +507,7 @@ where
     /// Largest accepted E/A between a binary64 lane and its rotated copy:
     /// the requested accuracy `2^(19 - bits)` (2^-34 by default).
     fn rotation_tolerance(&self) -> f64 {
-        match self.accuracy_bits {
-            Some(bits) => 2f64.powi(19 - bits as i32),
-            None => ROTATION_TOLERANCE,
-        }
+        self.rotation_tolerance
     }
 
     pub(crate) fn set_profiling(&mut self, enabled: bool) -> Result<(), ReductionError> {
@@ -1024,8 +1032,8 @@ where
     ) -> Result<BatchResult<T>, ReductionError> {
         let started = self.profiling.then(std::time::Instant::now);
         let mut result = self.direct.reduce_batch(batch)?;
-        result.estimated_errors = vec![None; batch.rows];
-        result.best_effort = vec![false; batch.rows];
+        result.estimated_errors = filled(batch.rows, None);
+        result.best_effort = filled(batch.rows, false);
         self.candidates.clear();
         self.candidates.resize(batch.rows, Vec::new());
         let mut direct_profile = self.direct.last_profile();
@@ -1034,7 +1042,9 @@ where
             master_rows: self.direct.last_master_rows(),
             ..DirectExecutionStats::default()
         };
-        let mut conditions = self.direct.last_conditions().to_vec();
+        let mut conditions = std::mem::take(&mut self.conditions_buffer);
+        conditions.clear();
+        conditions.extend_from_slice(self.direct.last_conditions());
         let settings = self.plan.direct.settings();
         let (tested, checkable) = (rotation_tested(settings), rotation_checkable(settings));
         let choice_enabled = estimate_choice(settings);
@@ -1044,7 +1054,9 @@ where
         let mut checked: Vec<usize> = Vec::new();
         // Lanes whose binary64 arrays passed the gate but whose cyclic orders
         // disagree (rotation test or third order).
-        let mut order_refused = vec![false; batch.rows];
+        let mut order_refused = std::mem::take(&mut self.order_refused_buffer);
+        order_refused.clear();
+        order_refused.resize(batch.rows, false);
         if checkable {
             for lane in 0..batch.rows {
                 if matches!(result.statuses[lane], LaneStatus::Unstable(_))
@@ -1100,6 +1112,8 @@ where
                 &mut profile,
             )?;
         }
+        self.conditions_buffer = conditions;
+        self.order_refused_buffer = order_refused;
         if let Some(started) = started {
             profile.total = started.elapsed();
             self.last_profile = Some(profile);
