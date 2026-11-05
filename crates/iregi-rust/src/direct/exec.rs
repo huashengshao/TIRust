@@ -18,7 +18,7 @@ use super::{
         C, L4, cadd, cfma, cfma_real, cinv, cmul, cnorm2, cscale, csub, czero, div_dimension, lfma,
         lfma_slots, lzero, mul_dimension, real_lfma_slots, solve_in_place,
     },
-    plan::{DirectPlanData, Gather, NO_GEOMETRY, PostOp, SubsetKind},
+    plan::{DirectPlanData, Gather, NO_GEOMETRY, PostOp, Subset, SubsetKind},
     shared::{SharedValue, SubsetStore},
 };
 use crate::{
@@ -539,6 +539,7 @@ where
         cmul(mu, mu)
     }
 
+    #[inline(never)]
     fn evaluate_masters(&mut self, batch: &KinematicsBatch<T>) -> Result<(), ReductionError> {
         let n = self.plan.settings.propagators;
         let rows = batch.rows;
@@ -1060,6 +1061,7 @@ where
     }
 
     /// Minimal support of the affine relation of a singular subset.
+    #[inline(never)]
     fn relation_support(&self, mask: u16) -> Result<u16, String> {
         let members: Vec<usize> = (0..16).filter(|&i| mask & (1 << i) != 0).collect();
         let weights = self.affine_relation(&members)?;
@@ -1136,7 +1138,6 @@ where
         let plan = self.plan.clone();
         let n = plan.settings.propagators;
         let threshold = self.stability_threshold.clone();
-        let pentagon_calibration = self.binary_tolerance(7);
         for relation in &plan.relations {
             let weights = self
                 .affine_relation(&relation.members)
@@ -1328,274 +1329,295 @@ where
                         }
                     }
                 }
-                SubsetKind::Pentagon => {
-                    let geometry = subset.pentagon.unwrap();
-                    // b = R^-1 1 for the scalar pentagon.
-                    for i in 0..5 {
-                        for j in 0..5 {
-                            let (mi, mj) = (members[i], members[j]);
-                            self.matrix[i * 5 + j] = csub(
-                                &csub(d(mi, mj), &self.masses[mi]),
-                                &self.masses[mj],
-                            );
-                        }
-                        self.rhs[i] = self.one.clone();
-                    }
-                    let quality = solve_in_place(&mut self.matrix[..25], &mut self.rhs[..5], 5, 1)
-                        .ok_or_else(|| GeometryFailure::Unstable(format!("singular Cayley matrix for {members:?}")));
-                    if quality.is_err() {
-                        // Exactly singular pivot: conditioning zero.
-                        self.failed_condition = Some(0.0);
-                    }
-                    let quality = quality?;
-                    if quality.relative_determinant < threshold {
-                        self.failed_condition = Some(quality.relative_determinant.to_f64());
-                        return Err(GeometryFailure::Unstable(format!(
-                            "ill-conditioned Cayley matrix for {members:?}: relative determinant {:e}",
-                            quality.relative_determinant
-                        )));
-                    }
-                    for i in 0..5 {
-                        self.geometry[geometry.b as usize + i] = self.rhs[i].clone();
-                    }
-                    if geometry.dd_rank >= 1 {
-                        // Gram-free coefficients: momenta and origin for the
-                        // gather, X^-1 of X = [[2 m0^2, f^T], [f, Z]] and the
-                        // second adjugates Xtt_(kn)(0i) / det X.
-                        let pv = subset.pv.unwrap();
-                        for i in 0..4 {
-                            let member = members[i + 1];
-                            let f = cadd(&csub(d(origin, member), &self.masses[member]), &self.masses[origin]);
-                            self.matrix[i + 1] = f.clone();
-                            self.matrix[(i + 1) * 5] = f;
-                            for j in 0..4 {
-                                let (mi, mj) = (members[i + 1], members[j + 1]);
-                                self.matrix[(i + 1) * 5 + j + 1] =
-                                    csub(&cadd(d(origin, mi), d(origin, mj)), d(mi, mj));
-                            }
-                            for a in 0..4 {
-                                self.geometry[pv.p as usize + 4 * i + a] =
-                                    csub(&self.shifts[member][a], &self.shifts[origin][a]);
-                            }
-                        }
-                        for a in 0..4 {
-                            self.geometry[pv.origin as usize + a] = self.shifts[origin][a].clone();
-                        }
-                        self.matrix[0] = cadd(&self.masses[origin], &self.masses[origin]);
-                        for i in 0..5 {
-                            for j in 0..5 {
-                                self.rhs[i * 5 + j] = if i == j { self.one.clone() } else { self.zero.clone() };
-                            }
-                        }
-                        let quality = solve_in_place(&mut self.matrix[..25], &mut self.rhs[..25], 5, 5)
-                            .ok_or_else(|| GeometryFailure::Unstable(format!("singular modified Cayley matrix for {members:?}")));
-                        if quality.is_err() {
-                            self.failed_condition = Some(0.0);
-                        }
-                        let quality = quality?;
-                        if quality.relative_determinant < threshold {
-                            self.failed_condition = Some(quality.relative_determinant.to_f64());
-                            return Err(GeometryFailure::Unstable(format!(
-                                "ill-conditioned modified Cayley matrix for {members:?}: relative determinant {:e}",
-                                quality.relative_determinant
-                            )));
-                        }
-                        let xinv: Vec<C<T>> = self.rhs[..25].to_vec();
-                        for (i, value) in xinv.iter().enumerate() {
-                            self.geometry[geometry.xinv as usize + i] = value.clone();
-                        }
-                        let sums = geometry.sums as usize;
-                        let mut column = self.zero.clone();
-                        for m in 1..=4 {
-                            column = cadd(&column, &xinv[5 * m]);
-                        }
-                        self.geometry[sums] = column;
-                        for k in 1..=4 {
-                            let mut row = self.zero.clone();
-                            for m in 0..5 {
-                                row = cadd(&row, &xinv[5 * k + m]);
-                            }
-                            self.geometry[sums + k] = row;
-                        }
-                        for k in 1..=4 {
-                            for i in 1..=4 {
-                                let mut total = self.zero.clone();
-                                for m in 1..=4 {
-                                    let value = csub(
-                                        &cmul(&xinv[m], &xinv[5 * i + k]),
-                                        &cmul(&xinv[5 * i + m], &xinv[k]),
-                                    );
-                                    if m != k {
-                                        total = cadd(&total, &value);
-                                    }
-                                    self.geometry[geometry.adjadj as usize + 16 * (k - 1) + 4 * (m - 1) + (i - 1)] = value;
-                                }
-                                self.geometry[sums + 5 + 4 * (k - 1) + (i - 1)] = total;
-                            }
-                        }
-                    }
-                    if subset.moment_rank > geometry.dd_rank.max(0) {
-                        let mut f = [self.zero.clone(), self.zero.clone(), self.zero.clone(), self.zero.clone()];
-                        for i in 0..4 {
-                            let member = members[i + 1];
-                            f[i] = cadd(&csub(d(origin, member), &self.masses[member]), &self.masses[origin]);
-                            for j in 0..4 {
-                                let (mi, mj) = (members[i + 1], members[j + 1]);
-                                self.matrix[i * 4 + j] =
-                                    csub(&cadd(d(origin, mi), d(origin, mj)), d(mi, mj));
-                                self.rhs[i * 4 + j] =
-                                    if i == j { self.one.clone() } else { self.zero.clone() };
-                            }
-                        }
-                        // Row-sum norm of Z before the solve destroys it.
-                        let mut norm = self.prototype.zero();
-                        for i in 0..4 {
-                            let mut row = self.prototype.zero();
-                            for j in 0..4 {
-                                row += cnorm2(&self.matrix[i * 4 + j]).sqrt();
-                            }
-                            if row > norm {
-                                norm = row;
-                            }
-                        }
-                        let quality = solve_in_place(&mut self.matrix[..16], &mut self.rhs[..16], 4, 4)
-                            .ok_or_else(|| GeometryFailure::Singular(subset.mask, format!("singular pentagon Gram matrix for {members:?}")));
-                        if quality.is_err() {
-                            // Exactly singular pivot: conditioning zero.
-                            self.failed_condition = Some(0.0);
-                        }
-                        let _ = quality?;
-                        // The moment recursion applies Z^-1 once per rank, so
-                        // rounding grows like kappa^r with kappa the condition
-                        // number ||Z|| ||Z^-1|| (row sums; rhs now holds Z^-1).
-                        // On physical 2->3 points the binary64 error was within
-                        // ~50 kappa^r u (u = 2^-53); the Hadamard-relative
-                        // determinant missed this (accepted lanes with E/A
-                        // up to 3e-4), though kappa alone also overestimates
-                        // (an opening N6 row with kappa 60 is good to 2e-11).
-                        // This gate only removes hopeless lanes: 2^-7/kappa^r
-                        // against the threshold accepts kappa^r <= 8.6e9 in
-                        // binary64 (1e-12) and kappa^r <= 2^(bits-47) at a
-                        // rescue tier. The binary64 hybrid checks the
-                        // remaining N>=5 lanes a posteriori (loop rotation).
-                        let mut inverse_norm = self.prototype.zero();
-                        for i in 0..4 {
-                            let mut row = self.prototype.zero();
-                            for j in 0..4 {
-                                row += cnorm2(&self.rhs[i * 4 + j]).sqrt();
-                            }
-                            if row > inverse_norm {
-                                inverse_norm = row;
-                            }
-                        }
-                        let kappa = norm * &inverse_norm;
-                        let condition = if kappa.is_zero() || !kappa.is_finite() {
-                            self.prototype.zero()
-                        } else {
-                            pentagon_calibration.clone()
-                                / &kappa.clone().pow((subset.moment_rank - geometry.dd_rank.max(0)) as u64)
-                        };
-                        if condition < threshold {
-                            self.failed_condition = Some(condition.to_f64());
-                            return Err(GeometryFailure::Singular(subset.mask, format!(
-                                "ill-conditioned pentagon Gram matrix for {members:?}: condition number {:e}",
-                                kappa
-                            )));
-                        }
-                        for mu in 0..4 {
-                            let mut a = csub(&self.zero, &self.shifts[origin][mu]);
-                            let mut s = self.zero.clone();
-                            for j in 0..4 {
-                                let mut w = self.zero.clone();
-                                for i in 0..4 {
-                                    let p = csub(&self.shifts[members[i + 1]][mu], &self.shifts[origin][mu]);
-                                    cfma(&mut w, &p, &self.rhs[i * 4 + j]);
-                                }
-                                let wf = cmul(&w, &f[j]);
-                                a = csub(&a, &wf);
-                                s = cadd(&s, &w);
-                                self.geometry[geometry.w as usize + 4 * mu + j] = w;
-                            }
-                            self.geometry[geometry.a as usize + mu] = a;
-                            self.geometry[geometry.s as usize + mu] = s;
-                        }
-                    }
-                }
+                SubsetKind::Pentagon => self.geometry_pentagon(subset, n)?,
                 SubsetKind::Relation(_) => {}
-                SubsetKind::Hexagon => {
-                    // Thin identity sum_i w_i D_i = 1 (column 0) or q^mu
-                    // (column mu+1) over six members: the 5x5 system of their
-                    // four momentum components and f row. A seven-point lane
-                    // drops the member whose remaining six give the best
-                    // conditioned system (its weight is zero); an N-point lane
-                    // drops the N - 6 members whose remaining six do.
-                    let weights = subset.hexagon.unwrap() as usize;
-                    let size = members.len();
-                    let half = self.prototype.one() / &self.prototype.from_usize(2);
-                    // Dropped members as bit sets over the member positions.
-                    let drops: Vec<u32> = (0u32..(1 << size)).filter(|m| m.count_ones() as usize + 6 == size).collect();
-                    let mut best: Option<(T, Vec<C<T>>, u32)> = None;
-                    for drop in drops {
-                        let chosen: Vec<usize> = (0..size).filter(|&k| drop & (1 << k) == 0).collect();
-                        let origin = members[chosen[0]];
-                        for column in 0..5 {
-                            let member = members[chosen[column + 1]];
-                            for mu in 0..4 {
-                                self.matrix[mu * 5 + column] =
-                                    csub(&self.shifts[member][mu], &self.shifts[origin][mu]);
-                            }
-                            self.matrix[4 * 5 + column] =
-                                cadd(&csub(d(origin, member), &self.masses[member]), &self.masses[origin]);
-                        }
-                        for row in 0..5 {
-                            for column in 0..5 {
-                                self.rhs[row * 5 + column] = if column == 0 {
-                                    if row == 4 { self.one.clone() } else { self.zero.clone() }
-                                } else if row == 4 {
-                                    csub(&self.zero, &self.shifts[origin][column - 1])
-                                } else if row == column - 1 {
-                                    let sign = if row == 0 { half.clone() } else { -half.clone() };
-                                    C::new(sign, self.prototype.zero())
-                                } else {
-                                    self.zero.clone()
-                                };
-                            }
-                        }
-                        let Some(quality) = solve_in_place(&mut self.matrix[..25], &mut self.rhs[..25], 5, 5) else {
-                            continue;
-                        };
-                        if best.as_ref().is_none_or(|(relative, _, _)| quality.relative_determinant > *relative) {
-                            best = Some((quality.relative_determinant, self.rhs[..25].to_vec(), drop));
-                        }
-                    }
-                    let Some((relative, solution, drop)) = best else {
-                        // Exactly singular pivot: conditioning zero.
-                        self.failed_condition = Some(0.0);
-                        return Err(GeometryFailure::Unstable(format!(
-                            "singular six-point coordinate system for {members:?}"
-                        )));
-                    };
-                    if relative < threshold {
-                        self.failed_condition = Some(relative.to_f64());
-                        return Err(GeometryFailure::Unstable(format!(
-                            "ill-conditioned six-point coordinate system: relative determinant {:e}",
-                            relative
-                        )));
-                    }
-                    let chosen: Vec<usize> = (0..size).filter(|&k| drop & (1 << k) == 0).collect();
-                    for column in 0..5 {
-                        let mut sum = self.zero.clone();
-                        for i in 0..5 {
-                            let value = solution[i * 5 + column].clone();
-                            sum = cadd(&sum, &value);
-                            self.geometry[weights + size * column + chosen[i + 1]] = value;
-                        }
-                        self.geometry[weights + size * column + chosen[0]] = csub(&self.zero, &sum);
-                        for dropped in (0..size).filter(|&k| drop & (1 << k) != 0) {
-                            self.geometry[weights + size * column + dropped] = self.zero.clone();
-                        }
-                    }
+                SubsetKind::Hexagon => self.geometry_hexagon(subset, n)?,
+            }
+        }
+        Ok(())
+    }
+
+    /// Scalar pentagon geometry of `subset` (the Cayley system, and the
+    /// modified Cayley and Gram systems of its coefficients): out of line,
+    /// as only five or more points reach it.
+    #[inline(never)]
+    fn geometry_pentagon(&mut self, subset: &Subset, n: usize) -> Result<(), GeometryFailure> {
+        let threshold = self.stability_threshold.clone();
+        let pentagon_calibration = self.binary_tolerance(7);
+        let members = &subset.members;
+        let origin = members[0];
+        let d = |i: usize, j: usize| &self.distances[i * n + j];
+        let geometry = subset.pentagon.unwrap();
+        // b = R^-1 1 for the scalar pentagon.
+        for i in 0..5 {
+            for j in 0..5 {
+                let (mi, mj) = (members[i], members[j]);
+                self.matrix[i * 5 + j] = csub(
+                    &csub(d(mi, mj), &self.masses[mi]),
+                    &self.masses[mj],
+                );
+            }
+            self.rhs[i] = self.one.clone();
+        }
+        let quality = solve_in_place(&mut self.matrix[..25], &mut self.rhs[..5], 5, 1)
+            .ok_or_else(|| GeometryFailure::Unstable(format!("singular Cayley matrix for {members:?}")));
+        if quality.is_err() {
+            // Exactly singular pivot: conditioning zero.
+            self.failed_condition = Some(0.0);
+        }
+        let quality = quality?;
+        if quality.relative_determinant < threshold {
+            self.failed_condition = Some(quality.relative_determinant.to_f64());
+            return Err(GeometryFailure::Unstable(format!(
+                "ill-conditioned Cayley matrix for {members:?}: relative determinant {:e}",
+                quality.relative_determinant
+            )));
+        }
+        for i in 0..5 {
+            self.geometry[geometry.b as usize + i] = self.rhs[i].clone();
+        }
+        if geometry.dd_rank >= 1 {
+            // Gram-free coefficients: momenta and origin for the
+            // gather, X^-1 of X = [[2 m0^2, f^T], [f, Z]] and the
+            // second adjugates Xtt_(kn)(0i) / det X.
+            let pv = subset.pv.unwrap();
+            for i in 0..4 {
+                let member = members[i + 1];
+                let f = cadd(&csub(d(origin, member), &self.masses[member]), &self.masses[origin]);
+                self.matrix[i + 1] = f.clone();
+                self.matrix[(i + 1) * 5] = f;
+                for j in 0..4 {
+                    let (mi, mj) = (members[i + 1], members[j + 1]);
+                    self.matrix[(i + 1) * 5 + j + 1] =
+                        csub(&cadd(d(origin, mi), d(origin, mj)), d(mi, mj));
                 }
+                for a in 0..4 {
+                    self.geometry[pv.p as usize + 4 * i + a] =
+                        csub(&self.shifts[member][a], &self.shifts[origin][a]);
+                }
+            }
+            for a in 0..4 {
+                self.geometry[pv.origin as usize + a] = self.shifts[origin][a].clone();
+            }
+            self.matrix[0] = cadd(&self.masses[origin], &self.masses[origin]);
+            for i in 0..5 {
+                for j in 0..5 {
+                    self.rhs[i * 5 + j] = if i == j { self.one.clone() } else { self.zero.clone() };
+                }
+            }
+            let quality = solve_in_place(&mut self.matrix[..25], &mut self.rhs[..25], 5, 5)
+                .ok_or_else(|| GeometryFailure::Unstable(format!("singular modified Cayley matrix for {members:?}")));
+            if quality.is_err() {
+                self.failed_condition = Some(0.0);
+            }
+            let quality = quality?;
+            if quality.relative_determinant < threshold {
+                self.failed_condition = Some(quality.relative_determinant.to_f64());
+                return Err(GeometryFailure::Unstable(format!(
+                    "ill-conditioned modified Cayley matrix for {members:?}: relative determinant {:e}",
+                    quality.relative_determinant
+                )));
+            }
+            let xinv: Vec<C<T>> = self.rhs[..25].to_vec();
+            for (i, value) in xinv.iter().enumerate() {
+                self.geometry[geometry.xinv as usize + i] = value.clone();
+            }
+            let sums = geometry.sums as usize;
+            let mut column = self.zero.clone();
+            for m in 1..=4 {
+                column = cadd(&column, &xinv[5 * m]);
+            }
+            self.geometry[sums] = column;
+            for k in 1..=4 {
+                let mut row = self.zero.clone();
+                for m in 0..5 {
+                    row = cadd(&row, &xinv[5 * k + m]);
+                }
+                self.geometry[sums + k] = row;
+            }
+            for k in 1..=4 {
+                for i in 1..=4 {
+                    let mut total = self.zero.clone();
+                    for m in 1..=4 {
+                        let value = csub(
+                            &cmul(&xinv[m], &xinv[5 * i + k]),
+                            &cmul(&xinv[5 * i + m], &xinv[k]),
+                        );
+                        if m != k {
+                            total = cadd(&total, &value);
+                        }
+                        self.geometry[geometry.adjadj as usize + 16 * (k - 1) + 4 * (m - 1) + (i - 1)] = value;
+                    }
+                    self.geometry[sums + 5 + 4 * (k - 1) + (i - 1)] = total;
+                }
+            }
+        }
+        if subset.moment_rank > geometry.dd_rank.max(0) {
+            let mut f = [self.zero.clone(), self.zero.clone(), self.zero.clone(), self.zero.clone()];
+            for i in 0..4 {
+                let member = members[i + 1];
+                f[i] = cadd(&csub(d(origin, member), &self.masses[member]), &self.masses[origin]);
+                for j in 0..4 {
+                    let (mi, mj) = (members[i + 1], members[j + 1]);
+                    self.matrix[i * 4 + j] =
+                        csub(&cadd(d(origin, mi), d(origin, mj)), d(mi, mj));
+                    self.rhs[i * 4 + j] =
+                        if i == j { self.one.clone() } else { self.zero.clone() };
+                }
+            }
+            // Row-sum norm of Z before the solve destroys it.
+            let mut norm = self.prototype.zero();
+            for i in 0..4 {
+                let mut row = self.prototype.zero();
+                for j in 0..4 {
+                    row += cnorm2(&self.matrix[i * 4 + j]).sqrt();
+                }
+                if row > norm {
+                    norm = row;
+                }
+            }
+            let quality = solve_in_place(&mut self.matrix[..16], &mut self.rhs[..16], 4, 4)
+                .ok_or_else(|| GeometryFailure::Singular(subset.mask, format!("singular pentagon Gram matrix for {members:?}")));
+            if quality.is_err() {
+                // Exactly singular pivot: conditioning zero.
+                self.failed_condition = Some(0.0);
+            }
+            let _ = quality?;
+            // The moment recursion applies Z^-1 once per rank, so
+            // rounding grows like kappa^r with kappa the condition
+            // number ||Z|| ||Z^-1|| (row sums; rhs now holds Z^-1).
+            // On physical 2->3 points the binary64 error was within
+            // ~50 kappa^r u (u = 2^-53); the Hadamard-relative
+            // determinant missed this (accepted lanes with E/A
+            // up to 3e-4), though kappa alone also overestimates
+            // (an opening N6 row with kappa 60 is good to 2e-11).
+            // This gate only removes hopeless lanes: 2^-7/kappa^r
+            // against the threshold accepts kappa^r <= 8.6e9 in
+            // binary64 (1e-12) and kappa^r <= 2^(bits-47) at a
+            // rescue tier. The binary64 hybrid checks the
+            // remaining N>=5 lanes a posteriori (loop rotation).
+            let mut inverse_norm = self.prototype.zero();
+            for i in 0..4 {
+                let mut row = self.prototype.zero();
+                for j in 0..4 {
+                    row += cnorm2(&self.rhs[i * 4 + j]).sqrt();
+                }
+                if row > inverse_norm {
+                    inverse_norm = row;
+                }
+            }
+            let kappa = norm * &inverse_norm;
+            let condition = if kappa.is_zero() || !kappa.is_finite() {
+                self.prototype.zero()
+            } else {
+                pentagon_calibration.clone()
+                    / &kappa.clone().pow((subset.moment_rank - geometry.dd_rank.max(0)) as u64)
+            };
+            if condition < threshold {
+                self.failed_condition = Some(condition.to_f64());
+                return Err(GeometryFailure::Singular(subset.mask, format!(
+                    "ill-conditioned pentagon Gram matrix for {members:?}: condition number {:e}",
+                    kappa
+                )));
+            }
+            for mu in 0..4 {
+                let mut a = csub(&self.zero, &self.shifts[origin][mu]);
+                let mut s = self.zero.clone();
+                for j in 0..4 {
+                    let mut w = self.zero.clone();
+                    for i in 0..4 {
+                        let p = csub(&self.shifts[members[i + 1]][mu], &self.shifts[origin][mu]);
+                        cfma(&mut w, &p, &self.rhs[i * 4 + j]);
+                    }
+                    let wf = cmul(&w, &f[j]);
+                    a = csub(&a, &wf);
+                    s = cadd(&s, &w);
+                    self.geometry[geometry.w as usize + 4 * mu + j] = w;
+                }
+                self.geometry[geometry.a as usize + mu] = a;
+                self.geometry[geometry.s as usize + mu] = s;
+            }
+        }
+        Ok(())
+    }
+
+    /// Six-point coordinate system of `subset` (six or more points): out of
+    /// line, as only six or more points reach it.
+    #[inline(never)]
+    fn geometry_hexagon(&mut self, subset: &Subset, n: usize) -> Result<(), GeometryFailure> {
+        let threshold = self.stability_threshold.clone();
+        let members = &subset.members;
+        let d = |i: usize, j: usize| &self.distances[i * n + j];
+        // Thin identity sum_i w_i D_i = 1 (column 0) or q^mu
+        // (column mu+1) over six members: the 5x5 system of their
+        // four momentum components and f row. A seven-point lane
+        // drops the member whose remaining six give the best
+        // conditioned system (its weight is zero); an N-point lane
+        // drops the N - 6 members whose remaining six do.
+        let weights = subset.hexagon.unwrap() as usize;
+        let size = members.len();
+        let half = self.prototype.one() / &self.prototype.from_usize(2);
+        // Dropped members as bit sets over the member positions.
+        let drops: Vec<u32> = (0u32..(1 << size)).filter(|m| m.count_ones() as usize + 6 == size).collect();
+        let mut best: Option<(T, Vec<C<T>>, u32)> = None;
+        for drop in drops {
+            let chosen: Vec<usize> = (0..size).filter(|&k| drop & (1 << k) == 0).collect();
+            let origin = members[chosen[0]];
+            for column in 0..5 {
+                let member = members[chosen[column + 1]];
+                for mu in 0..4 {
+                    self.matrix[mu * 5 + column] =
+                        csub(&self.shifts[member][mu], &self.shifts[origin][mu]);
+                }
+                self.matrix[4 * 5 + column] =
+                    cadd(&csub(d(origin, member), &self.masses[member]), &self.masses[origin]);
+            }
+            for row in 0..5 {
+                for column in 0..5 {
+                    self.rhs[row * 5 + column] = if column == 0 {
+                        if row == 4 { self.one.clone() } else { self.zero.clone() }
+                    } else if row == 4 {
+                        csub(&self.zero, &self.shifts[origin][column - 1])
+                    } else if row == column - 1 {
+                        let sign = if row == 0 { half.clone() } else { -half.clone() };
+                        C::new(sign, self.prototype.zero())
+                    } else {
+                        self.zero.clone()
+                    };
+                }
+            }
+            let Some(quality) = solve_in_place(&mut self.matrix[..25], &mut self.rhs[..25], 5, 5) else {
+                continue;
+            };
+            if best.as_ref().is_none_or(|(relative, _, _)| quality.relative_determinant > *relative) {
+                best = Some((quality.relative_determinant, self.rhs[..25].to_vec(), drop));
+            }
+        }
+        let Some((relative, solution, drop)) = best else {
+            // Exactly singular pivot: conditioning zero.
+            self.failed_condition = Some(0.0);
+            return Err(GeometryFailure::Unstable(format!(
+                "singular six-point coordinate system for {members:?}"
+            )));
+        };
+        if relative < threshold {
+            self.failed_condition = Some(relative.to_f64());
+            return Err(GeometryFailure::Unstable(format!(
+                "ill-conditioned six-point coordinate system: relative determinant {:e}",
+                relative
+            )));
+        }
+        let chosen: Vec<usize> = (0..size).filter(|&k| drop & (1 << k) == 0).collect();
+        for column in 0..5 {
+            let mut sum = self.zero.clone();
+            for i in 0..5 {
+                let value = solution[i * 5 + column].clone();
+                sum = cadd(&sum, &value);
+                self.geometry[weights + size * column + chosen[i + 1]] = value;
+            }
+            self.geometry[weights + size * column + chosen[0]] = csub(&self.zero, &sum);
+            for dropped in (0..size).filter(|&k| drop & (1 << k) != 0) {
+                self.geometry[weights + size * column + dropped] = self.zero.clone();
             }
         }
         Ok(())
@@ -1607,6 +1629,7 @@ where
     /// `I0 = int_0^1 x^k D^lambda`, `I1 = int_0^1 x^k D^lambda log(D/mu^2)`,
     /// `D(x) = m0^2 + x (m1^2 - m0^2)`. Scaleless bubbles keep their
     /// cancelling UV/IR poles at `lambda = 0` and vanish otherwise.
+    #[inline(never)]
     fn lightlike_coefficients(&mut self, mu2: &C<T>) -> Result<(), String> {
         use oneloop::rust_codegen::runtime::primitives::log;
         let plan = self.plan.clone();
@@ -1759,6 +1782,7 @@ where
     /// Taylor orders `1..K` of every mass-dependent geometry entry. The
     /// dotted squared mass `m_d^2 + delta` enters `m0^2`, `f`, the Cayley
     /// matrices of pentagons, the six-point `f` row and relation constants.
+    #[inline(never)]
     fn geometry_jets(&mut self) -> Result<(), String> {
         let Some((dotted, k_len)) = self.plan.jet else {
             return Ok(());
@@ -2037,6 +2061,7 @@ where
 
     /// Recurrence program on Taylor jets: order k accumulates
     /// `sum_(a+b=k) geometry_a constant value_b`.
+    #[inline(never)]
     fn run_program_jets(&mut self, program_is_moments: bool) {
         let plan = self.plan.clone();
         let k_len = plan.jet.map_or(1, |(_, k)| k);
@@ -2148,6 +2173,7 @@ where
 
     /// Taylor length `K`: order `k` accumulates `sum_(a+b=k) g_a v_b`, skipping
     /// the vanishing orders of mass-independent geometry.
+    #[inline(never)]
     fn run_program_jet<const FULL: bool, const K: usize>(&mut self, program_is_moments: bool) {
         let plan = self.plan.clone();
         let program = if program_is_moments {
@@ -2195,6 +2221,7 @@ where
         }
     }
 
+    #[inline(never)]
     fn run_program_ordinary<const FULL: bool>(&mut self, program_is_moments: bool) {
         let plan = self.plan.clone();
         let program = if program_is_moments {
@@ -2633,6 +2660,7 @@ where
         }
     }
 
+    #[inline(never)]
     fn gather_with<const FULL: bool>(&mut self) {
         let plan = self.plan.clone();
         let table = &plan.monomials;
@@ -2783,12 +2811,12 @@ where
             let moment_base = gather.moment_base as usize;
             for e in 0..table.block(rank).end {
                 let mut total = lzero(&self.zero);
-                for (term, &(src, lambda, _)) in table.qexp[e].iter().enumerate() {
+                // One constant per term of `qexp[e]` (built from it, same length).
+                for (&(src, lambda, _), constant) in table.qexp[e].iter().zip(&self.qexp_constants[e]) {
                     if momenta == 0 && src != 0 {
                         continue;
                     }
                     let value = &self.g_buffer[usize::from(lambda) * stride + src as usize];
-                    let constant = &self.qexp_constants[e][term];
                     for slot in if FULL { 0..4 } else { 0..1 } {
                         cfma_real(&mut total[slot], &value[slot], constant);
                     }
