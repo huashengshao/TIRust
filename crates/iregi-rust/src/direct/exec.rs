@@ -18,7 +18,7 @@ use super::{
         C, L4, cadd, cfma, cfma_real, cinv, cmul, cnorm2, cscale, csub, czero, div_dimension, lfma,
         lfma_slots, lzero, mul_dimension, real_lfma_slots, solve_in_place,
     },
-    plan::{DirectPlanData, Gather, NO_GEOMETRY, PostOp, Subset, SubsetKind},
+    plan::{DirectPlanData, Gather, NO_GEOMETRY, PostOp, Subset, SubsetKind, Term},
     shared::{SharedValue, SubsetStore},
 };
 use crate::{
@@ -231,6 +231,10 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     rounding: T,
     profiling: bool,
     profile: DirectProfile,
+    /// Partial-rescue executor: only the top subset's coefficients are read,
+    /// so lanes whose outputs are certainly finite stop after the
+    /// coefficient program (see `top_outputs_finite`).
+    coefficients_only: bool,
 }
 
 /// Per-output-moment conversion flags.
@@ -431,6 +435,7 @@ where
             },
             profiling: false,
             profile: DirectProfile::default(),
+            coefficients_only: false,
             base_plan: plan.clone(),
             base_constants: constants.clone(),
             variants: HashMap::new(),
@@ -790,7 +795,16 @@ where
         if !self.shared.as_ref()?.enabled() {
             return None;
         }
-        let mut key = vec![tag, members.len() as u64, u64::from(rank), count as u64, config.len() as u64];
+        let mut key = Vec::new();
+        self.fill_subset_key(&mut key, tag, members, rank, count, config, mu);
+        Some(key)
+    }
+
+    /// [`Self::subset_key`] into a reused buffer.
+    #[allow(clippy::too_many_arguments)]
+    fn fill_subset_key(&self, key: &mut Vec<u64>, tag: u64, members: &[usize], rank: u16, count: usize, config: &[u64], mu: &C<T>) {
+        key.clear();
+        key.extend([tag, members.len() as u64, u64::from(rank), count as u64, config.len() as u64]);
         key.extend_from_slice(config);
         let bits = |z: &C<T>| [z.re.to_f64().to_bits(), z.im.to_f64().to_bits()];
         for &member in members {
@@ -800,7 +814,6 @@ where
             key.extend(bits(&self.masses[member]));
         }
         key.extend(bits(mu));
-        Some(key)
     }
 
     fn shared_get(&self, key: Option<&Vec<u64>>) -> Option<SharedValue> {
@@ -830,15 +843,11 @@ where
     /// Write the leading `count` shared binary64 values (exact in this
     /// executor's binary64 domain).
     fn shared_write(&mut self, start: usize, count: usize, values: &[[f64; 8]]) -> Result<(), String> {
-        if values.len() < count {
-            return Err("shared subset result: coefficient layouts differ".into());
+        if write_shared(&mut self.values[start..], &self.prototype, count, values) {
+            Ok(())
+        } else {
+            Err("shared subset result: coefficient layouts differ".into())
         }
-        for (k, v) in values[..count].iter().enumerate() {
-            self.values[start + k] = std::array::from_fn(|slot| {
-                C::new(exact_f64(&self.prototype, v[2 * slot]), exact_f64(&self.prototype, v[2 * slot + 1]))
-            });
-        }
-        Ok(())
     }
 
     /// Laurent slots a gather computes: all four, or the UV and finite ones
@@ -880,6 +889,68 @@ where
         key
     }
 
+    /// Whether a lane's gather and output are certainly finite, from the
+    /// top subset's coefficients and geometry alone: the lane's plan (base
+    /// or variant) has a PV top subset whose gather is its only one, no jets
+    /// and no moment recursions, every coefficient is finite and a bound on
+    /// every output stays far below the overflow threshold. Then no output
+    /// can overflow, and without an infinite operand none is NaN, so the
+    /// lane's status after the full gather and output is `Success`.
+    ///
+    /// Bound (rank `r`, coefficients at most `c`, momenta of l1 norm at most
+    /// `m`, origin components at most `o`): a product `prod_i (p_i.z)^k_i /
+    /// k_i!` has coefficients of l1 norm at most `m^|k|`; `g_lambda` sums at
+    /// most `(r + 1)(r + 2)/2` of them; the metric expansion multiplies by at
+    /// most `r!` over at most `(r/2 + 1)^4` terms; the gather scale by `|s|`;
+    /// each axis translation by at most `(1 + o)^r`; the output by at most
+    /// `(1 + 2|a| + |a^2/2 - b|) (1 + |normalization|) 4^r` (multinomial
+    /// weights). The product of these bounds is required below `2^990`.
+    fn top_outputs_finite(&self, plan: &DirectPlanData) -> bool {
+        let Some(id) = plan.subsets.len().checked_sub(1) else { return false };
+        let subset = &plan.subsets[id];
+        if subset.kind != SubsetKind::Pv
+            || subset.lightlike
+            || plan.jet.is_some()
+            || !plan.moment_program.is_empty()
+            || plan.gathers.len() != 1
+            || plan.gathers[0].subset != id
+        {
+            return false;
+        }
+        let (Some(start), Some(pv)) = (subset.master, subset.pv) else { return false };
+        let count = plan.coefficient_counts[id] as usize;
+        let mut largest = 0.0f64;
+        for value in &self.values[start as usize..start as usize + count] {
+            for z in value {
+                if !(z.re.is_finite() && z.im.is_finite()) {
+                    return false;
+                }
+                largest = largest.max(z.re.to_f64().abs()).max(z.im.to_f64().abs());
+            }
+        }
+        let size = |z: &C<T>| z.re.to_f64().abs() + z.im.to_f64().abs();
+        let momenta = subset.members.len() - 1;
+        let m = (0..momenta)
+            .map(|i| (0..4).map(|a| size(&self.geometry[pv.p as usize + 4 * i + a])).sum::<f64>())
+            .fold(0.0f64, f64::max);
+        let o = (0..4).map(|a| size(&self.geometry[pv.origin as usize + a])).fold(0.0f64, f64::max);
+        let constants = &self.native_constants;
+        let output = (1.0 + 2.0 * constants.a.to_f64().abs() + constants.a_half_squared_minus_b.to_f64().abs())
+            * (1.0 + size(&constants.normalization));
+        let r = f64::from(plan.settings.rank);
+        let terms = (1..=plan.settings.rank).map(|k| f64::from(k).log2()).sum::<f64>()
+            + 4.0 * (r / 2.0 + 1.0).log2()
+            + ((r + 1.0) * (r + 2.0) / 2.0).log2();
+        let log2 = largest.max(f64::MIN_POSITIVE).log2()
+            + terms
+            + r * m.max(1.0).log2()
+            + self.gather_scale.to_f64().abs().max(1.0).log2()
+            + 4.0 * r * (1.0 + o).log2()
+            + output.log2()
+            + 2.0 * r;
+        log2.is_finite() && log2 < 990.0
+    }
+
     /// Evaluate every external subset of this lane in double-double and
     /// inject its rounded coefficients.
     fn inject_external(&mut self, mu: f64) -> Result<(), String> {
@@ -909,6 +980,7 @@ where
                         let mut executor = DirectExecutor::<DoubleFloat>::new(Arc::new(small), DoubleFloat::from(0.0), DirectMasters::Native)
                             .map_err(|e| e.to_string())?;
                         executor.set_stability_threshold(DoubleFloat::from(partial.threshold));
+                        executor.coefficients_only = true;
                         entry.insert(executor)
                     }
                 };
@@ -2230,6 +2302,10 @@ where
         } else {
             &plan.coefficient_program
         };
+        if program.is_empty() {
+            // Nothing to run, skip or share.
+            return;
+        }
         // Instructions of externally computed (injected) subsets are skipped.
         let skip: Vec<(u32, u32)> = if program_is_moments {
             Vec::new()
@@ -2242,16 +2318,22 @@ where
                 .map(|&id| plan.coefficient_ranges[id])
                 .collect()
         };
-        // Binary64 PV sub-integrals shared with the other integrals of an
-        // amplitude (base plan only): a stored subset is injected and its
-        // instructions skipped, the others are stored after the program.
+        // Binary64 PV sub-integrals and Gram-free pentagons shared with the
+        // other integrals of an amplitude: a stored subset is injected and
+        // its instructions skipped, the others are stored after the program.
+        // A subset's coefficients are fixed by its propagators and mu^2, the
+        // executor's settings and the lane's IR-free flag, and its plan
+        // signature (the ranks, kinds and lightlike flags of the subsets
+        // beneath it, which decide their gates, injections and closed forms;
+        // a lightlike flag holds exactly on the lanes whose kinematics make
+        // the bubble lightlike, so plan variants share too).
         let mut skip = skip;
         let mut computed: Vec<(usize, usize, Vec<u64>)> = Vec::new();
         let store = self.shared.clone().filter(|store| store.enabled() && !program_is_moments);
         if let (Some(store), Some(mu2)) = (store.as_ref(), self.lane_mu2.clone()) {
-            if Arc::ptr_eq(&self.plan, &self.base_plan) && self.gram_top.is_none() {
+            if self.gram_top.is_none() {
                 let gram = self.gram.as_ref();
-                let config = [
+                let mut config = [
                     u64::from(FULL),
                     self.stability_threshold.to_f64().to_bits(),
                     self.partial.as_ref().map_or(u64::MAX, |partial| partial.threshold.to_bits()),
@@ -2261,10 +2343,16 @@ where
                     u64::from(self.gram_alt_only),
                     u64::from(self.gram_alt_direct),
                     u64::from(self.gram_extra_ranks),
+                    0,
                 ];
+                let mut key = Vec::with_capacity(96);
                 for (id, subset) in plan.subsets.iter().enumerate() {
                     let (a, b) = plan.coefficient_ranges[id];
                     if a == b || subset.kind != SubsetKind::Pv || subset.lightlike {
+                        continue;
+                    }
+                    // A short program costs less than a lookup.
+                    if plan.coefficient_terms[id] < SHARED_MIN_TERMS {
                         continue;
                     }
                     if skip.iter().any(|&(x, y)| x == a && y == b) {
@@ -2273,43 +2361,78 @@ where
                     let Some(start) = subset.master.map(|m| m as usize) else { continue };
                     let count = plan.coefficient_counts[id] as usize;
                     let rank = subset.coefficient_rank.max(0) as u16;
-                    let Some(key) = self.subset_key(3, &subset.members, rank, count, &config, &mu2) else { continue };
-                    match store.get(&key) {
-                        Some(Ok(values)) if self.shared_write(start, count, &values).is_ok() => skip.push((a, b)),
-                        _ => computed.push((start, count, key)),
+                    config[9] = plan.subset_signatures[id];
+                    self.fill_subset_key(&mut key, 3, &subset.members, rank, count, &config, &mu2);
+                    let (values, prototype) = (&mut self.values[start..], &self.prototype);
+                    let hit = store.get_with(&key, |stored| stored.as_ref().is_ok_and(|v| write_shared(values, prototype, count, v)));
+                    if hit == Some(true) {
+                        skip.push((a, b));
+                    } else {
+                        computed.push((start, count, key.clone()));
+                    }
+                }
+                // Gram-free pentagons: a pentagon integral and the hexagon
+                // containing it compute the same pentagon from the same boxes.
+                for (id, block) in plan.pentagon_blocks.iter().enumerate() {
+                    let Some(block) = block else { continue };
+                    let subset = &plan.subsets[id];
+                    let (start, count) = (block.start as usize, block.count as usize);
+                    let rank = subset.coefficient_rank.max(0) as u16;
+                    config[9] = plan.subset_signatures[id];
+                    self.fill_subset_key(&mut key, 6, &subset.members, rank, count, &config, &mu2);
+                    let (values, prototype) = (&mut self.values[start..], &self.prototype);
+                    let hit = store.get_with(&key, |stored| stored.as_ref().is_ok_and(|v| write_shared(values, prototype, count, v)));
+                    if hit == Some(true) {
+                        skip.push(block.instructions);
+                    } else {
+                        computed.push((start, count, key.clone()));
                     }
                 }
             }
         }
-        for (index, instruction) in program.iter().enumerate() {
-            if !skip.is_empty() && skip.iter().any(|&(a, b)| a <= index as u32 && (index as u32) < b) {
-                continue;
-            }
-            let mut accumulator = lzero(&self.zero);
-            for term in &plan.terms[instruction.terms.0 as usize..instruction.terms.1 as usize] {
-                let constant = &self.constants[term.constant as usize];
-                let factor = if term.geometry == NO_GEOMETRY {
-                    C::new(constant.clone(), self.prototype.zero())
-                } else {
-                    let geometry = &self.geometry[term.geometry as usize];
-                    if geometry.re.is_zero() && geometry.im.is_zero() {
-                        continue;
-                    }
-                    if term.constant == 0 {
-                        geometry.clone()
+        // Disjoint borrows: the slices stay in registers across the loop
+        // instead of being reloaded through `self` after every store.
+        let constants: &[T] = &self.constants;
+        let geometry: &[C<T>] = &self.geometry;
+        let terms: &[Term] = &plan.terms;
+        let zero = &self.zero;
+        let real_zero = self.prototype.zero();
+        let values = &mut self.values;
+        // The instructions outside `skip`, in program order: the run before
+        // each skipped range, then the rest.
+        skip.sort_unstable();
+        let (mut at, mut next) = (0usize, 0usize);
+        loop {
+            let end = skip.get(next).map_or(program.len(), |&(a, _)| (a as usize).min(program.len()));
+            for instruction in program.get(at..end).unwrap_or(&[]) {
+                let mut accumulator = lzero(zero);
+                for term in &terms[instruction.terms.0 as usize..instruction.terms.1 as usize] {
+                    let factor = if term.geometry == NO_GEOMETRY {
+                        C::new(constants[term.constant as usize].clone(), real_zero.clone())
                     } else {
-                        cscale(geometry, constant)
-                    }
-                };
-                lfma_slots::<T, FULL>(&mut accumulator, &factor, &self.values[term.src as usize]);
-            }
-            match instruction.post {
-                PostOp::None => {}
-                PostOp::DivideDimension { inverse } => {
-                    div_dimension(&mut accumulator, &self.constants[inverse as usize]);
+                        let geometry = &geometry[term.geometry as usize];
+                        if geometry.re.is_zero() && geometry.im.is_zero() {
+                            continue;
+                        }
+                        if term.constant == 0 {
+                            geometry.clone()
+                        } else {
+                            cscale(geometry, &constants[term.constant as usize])
+                        }
+                    };
+                    lfma_slots::<T, FULL>(&mut accumulator, &factor, &values[term.src as usize]);
                 }
+                match instruction.post {
+                    PostOp::None => {}
+                    PostOp::DivideDimension { inverse } => {
+                        div_dimension(&mut accumulator, &constants[inverse as usize]);
+                    }
+                }
+                values[instruction.dst as usize] = accumulator;
             }
-            self.values[instruction.dst as usize] = accumulator;
+            let Some(&(_, b)) = skip.get(next) else { break };
+            at = at.max(b as usize);
+            next += 1;
         }
         if let Some(store) = store {
             for (start, count, key) in computed {
@@ -3065,6 +3188,13 @@ where
                 });
                 continue;
             }
+            if self.coefficients_only && self.top_outputs_finite(&plan) {
+                // The gather and output would give finite values, hence
+                // `Success`: the status is the one the full lane reports, and
+                // the caller reads only the coefficients.
+                statuses.push(LaneStatus::Success);
+                continue;
+            }
             let started = self.timer();
             match self.plan.jet {
                 None => self.gather(&plan),
@@ -3159,6 +3289,25 @@ where
             estimated_errors: Vec::new(), best_effort: Vec::new(),
         })
     }
+}
+
+/// Subsets with fewer coefficient terms than this are computed even when
+/// shared: a lookup builds, hashes and compares a key of about 50 words and
+/// reads the stored values from memory, which costs about as many cycles as
+/// recomputing a triangle (59 terms at rank 3, 108 at rank 4); boxes (287
+/// terms at rank 4, 543 at rank 5) and pentagons (3441) are shared.
+const SHARED_MIN_TERMS: u32 = 256;
+
+/// Write the leading `count` shared binary64 values into `out` (exact in
+/// the executor's domain); false if fewer were stored.
+fn write_shared<T: NativeFloat>(out: &mut [L4<T>], prototype: &T, count: usize, values: &[[f64; 8]]) -> bool {
+    if values.len() < count {
+        return false;
+    }
+    for (slot_values, v) in out[..count].iter_mut().zip(values) {
+        *slot_values = std::array::from_fn(|slot| C::new(exact_f64(prototype, v[2 * slot]), exact_f64(prototype, v[2 * slot + 1])));
+    }
+    true
 }
 
 /// The binary64 value `x` exactly in the executor's number type.
