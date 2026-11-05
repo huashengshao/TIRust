@@ -1012,6 +1012,37 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    ecd7d3be452f3803 unchanged. Report seal: 099469a recorded page_count
    176 (a regex counted every page's /Type /Page twice), its PDF has 88
    pages (/Count 88); this seal records 88. Count pages from /Count.
+   TADPOLE FIX, e266351 (replaces the "no schedule when no momentum" plan
+   above): real products and schedules only from REAL_PRODUCT_MOMENTA = 2
+   distinct momenta (distinct_momenta(); tadpoles and bubbles take
+   complex_products, the e76dd38 code). Tried first: skip only when no
+   product has a momentum (bubbles stayed slow); threshold 3 (amplitude
+   call 3: hexagon +0.37%, pentagon +1.0% instructions). Threshold 2:
+   hexagon 1.4471 GIr, pentagon 216.43 MIr (13d3eab 1.4467, 216.25;
+   callgrind cgify vs cgiga4, out.4 = call 3). Evidence: binary64-only
+   dumps of all 27500 points = 7022322's, rescue dumps = 13d3eab's;
+   cmpres over 96 timing results (batch 32; 13 ordinary rows x 6 modes,
+   6 extended x 3) identical for e76dd38, 13d3eab and e266351; suites
+   pass. A/B cycles per lane vs e76dd38 (CPU 87, 5 rounds): N1R0 b32
+   x1.009, b1 x1.033 (13d3eab x1.489, x1.309); N2R1 b1 x1.084, b32
+   x1.041; N3R2 b1 x1.008. Open: b1 N2R1 ~+7% cycles (50k minus 5k
+   calls, alternating: e76dd38 ~3380-3490, e266351 ~3610-3720 per call)
+   for +0.6% instructions (8335 -> 8382 per lane), equal branch misses,
+   the same with 8 environment sizes; perf -F 900 spreads the extra over
+   reduce_batch, memmove, B0 branch_1, log and read_lane: looks like code
+   placement, not work; not resolved.
+   Captures (final035.sh; timing CPU 157, load 239; amplitude CPU 148,
+   load 253): stability 035 = 034 (capdiff: 0 changed in every integral
+   and mode). Timing 031: every TIRust error and status = 029's = 030's;
+   vs 029 medians TIRust -1.1%, COLLIER -1.3%, IREGI -0.8%; N1R0
+   -8.2..+2.9%, N1R6 and dotted N1R6 -4.5..+0.9%, b1 N2R1 +2.7..+8.8%
+   (b64-only 1.239 vs 1.139 us; 029's core 58% busy before; COLLIER
+   -3.1%), b32 N2R1 +0.1..+3.4%; n >= 4 -15.5..+1.4% (references
+   -2.2..+2.0%); N7R7 b32 161.2 ms (b64-only 145.4); 21/38 busy.
+   Amplitude 018: x1.73 [1.70, 1.75] and x1.27 [1.24, 1.28]; TIRust
+   shared 144.5/22.1 ms, separate 267.0/25.4 (over COLLIER no-cache
+   x1.07 [1.05, 1.07], x0.87 [0.85, 0.88]); COLLIER cache 83.8/17.4;
+   fingerprints unchanged.
 4n. **Improve the amplitude cache (user: "very important", 2 Nov).**
    Miss diagnostic (hexagon amplitude, 32 points, sharing on: 312 reused,
    333 computed per call): of the 333, 103 have an earlier result for the
