@@ -196,6 +196,14 @@ pub(crate) enum PostOp {
     DivideDimension { inverse: u32 },
 }
 
+/// Instructions and values of a Gram-free pentagon's coefficients.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PentagonBlock {
+    pub instructions: (u32, u32),
+    pub start: u32,
+    pub count: u32,
+}
+
 /// `value[src] * geometry[geometry] * constant[constant]`.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Term {
@@ -402,6 +410,22 @@ pub(crate) struct DirectPlanData {
     /// triangle can thus be computed elsewhere and injected (partial rescue).
     pub coefficient_ranges: Vec<(u32, u32)>,
     pub coefficient_counts: Vec<u32>,
+    /// Per subset, for Gram-free pentagons: their instructions
+    /// `coefficient_program[a..b]` and their values, contiguous from `start`
+    /// (`E(lambda, kappa)` and the shifted box `D(0)` interleaved), which no
+    /// other subset's instructions write (results shared between the
+    /// integrals of an amplitude).
+    pub pentagon_blocks: Vec<Option<PentagonBlock>>,
+    /// Per subset: its sub-subsets' kinds, coefficient ranks and lightlike
+    /// flags in this plan (absent ones too), by their members in the
+    /// subset's order, and the plan's dimension shift. These decide the
+    /// gates, injections and closed forms beneath a subset, so equal
+    /// signatures with equal kinematics and executor settings give equal
+    /// coefficients (shared results' keys).
+    pub subset_signatures: Vec<u64>,
+    /// Per subset: the terms of its coefficient instructions (those of its
+    /// `coefficient_ranges` entry, or of its pentagon block).
+    pub coefficient_terms: Vec<u32>,
     /// Per PV subset mask: value index of `C(lambda, kappa)` (the small-Gram
     /// expansion fills a refused box from its triangles through these).
     pub coefficient_lookup: FastMap<u16, FastMap<(u16, Vec<u16>), u32>>,
@@ -1015,11 +1039,13 @@ impl DirectPlanData {
         // E_{0000k}. D(n), n >= 1, drops momentum n (zero if I_n > 0); D(0)
         // is the box without member 0 in this basis (D_{kappa}(0) = Dtilde for
         // kappa_1 = 0, else -sum_{s=2..4} D_{kappa-e1+es}(0) - D_{kappa-e1}(0)).
-        for subset in &subsets {
+        let mut pentagon_blocks: Vec<Option<PentagonBlock>> = vec![None; subsets.len()];
+        for (id, subset) in subsets.iter().enumerate() {
             let Some(geometry) = subset.pentagon else { continue };
             if subset.kind != SubsetKind::Pentagon || geometry.dd_rank < 0 {
                 continue;
             }
+            let first_instruction = coefficient_program.len() as u32;
             let dd = geometry.dd_rank as u16;
             let layout = &layouts[&subset.mask];
             let shifted = &shifted_layouts[&subset.mask];
@@ -1128,7 +1154,53 @@ impl DirectPlanData {
                     }
                 }
             }
+            pentagon_blocks[id] = Some(PentagonBlock {
+                instructions: (first_instruction, coefficient_program.len() as u32),
+                start: layout.lookup[&(0, vec![0; 4])],
+                count: 2 * layout.lookup.len() as u32,
+            });
         }
+
+        let subset_signatures: Vec<u64> = subsets
+            .iter()
+            .map(|subset| {
+                let mut signature: u64 = 0xcbf2_9ce4_8422_2325;
+                let mut eat = |x: u64| {
+                    signature ^= x;
+                    signature = signature.wrapping_mul(0x0100_0000_01b3);
+                };
+                for relative in 1u32..1 << subset.members.len() {
+                    let mask = subset
+                        .members
+                        .iter()
+                        .enumerate()
+                        .filter(|&(i, _)| relative & (1 << i) != 0)
+                        .fold(0u16, |mask, (_, &member)| mask | (1 << member));
+                    match subset_index.get(&mask).map(|&k| &subsets[k]) {
+                        None => eat(u64::MAX),
+                        Some(sub) => {
+                            let kind = match sub.kind {
+                                SubsetKind::Pv => 0,
+                                SubsetKind::Pentagon => 1,
+                                SubsetKind::Hexagon => 2,
+                                SubsetKind::Relation(_) => 3,
+                            };
+                            eat(kind | u64::from(sub.lightlike) << 2);
+                            eat(sub.coefficient_rank as i64 as u64);
+                        }
+                    }
+                }
+                eat(u64::from(lambda_shift));
+                signature
+            })
+            .collect();
+
+        let coefficient_terms: Vec<u32> = (0..subsets.len())
+            .map(|id| {
+                let (a, b) = pentagon_blocks[id].map_or(coefficient_ranges[id], |block| block.instructions);
+                coefficient_program[a as usize..b as usize].iter().map(|i| i.terms.1 - i.terms.0).sum()
+            })
+            .collect();
 
         // Gathers of PV subsets whose moments are needed.
         let mut gathers = Vec::new();
@@ -1358,6 +1430,9 @@ impl DirectPlanData {
             unit_finite,
             coefficient_ranges,
             coefficient_counts,
+            pentagon_blocks,
+            subset_signatures,
+            coefficient_terms,
             coefficient_lookup: layouts.into_iter().map(|(mask, layout)| (mask, layout.lookup)).collect(),
             top_child_boost: boost,
         })
@@ -1390,6 +1465,35 @@ pub(crate) fn index_in_basis(e: [u16; 4]) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A Gram-free pentagon's block (shared between the integrals of an
+    /// amplitude) holds its coefficients and is written by its own
+    /// instructions only; equal pentagons in different plans have equal
+    /// signatures.
+    #[test]
+    fn pentagon_blocks_are_private_and_signed() {
+        let mut signatures = Vec::new();
+        for (n, rank) in [(5usize, 5u16), (6, 6), (7, 7)] {
+            let plan = DirectPlanData::new(ReductionSettings::new(n, rank)).unwrap();
+            let mut blocks = 0;
+            for (id, block) in plan.pentagon_blocks.iter().enumerate() {
+                let Some(block) = block else { continue };
+                blocks += 1;
+                let inside = |v: u32| (block.start..block.start + block.count).contains(&v);
+                let (a, b) = block.instructions;
+                for (index, instruction) in plan.coefficient_program.iter().enumerate() {
+                    assert_eq!((a as usize..b as usize).contains(&index), inside(instruction.dst), "N{n} pentagon {id}");
+                }
+                assert!(plan.moment_program.iter().all(|instruction| !inside(instruction.dst)));
+                let lookup = &plan.coefficient_lookup[&plan.subsets[id].mask];
+                assert_eq!(2 * lookup.len() as u32, block.count);
+                assert!(lookup.values().all(|&v| inside(v)));
+                signatures.push(plan.subset_signatures[id]);
+            }
+            assert_eq!(blocks, [1, 6, 21][n - 5]);
+        }
+        assert!(signatures.windows(2).all(|pair| pair[0] == pair[1]));
+    }
 
     #[test]
     fn basis_index_matches_enumeration() {

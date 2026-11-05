@@ -322,16 +322,21 @@ impl Grading {
         self.rank_start[usize::from(r)]..self.rank_start[usize::from(r) + 1]
     }
 
+    #[inline]
     fn index(&self, lambda: u16, kappa: &[u16; 3]) -> Option<usize> {
-        if kappa[self.nm..].iter().any(|&x| x != 0) {
-            return None;
-        }
-        let d: usize = kappa[..self.nm].iter().map(|&x| usize::from(x)).sum();
+        let [a, b, c] = kappa.map(usize::from);
+        // Components beyond `nm` must vanish.
+        let outside = match self.nm {
+            0 => a | b | c,
+            1 => b | c,
+            2 => c,
+            _ => 0,
+        };
+        let d = a + b + c;
         let r = 2 * usize::from(lambda) + d;
-        if r > usize::from(self.max_rank) {
+        if outside != 0 || r > usize::from(self.max_rank) {
             return None;
         }
-        let (a, b) = (usize::from(kappa[0]), usize::from(kappa[1]));
         let position = match self.nm {
             1 => 0,
             2 => a,
@@ -385,6 +390,7 @@ impl<T: NativeFloat> Coefficients<T> {
     }
 
     /// Insert at an index of `grading`.
+    #[inline]
     fn insert_at(&mut self, grading: &Grading, index: usize, value: L4<T>, zero: &C<T>) {
         if index >= self.values.len() {
             let end = grading.end(rank_of(&grading.key(index)));
@@ -1303,11 +1309,42 @@ where
                 let gc_passes = (child_rank - 1 - target) / 2;
                 let y0k = y0(k);
                 let y0gj = y0(gj);
+                // Factors of the recursions by multiplicity, built once by the
+                // operations each key used to repeat (so the same bits).
+                let gc_neg_adj: Vec<Vec<C<T>>> =
+                    (0..nm).map(|m| two_x.iter().map(|x| csub(&zero, &cscale(&adj[k][m], x))).collect()).collect();
+                let gc_divisor: Vec<C<T>> = two_x
+                    .iter()
+                    .enumerate()
+                    .map(|(x, factor)| if x == 0 { zero.clone() } else { cinv(&cscale(&adj[k][l], factor)) })
+                    .collect();
+                let gc_wf: Vec<Vec<Option<C<T>>>> = (0..nm)
+                    .map(|n1| (0..nm).map(|m1| second_adjugate(&z, nm, gi, n1, gj, m1).map(|w| cmul(&w, &f[n1]))).collect())
+                    .collect();
+                let gc_neg_wf: Vec<Vec<Vec<C<T>>>> = gc_wf
+                    .iter()
+                    .map(|row| {
+                        row.iter()
+                            .map(|wf| match wf {
+                                Some(wf) => two_x.iter().map(|x| csub(&zero, &cscale(wf, x))).collect(),
+                                None => Vec::new(),
+                            })
+                            .collect()
+                    })
+                    .collect();
+                let (gc_two, gc_neg_one) = (real(2), csub(&zero, &real(1)));
+                // Metric keys of each degree, by decreasing kappa_l.
+                let gc_kappas: Vec<Vec<[u16; 3]>> = (0..=grading.max_rank)
+                    .map(|d| {
+                        let mut kappas = compositions(d, nm);
+                        kappas.sort_by_key(|kappa| std::cmp::Reverse(kappa[l]));
+                        kappas
+                    })
+                    .collect();
                 let gc_metric = |cur: &mut Coefficients<T>, prev: Option<&Coefficients<T>>, r: u16| -> Result<(), String> {
                     for level in 1..=r / 2 {
-                        let mut kappas = compositions(r - 2 * level, nm);
-                        kappas.sort_by_key(|kappa| std::cmp::Reverse(kappa[l]));
-                        for target_kappa in kappas {
+                        let kappas = gc_kappas.get(usize::from(r - 2 * level)).ok_or("small-Gram/Cayley expansion: rank beyond the grading")?;
+                        for &target_kappa in kappas {
                             let lambda = level - 1;
                             let kappa = add(target_kappa, l);
                             let mut acc = lzero(&zero);
@@ -1321,38 +1358,36 @@ where
                             }
                             for m in (0..nm).filter(|&m| m != l) {
                                 if let Some(less) = sub(kappa, m) {
-                                    let factor = cscale(&adj[k][m], &(two.clone() * &self.prototype.from_usize(kappa[m] as usize)));
-                                    fma(&mut acc, &csub(&zero, &factor), cur.need(&grading, (level, less), "small-Gram/Cayley expansion")?);
+                                    fma(&mut acc, &gc_neg_adj[m][usize::from(kappa[m])], cur.need(&grading, (level, less), "small-Gram/Cayley expansion")?);
                                 }
                             }
-                            let divisor = cinv(&cscale(&adj[k][l], &(two.clone() * &self.prototype.from_usize(kappa[l] as usize))));
-                            let out: L4<T> = std::array::from_fn(|slot| cmul(&acc[slot], &divisor));
+                            let divisor = &gc_divisor[usize::from(kappa[l])];
+                            let out: L4<T> = std::array::from_fn(|slot| cmul(&acc[slot], divisor));
                             cur.insert(&grading, (level, target_kappa), out, &zero)?;
                         }
                     }
                     Ok(())
                 };
                 let gc_momentum = |cur: &mut Coefficients<T>, prev: Option<&Coefficients<T>>, p: u16| -> Result<(), String> {
+                    let dimension = self.prototype.from_usize(p as usize + 4 - nm);
                     for kappa in composition_iter(p, nm) {
                         let mut metric = cur.need(&grading, (1, kappa), "small-Gram/Cayley expansion")?.clone();
-                        mul_dimension(&mut metric, &self.prototype.from_usize(p as usize + 4 - nm));
+                        mul_dimension(&mut metric, &dimension);
                         let mut bracket = lzero(&zero);
-                        fma(&mut bracket, &real(2), &metric);
+                        fma(&mut bracket, &gc_two, &metric);
                         if prev.is_none() {
-                            fma(&mut bracket, &csub(&zero, &real(1)), spz.get(&grading, (0, kappa)).ok_or("small-Gram/Cayley expansion: C0 outside the triangle ranks")?);
+                            fma(&mut bracket, &gc_neg_one, spz.get(&grading, (0, kappa)).ok_or("small-Gram/Cayley expansion: C0 outside the triangle ranks")?);
                         }
                         let mut acc = lzero(&zero);
                         fma(&mut acc, &adj[gi][gj], &bracket);
                         for n1 in 0..nm {
                             for m1 in 0..nm {
-                                let Some(w) = second_adjugate(&z, nm, gi, n1, gj, m1) else { continue };
-                                let wf = cmul(&w, &f[n1]);
+                                let Some(wf) = &gc_wf[n1][m1] else { continue };
                                 if prev.is_none() {
-                                    fma(&mut acc, &wf, shat_of(m1, 0, kappa)?);
+                                    fma(&mut acc, wf, shat_of(m1, 0, kappa)?);
                                 }
                                 if let Some(less) = sub(kappa, m1) {
-                                    let factor = cscale(&wf, &(two.clone() * &self.prototype.from_usize(kappa[m1] as usize)));
-                                    fma(&mut acc, &csub(&zero, &factor), cur.need(&grading, (1, less), "small-Gram/Cayley expansion")?);
+                                    fma(&mut acc, &gc_neg_wf[n1][m1][usize::from(kappa[m1])], cur.need(&grading, (1, less), "small-Gram/Cayley expansion")?);
                                 }
                             }
                         }
