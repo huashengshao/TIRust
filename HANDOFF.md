@@ -1143,6 +1143,73 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    TIRust shared 140.9/22.7 ms, separate 261.9/25.4 (over COLLIER
    no-cache x1.06 [1.06, 1.09], x0.86 [0.82, 0.88]); COLLIER cache
    82.2/17.7; fingerprints unchanged.
+   AMPLITUDE GAP ANALYSIS (user: "Amplitude cache gap", then "Keep
+   checks, stop"; 5 Nov). callgrind of one hexagon amplitude call at
+   7787624 (1.436 GIr; --separate-callers=4): first passes ~31%, rotation
+   test passes ~30%, resolve_refused 38% (checked_retry 365 MIr = all
+   inject_gram expansion misses incl. expand_top 213; rescue_tier 130;
+   order_consensus 49); masters ~16%. The gap to COLLIER's cache is
+   TIRust's certification work (second evaluation in another cyclic order
+   + retries), which COLLIER's cache does not do. Rejected after
+   measurement (scratchpad real/, ddx/, cert/): real-factor products in
+   the binary64 recursion (timing rows +1.7..2.1% instructions, hexagon
+   -0.7%); DD partial rescue in canonical member order with an exact
+   coefficient translation (only 8 of 52 DD boxes per call were order
+   duplicates; translation cost 44 MIr > ~35 saved); skipping the
+   rotation test for lanes with a large a priori conditioning margin
+   (refused lanes occur at margins up to 1.1e6..5.9e6 for boxes and
+   pentagons, and 5.3e7 for the hexagon amplitude's pinched boxes: no
+   safe cutoff). Decision: keep every check.
+   AMPLITUDE SHARING ON PLAN VARIANTS, e942ef5 (user: "continue with
+   optimization as much as possible"). Findings: the store's counters
+   were mostly scalar masters (tag 4); PV program sharing (tag 3) needed
+   Arc::ptr_eq(plan, base_plan), and lanes with a lightlike bubble
+   (massless legs, |p^2| <= 2^-40 scale) run on plan variants: 544 PV
+   lookups per hexagon call. Partial-rescue DD executors ran full
+   reductions (gather, output) and read only top_coefficients (DD gathers
+   ~64 MIr, ~5% of the hexagon call's cycles). Changes: per-subset
+   plan.subset_signatures (kind, coefficient rank, lightlike flag of
+   every sub-subset in member order, lambda_shift) in tag-3 keys, store
+   allowed on variants; Gram-free pentagons shared (plan.pentagon_blocks,
+   tag 6; values E and shifted D(0) interleaved, private to the
+   pentagon's instructions; test pentagon_blocks_are_private_and_signed);
+   only subsets with >= 256 program terms (plan.coefficient_terms:
+   boxes 287/543 at rank 4/5, pentagons 3441) use the store (threshold
+   48: -17% instructions but ~0 time, memcmp/key/put costs; 2048:
+   hexagon slower); skipped ranges walked as runs (testing them per
+   instruction made run_program +20%; a closure version cost +2..4% on
+   N1R0); empty programs return at once; coefficients_only DD executors
+   stop after the coefficient program when top_outputs_finite (overflow
+   bound on gather + output) holds, status Success as after the full lane
+   (first version required ptr_eq and never fired: the DD executors sit
+   on lightlike variants); gc_metric/gc_momentum factors, inverses and
+   sorted keys built once per expansion; Grading::index inlined.
+   Kept A0/B0 master sharing (sharing only C0/D0 was 1% slower). Not
+   pursued: xprec DD exp/log/sin with out-of-line fma (~9% of hexagon
+   cycles) - its fused cross terms make any non-fma rewrite change bits;
+   hardware FMA needs target flags the Fortran references do not get.
+   Evidence: amplitude fingerprints unchanged; cmpres 96/96 identical to
+   7787624; lib (direct, dispatch, amplitude), direct_engine,
+   amplitude_sharing, shifted_pentagon, physical_box pass. callgrind call
+   3 of the capture binary: hexagon 1434.0 -> 1205.9 MIr, pentagon
+   213.7 -> 200.9 MIr; A/B vs 7787624 (CPU 177): hexagon 140.2 -> 130.3
+   ms, pentagon ~22.5 -> 21.0 ms. Scratchpad opt/ (ab_rows.py,
+   ab_amp_time.sh, cgamp.sh, instcounts.py).
+   Captures (final038.sh; timing CPU 185, amplitude CPU 184, load 192
+   to 205): stability 038 = 037 (capdiff: 0 changed in every integral and
+   mode). Timing 034: every TIRust error and status = 033's (cmpres
+   96/96); vs 033 TIRust x0.999 (default and binary64-only), COLLIER
+   x1.012, NinjaRS x1.023, IREGI x1.009 (references slower this time).
+   Capture-binary instructions (ab_rows vs 7787624): ordinary N >= 3
+   -0.3..-2.6%, N1R0 -2.0/-3.5%, others within 0.4% (max +0.04%).
+   Noisy: b1 N1R0 (core 14% busy, blocks 0.371..0.418 us) and b1 N7R7
+   (10%, 2195..2928 us). N7R7 b32 default vs COLLIER x1.00 [0.99, 1.03]
+   (033: x1.03), 155.8 ms (b64-only 140.0). Amplitude 021: x1.59 [1.52,
+   1.85] and x1.15 [1.12, 1.18] against COLLIER's cache (020: x1.72,
+   x1.28); TIRust shared 138.6/21.15 ms (hexagon blocks 128..150),
+   separate 239.7/23.53 (over COLLIER no-cache x0.92 [0.88, 1.08],
+   x0.745 [0.73, 0.79]); COLLIER cache 82.9/18.4; fingerprints
+   unchanged; computed/reused 5220/39794 and 1742/9267.
 4n. **Improve the amplitude cache (user: "very important", 2 Nov).**
    Miss diagnostic (hexagon amplitude, 32 points, sharing on: 312 reused,
    333 computed per call): of the 333, 103 have an earlier result for the
