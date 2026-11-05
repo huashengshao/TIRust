@@ -1,0 +1,32 @@
+{
+ "host": "itphlies",
+ "machine": "x86_64",
+ "steps": {
+  "collier_link_s": 0.889,
+  "tirust_cargo_s": 528.562
+ },
+ "toolchains": {
+  "gfortran": "GNU Fortran (GCC) 15.2.0",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28) (built from a source tarball)"
+ },
+ "collier": {
+  "binary": "target/amplitude-20261102/bin/collier-amplitude",
+  "sha256": "55a6bd7fae67cb4035891d6810a2d0eb8a3050187761536e54e4365c3083a5ea",
+  "flags": [
+   "-O3",
+   "-std=legacy",
+   "-fallow-argument-mismatch",
+   "-Wtabs"
+  ],
+  "driver_sha256": "ca8f7960f6a84b1b1d4e0429c74ae1478d890bd0d6688f92cabb9e9432334108",
+  "archive_sha256": "4f1e6dc1f2eeb399b0835cdd4244d6e51c72b2fcb7d2e1e7e2980288d6c7fe2f"
+ },
+ "tirust": {
+  "binary": "target/amplitude-20261102/bin/tirust-amplitude-timing",
+  "sha256": "03d8f94f3ad1f004cc671f0329ab13577860b127ace17e1fd8070cd30dc26761",
+  "cargo": "cargo build --release --offline -p iregi-rust --example amplitude_timing --features native-f64-abc",
+  "profile": "release (thin LTO, codegen-units=1)",
+  "git_head": "13d3eabbf4d36652864a01a28170dd1804373555",
+  "source_tree_dirty": false
+ }
+}
