@@ -1097,6 +1097,52 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    separate 261.7/25.5 (over COLLIER no-cache x1.08 [1.02, 1.11], x0.86
    [0.83, 0.90]); COLLIER cache 84.1/17.7; pentagon core 37% busy
    before; fingerprints unchanged.
+   SMALL-CALL OVERHEAD, 7787624 (user: "Yes, tadpoles next"; capture 032
+   left b1 N1R0 the only row slower than COLLIER, x1.22). callgrind of one
+   b1 N1R0 call (93a4914): 4324 instructions, ~950 in glibc's allocator
+   (9 mallocs, 4 callocs at ~95 each against ~41 for malloc: calloc skips
+   tcache), 174 memcpy (BatchResult moves), read_lane 478, gather_with
+   478, hybrid bookkeeping 468, DirectExecutor reduce_batch 1057, A0
+   master ~310, one __powidf2 (rotation_tolerance with accuracy set).
+   Hidden from instruction counts: 8 Arc clone+drop pairs per lane (plan
+   cloned by reduce_batch, geometry, native_masters, detect_ir_free,
+   run_program x2, gather_with; base plan once per call), ~3.2 ns each
+   here (scratchpad tad/arc). Changes: per-lane plan cloned once and lent
+   as &DirectPlanData (gather_with also gets the Arc: distinct_momenta
+   and real_products cache by Arc identity; lending &Arc instead made
+   gather_with +1.1% instructions on N7R7 b1, &DirectPlanData -1.6%);
+   base plan read, not cloned; types::filled (with_capacity + resize)
+   for small per-call vectors instead of vec![v; n] (calloc); hybrid
+   conditions and order_refused buffers reused (mem::take, put back);
+   rotation tolerance set with the accuracy; read_lane upper triangle
+   (d(j,i) = d(i,j) bit for bit, d(i,i) = zero). Result: b1 N1R0 3592
+   instructions (allocator ~370, no calloc), read_lane 278. Not changed:
+   BatchResult still allocates 9 vectors per call (basis clone, values,
+   statuses, 2 flag vectors, 2 envelope vectors, estimated errors, best
+   effort; the hybrid indexes primal_envelopes[lane], so empty vectors
+   would need its retries changed), 5 BatchResult memcpy moves (~144),
+   gather_with for rank-0 tadpoles (~480: loop overhead), oneloop's A0
+   (family_values ~217 + log). Evidence: cmpres 96/96 identical to
+   93a4914; suites pass; A/B vs 93a4914 (CPU 78, 5 rounds) N1R0 x0.80
+   b1 / x0.75 b32, N2R1 x0.86 / x0.84, N3R2 x0.94 / x0.95, median x0.972
+   over 38 row/batch pairs, max x1.002.
+   Captures (final037.sh; timing and amplitude CPU 174, load 195 to
+   201): stability 037 = 036 (capdiff: 0 changed in every integral
+   and mode, so the DD and MPFR rescues see the same distance table;
+   summaries differ only in provenance). Timing 033: every TIRust
+   error and status = 032's; 6/38 busy (032: 26); vs 032 binary64-only
+   median x0.973, COLLIER x0.995, NinjaRS x0.993, IREGI x0.999; N1R0
+   x0.723..0.782 b1, x0.759..0.767 b32 all modes (b64-only 0.371 and
+   0.184 us); N2R1 x0.823..0.868 and x0.818..0.832 (0.927, 0.669);
+   n <= 3 median x0.947, extended x0.887..1.026, n >= 4 x0.961..1.010.
+   b1 N1R0 against COLLIER x0.818 [0.806, 0.829] (COLLIER 0.453 us;
+   032: 0.390, 029: 0.442). Binary64-only now below COLLIER on every
+   ordinary row and batch (worst N7R7 b32 x0.927); default above it
+   only on N7R7 b32 (x1.03, rescue). N7R7 b32 156.3 ms (b64-only
+   141.4). Amplitude 020: x1.72 [1.66, 1.78] and x1.28 [1.24, 1.30];
+   TIRust shared 140.9/22.7 ms, separate 261.9/25.4 (over COLLIER
+   no-cache x1.06 [1.06, 1.09], x0.86 [0.82, 0.88]); COLLIER cache
+   82.2/17.7; fingerprints unchanged.
 4n. **Improve the amplitude cache (user: "very important", 2 Nov).**
    Miss diagnostic (hexagon amplitude, 32 points, sharing on: 312 reused,
    333 computed per call): of the 333, 103 have an earlier result for the
