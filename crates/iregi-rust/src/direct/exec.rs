@@ -141,6 +141,8 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     shared: Option<Arc<SubsetStore>>,
     /// The same store for a double-double executor: its scalar masters only.
     dd_masters: Option<Arc<SubsetStore>>,
+    /// Scratch key of the canonical double-double master order.
+    dd_scratch: Vec<u64>,
     /// The current lane's geometry found such a box or triangle.
     estimate_tripped: bool,
     gram_top_active: bool,
@@ -439,6 +441,7 @@ where
             profile: DirectProfile::default(),
             coefficients_only: false,
             dd_masters: None,
+            dd_scratch: Vec::new(),
             base_plan: plan.clone(),
             base_constants: constants.clone(),
             variants: HashMap::new(),
@@ -648,38 +651,28 @@ where
             };
             for &(subset, index) in &plan.masters[family] {
                 let members = &plan.subsets[subset].members;
-                let d = |i: usize, j: usize| self.distances[members[i] * n + members[j]].clone();
-                let input = &mut self.native_input;
-                let arity = match family {
-                    0 => {
-                        input[0] = self.masses[members[0]].clone();
-                        1
+                // Double-double: the arguments in a canonical order of the
+                // subset's propagators (a box's rotations and reflections, any
+                // order of a triangle, a bubble's two; the scalar integral
+                // does not depend on them), the one with the smallest key. A
+                // master is then the kernels' output for its canonical
+                // arguments whatever order reaches it, and the amplitude's
+                // store shares one evaluation between the orders.
+                let mut order: [usize; 4] = [0, 1, 2, 3];
+                if T::FIXED_BITS == Some(106) && family > 0 {
+                    let mut best: Option<[usize; 4]> = None;
+                    for image in master_images(family) {
+                        let arity = fill_master_input(&mut self.native_input, family, members, image, &self.distances, &self.masses, n, mu2);
+                        dd_master_key(&mut self.dd_scratch, family, arity, &self.native_input[..arity + 1]);
+                        if best.is_none() || self.dd_scratch < self.master_key {
+                            std::mem::swap(&mut self.dd_scratch, &mut self.master_key);
+                            best = Some(*image);
+                        }
                     }
-                    1 => {
-                        input[0] = d(0, 1);
-                        3
-                    }
-                    2 => {
-                        input[0] = d(0, 1);
-                        input[1] = d(1, 2);
-                        input[2] = d(0, 2);
-                        6
-                    }
-                    _ => {
-                        input[0] = d(0, 1);
-                        input[1] = d(1, 2);
-                        input[2] = d(2, 3);
-                        input[3] = d(0, 3);
-                        input[4] = d(0, 2);
-                        input[5] = d(1, 3);
-                        10
-                    }
-                };
-                let first_mass = arity - members.len();
-                for (k, &member) in members.iter().enumerate() {
-                    input[first_mass + k] = self.masses[member].clone();
+                    order = best.unwrap_or(order);
                 }
-                input[arity] = mu2.clone();
+                let arity = fill_master_input(&mut self.native_input, family, members, &order, &self.distances, &self.masses, n, mu2);
+                let input = &mut self.native_input;
                 let key = &mut self.master_key;
                 let hit = store.as_ref().is_some_and(|store| {
                     key.clear();
@@ -3333,6 +3326,71 @@ fn write_shared<T: NativeFloat>(out: &mut [L4<T>], prototype: &T, count: usize, 
 }
 
 /// The binary64 value `x` exactly in the executor's number type.
+/// Orders of a scalar master's propagators that leave it unchanged: a box's
+/// rotations and reflections, every order of a triangle, both of a bubble
+/// (the first `size` entries of each are used).
+fn master_images(family: usize) -> &'static [[usize; 4]] {
+    const BOX: [[usize; 4]; 8] =
+        [[0, 1, 2, 3], [1, 2, 3, 0], [2, 3, 0, 1], [3, 0, 1, 2], [0, 3, 2, 1], [3, 2, 1, 0], [2, 1, 0, 3], [1, 0, 3, 2]];
+    const TRIANGLE: [[usize; 4]; 6] = [[0, 1, 2, 3], [0, 2, 1, 3], [1, 0, 2, 3], [1, 2, 0, 3], [2, 0, 1, 3], [2, 1, 0, 3]];
+    const BUBBLE: [[usize; 4]; 2] = [[0, 1, 2, 3], [1, 0, 2, 3]];
+    const TADPOLE: [[usize; 4]; 1] = [[0, 1, 2, 3]];
+    match family {
+        0 => &TADPOLE,
+        1 => &BUBBLE,
+        2 => &TRIANGLE,
+        _ => &BOX,
+    }
+}
+
+/// The native kernels' arguments of the scalar master of `members` taken in
+/// `order` (invariants, squared masses, mu^2); returns the arity.
+#[allow(clippy::too_many_arguments)]
+fn fill_master_input<T: NativeFloat>(
+    input: &mut [C<T>],
+    family: usize,
+    members: &[usize],
+    order: &[usize; 4],
+    distances: &[C<T>],
+    masses: &[C<T>],
+    n: usize,
+    mu2: &C<T>,
+) -> usize {
+    let m = |k: usize| members[order[k]];
+    let d = |i: usize, j: usize| distances[m(i) * n + m(j)].clone();
+    let arity = match family {
+        0 => {
+            input[0] = masses[m(0)].clone();
+            1
+        }
+        1 => {
+            input[0] = d(0, 1);
+            3
+        }
+        2 => {
+            input[0] = d(0, 1);
+            input[1] = d(1, 2);
+            input[2] = d(0, 2);
+            6
+        }
+        _ => {
+            input[0] = d(0, 1);
+            input[1] = d(1, 2);
+            input[2] = d(2, 3);
+            input[3] = d(0, 3);
+            input[4] = d(0, 2);
+            input[5] = d(1, 3);
+            10
+        }
+    };
+    let first_mass = arity - members.len();
+    for k in 0..members.len() {
+        input[first_mass + k] = masses[m(k)].clone();
+    }
+    input[arity] = mu2.clone();
+    arity
+}
+
 /// Key of a double-double scalar master: family, arity and the limbs of
 /// every argument bit for bit (`false`: `T` is not double-double).
 fn dd_master_key<T: NativeFloat>(key: &mut Vec<u64>, family: usize, arity: usize, input: &[C<T>]) -> bool {
