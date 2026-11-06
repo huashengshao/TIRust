@@ -719,22 +719,41 @@ fn binary64_boxes_are_checked_by_the_rotation_test() {
     }
 }
 
+/// gg -> HH rank-6 box (stability point box-r6 #759): the a priori Gram gate
+/// refuses it (estimate 3.8e-17), yet binary64 keeps E/A 3.8e-12.
+const GATE_REFUSED_BOX: [[f64; 4]; 4] = [
+    [0.0, 0.0, 0.0, 0.0],
+    [500.0, 0.0, 0.0, 500.0],
+    [1000.0, 0.0, 0.0, 0.0],
+    [499.99999999999994, 21.6322892694395, -42.18555103069406, 481.7960391547444],
+];
+
 #[test]
 fn gate_refused_binary64_box_is_kept_by_the_rotation_check() {
-    // gg -> HH rank-6 box (stability point box-r6 #759): the a priori Gram
-    // gate refuses it (estimate 3.8e-17), yet binary64 keeps E/A 3.8e-12.
-    // In binary64 alone the checked retry evaluates it below the gate with
-    // rotated propagators too; the copies agree, so the binary64 array is
-    // returned. By default the refused box lane goes to the double-double
-    // tier directly (106 bits).
+    // In binary64 alone (precision rescue disabled) the per-box a priori
+    // method choice (stage 4: the small-Gram expansions or the alternative
+    // PV) keeps the gate-refused box, because its rotated copy agrees
+    // (difference 3.2e-14, E/A 3.3e-14); the checked retry below the gate
+    // never runs for it.
     use iregi_rust::PrecisionRescue;
-    let shifts = [
-        [0.0, 0.0, 0.0, 0.0],
-        [500.0, 0.0, 0.0, 500.0],
-        [1000.0, 0.0, 0.0, 0.0],
-        [499.99999999999994, 21.6322892694395, -42.18555103069406, 481.7960391547444],
-    ];
-    let (result, stats, notes, error) = physical_box(&shifts, 6, PrecisionRescue::Automatic);
+    let (result, stats, notes, error) = physical_box(&GATE_REFUSED_BOX, 6, PrecisionRescue::Disabled);
+    assert_eq!(result.statuses[0], LaneStatus::Success, "{notes:?}");
+    assert!(!result.fallback_used[0], "{stats:?}");
+    // Kept by one binary64 retry: the per-box method choice.
+    assert_eq!(stats.checked_successes + stats.expansion_successes, 1, "{stats:?}");
+    assert!(stats.precision_rescue.is_empty(), "{stats:?}");
+    let estimate = result.estimated_error(0).expect("measured by the rotation check");
+    assert!(estimate <= 2f64.powi(-36), "estimate {estimate:e}");
+    let error = error.unwrap();
+    assert!(error <= 1e-11, "E/A = {error:e}");
+}
+
+#[test]
+fn gate_refused_box_goes_to_the_double_double_tier_by_default() {
+    // With the precision rescue on (the default) the same refused box lane
+    // goes to the double-double tier directly, without binary64 retries.
+    use iregi_rust::PrecisionRescue;
+    let (result, stats, notes, error) = physical_box(&GATE_REFUSED_BOX, 6, PrecisionRescue::Automatic);
     assert_eq!(result.statuses[0], LaneStatus::Success, "{notes:?}");
     assert!(result.fallback_used[0], "{stats:?}");
     assert_eq!(stats.checked_successes + stats.expansion_successes, 0, "{stats:?}");
@@ -742,19 +761,6 @@ fn gate_refused_binary64_box_is_kept_by_the_rotation_check() {
     assert_eq!((stats.precision_rescue[0].bits, stats.precision_rescue[0].successes), (106, 1), "{stats:?}");
     let error = error.unwrap();
     assert!(error <= 1e-15, "E/A = {error:e}");
-    {
-        let (result, stats, notes, error) = physical_box(&shifts, 6, PrecisionRescue::Disabled);
-        assert_eq!(result.statuses[0], LaneStatus::Success, "{notes:?}");
-        assert!(!result.fallback_used[0], "{stats:?}");
-        // Kept by one binary64 retry (the per-box method choice, first since
-        // it covers boxes, or PV below the gate).
-        assert_eq!(stats.checked_successes + stats.expansion_successes, 1, "{stats:?}");
-        assert!(stats.precision_rescue.is_empty(), "{stats:?}");
-        let estimate = result.estimated_error(0).expect("measured by the rotation check");
-        assert!(estimate <= 2f64.powi(-36), "estimate {estimate:e}");
-        let error = error.unwrap();
-        assert!(error <= 1e-11, "E/A = {error:e}");
-    }
 }
 
 #[test]
