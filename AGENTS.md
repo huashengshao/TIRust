@@ -1,3 +1,5 @@
+Binding: docs/PYAMPLICOL-COLLABORATION.md (pyAmpliCol collaboration protocol, 6 Nov 2026) overrides anything conflicting below, in PLAN.md and in HANDOFF.md.
+
 # iregi-rust development
 
 Follow PLAN.md and keep the active implementation goal open until its acceptance
@@ -20,24 +22,52 @@ Use original IREGI and graph-isolated MadLoop as independent references. Exclude
 R2 and UV counterterms from physical comparisons, retaining bare poles and R1.
 Reference repairs must be narrow, separately documented and independently tested.
 
-Commit and push validated milestones to origin/main, without force pushes, as
-huashengshao <erdissshaw@gmail.com>. Coordinate shared-file changes with the root
-agent. Keep docs/benchmark.pdf and measurement provenance current; never invent
-timings or claim unperformed validation.
+TIRust's (Huasheng's) agent never pushes to, commits on or merges into main;
+pyAmpliCol's agents push to main and merge pull requests (protocol sections
+0-2). TIRust's agent commits validated milestones as huashengshao
+<erdissshaw@gmail.com> on feature branches hs/<topic> and proposes each as a
+pull request against main with reviewer ValentinHirschi, without force pushes
+(protocol sections 0 and 3, including the freeze check before every push).
+Before touching Cargo manifests, Cargo.lock, pins, LICENSE, .githooks or the
+protocol's section 3 APIs, it opens an issue mentioning @ValentinHirschi
+(labelled pyamplicol, plus pins for pin changes or api-change for API changes;
+protocol section 6). Keep the published report link and measurement provenance
+current; never invent timings or claim unperformed validation.
 
-Update docs/benchmark.typ and docs/benchmark.pdf at each pushed milestone and
-give the user a GitHub link to that pushed PDF. Include the measured original
+Interim rule until pyAmpliCol's slimming commit (protocol section 2 item 6):
+docs/data/results.json and docs/data/report-validation.json are still tracked
+on main. TIRust's agent never stages them or any new raw capture, and restores
+them after a local build:
+git restore docs/data/results.json docs/data/report-validation.json
+
+Blob-size policy (protocol section 5): MAX_BLOB_BYTES = 1 MiB (1048576 bytes).
+No push adds a larger blob unless its exact path is in .blob-size-allowlist,
+and none adds a blob under dependencies/symbolica/,
+dependencies/symbolica-patches/ or dependencies/oneloopmaster/. Change this
+value only by pull request.
+
+Update docs/benchmark.typ at each milestone. docs/benchmark.pdf stays tracked
+as a slim report of mostly the summary tables, committed by pull request (keep
+it under 1 MiB, or add its exact path to .blob-size-allowlist in the same pull
+request with a one-line justification); give the user the link to it. The full
+report and the evidence go to huashengshao/iregi-rust-evidence or a release
+asset (gh release create tirust-bench-<date> ...). Run the freeze check first:
+no tag or release while the FREEZE issue is open (protocol section 4); gh
+release create makes the tag on the server, so the pre-push hook does not see
+it (amendment of 6 Nov 2026 in docs/PYAMPLICOL-COLLABORATION.md). Include the measured original
 IREGI-versus-COLLIER comparison on shared undotted topologies, separately from
 Rust-versus-IREGI results; retain failed, noisy and unmeasured cases explicitly.
 
 Use TIRust as the benchmark and Python-facing implementation name. Every
 displayed implementation/reference ratio is TIRust/reference (below one is
-faster). Preserve historical raw evidence; show reference-only comparisons as
-absolute timings and outcomes, never infer TIRust ratios across sessions.
+faster). Preserve historical raw evidence in the archive
+(huashengshao/iregi-rust-evidence), not in this repository; show reference-only
+comparisons as absolute timings and outcomes, never infer TIRust ratios across
+sessions.
 
 Python bindings follow the pinned Community extension guide in PLAN.md: actual
 upstream shared PyO3 types, direct Rust calls, one native host/kernel, rlib
 registration and optional standalone host. Keep the Rust core Python-free.
 Preserve precision and Dual shapes; provide typed stubs, fresh-wheel tests and
-executable marimo examples. Coordinate Cargo/feature changes and compilation
-with active numerical provenance guards and benchmark quiet windows.
+executable marimo examples. Cargo and feature changes follow the issue rule
+above (protocol section 6); never compile during a timing capture.
