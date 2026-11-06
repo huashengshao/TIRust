@@ -605,8 +605,15 @@ mod tests {
             }
         }
         let report = serde_json::json!({"schema_version": 2, "tolerance": 1e-10, "normalization": "Q=max(mu,abs(shift components),sqrt(abs(mass_squared))); error/(Q^dimension+abs(reference))", "reference_executable_sha256": fixtures["executable_sha256"], "accuracy_precision_bits": 53, "working_precision_bits": 128, "verification_precision_bits": 256, "rescue_trigger": "UnstableOnly", "primary_successes": primary_successes, "verified_rescues": verified_rescues, "cases": report});
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../target/legacy-snapping-tensor-qualified-validation.json");
+        // Tests write only to temporary directories; set the variable to keep the report elsewhere.
+        let path = std::env::var_os("IREGI_LEGACY_TENSOR_REPORT")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| {
+                std::env::temp_dir().join(format!(
+                    "legacy-snapping-tensor-qualified-validation-{}.json",
+                    std::process::id()
+                ))
+            });
         std::fs::write(&path, serde_json::to_string_pretty(&report).unwrap()).unwrap();
         eprintln!(
             "legacy tensor validation: {} cases, {} failures; {}",

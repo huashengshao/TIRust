@@ -300,9 +300,15 @@ fn legacy_ibp_triangles_and_boxes_pass_verified_precision_rescue() {
         "passed": failures.is_empty(), "failures": failures, "batches": batch_reports,
         "cases": report,
     });
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target/legacy-snapping-rescue-validation.json");
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    // Tests write only to temporary directories; set the variable to keep the report elsewhere.
+    let path = std::env::var_os("IREGI_LEGACY_RESCUE_REPORT")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            std::env::temp_dir().join(format!(
+                "legacy-snapping-rescue-validation-{}.json",
+                std::process::id()
+            ))
+        });
     std::fs::write(&path, serde_json::to_string_pretty(&report).unwrap()).unwrap();
     eprintln!(
         "legacy rescue validation: {} cases, {} failures; {}",
