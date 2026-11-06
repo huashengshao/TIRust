@@ -45,6 +45,26 @@ use std::{
 /// subset, or the refusal message of its computation.
 pub(crate) type SharedValue = Result<Vec<[f64; 8]>, String>;
 
+/// Binary64 scalar masters of one family: `re, im` bits of each argument
+/// (`W / 2` of them, mu^2 last) to `re, im` of `[finite, single, double]`.
+/// Keys of exactly the family's size keep the table small (one access per
+/// lookup, no allocation per entry).
+type MasterMap<const W: usize> = Mutex<HashMap<[u64; W], [f64; 6], BuildHasherDefault<KeyHasher>>>;
+
+/// Most argument words of a scalar master key (a box: ten arguments and mu^2).
+pub(crate) const MASTER_KEY_WORDS: usize = 22;
+
+fn master_in<const W: usize>(map: &MasterMap<W>, words: &[u64]) -> Option<[f64; 6]> {
+    let key: &[u64; W] = words.try_into().ok()?;
+    map.lock().unwrap_or_else(|e| e.into_inner()).get(key).copied()
+}
+
+fn put_master_in<const W: usize>(map: &MasterMap<W>, words: &[u64], value: [f64; 6]) {
+    if let Ok(key) = <[u64; W]>::try_from(words) {
+        map.lock().unwrap_or_else(|e| e.into_inner()).insert(key, value);
+    }
+}
+
 /// A fast hasher for the store's long exact keys: a match is decided by key
 /// equality, the hash only spreads the keys over the table.
 #[derive(Default)]
@@ -59,7 +79,24 @@ impl Hasher for KeyHasher {
     }
 
     fn write(&mut self, bytes: &[u8]) {
-        let mut words = bytes.chunks_exact(8);
+        // Four independent lanes over 32-byte blocks (a key is hashed in one
+        // call): one multiply chain per word would make hashing the long
+        // moment keys latency-bound.
+        const K: u64 = 0x517c_c1b7_2722_0a95;
+        let mut blocks = bytes.chunks_exact(32);
+        let mut lanes = [self.0, self.0 ^ 0x9e37_79b9_7f4a_7c15, self.0 ^ 0x6a09_e667_f3bc_c908, self.0 ^ 0xbb67_ae85_84ca_a73b];
+        let mut any = false;
+        for block in &mut blocks {
+            any = true;
+            for (lane, word) in lanes.iter_mut().zip(block.chunks_exact(8)) {
+                let word = u64::from_le_bytes(word.try_into().unwrap());
+                *lane = (lane.rotate_left(5) ^ word).wrapping_mul(K);
+            }
+        }
+        if any {
+            self.0 = lanes[0] ^ lanes[1].rotate_left(17) ^ lanes[2].rotate_left(31) ^ lanes[3].rotate_left(47);
+        }
+        let mut words = blocks.remainder().chunks_exact(8);
         for word in &mut words {
             self.write_u64(u64::from_le_bytes(word.try_into().unwrap()));
         }
@@ -81,6 +118,12 @@ impl Hasher for KeyHasher {
 #[derive(Debug, Default)]
 pub(crate) struct SubsetStore {
     map: Mutex<HashMap<Vec<u64>, SharedValue, BuildHasherDefault<KeyHasher>>>,
+    /// Binary64 scalar masters per family (tadpole, bubble, triangle, box),
+    /// counted with the coefficient results.
+    tadpoles: MasterMap<4>,
+    bubbles: MasterMap<8>,
+    triangles: MasterMap<14>,
+    boxes: MasterMap<22>,
     /// Gathered moments: the computed Laurent slots (`re, im`) of each moment.
     moments: Mutex<HashMap<Vec<u64>, Vec<f64>, BuildHasherDefault<KeyHasher>>>,
     /// Double-double scalar masters (oneloopmaster's native kernels,
@@ -156,6 +199,32 @@ impl SubsetStore {
         Some(read(value))
     }
 
+    /// The stored binary64 scalar master of `family` for the argument bits
+    /// `words` (a hit), if any.
+    pub(crate) fn master(&self, family: usize, words: &[u64]) -> Option<[f64; 6]> {
+        let value = match family {
+            0 => master_in(&self.tadpoles, words),
+            1 => master_in(&self.bubbles, words),
+            2 => master_in(&self.triangles, words),
+            _ => master_in(&self.boxes, words),
+        };
+        if value.is_some() {
+            self.hits.fetch_add(1, Ordering::Relaxed);
+        }
+        value
+    }
+
+    /// Store a freshly evaluated binary64 scalar master (a miss).
+    pub(crate) fn put_master(&self, family: usize, words: &[u64], value: [f64; 6]) {
+        self.misses.fetch_add(1, Ordering::Relaxed);
+        match family {
+            0 => put_master_in(&self.tadpoles, words, value),
+            1 => put_master_in(&self.bubbles, words, value),
+            2 => put_master_in(&self.triangles, words, value),
+            _ => put_master_in(&self.boxes, words, value),
+        }
+    }
+
     /// Store a freshly computed result (a miss).
     pub(crate) fn put(&self, key: Vec<u64>, value: SharedValue) {
         self.misses.fetch_add(1, Ordering::Relaxed);
@@ -198,6 +267,10 @@ impl SubsetStore {
     /// Forget every result and reset the counters.
     pub(crate) fn clear(&self) {
         self.map.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        self.tadpoles.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        self.bubbles.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        self.triangles.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        self.boxes.lock().unwrap_or_else(|e| e.into_inner()).clear();
         self.moments.lock().unwrap_or_else(|e| e.into_inner()).clear();
         self.dd_masters.lock().unwrap_or_else(|e| e.into_inner()).clear();
         for counter in [&self.hits, &self.misses, &self.moment_hits, &self.moment_misses] {

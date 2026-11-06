@@ -19,7 +19,7 @@ use super::{
         lfma_slots, lzero, mul_dimension, real_lfma_slots, solve_in_place,
     },
     plan::{DirectPlanData, Gather, NO_GEOMETRY, PostOp, Subset, SubsetKind, Term},
-    shared::{SharedValue, SubsetStore},
+    shared::{MASTER_KEY_WORDS, SharedValue, SubsetStore},
 };
 use crate::{
     types::filled,
@@ -680,25 +680,20 @@ where
                     input[first_mass + k] = self.masses[member].clone();
                 }
                 input[arity] = mu2.clone();
-                let key = &mut self.master_key;
+                // The arguments bit for bit (the family fixes their number).
+                let mut key = [0u64; MASTER_KEY_WORDS];
+                let words = 2 * (arity + 1);
                 let hit = store.as_ref().is_some_and(|store| {
-                    key.clear();
-                    key.extend([4, family as u64, arity as u64]);
-                    for z in &input[..arity + 1] {
-                        key.extend([z.re.to_f64().to_bits(), z.im.to_f64().to_bits()]);
+                    for (k, z) in input[..arity + 1].iter().enumerate() {
+                        key[2 * k] = z.re.to_f64().to_bits();
+                        key[2 * k + 1] = z.im.to_f64().to_bits();
                     }
-                    let (output, prototype) = (&mut self.native_output, &self.prototype);
-                    store
-                        .get_with(key, |stored| {
-                            let Ok(shared) = stored else { return false };
-                            let v = shared[0];
-                            for k in 0..3 {
-                                let (re, im) = if k < 2 { (v[2 * k], v[2 * k + 1]) } else { (v[4], v[5]) };
-                                output[k] = C::new(exact_f64(prototype, re), exact_f64(prototype, im));
-                            }
-                            true
-                        })
-                        .unwrap_or(false)
+                    let Some(v) = store.master(family, &key[..words]) else { return false };
+                    for k in 0..3 {
+                        self.native_output[k] =
+                            C::new(exact_f64(&self.prototype, v[2 * k]), exact_f64(&self.prototype, v[2 * k + 1]));
+                    }
+                    true
                 });
                 // Double-double: masters shared limb for limb (a stored value
                 // is the kernels' output for exactly these arguments).
@@ -719,8 +714,8 @@ where
                     if let Some(store) = store.as_ref() {
                         let o = &self.native_output;
                         let v = [o[0].re.to_f64(), o[0].im.to_f64(), o[1].re.to_f64(), o[1].im.to_f64(),
-                            o[2].re.to_f64(), o[2].im.to_f64(), 0.0, 0.0];
-                        store.put(self.master_key.clone(), Ok(vec![v]));
+                            o[2].re.to_f64(), o[2].im.to_f64()];
+                        store.put_master(family, &key[..words], v);
                     }
                 }
                 self.master_rows += 1;
