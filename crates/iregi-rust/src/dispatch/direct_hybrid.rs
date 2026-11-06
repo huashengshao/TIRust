@@ -658,46 +658,6 @@ where
         Ok(())
     }
 
-    /// With the precision rescue on, lanes the a priori method choice kept
-    /// without a clear agreement (`HARDER_AGREEMENT`) are evaluated by the
-    /// double-double tier (with its rotation check) before the binary64 retry
-    /// with every box and triangle off PV, which costs about four times as
-    /// much per lane and bettered only part of them. A lane the tier accepts
-    /// takes its double-double array; the lanes it refuses are returned (for
-    /// that binary64 retry) with the choice's array.
-    fn upgrade_to_double_double(
-        &mut self,
-        batch: &KinematicsBatch<T>,
-        lanes: &[usize],
-        conditions: &[Option<f64>],
-        result: &mut BatchResult<T>,
-        profile: &mut ExecutionProfile,
-    ) -> Result<Vec<usize>, ReductionError> {
-        let mut trial = result.clone();
-        let mut outcomes = self.rescue_tier(0, batch, lanes, &mut trial, profile)?;
-        self.check_double_double(batch, lanes, conditions, &mut outcomes, &trial, profile)?;
-        let stride = result.basis.len() * 4 * result.components;
-        let bits = RESCUE_BITS[0];
-        let mut successes = 0;
-        let mut refused = Vec::new();
-        for (&lane, (status, _)) in lanes.iter().zip(outcomes) {
-            if status == LaneStatus::Success {
-                successes += 1;
-                result.values[lane * stride..(lane + 1) * stride]
-                    .clone_from_slice(&trial.values[lane * stride..(lane + 1) * stride]);
-                result.fallback_used[lane] = true;
-                result.estimated_errors[lane] = None;
-                self.diagnostics[lane].push(format!("direct engine at {bits} bits: accepted"));
-            } else {
-                self.diagnostics[lane].push(format!("direct engine at {bits} bits: {status:?}"));
-                refused.push(lane);
-            }
-        }
-        self.last.fallback_successes += successes;
-        self.last.precision_rescue.push(DirectRescueTier { bits, rows: lanes.len(), successes });
-        Ok(refused)
-    }
-
     /// Precision rescue of the conditioning-refused lanes among `retry`.
     /// Returns the lanes left for the symbolic engine.
     #[inline(never)]
@@ -1278,25 +1238,28 @@ where
         // refused (gate or rotation test), before the other retries: on
         // stability-20261030 hexagons the lanes it keeps reach E/A median
         // 3.7e-14 against 2.8e-13 for PV below the gate.
-        // With the precision rescue on, refused heptagon (and larger) lanes go
-        // to it directly: their binary64 retries rarely succeed there (3 of
-        // 495 stability heptagons) and cost the opening N7R7 batch of 32
-        // about 0.6 s of 1.3 s. Accepted lanes are not retried for accuracy
-        // beyond the request (the former upgrade of accepted box and pentagon
-        // lanes the a priori estimate flagged: on the stability points their
-        // 99th percentiles 5e-13..3e-12 against 5e-12..8e-12 without it, still
-        // below COLLIER's, for 20% of the hexagon and 34% of the pentagon
-        // amplitude's time).
-        let binary64_retries = !(self.precision_rescue == PrecisionRescue::Automatic && n >= 7);
-        // With the precision rescue on, lanes the a priori choice does not keep
-        // go to the rescue directly: the binary64 retries below (below the
-        // gate, by the expansions, by the alternative PV, every box and
-        // triangle off PV) kept 2 of 8 such box lanes of the hexagon amplitude
-        // at about 2 ms per lane, where the double-double tier takes about
-        // 0.6 ms per box lane and gives 106 bits (on stability-20261030 the 15
-        // box points these retries kept reach E/A 2e-31 or below that way).
-        let rescue_after_choice =
-            choice_enabled && binary64_retries && self.precision_rescue == PrecisionRescue::Automatic;
+        // With the precision rescue on, refused lanes go to it directly,
+        // without the choice and the binary64 retries: heptagon (and larger)
+        // lanes always (their retries rarely succeed: 3 of 495 stability
+        // heptagons, and they cost the opening N7R7 batch of 32 about 0.6 s of
+        // 1.3 s), box, pentagon and hexagon lanes in the choice's domain. Its
+        // expansions cost about 1 ms per refused box lane (the box integrals'
+        // 263 of 1198 MIr of a hexagon amplitude call), the double-double tier
+        // about 0.6 ms with 106 bits: without the choice the hexagon amplitude
+        // takes 101 instead of 133 ms and the pentagon amplitude about 12%
+        // less. On stability-20261030 (capture 039 against this rule) 466 of
+        // the 27,000 box, pentagon and hexagon points change, none for the
+        // worse: E/A 3e-16..1e-11 before, at most 1.3e-15 after (412 at or
+        // below 1e-28). The choice and the retries remain for binary64 alone
+        // (precision rescue disabled) and outside the choice's domain.
+        // Accepted lanes are not retried for accuracy beyond the request (the
+        // former upgrade of accepted box and pentagon lanes the a priori
+        // estimate flagged: on the stability points their 99th percentiles
+        // 5e-13..3e-12 against 5e-12..8e-12 without it, still below COLLIER's,
+        // for 20% of the hexagon and 34% of the pentagon amplitude's time).
+        let rescue_first = self.precision_rescue == PrecisionRescue::Automatic
+            && (n >= 7 || (choice_enabled && (4..=6).contains(&n)));
+        let binary64_retries = !rescue_first;
         let estimated: Vec<usize> = if choice_enabled && binary64_retries {
             (0..batch.rows)
                 .filter(|&lane| matches!(result.statuses[lane], LaneStatus::Unstable(_)))
@@ -1310,9 +1273,8 @@ where
             checked.retain(|&lane| result.statuses[lane] != LaneStatus::Success);
             // Lanes the pass refused and the choice kept without a clear
             // agreement: every box and triangle with w > 2 off PV as well,
-            // kept where its rotated copy agrees better; with the precision
-            // rescue on, the double-double tier first
-            // (`upgrade_to_double_double`), this retry for the lanes it refuses.
+            // kept where its rotated copy agrees better (binary64 alone: with
+            // the precision rescue on these lanes go to it directly).
             if n >= 5 {
                 let harder: Vec<usize> = estimated
                     .iter()
@@ -1323,17 +1285,12 @@ where
                     })
                     .map(|(&lane, _)| lane)
                     .collect();
-                let harder = if self.precision_rescue == PrecisionRescue::Automatic && !harder.is_empty() {
-                    self.upgrade_to_double_double(batch, &harder, &conditions, result, profile)?
-                } else {
-                    harder
-                };
                 if !harder.is_empty() {
                     self.checked_retry(batch, &harder, tolerance, result, profile, 3)?;
                 }
             }
         }
-        if !checked.is_empty() && !rescue_after_choice {
+        if !checked.is_empty() && !(rescue_first && n <= 6) {
             checked.sort_unstable();
             checked.dedup();
             self.checked_retry(batch, &checked, tolerance, result, profile, 0)?;
@@ -1359,7 +1316,7 @@ where
         // certified only gate-refused lanes, and on the opening N7R7 batch of
         // 32 (precision rescue disabled) it kept none of its 12 such lanes in
         // 0.51 s of 0.80 s.
-        if checkable && binary64_retries && !rescue_after_choice {
+        if checkable && binary64_retries {
             let rest: Vec<usize> = (0..batch.rows)
                 .filter(|&lane| {
                     matches!(result.statuses[lane], LaneStatus::Unstable(_))

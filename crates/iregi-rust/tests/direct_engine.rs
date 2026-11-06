@@ -465,14 +465,18 @@ fn near_degenerate_boxes_are_rescued_at_higher_precision() {
 
 /// Facade result of a top-loop pentagon (sqrt(s) = 1 TeV) and its E/A
 /// against a 256-bit direct evaluation.
-fn physical_pentagon(shifts: &[[f64; 4]; 5]) -> (iregi_rust::BatchResult<f64>, iregi_rust::DirectExecutionStats, f64) {
-    use iregi_rust::TensorEngineExecution;
+fn physical_pentagon(
+    shifts: &[[f64; 4]; 5],
+    rescue: iregi_rust::PrecisionRescue,
+) -> (iregi_rust::BatchResult<f64>, iregi_rust::DirectExecutionStats, f64) {
+    use iregi_rust::{TensorEngineExecution, TensorWorkspaceOptions};
     use symbolica::domains::float::{Float, RealLike};
     let mt2 = 173.0f64 * 173.0;
     let values = row(shifts, &[(mt2, 0.0); 5], 1000.0);
     let settings = ReductionSettings::new(5, 5);
     let plan = TensorReductionPlan::new(settings.clone()).unwrap();
-    let mut workspace = TensorWorkspace::new(&plan, 0.0f64).unwrap();
+    let options = TensorWorkspaceOptions { precision_rescue: rescue, ..Default::default() };
+    let mut workspace = TensorWorkspace::new_with_options(&plan, 0.0f64, options).unwrap();
     let result = workspace
         .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: values.clone() })
         .unwrap();
@@ -527,7 +531,7 @@ fn physical_pentagons_stay_accurate_in_binary64() {
         ],
     ];
     for shifts in points {
-        let (result, stats, error) = physical_pentagon(&shifts);
+        let (result, stats, error) = physical_pentagon(&shifts, iregi_rust::PrecisionRescue::Automatic);
         assert!(!result.fallback_used[0], "{stats:?}");
         assert!(error <= 1e-12, "E/A = {error:e}");
     }
@@ -537,10 +541,12 @@ fn physical_pentagons_stay_accurate_in_binary64() {
 fn inaccurate_binary64_pentagons_are_caught_and_rescued() {
     // Point pentagon-r5 #212: its box Gram systems pass the binary64 gate of
     // rotation-tested plans, yet the PV recursion keeps only ~2.5e-9. The
-    // facade's loop-rotation test catches it; the binary64 retry that
-    // computes its boxes by the small-Gram expansions or the alternative PV
-    // reduction (COLLIER's per-box choice) recovers it in binary64, checked
-    // against a 256-bit direct evaluation.
+    // facade's loop-rotation test catches it, checked against a 256-bit
+    // direct evaluation: by default the double-double tier rescues the lane
+    // (refused pentagon lanes go to it directly); in binary64 alone the
+    // retry that computes its boxes by the small-Gram expansions or the
+    // alternative PV reduction (COLLIER's per-box choice) recovers it.
+    use iregi_rust::PrecisionRescue;
     let shifts = [
         [0.0, 0.0, 0.0, 0.0],
         [500.0, 0.0, 0.0, 500.0],
@@ -548,10 +554,12 @@ fn inaccurate_binary64_pentagons_are_caught_and_rescued() {
         [664.7752755465025, -264.68605966338976, 196.959906569897, 59.360769105269235],
         [366.1961747737811, -226.26921095725032, 197.98348258528515, -209.05602888970952],
     ];
-    let (result, stats, error) = physical_pentagon(&shifts);
-    // The a priori (COLLIER-style) method choice now computes its boxes by
-    // the expansions or the alternative PV reduction in the main pass; the
-    // retries would recover it otherwise. Either way it stays binary64.
+    let (result, stats, error) = physical_pentagon(&shifts, PrecisionRescue::Automatic);
+    assert!(result.fallback_used[0], "{stats:?}");
+    assert_eq!(stats.precision_rescue.len(), 1, "{stats:?}");
+    assert_eq!((stats.precision_rescue[0].bits, stats.precision_rescue[0].successes), (106, 1), "{stats:?}");
+    assert!(error <= 1e-15, "E/A = {error:e}");
+    let (result, stats, error) = physical_pentagon(&shifts, PrecisionRescue::Disabled);
     assert!(!result.fallback_used[0], "{stats:?}");
     assert!(error <= 1e-10, "E/A = {error:e}");
 }
@@ -560,9 +568,11 @@ fn inaccurate_binary64_pentagons_are_caught_and_rescued() {
 fn near_miss_rotation_agreement_is_checked_in_a_third_order() {
     // Point pentagon-r5 #3593: its rotated copy agrees to E/A 2.4e-11, within
     // the 2^-34 tolerance, yet both orders are off by 1.4e-10. A third cyclic
-    // order disagrees (1.4e-10), the lane counts as refused, and the a priori
-    // method choice (its PV estimate exceeds the request) recovers it in
-    // binary64, checked against a 256-bit direct evaluation.
+    // order disagrees (1.4e-10) and the lane counts as refused, checked
+    // against a 256-bit direct evaluation: by default the double-double tier
+    // rescues it; in binary64 alone the a priori method choice (its PV
+    // estimate exceeds the request) recovers it.
+    use iregi_rust::PrecisionRescue;
     let shifts = [
         [0.0, 0.0, 0.0, 0.0],
         [500.0, 0.0, 0.0, 500.0],
@@ -570,11 +580,18 @@ fn near_miss_rotation_agreement_is_checked_in_a_third_order() {
         [725.7843019435895, -79.77048581979159, -224.92821240564447, -135.048946373676],
         [325.22044734818576, -72.2647783614848, -201.63414806243065, 244.72394961845808],
     ];
-    let (result, stats, error) = physical_pentagon(&shifts);
-    assert_eq!(stats.rotation_rows, 2, "{stats:?}");
-    assert_eq!(stats.rotation_failures, 1, "{stats:?}");
-    assert!(!result.fallback_used[0], "{stats:?}");
-    assert!(error <= 1e-12, "E/A = {error:e}");
+    for rescue in [PrecisionRescue::Automatic, PrecisionRescue::Disabled] {
+        let (result, stats, error) = physical_pentagon(&shifts, rescue);
+        assert_eq!(stats.rotation_rows, 2, "{stats:?}");
+        assert_eq!(stats.rotation_failures, 1, "{stats:?}");
+        if rescue == PrecisionRescue::Automatic {
+            assert!(result.fallback_used[0], "{stats:?}");
+            assert!(error <= 1e-15, "E/A = {error:e}");
+        } else {
+            assert!(!result.fallback_used[0], "{stats:?}");
+            assert!(error <= 1e-12, "E/A = {error:e}");
+        }
+    }
 }
 
 #[test]
@@ -706,9 +723,10 @@ fn binary64_boxes_are_checked_by_the_rotation_test() {
 fn gate_refused_binary64_box_is_kept_by_the_rotation_check() {
     // gg -> HH rank-6 box (stability point box-r6 #759): the a priori Gram
     // gate refuses it (estimate 3.8e-17), yet binary64 keeps E/A 3.8e-12.
-    // The checked retry evaluates it below the gate with rotated propagators
-    // too; the copies agree, so the binary64 array is returned, with the
-    // precision rescue disabled or not.
+    // In binary64 alone the checked retry evaluates it below the gate with
+    // rotated propagators too; the copies agree, so the binary64 array is
+    // returned. By default the refused box lane goes to the double-double
+    // tier directly (106 bits).
     use iregi_rust::PrecisionRescue;
     let shifts = [
         [0.0, 0.0, 0.0, 0.0],
@@ -716,8 +734,16 @@ fn gate_refused_binary64_box_is_kept_by_the_rotation_check() {
         [1000.0, 0.0, 0.0, 0.0],
         [499.99999999999994, 21.6322892694395, -42.18555103069406, 481.7960391547444],
     ];
-    for rescue in [PrecisionRescue::Disabled, PrecisionRescue::Automatic] {
-        let (result, stats, notes, error) = physical_box(&shifts, 6, rescue);
+    let (result, stats, notes, error) = physical_box(&shifts, 6, PrecisionRescue::Automatic);
+    assert_eq!(result.statuses[0], LaneStatus::Success, "{notes:?}");
+    assert!(result.fallback_used[0], "{stats:?}");
+    assert_eq!(stats.checked_successes + stats.expansion_successes, 0, "{stats:?}");
+    assert_eq!(stats.precision_rescue.len(), 1, "{stats:?}");
+    assert_eq!((stats.precision_rescue[0].bits, stats.precision_rescue[0].successes), (106, 1), "{stats:?}");
+    let error = error.unwrap();
+    assert!(error <= 1e-15, "E/A = {error:e}");
+    {
+        let (result, stats, notes, error) = physical_box(&shifts, 6, PrecisionRescue::Disabled);
         assert_eq!(result.statuses[0], LaneStatus::Success, "{notes:?}");
         assert!(!result.fallback_used[0], "{stats:?}");
         // Kept by one binary64 retry (the per-box method choice, first since
