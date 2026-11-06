@@ -1,8 +1,10 @@
 # iregi-rust implementation plan
 
+> Parts of this plan (pushing to main, committing the full benchmark report and its evidence, keeping dependency modifications in this repository) are superseded by [docs/PYAMPLICOL-COLLABORATION.md](docs/PYAMPLICOL-COLLABORATION.md) (6 Nov 2026); those lines are marked.
+
 ## Goal and working rules
 
-Deliver a feature-complete, independently validated Rust implementation of IREGI, including dotted propagators, dimension shifts, batching, numeric types, library, CLI and Python tools. The current priority is generic tensor rank at most six, with propagator-count reduction kept independent of the tensor-rank limit. The previously accepted six-point/rank-six validation envelope remains a concrete checkpoint; higher-point support must be justified by its denominator-reduction identities and explicit qualification, rather than inferred from lower-point tensors. Retain existing rank-seven evidence without starting further rank-seven work. Once the agreed functional coverage is tested, update the benchmark report, commit and push, mark the objective achieved and stop. Further performance optimization is deferred beyond completion; existing performance measurements remain part of the report.
+Deliver a feature-complete, independently validated Rust implementation of IREGI, including dotted propagators, dimension shifts, batching, numeric types, library, CLI and Python tools. The current priority is generic tensor rank at most six, with propagator-count reduction kept independent of the tensor-rank limit. The previously accepted six-point/rank-six validation envelope remains a concrete checkpoint; higher-point support must be justified by its denominator-reduction identities and explicit qualification, rather than inferred from lower-point tensors. Retain existing rank-seven evidence without starting further rank-seven work. Once the agreed functional coverage is tested, update the benchmark report, commit and push *[Superseded by docs/PYAMPLICOL-COLLABORATION.md: hs/<topic> branches and pull requests instead of pushing to main]*, mark the objective achieved and stop. Further performance optimization is deferred beyond completion; existing performance measurements remain part of the report.
 
 ### User priority and completion clarification — 25 October 2026
 
@@ -22,7 +24,7 @@ requirements and all failed or incomplete evidence.
   Later optimization is separate work, chiefly at higher rank. Retain
   IREGI/COLLIER comparisons with TIRust in every timing-ratio numerator.
 - Once the full implementation is working and validated, update the Typst
-  benchmark report and machine-readable results, commit and push the validated
+  benchmark report and machine-readable results, commit and push *[Superseded by docs/PYAMPLICOL-COLLABORATION.md: hs/<topic> branches and pull requests instead of pushing to main]* the validated
   result, mark the objective achieved, give the user the report link and a full
   summary, then stop as requested. Do not mark a narrower milestone complete as
   a substitute for the full implementation.
@@ -63,7 +65,7 @@ At implementation start:
 - Assign this objective to the agent using `create_goal`, without a token budget.
 - Write this complete plan to `/shared/external/iregi/references/PLAN.md` and maintain a committed copy in the project.
 - Run all commands from `/shared/external/iregi/iregi-rust`. Keep implementation, dependency patches, generated reference builds, and benchmark artifacts there; the requested reference PLAN is the explicit exception.
-- Configure repository-local author identity as `huashengshao <erdissshaw@gmail.com>`. Commit and push validated milestones to the existing `origin/main` in [huashengshao/TIRust](https://github.com/huashengshao/TIRust), without force-pushing.
+- Configure repository-local author identity as `huashengshao <erdissshaw@gmail.com>`. Commit and push validated milestones to the existing `origin/main` in [huashengshao/TIRust](https://github.com/huashengshao/TIRust), without force-pushing. *[Superseded by docs/PYAMPLICOL-COLLABORATION.md: hs/<topic> branches and pull requests instead of pushing to main (section 0)]*
 - Keep research agents involved in algorithm optimization, numeric correctness, and independent code review. Milestones are checkpoints; completion requires the full validation and reporting criteria below.
 
 ## Architecture and public interfaces
@@ -85,7 +87,7 @@ At implementation start:
 - Use topology/rank recurrence graphs with dense node-indexed, structure-of-arrays workspaces. Evaluate each operation across active lanes before advancing.
 - Batch scalar-master requests and exceptional-case handling; wrapping scalar reduction in an outer sample loop does not satisfy the requirement.
 - Support `f64`, Symbolica `DoubleFloat`, arbitrary-precision `Float`, and Symbolica-compatible static/dynamic Dual types. Keep derivative components distinct from sample lanes.
-- Reuse Symbolica’s Dualizer and oneloopmaster’s existing instruction-major Rust batch emitter. Extend oneloopmaster where coverage or interfaces are insufficient.
+- Reuse Symbolica’s Dualizer and oneloopmaster’s existing instruction-major Rust batch emitter. Extend oneloopmaster where coverage or interfaces are insufficient. *[Superseded by docs/PYAMPLICOL-COLLABORATION.md: no vendored or modified Symbolica/oneloopmaster here; changes are requested in an issue and go upstream through pyAmpliCol]*
 - Preserve precision when parsing inputs, constructing constants, normalizing results, and evaluating masters; prohibit intermediate `f64` conversions.
 - Preserve inputs by default. Offer legacy on-shell snapping explicitly. Derivatives follow the selected analytic branch, with explicit diagnostics at nondifferentiable boundaries.
 - Cache structural plans separately from numerical results; numerical caches must respect sample, scale, precision, and derivative context.
@@ -94,7 +96,7 @@ At implementation start:
 
 ## Implementation milestones
 
-1. **Reproducible foundation and convention specification.** Establish the Rust/Nix development environment and verify GitHub connectivity before the first push. Pin dependencies and record source revisions. Start with oneloopmaster’s required Symbolica/Numerica/Graphica integration revision `9cdc2949`, testing compatibility with FeynKit before proceeding. Keep necessary dependency modifications inside the project with upstream provenance. Document metric, routing, tensor multiplicities, scale conventions, Laurent ordering, normalization, and branch prescriptions.
+1. **Reproducible foundation and convention specification.** Establish the Rust/Nix development environment and verify GitHub connectivity before the first push. Pin dependencies and record source revisions. Start with oneloopmaster’s required Symbolica/Numerica/Graphica integration revision `9cdc2949`, testing compatibility with FeynKit before proceeding. Keep necessary dependency modifications inside the project with upstream provenance *[Superseded by docs/PYAMPLICOL-COLLABORATION.md: no vendored or modified Symbolica/oneloopmaster here; changes are requested in an issue and go upstream through pyAmpliCol]*. Document metric, routing, tensor multiplicities, scale conventions, Laurent ordering, normalization, and branch prescriptions.
 
 2. **Reference harness and scalar-master adapter.** Build isolated original-IREGI and OneLOop reference executables. Reproduce the suspected generalized-interface factorial initialization defect; apply only a narrow, documented repair to a generated reference copy if confirmed. Check repaired behavior against untouched working cases and independent identities. Implement batched oneloopmaster integration, including native UV/IR separation and scaleless integrals with cancelling poles.
 
@@ -106,7 +108,7 @@ At implementation start:
 
 6. **Optimization and final qualification.** Reuse HEPKit `tensor_reduce` symmetry-orbit methods, factor-preserving contractions, and `IntegralFamily` facilities where applicable. Benchmark optional numerator projection before enabling it; retain robust paths for singular external Gram matrices. Optimize shared recurrence nodes, invariant reuse, master deduplication, sparse contractions, and workspace allocation until correctness and performance gates pass.
 
-Commit and push after each validated milestone. Update the benchmark report whenever coverage or measured performance changes.
+Commit and push after each validated milestone *[Superseded by docs/PYAMPLICOL-COLLABORATION.md: hs/<topic> branches and pull requests instead of pushing to main; the slim summary-table PDF is committed by pull request, the full report and evidence go to huashengshao/iregi-rust-evidence or a release asset]*. Update the benchmark report whenever coverage or measured performance changes.
 
 ## Validation and acceptance
 
@@ -157,7 +159,7 @@ Compare original IREGI and COLLIER on their shared undotted topology/rank domain
 
 Before timing, establish routing, normalization, scale, Cartesian ordering, UV/IR pole separation and complete tensor/Laurent agreement on identical inputs. Match requested outputs, optimized compiler settings and within-call cache policy; reset cross-event numerical caches. Measure singleton and batch-32 kernels separately with pinned-core paired blocks and uncertainty estimates, excluding subprocess transport. Report this comparison separately from Rust-versus-IREGI performance and update the Typst report only from qualified measurements.
 
-At every intermediate milestone, update the Typst source and benchmark PDF, commit and push the validated work, and give the user a GitHub link to that pushed version of `docs/benchmark.pdf`. Include the measured IREGI–COLLIER comparison in the PDF, with unmeasured shared-domain families identified explicitly.
+At every intermediate milestone, update the Typst source and benchmark PDF, commit and push the validated work, and give the user a GitHub link to that pushed version of `docs/benchmark.pdf` *[Superseded by docs/PYAMPLICOL-COLLABORATION.md: hs/<topic> branches and pull requests instead of pushing to main; the slim summary-table PDF is committed by pull request, the full report and evidence go to huashengshao/iregi-rust-evidence or a release asset, and that link is given]*. Include the measured IREGI–COLLIER comparison in the PDF, with unmeasured shared-domain families identified explicitly.
 
 ## TIRust naming, comparison direction and Python tools (user extension)
 
