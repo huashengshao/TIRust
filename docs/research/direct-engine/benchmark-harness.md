@@ -317,7 +317,7 @@ Inside a batch, COLLIER loops over lanes and calls the scalar API per lane, so b
 - AGENTS.md rules that apply: every displayed ratio is TIRust/reference (< 1 means faster). **Never infer TIRust ratios across sessions**,
   so TIRust/IREGI/COLLIER must be measured in the same session to show ratios. Show the original IREGI-vs-COLLIER comparison on shared undotted
   topologies separately. Keep failed/noisy/unmeasured rows. Update typst+pdf at each pushed milestone and give the GitHub link
-  (`https://github.com/huashengshao/iregi-rust/blob/main/docs/benchmark.pdf`). Commit as huashengshao <erdissshaw@gmail.com>.
+  (`https://github.com/huashengshao/TIRust/blob/main/docs/benchmark.pdf`). Commit as huashengshao <erdissshaw@gmail.com>.
 
 ## 10. Concrete plan: new campaign `validation/benchmark/fast-engine-<YYYYMMDD>/`
 

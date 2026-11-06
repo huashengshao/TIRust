@@ -155,7 +155,7 @@ def _(mo):
     mo.md("""
     ## Follow the qualification work
 
-    The [benchmark report](https://github.com/huashengshao/iregi-rust/blob/main/docs/benchmark.pdf)
+    The [benchmark report](https://github.com/huashengshao/TIRust/blob/main/docs/benchmark.pdf)
     records physical graph checks, precision and Dual coverage, failed cases,
     batch scaling and private optimization experiments. A faster private kernel
     becomes a public performance result only after its complete reduction path
