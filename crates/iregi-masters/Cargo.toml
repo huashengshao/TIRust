@@ -2,6 +2,7 @@
 name = "iregi-masters"
 version = "0.1.0"
 edition = "2024"
+rust-version.workspace = true
 description = "Batched Symbolica scalar masters for iregi-rust"
 license = "MIT"
 

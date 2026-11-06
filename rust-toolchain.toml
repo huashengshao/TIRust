@@ -1,0 +1,5 @@
+# The Rust toolchain shared with pyAmpliCol (its rust-toolchain.toml); shell.nix reads this file.
+[toolchain]
+channel = "1.97.1"
+profile = "minimal"
+components = ["clippy", "rustfmt"]

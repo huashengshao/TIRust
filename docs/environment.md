@@ -2,9 +2,10 @@
 
 Run commands from the `iregi-rust` checkout. The portable entrypoint is
 `nix-shell`, using pinned nixpkgs revision
-`5adc50831c259f87faeb09ddf930d43597197473`. Its Rust/Cargo 1.99.0 meets the
-workspace minimum; the older supplied gammaloop/FeynKit nixpkgs pin provides
-Rust 1.98.1 and therefore cannot build this workspace unchanged.
+`5adc50831c259f87faeb09ddf930d43597197473` for the C/Fortran toolchain, Python and
+Typst, and rust-overlay `1f69c7203034a4a974d7a4eac0f19b54af30804d` for Rust/Cargo
+1.97.1 as pinned by `rust-toolchain.toml` (the toolchain shared with pyAmpliCol;
+rustup reads the same file). The workspace's `rust-version` is 1.96.
 The shell supplies Rust, C/C++ and Fortran compilers, GMP/MPFR/MPC, Python,
 Typst, and reference-build utilities. Rust is production code; Fortran and
 Python are validation tools only.
@@ -18,7 +19,7 @@ scripts/cargo.sh test --workspace
 
 `env.sh` respects tools already on `PATH`. If a tool is absent, it searches
 installed Nix store packages without downloading or modifying system state.
-This fallback prefers Rust/Cargo 1.99.0, GCC/GFortran 15.2.0, GNU Make 4.4.1,
+This fallback prefers Rust/Cargo 1.97.1, GCC/GFortran 15.2.0, GNU Make 4.4.1,
 and Typst 0.15.1 when available. The active compiler versions must be recorded
 with benchmark measurements; the fallback is not a substitute for the pinned
 Nix shell when reproducing results on another host.
