@@ -18,9 +18,13 @@ use symbolica::{
     tensors::matrix::Matrix,
 };
 
+// Explicit paths (as in ibp.rs) keep these children under src/pv/ also when an
+// example includes this file through #[path = "../src/pv.rs"].
+#[path = "pv/thin_seven.rs"]
 mod thin_seven;
 pub(crate) use thin_seven::{ThinSevenChart, ThinSevenGeometry, ThinSixGeometry};
 
+#[path = "pv/affine_descent.rs"]
 mod affine_descent;
 pub(crate) use affine_descent::{AffineChartKey,AffineDescentBudget,AffineDescentChart,AffineDescentPolynomials,affine_descent_chart,affine_descent_polynomials,affine_descent_chart_with_distances,affine_descent_polynomials_with_distances};
 
@@ -2299,8 +2303,14 @@ mod tests {
             .map(|v| v.parse::<u16>().expect("rank must be an integer"))
             .unwrap_or(7);
         assert!(max_rank <= 7);
-        let output_dir = root.join("validation/pv-high-rank/oracle-runs");
+        // Tests write only to temporary directories unless an output directory is named.
+        let output_dir = std::env::var_os("IREGI_PV_ORACLE_OUTPUT")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| {
+                std::env::temp_dir().join(format!("iregi-pv-oracle-runs-{}", std::process::id()))
+            });
         std::fs::create_dir_all(&output_dir).unwrap();
+        eprintln!("pv oracle runs: {}", output_dir.display());
         for (n, variant) in selected_n
             .into_iter()
             .flat_map(|n| variants.iter().map(move |variant| (n, variant)))
