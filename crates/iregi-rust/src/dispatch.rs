@@ -1194,7 +1194,7 @@ where
     }
 
     /// Share per-subset results with the other workspaces holding `store`
-    /// (direct binary64 engine only; see `crate::AmplitudeWorkspace`).
+    /// (direct engine only; see `crate::AmplitudeWorkspace`).
     pub(crate) fn set_shared_subsets(&mut self, store: Option<std::sync::Arc<crate::direct::shared::SubsetStore>>) {
         if let WorkspaceEngine::Direct(workspace) = &mut self.engine {
             workspace.set_shared_subsets(store);
