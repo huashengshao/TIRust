@@ -108,7 +108,9 @@ fn shared_subsets_give_bit_identical_results_and_are_reused() {
 
     amplitude.set_subset_sharing(false);
     let separate = amplitude.reduce_batches(&batches).unwrap();
-    assert_eq!(amplitude.last_sharing(), Default::default());
+    let off = amplitude.last_sharing();
+    assert_eq!((off.dd_masters_reused, off.dd_masters_computed), (0, 0), "double-double masters counted with sharing off");
+    assert_eq!(off, Default::default());
     for (k, (a, b)) in shared.iter().zip(&separate).enumerate() {
         assert_eq!(fingerprint(a), fingerprint(b), "integral {:?} differs with sharing", members[k]);
     }
