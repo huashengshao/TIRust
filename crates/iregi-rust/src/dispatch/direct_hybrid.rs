@@ -9,17 +9,26 @@
 //! rotated copy refuses the lane. A lane within `NEAR_MARGIN_BITS` of the
 //! tolerance is evaluated in a third cyclic order, which must agree too.
 //!
-//! Lanes the a priori conditioning gate refuses (four or more propagators,
-//! equal powers) are evaluated again in binary64 with the gate lowered to
-//! `CHECKED_GATE` and kept when their rotated copy agrees two bits better
-//! than the tolerance: the a posteriori test replaces the a priori bound,
-//! which is pessimistic for most such lanes.
+//! Which retries a refused lane gets depends on the precision rescue:
 //!
-//! A lane the binary64 pass refuses (five to seven propagators, rank <= 7)
-//! is first evaluated again with COLLIER's per-box choice: boxes and
-//! triangles whose a priori PV estimate 2^-52 w^r exceeds the request, or
-//! that the gate refuses, by the small-Gram expansions or the alternative PV
-//! reduction; it is kept at the retries' stricter level.
+//! - With [`PrecisionRescue::Disabled`] (binary64 alone), a lane the binary64
+//!   pass refuses (four to seven propagators, equal powers, rank <= 7) is
+//!   first evaluated again with COLLIER's per-box choice: boxes and triangles
+//!   whose a priori PV estimate 2^-52 w^r exceeds the request, or that the
+//!   gate refuses, by the small-Gram expansions or the alternative PV
+//!   reduction; it is kept at the retries' stricter level. Lanes the a priori
+//!   conditioning gate refuses are then evaluated again in binary64 with the
+//!   gate lowered to `CHECKED_GATE` and kept when their rotated copy agrees
+//!   two bits better than the tolerance (the a posteriori test replaces the a
+//!   priori bound, which is pessimistic for most such lanes), and the other
+//!   binary64 retries follow.
+//! - With [`PrecisionRescue::Automatic`] (the default), refused box, pentagon
+//!   and hexagon lanes in the choice's domain skip the choice and the binary64
+//!   retries and go to the precision rescue directly. Heptagon (and larger)
+//!   lanes skip the choice and the retries too, except that lanes the a
+//!   priori gate refused still get the checked binary64 retry below the gate
+//!   first. Outside the choice's domain (rank above 7) the binary64 retries
+//!   remain before the rescue.
 //!
 //! With [`PrecisionRescue::Automatic`] (the default) lanes still refused on
 //! conditioning are rerun by the same direct engine at higher precision:
@@ -139,7 +148,8 @@ const GRAM_BOOST: u16 = 12;
 /// evaluated in a third cyclic order, which must agree with the first too.
 const NEAR_MARGIN_BITS: i32 = 4;
 /// Whether lanes the binary64 pass refuses get the a priori method choice
-/// as their first retry. (Validated up to seven
+/// as their first retry (with the precision rescue disabled; with it on,
+/// such lanes go to the rescue directly). (Validated up to seven
 /// points and rank 7; larger plans would build many high-rank auxiliary
 /// plans.) The estimate 2^-52 w^r is pessimistic: it exceeds the request on
 /// every opening benchmark point from N5R5 to N7R7, where PV passes the
@@ -1238,16 +1248,19 @@ where
         // refused (gate or rotation test), before the other retries: on
         // stability-20261030 hexagons the lanes it keeps reach E/A median
         // 3.7e-14 against 2.8e-13 for PV below the gate.
-        // With the precision rescue on, refused lanes go to it directly,
-        // without the choice and the binary64 retries: heptagon (and larger)
-        // lanes always (their retries rarely succeed: 3 of 495 stability
-        // heptagons, and they cost the opening N7R7 batch of 32 about 0.6 s of
-        // 1.3 s), box, pentagon and hexagon lanes in the choice's domain. Its
+        // With the precision rescue on, refused lanes go to it without the
+        // choice and the binary64 retries: box, pentagon and hexagon lanes in
+        // the choice's domain (huashengshao/TIRust#4), and heptagon (and
+        // larger) lanes except that their gate-refused lanes still get the
+        // checked retry below the gate first (the other heptagon retries
+        // rarely succeed: 3 of 495 stability heptagons, and they cost the
+        // opening N7R7 batch of 32 about 0.6 s of 1.3 s). The choice's
         // expansions cost about 1 ms per refused box lane (the box integrals'
         // 263 of 1198 MIr of a hexagon amplitude call), the double-double tier
         // about 0.6 ms with 106 bits: without the choice the hexagon amplitude
-        // takes 101 instead of 133 ms and the pentagon amplitude about 12%
-        // less. On stability-20261030 (capture 039 against this rule) 466 of
+        // takes 104.3 instead of 122.8 ms and the pentagon amplitude 17.3
+        // instead of 19.0 ms (same session, CPU 186). On stability-20261030
+        // (capture 039 against this rule) 466 of
         // the 27,000 box, pentagon and hexagon points change, none for the
         // worse: E/A 3e-16..1e-11 before, at most 1.3e-15 after (412 at or
         // below 1e-28). The choice and the retries remain for binary64 alone
