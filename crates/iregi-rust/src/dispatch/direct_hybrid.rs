@@ -582,6 +582,9 @@ where
                 )?);
             }
             let workspace = self.rescue.double.as_mut().unwrap();
+            // Double-double masters shared with the amplitude's partial
+            // rescues and other tiers (limb-exact keys; nothing else).
+            workspace.set_shared_subsets(self.shared.clone());
             run_tier::<T, DoubleFloat>(workspace, DoubleFloat::from, batch, lanes, &self.prototype, result, profile, &mut self.last)
         } else {
             let slot = &mut self.rescue.mpfr[tier - 1];
