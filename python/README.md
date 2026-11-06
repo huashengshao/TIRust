@@ -23,6 +23,21 @@ source scripts/env.sh
 python -m maturin build --manifest-path crates/iregi-python/Cargo.toml --features standalone,native
 ```
 
+The private type stub of Symbolica's core, `tirust/_types/symbolica/core.pyi`,
+is not tracked: it is the pinned Symbolica revision's `symbolica.pyi` with its
+import paths rewritten, and Symbolica's licence does not allow distributing a
+modified copy. Generate it locally from the checkouts Cargo fetched (with the
+default `CARGO_HOME` of `scripts/env.sh`) before type checking or building a
+local wheel; the tracked GammaLoop stubs and `tirust/owner-stubs.json` come out
+unchanged:
+
+```bash
+python3 -I scripts/vendor-python-type-stubs.py \
+  --symbolica-stub .local/cargo-home/git/checkouts/symbolica-*/20a9da9/symbolica.pyi \
+  --feynkit-root .local/cargo-home/git/checkouts/gammaloop-*/865afdc \
+  --output python/tirust/_types
+```
+
 Use the wheel's own shared types together:
 
 ```python

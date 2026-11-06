@@ -46,3 +46,8 @@ __pycache__/
 !/validation/selected-native-four-engine/posthoc-revision2/summary.json
 !/validation/selected-native-four-engine/posthoc-revision2/qualification.json
 !/validation/selected-native-four-engine/v3-frozen/qualification.json
+
+# Generated locally by scripts/vendor-python-type-stubs.py (python/README.md):
+# a copy of the pinned Symbolica revision's symbolica.pyi with its import paths
+# rewritten, which Symbolica's licence does not allow distributing.
+/python/tirust/_types/symbolica/core.pyi
