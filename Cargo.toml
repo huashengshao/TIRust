@@ -10,6 +10,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.96"
 authors = ["huashengshao <erdissshaw@gmail.com>"]
+license = "0BSD"
 repository = "https://github.com/huashengshao/TIRust"
 
 [workspace.dependencies]

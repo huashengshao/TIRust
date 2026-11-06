@@ -1,0 +1,56 @@
+BSD Zero Clause License
+
+Copyright (c) 2026 The TIRust authors
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
+REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
+AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
+INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
+LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
+OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+PERFORMANCE OF THIS SOFTWARE.
+
+--------------------------------------------------------------------------------
+Scope
+
+The licence above covers the project's own code and data: everything in this
+repository except the third-party content listed below. It includes the scalar
+masters generated from oneloopmaster's expressions,
+crates/iregi-masters/src/generated/{a0,b0,db0,c0,d0,constants}.rs, which
+transcribe Andreas van Hameren's OneLOop; his permission to distribute and
+relicense that transcription was received by Valentin Hirschi by email
+(recorded 2026-11-06).
+
+Third-party content (not covered by the licence above; each keeps its own
+licence and notices):
+
+- dependencies/feynkit-integrals: code extracted from FeynKit
+  (https://github.com/alphal00p/gammaloop, revision 865afdc4), MIT OR
+  Apache-2.0 as declared by its manifest; upstream licence text in
+  dependencies/feynkit-integrals/LICENSE, provenance in its UPSTREAM.md.
+- dependencies/linnest and dependencies/linnest-patches: linnest from
+  https://github.com/alphal00p/gammaloop, MIT as declared by its manifest;
+  notices in dependencies/linnest/UPSTREAM_REPOSITORY_LICENSE,
+  dependencies/linnest/typst/LICENSE (MIT) and
+  dependencies/linnest/layout/native/LICENSE.networkx (BSD-3-Clause, NetworkX).
+- python/tirust/data/render/fonts: unchanged fonts from typst-assets 0.15.1 and
+  FeynKit (Libertinus Serif and STIX Two Math: SIL Open Font License 1.1; New
+  Computer Modern: GUST Font License 1.0, NewCM10-Regular GPL-3.0-or-later with
+  the font and distribution exceptions; DejaVu Sans Mono: Bitstream Vera
+  licence); licence texts in python/tirust/data/licenses/typst-fonts-NOTICE and
+  python/tirust/data/licenses/STIX-Two-OFL.txt.
+- python/tirust/data/licenses: the licence texts of the bundled or linked
+  components (typst-assets, the fonts, FeynKit, Symbolica), reproduced verbatim.
+- fixtures/models/sm.json: copied unchanged from gammaloop 865afdc4
+  (crates/feynkit-model/tests/fixtures/sm.json), under GammaLoop's licence.
+- Reference material produced by third-party programs under validation/ and
+  docs/research/ (MadGraph5_aMC@NLO/MadLoop process code, COLLIER and IREGI
+  drivers and their outputs) stays under those programs' terms.
+
+Dependencies fetched by Cargo (Symbolica, oneloopmaster, the gammaloop crates
+and crates.io packages) are not part of this repository and carry their own
+licences; Symbolica is distributed under its own licence
+(python/tirust/data/licenses/Symbolica-LICENSE.md).
