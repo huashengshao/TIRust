@@ -103,3 +103,19 @@ You work in github.com/huashengshao/iregi-rust (TIRust). These rules apply from 
 - Questions, proposals and conflicts go to an issue here that mentions @ValentinHirschi, labelled pyamplicol plus question, api-change, pins or freeze as relevant (create missing labels with gh label create).
 - Open one before touching what we maintain (Cargo manifests, Cargo.lock, pins, LICENSE, .githooks, section 3 APIs), when main fails your tests, when you need a Symbolica or oneloopmaster change (we take it upstream), or when a plan conflicts with section 2.
 ```
+
+## Amendment 2026-11-06 (Valentin)
+
+`docs/benchmark.pdf` is kept in the repository and committed by pull request;
+it is not in `.gitignore` and not only a release asset. It is limited to mostly
+the summary tables; detailed report material and raw evidence go to
+`huashengshao/iregi-rust-evidence` or release assets. The 1 MiB blob rule
+applies: keep the slim PDF under 1 MiB, or add its exact path to
+`.blob-size-allowlist` in the same pull request with a one-line justification.
+`docs/data/results.json`, `docs/data/report-validation.json`, raw captures,
+logs and old PDFs are unchanged by this amendment: they leave the repository
+after the evidence copy (section 2 item 6); until the slimming commit they are
+never staged and are restored with `git restore` after a local build. The
+history rewrite keeps the `docs/benchmark.pdf` path and strips only its old
+oversized versions. Section 5's mention of `docs/benchmark.pdf` among the
+git-ignored outputs is superseded by this note.

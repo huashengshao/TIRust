@@ -1,6 +1,6 @@
 # iregi-rust implementation plan
 
-> Parts of this plan (pushing to main, committing the benchmark PDF, keeping dependency modifications in this repository) are superseded by [docs/PYAMPLICOL-COLLABORATION.md](docs/PYAMPLICOL-COLLABORATION.md) (6 Nov 2026); those lines are marked.
+> Parts of this plan (pushing to main, committing the full benchmark report and its evidence, keeping dependency modifications in this repository) are superseded by [docs/PYAMPLICOL-COLLABORATION.md](docs/PYAMPLICOL-COLLABORATION.md) (6 Nov 2026); those lines are marked.
 
 ## Goal and working rules
 
@@ -108,7 +108,7 @@ At implementation start:
 
 6. **Optimization and final qualification.** Reuse HEPKit `tensor_reduce` symmetry-orbit methods, factor-preserving contractions, and `IntegralFamily` facilities where applicable. Benchmark optional numerator projection before enabling it; retain robust paths for singular external Gram matrices. Optimize shared recurrence nodes, invariant reuse, master deduplication, sparse contractions, and workspace allocation until correctness and performance gates pass.
 
-Commit and push after each validated milestone *[Superseded by docs/PYAMPLICOL-COLLABORATION.md: hs/<topic> branches and pull requests instead of pushing to main; the report PDF is published as a release asset or in huashengshao/iregi-rust-evidence]*. Update the benchmark report whenever coverage or measured performance changes.
+Commit and push after each validated milestone *[Superseded by docs/PYAMPLICOL-COLLABORATION.md: hs/<topic> branches and pull requests instead of pushing to main; the slim summary-table PDF is committed by pull request, the full report and evidence go to huashengshao/iregi-rust-evidence or a release asset]*. Update the benchmark report whenever coverage or measured performance changes.
 
 ## Validation and acceptance
 
@@ -159,7 +159,7 @@ Compare original IREGI and COLLIER on their shared undotted topology/rank domain
 
 Before timing, establish routing, normalization, scale, Cartesian ordering, UV/IR pole separation and complete tensor/Laurent agreement on identical inputs. Match requested outputs, optimized compiler settings and within-call cache policy; reset cross-event numerical caches. Measure singleton and batch-32 kernels separately with pinned-core paired blocks and uncertainty estimates, excluding subprocess transport. Report this comparison separately from Rust-versus-IREGI performance and update the Typst report only from qualified measurements.
 
-At every intermediate milestone, update the Typst source and benchmark PDF, commit and push the validated work, and give the user a GitHub link to that pushed version of `docs/benchmark.pdf` *[Superseded by docs/PYAMPLICOL-COLLABORATION.md: hs/<topic> branches and pull requests instead of pushing to main; the report PDF is published as a release asset or in huashengshao/iregi-rust-evidence, and that link is given]*. Include the measured IREGI–COLLIER comparison in the PDF, with unmeasured shared-domain families identified explicitly.
+At every intermediate milestone, update the Typst source and benchmark PDF, commit and push the validated work, and give the user a GitHub link to that pushed version of `docs/benchmark.pdf` *[Superseded by docs/PYAMPLICOL-COLLABORATION.md: hs/<topic> branches and pull requests instead of pushing to main; the slim summary-table PDF is committed by pull request, the full report and evidence go to huashengshao/iregi-rust-evidence or a release asset, and that link is given]*. Include the measured IREGI–COLLIER comparison in the PDF, with unmeasured shared-domain families identified explicitly.
 
 ## TIRust naming, comparison direction and Python tools (user extension)
 
