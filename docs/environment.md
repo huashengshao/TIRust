@@ -14,8 +14,16 @@ On a machine that already has these tools installed, use:
 
 ```sh
 source scripts/env.sh
-scripts/cargo.sh test --workspace
+scripts/cargo.sh test
 ```
+
+This tests the default members, which are every crate except the Python
+extension `crates/iregi-python`. That extension does not build at the moment.
+Its GammaLoop crates (gammaloop `865afdc4`) call Symbolica's Python
+`evaluator_multiple` with 17 arguments, but the shared Symbolica revision
+`20a9da94` takes 18 (E0061 in `spynso3`). So `--workspace` and the wheel build
+fail until the GammaLoop pin moves to a revision built for that Symbolica. The
+pyAmpliCol maintainers own that pin move.
 
 `env.sh` respects tools already on `PATH`. If a tool is absent, it searches
 installed Nix store packages without downloading or modifying system state.
