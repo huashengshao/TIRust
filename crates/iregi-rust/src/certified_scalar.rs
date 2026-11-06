@@ -871,16 +871,25 @@ mod tests {
             let reference_plan = ReductionPlan::new(settings(n)).unwrap();
             phase("coordinate_plan_prepare_end");
             phase("coordinate_workspace_prepare_begin");
-            // The retained coordinate f64 observer can be conservatively
-            // Unstable from cancellation at requested53. Keep that actual
-            // failure as evidence and compare against a higher-precision
-            // observer with the same requested accuracy and tolerance.
+            // shifts(n) puts boxes on a Gram boundary (vanishing box Gram
+            // determinant, e.g. shifts {0,2,3,5}). At these points the binary64
+            // observers can be conservatively Unstable from cancellation at
+            // requested53: the coordinate observer, and this certified binary64
+            // workspace (an IBP recurrence node). So both interfaces are
+            // compared at the same 128-bit working precision and 53-bit
+            // requested accuracy, and binary64 only has to fail closed.
             use symbolica::domains::float::{Float, SingleFloat};
-            let prototype = Float::new(128);
-            let lift = |value: &Complex<f64>| Complex::new(
-                prototype.from_rational(&value.re.exact_rational().unwrap()),
-                prototype.from_rational(&value.im.exact_rational().unwrap()),
-            );
+            let prototype = Float::new(128); // zero at 128 bits
+            let lift = |value: &Complex<f64>| {
+                let part = |x: f64| {
+                    x.exact_rational().map_or_else(
+                        // Nonfinite inputs (lane 4) stay NaN: 0 / 0 at the working precision.
+                        || prototype.clone() / prototype.clone(),
+                        |exact| prototype.from_rational(&exact),
+                    )
+                };
+                Complex::new(part(value.re), part(value.im))
+            };
             let mut reference = Workspace::new(&reference_plan, prototype.clone()).unwrap();
             reference.set_accuracy_precision(53).unwrap();
             phase("coordinate_workspace_prepare_end");
@@ -895,22 +904,49 @@ mod tests {
                 })
                 .unwrap();
             phase("coordinate_reduce_end");
-            for lane in [0, 2, 6] {
-                for (actual, expected) in reduced
-                    .lane(lane)
-                    .unwrap()
-                    .iter()
-                    .zip(expected.lane(0).unwrap())
-                {
-                    let actual = lift(actual);
+            let floor = prototype.from_rational(&(1e-14_f64).exact_rational().unwrap());
+            let tolerance = prototype.from_rational(&(1e-10_f64).exact_rational().unwrap());
+            let assert_matches = |label: &str, lane: usize, actual: &[Complex<Float>]| {
+                for (actual, expected) in actual.iter().zip(expected.lane(0).unwrap()) {
                     let norm = NativeFloat::hypot(&expected.re, &expected.im);
-                    let floor = prototype.from_rational(&(1e-14_f64).exact_rational().unwrap());
-                    let scale = if norm > floor { norm } else { floor };
-                    let tolerance = prototype.from_rational(&(1e-10_f64).exact_rational().unwrap());
-                    let difference = &actual - expected;
-                    assert!(NativeFloat::hypot(&difference.re, &difference.im) <= tolerance * scale,
-                        "n={n}, lane={lane}: {actual:?} versus {expected:?}");
+                    let scale = if norm > floor { norm } else { floor.clone() };
+                    let difference = actual - expected;
+                    assert!(
+                        NativeFloat::hypot(&difference.re, &difference.im) <= tolerance.clone() * scale,
+                        "n={n}, {label} lane={lane}: {actual:?} versus {expected:?}"
+                    );
                 }
+            };
+            // Binary64 accepts a valid lane only if it matches; otherwise it is Unstable.
+            for lane in [0, 2, 6] {
+                match reduced.lane(lane) {
+                    Ok(values) => {
+                        let lifted: Vec<_> = values.iter().map(lift).collect();
+                        assert_matches("binary64", lane, &lifted);
+                    }
+                    Err(LaneStatus::Unstable(reason)) => {
+                        eprintln!("certified scalar n={n} binary64 lane={lane} fails closed: {reason}");
+                    }
+                    Err(status) => panic!("n={n}, binary64 lane={lane}: {status:?}"),
+                }
+            }
+            phase("certified128_reduce_begin");
+            let mut certified = CertifiedScalarWorkspace::new(&plan, prototype.clone()).unwrap();
+            certified.set_accuracy_precision(53).unwrap();
+            let reduced128 = certified
+                .reduce_batch(&ScalarKinematicsBatch {
+                    rows: input.rows,
+                    components: 1,
+                    values: input.values.iter().map(lift).collect(),
+                })
+                .unwrap();
+            phase("certified128_reduce_end");
+            assert!(matches!(reduced128.statuses[1], LaneStatus::InvalidInput(_)));
+            assert!(matches!(reduced128.statuses[3], LaneStatus::Unstable(_)));
+            assert!(matches!(reduced128.statuses[4], LaneStatus::InvalidInput(_)));
+            assert!(matches!(reduced128.statuses[5], LaneStatus::InvalidInput(_)));
+            for lane in [0, 2, 6] {
+                assert_matches("128-bit", lane, reduced128.lane(lane).unwrap());
             }
             let empty = workspace
                 .reduce_batch(&ScalarKinematicsBatch {
@@ -962,12 +998,19 @@ mod tests {
         assert_eq!(workspace.last_certificate_execution().reduction_batches, 1);
         assert_eq!(workspace.last_execution().input_rows, 2);
         assert_eq!(workspace.last_execution().argument_rows, 1);
-        assert_eq!(
+        // The compatible jet of lane 0 passes the Taylor-compatibility check
+        // and fails closed in its masters: shifts(6) puts three boxes on a Gram
+        // boundary (vanishing box Gram determinant, {0,2,3,5} also a vanishing
+        // Cayley determinant), where Dual seeds of a D0 master have no supported
+        // analytic neighbourhood (iregi_masters::LaneError::UnsupportedDerivativeDomain).
+        assert!(
+            matches!(&result.statuses[0], LaneStatus::MasterFailure(message)
+                if message.starts_with("D0 leaf") && message.contains("scalar-limit branch")),
+            "{:?} {:?}",
             result.statuses[0],
-            LaneStatus::Success,
-            "{:?}",
             workspace.last_diagnostics()
         );
+        assert!(result.lane(0).is_err());
     }
     #[test]
     fn generalized_checked_tensor_constructor_does_not_inline_the_highpoint_graph() {
