@@ -750,6 +750,23 @@ mod tests {
             .to_vec()
     }
 
+    /// Shifts off every Gram boundary: no bubble, triangle, box or pentagon
+    /// subset of the seven has a vanishing Gram or Cayley determinant (with the
+    /// masses of `scalar_row`; checked in exact arithmetic). Dyadic components
+    /// keep every scalar product exact in binary64.
+    fn generic_shifts(n: usize) -> Vec<[f64; 4]> {
+        [
+            [0., 0., 0., 0.],
+            [1.25, 0.5, 0.25, 0.75],
+            [0.5, 1.5, -0.25, 0.375],
+            [2., 0.25, 1., -0.5],
+            [1.75, -0.75, 0.5, 1.25],
+            [0.875, 0.625, 1.375, 0.125],
+            [2.5, 1.125, -0.625, 0.25],
+        ][..n]
+            .to_vec()
+    }
+
     fn scalar_row(q: &[[f64; 4]]) -> Vec<Complex<f64>> {
         let mut row = Vec::new();
         for (i, a) in q.iter().enumerate() {
@@ -794,15 +811,39 @@ mod tests {
         assert!(CertifiedScalarReductionPlan::new(settings(5)).is_err());
     }
 
+    /// Binary64 status of a valid lane that does not succeed: only the IBP
+    /// recurrence's cancellation monitor may refuse it. Its estimate
+    /// (8 x operations x the binary64 roundoff of the node's terms against
+    /// 2^(19-53) of the node's reference) trips at the first n = 6 IBP node on
+    /// every kinematics tried (generic_shifts scaled by 1 to 128, squared masses
+    /// from 0.25 to 36, and shifts(n)), so binary64 fails closed there; the
+    /// positive control is the same certified plan at 128-bit working
+    /// precision and 53-bit requested accuracy.
+    fn is_ibp_cancellation_refusal(status: &LaneStatus) -> bool {
+        matches!(status, LaneStatus::Unstable(reason)
+            if reason.starts_with("estimated cancellation exceeds") && reason.contains("in recurrence ibp_"))
+    }
+
     #[test]
     fn certified_scalar_batch_matches_coordinate_interface_and_isolates_failures() {
+        // Positive control off every Gram boundary: the 128-bit certified lanes
+        // must succeed and match the coordinate interface.
+        check_batch_against_coordinate_interface(6, &generic_shifts(6));
+        // shifts(n) puts boxes on a Gram boundary (vanishing box Gram
+        // determinant, e.g. shifts {0,2,3,5}); the certified lanes must still
+        // succeed and match at 128 bits, and the invalid lanes stay isolated.
         for n in [6, 7] {
+            check_batch_against_coordinate_interface(n, &shifts(n));
+        }
+    }
+
+    fn check_batch_against_coordinate_interface(n: usize, q: &[[f64; 4]]) {
+        {
             let started = Instant::now();
             let phase = |label: &str| {
                 eprintln!("certified scalar n={n} phase={label} elapsed={:?}", started.elapsed());
             };
-            let q = shifts(n);
-            let row = scalar_row(&q);
+            let row = scalar_row(q);
             phase("chart_prepare_begin");
             let plan = CertifiedScalarReductionPlan::new(settings(n)).unwrap();
             phase("chart_prepare_end");
@@ -871,13 +912,9 @@ mod tests {
             let reference_plan = ReductionPlan::new(settings(n)).unwrap();
             phase("coordinate_plan_prepare_end");
             phase("coordinate_workspace_prepare_begin");
-            // shifts(n) puts boxes on a Gram boundary (vanishing box Gram
-            // determinant, e.g. shifts {0,2,3,5}). At these points the binary64
-            // observers can be conservatively Unstable from cancellation at
-            // requested53: the coordinate observer, and this certified binary64
-            // workspace (an IBP recurrence node). So both interfaces are
-            // compared at the same 128-bit working precision and 53-bit
-            // requested accuracy, and binary64 only has to fail closed.
+            // The reference is the coordinate interface at 128-bit working
+            // precision and 53-bit requested accuracy (its binary64 observer
+            // can be conservatively Unstable on a Gram boundary).
             use symbolica::domains::float::{Float, SingleFloat};
             let prototype = Float::new(128); // zero at 128 bits
             let lift = |value: &Complex<f64>| {
@@ -917,15 +954,16 @@ mod tests {
                     );
                 }
             };
-            // Binary64 accepts a valid lane only if it matches; otherwise it is Unstable.
+            // Binary64 accepts a valid lane only if it matches; otherwise only
+            // the IBP cancellation monitor may refuse it (fail closed).
             for lane in [0, 2, 6] {
                 match reduced.lane(lane) {
                     Ok(values) => {
                         let lifted: Vec<_> = values.iter().map(lift).collect();
                         assert_matches("binary64", lane, &lifted);
                     }
-                    Err(LaneStatus::Unstable(reason)) => {
-                        eprintln!("certified scalar n={n} binary64 lane={lane} fails closed: {reason}");
+                    Err(status) if is_ibp_cancellation_refusal(&status) => {
+                        eprintln!("certified scalar n={n} binary64 lane={lane} fails closed: {status:?}");
                     }
                     Err(status) => panic!("n={n}, binary64 lane={lane}: {status:?}"),
                 }
@@ -963,13 +1001,57 @@ mod tests {
 
     #[test]
     fn certified_scalar_rejects_an_incompatible_mixed_taylor_component() {
+        use symbolica::domains::float::Float;
         let n = 6;
-        let row = scalar_row(&shifts(n));
-        let gram_arguments = n * (n + 1) / 2;
         let plan = CertifiedScalarReductionPlan::new(settings(n)).unwrap();
+        // Positive control off every Gram boundary: at 128-bit working precision
+        // the compatible jet of lane 0 is accepted and evaluated.
+        let (result, diagnostics) = reduce_mixed_taylor_pair(&plan, &generic_shifts(n), Float::new(128));
+        assert_eq!(result.statuses[0], LaneStatus::Success, "{diagnostics}");
+        assert!(result.lane(0).is_ok());
+        // In binary64 the same jet passes the Taylor-compatibility check and is
+        // refused only by the IBP cancellation monitor.
+        let (result, diagnostics) = reduce_mixed_taylor_pair(&plan, &generic_shifts(n), 0_f64);
+        assert!(is_ibp_cancellation_refusal(&result.statuses[0]), "{:?} {diagnostics}", result.statuses[0]);
+        // On shifts(6) the compatible jet of lane 0 passes the Taylor-compatibility
+        // check and fails closed in its masters: three boxes sit on a Gram boundary
+        // (vanishing box Gram determinant, {0,2,3,5} also a vanishing Cayley
+        // determinant), where Dual seeds of a D0 master have no supported analytic
+        // neighbourhood (iregi_masters::LaneError::UnsupportedDerivativeDomain).
+        let (result, diagnostics) = reduce_mixed_taylor_pair(&plan, &shifts(n), 0_f64);
+        assert!(
+            matches!(&result.statuses[0], LaneStatus::MasterFailure(message)
+                if message.starts_with("D0 leaf") && message.contains("scalar-limit branch")),
+            "{:?} {diagnostics}",
+            result.statuses[0],
+        );
+        assert!(result.lane(0).is_err());
+    }
+
+    /// Reduce a compatible mixed Taylor jet (lane 0) and the same jet with an
+    /// incompatible mixed component (lane 1) at the prototype's working
+    /// precision and 53-bit requested accuracy; lane 1 must be rejected as input.
+    fn reduce_mixed_taylor_pair<T: NativeFloat + ExactInvariantScalar>(
+        plan: &CertifiedScalarReductionPlan,
+        q: &[[f64; 4]],
+        prototype: T,
+    ) -> (BatchResult<T>, String)
+    where
+        Complex<T>: EvaluationDomain,
+    {
+        let n = q.len();
+        let row = scalar_row(q);
+        let gram_arguments = n * (n + 1) / 2;
         let shape = vec![vec![0, 0], vec![1, 0], vec![0, 1], vec![1, 1]];
         let dual = HyperDual::<f64>::new(shape.clone());
-        let mut workspace = CertifiedScalarWorkspace::new_dual(&plan, 0_f64, dual).unwrap();
+        let lift = |value: &Complex<f64>| {
+            Complex::new(
+                prototype.from_rational(&value.re.exact_rational().unwrap()),
+                prototype.from_rational(&value.im.exact_rational().unwrap()),
+            )
+        };
+        let mut workspace = CertifiedScalarWorkspace::new_dual(plan, prototype.clone(), dual).unwrap();
+        workspace.set_accuracy_precision(53).unwrap();
         let mut values = Vec::new();
         for (argument, value) in row.iter().enumerate() {
             // The Gram jet is a common scalar multiple of a physical rank-four
@@ -987,7 +1069,7 @@ mod tests {
             .reduce_batch(&ScalarKinematicsBatch {
                 rows: 2,
                 components: 4,
-                values: [values, bad].concat(),
+                values: [values, bad].concat().iter().map(lift).collect(),
             })
             .unwrap();
         assert_eq!(result.metadata().dual_shape(), Some(shape.as_slice()));
@@ -998,20 +1080,10 @@ mod tests {
         assert_eq!(workspace.last_certificate_execution().reduction_batches, 1);
         assert_eq!(workspace.last_execution().input_rows, 2);
         assert_eq!(workspace.last_execution().argument_rows, 1);
-        // The compatible jet of lane 0 passes the Taylor-compatibility check
-        // and fails closed in its masters: shifts(6) puts three boxes on a Gram
-        // boundary (vanishing box Gram determinant, {0,2,3,5} also a vanishing
-        // Cayley determinant), where Dual seeds of a D0 master have no supported
-        // analytic neighbourhood (iregi_masters::LaneError::UnsupportedDerivativeDomain).
-        assert!(
-            matches!(&result.statuses[0], LaneStatus::MasterFailure(message)
-                if message.starts_with("D0 leaf") && message.contains("scalar-limit branch")),
-            "{:?} {:?}",
-            result.statuses[0],
-            workspace.last_diagnostics()
-        );
-        assert!(result.lane(0).is_err());
+        let diagnostics = format!("{:?}", workspace.last_diagnostics());
+        (result, diagnostics)
     }
+
     #[test]
     fn generalized_checked_tensor_constructor_does_not_inline_the_highpoint_graph() {
         for algorithm in [Algorithm::Ibp, Algorithm::PassarinoVeltman, Algorithm::Hybrid] {
