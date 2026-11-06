@@ -188,7 +188,8 @@ where
     }
 
     /// Share per-subset results with other workspaces holding the same store
-    /// (binary64 only; `None`: no sharing).
+    /// (`None`: no sharing). Binary64 workspaces share sub-integrals, rescues,
+    /// expansions and moments; double-double ones only their scalar masters.
     pub(crate) fn set_shared_subsets(&mut self, store: Option<std::sync::Arc<shared::SubsetStore>>) {
         self.executor.set_shared_subsets(store);
     }

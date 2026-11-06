@@ -31,6 +31,13 @@
 //! wherever its coefficients came from. Building and storing such keys
 //! costs about as much as a small gather, so only subsets of a size and rank
 //! that some integral gathers inside a larger one are shared.
+//!
+//! Double-double executors (partial rescues, the double-double tier and its
+//! rotation check) share only their scalar masters, in a map of their own:
+//! oneloopmaster's native box, triangle, bubble and tadpole values keyed by
+//! the family, the arity and both limbs of every argument, bit for bit. The
+//! arguments are taken in the executor's own propagator order, so a stored
+//! master is exactly what that executor's kernel call returns.
 use symbolica::domains::float::{Complex, DoubleFloat};
 use std::{
     collections::HashMap,
@@ -98,6 +105,8 @@ pub(crate) struct SubsetStore {
     misses: AtomicU64,
     moment_hits: AtomicU64,
     moment_misses: AtomicU64,
+    dd_master_hits: AtomicU64,
+    dd_master_misses: AtomicU64,
 }
 
 impl SubsetStore {
@@ -184,14 +193,19 @@ impl SubsetStore {
     /// Pass the stored double-double master for `key` to `write`; a hit when
     /// it exists and `write` accepts it.
     pub(crate) fn dd_master_with(&self, key: &[u64], write: impl FnOnce(&[Complex<DoubleFloat>; 3]) -> bool) -> bool {
-        match self.dd_masters.lock().unwrap_or_else(|e| e.into_inner()).get(key) {
+        let hit = match self.dd_masters.lock().unwrap_or_else(|e| e.into_inner()).get(key) {
             Some(value) => write(value),
             None => false,
+        };
+        if hit {
+            self.dd_master_hits.fetch_add(1, Ordering::Relaxed);
         }
+        hit
     }
 
-    /// Store a freshly evaluated double-double master.
+    /// Store a freshly evaluated double-double master (a miss).
     pub(crate) fn put_dd_master(&self, key: Vec<u64>, value: [Complex<DoubleFloat>; 3]) {
+        self.dd_master_misses.fetch_add(1, Ordering::Relaxed);
         self.dd_masters.lock().unwrap_or_else(|e| e.into_inner()).insert(key, value);
     }
 
@@ -200,7 +214,14 @@ impl SubsetStore {
         self.map.lock().unwrap_or_else(|e| e.into_inner()).clear();
         self.moments.lock().unwrap_or_else(|e| e.into_inner()).clear();
         self.dd_masters.lock().unwrap_or_else(|e| e.into_inner()).clear();
-        for counter in [&self.hits, &self.misses, &self.moment_hits, &self.moment_misses] {
+        for counter in [
+            &self.hits,
+            &self.misses,
+            &self.moment_hits,
+            &self.moment_misses,
+            &self.dd_master_hits,
+            &self.dd_master_misses,
+        ] {
             counter.store(0, Ordering::Relaxed);
         }
     }
@@ -213,5 +234,10 @@ impl SubsetStore {
     /// `(hits, misses)` of gathered moments since the last clear.
     pub(crate) fn moment_counts(&self) -> (u64, u64) {
         (self.moment_hits.load(Ordering::Relaxed), self.moment_misses.load(Ordering::Relaxed))
+    }
+
+    /// `(hits, misses)` of double-double scalar masters since the last clear.
+    pub(crate) fn dd_master_counts(&self) -> (u64, u64) {
+        (self.dd_master_hits.load(Ordering::Relaxed), self.dd_master_misses.load(Ordering::Relaxed))
     }
 }

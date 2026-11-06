@@ -3332,7 +3332,6 @@ fn write_shared<T: NativeFloat>(out: &mut [L4<T>], prototype: &T, count: usize, 
     true
 }
 
-/// The binary64 value `x` exactly in the executor's number type.
 /// Key of a double-double scalar master: family, arity and the limbs of
 /// every argument bit for bit (`false`: `T` is not double-double).
 fn dd_master_key<T: NativeFloat>(key: &mut Vec<u64>, family: usize, arity: usize, input: &[C<T>]) -> bool {
@@ -3364,6 +3363,7 @@ fn read_dd_master<T: NativeFloat>(output: &[C<T>]) -> Option<[C<symbolica::domai
     Some([read(0)?, read(1)?, read(2)?])
 }
 
+/// The binary64 value `x` exactly in the executor's number type.
 fn exact_f64<T: NativeFloat>(prototype: &T, x: f64) -> T {
     match (&x as &dyn std::any::Any).downcast_ref::<T>() {
         Some(value) => value.clone(),

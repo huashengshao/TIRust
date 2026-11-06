@@ -101,11 +101,16 @@ fn shared_subsets_give_bit_identical_results_and_are_reused() {
     // The hexagon gathers the moments of its six Gram-free pentagons, which
     // the pentagon integrals have gathered already: reused on every lane.
     assert!(stats.moments_reused >= 6 * POINTS.len() as u64, "too few moments reused: {stats:?}");
+    // The partial rescues and the double-double tier evaluate the same box
+    // and triangle masters repeatedly: some are reused.
+    assert!(stats.dd_masters_reused > 0 && stats.dd_masters_computed > 0, "no double-double master reused: {stats:?}");
     eprintln!("{stats:?}");
 
     amplitude.set_subset_sharing(false);
     let separate = amplitude.reduce_batches(&batches).unwrap();
-    assert_eq!(amplitude.last_sharing(), Default::default());
+    let off = amplitude.last_sharing();
+    assert_eq!((off.dd_masters_reused, off.dd_masters_computed), (0, 0), "double-double masters counted with sharing off");
+    assert_eq!(off, Default::default());
     for (k, (a, b)) in shared.iter().zip(&separate).enumerate() {
         assert_eq!(fingerprint(a), fingerprint(b), "integral {:?} differs with sharing", members[k]);
     }

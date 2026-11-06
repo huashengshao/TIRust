@@ -468,7 +468,8 @@ where
     }
 
     /// Share per-subset results through `store` in every binary64 workspace,
-    /// present and future (`None`: no sharing).
+    /// present and future, and the double-double scalar masters of the
+    /// double-double tier (`None`: no sharing).
     pub(crate) fn set_shared_subsets(&mut self, store: Option<Arc<SubsetStore>>) {
         self.shared = store;
         self.direct.set_shared_subsets(self.shared.clone());
