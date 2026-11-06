@@ -24,8 +24,8 @@ _iregi_require_tool() {
     return 1
 }
 
-_iregi_require_tool rustc '*-rustc-1.99.0' '*-rustc-1.*' || return 1
-_iregi_require_tool cargo '*-cargo-1.99.0' '*-cargo-1.*' || return 1
+_iregi_require_tool rustc '*-rustc-1.97.1' '*-rustc-1.*' || return 1
+_iregi_require_tool cargo '*-cargo-1.97.1' '*-cargo-1.*' || return 1
 _iregi_require_tool cc '*-gcc-wrapper-15.2.0' '*-gcc-wrapper-*' || return 1
 _iregi_require_tool c++ '*-gcc-wrapper-15.2.0' '*-gcc-wrapper-*' || return 1
 _iregi_require_tool ar '*-binutils-wrapper-2.44' '*-binutils-wrapper-*' || return 1
