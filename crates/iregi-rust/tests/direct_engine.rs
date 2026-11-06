@@ -1,7 +1,9 @@
 //! Direct numerical engine: full-array agreement with the archived opening
 //! reference tensors (independently admitted against quadruple-precision
 //! original IREGI), agreement with the existing engine on perturbed lanes,
-//! the denominator-identity path and lane isolation.
+//! the denominator-identity path and lane isolation. The reference tensors are
+//! the lane-0 values of the archived captures, kept compactly in
+//! tests/fixtures/opening-rank6-20261026-references.json.
 use std::path::Path;
 
 use iregi_rust::{
@@ -16,6 +18,7 @@ use symbolica::domains::{
 };
 
 const SUITE: &str = "../../validation/benchmark/opening-rank6-20261026";
+const REFERENCES: &str = "tests/fixtures/opening-rank6-20261026-references.json";
 
 fn exact(text: &str) -> f64 {
     let (n, d) = text.split_once('/').unwrap_or((text, "1"));
@@ -39,9 +42,13 @@ fn ordinary_cases() -> Vec<Case> {
 }
 
 fn opening_cases() -> Vec<Case> {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join(SUITE);
-    let inputs: Value =
-        serde_json::from_str(&std::fs::read_to_string(root.join("inputs.json")).unwrap()).unwrap();
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let inputs: Value = serde_json::from_str(
+        &std::fs::read_to_string(manifest.join(SUITE).join("inputs.json")).unwrap(),
+    )
+    .unwrap();
+    let references: Value =
+        serde_json::from_str(&std::fs::read_to_string(manifest.join(REFERENCES)).unwrap()).unwrap();
     let mut cases = Vec::new();
     for case in inputs["cases"].as_array().unwrap() {
         let request = &case["driver_request"];
@@ -61,20 +68,11 @@ fn opening_cases() -> Vec<Case> {
         }
         let mu = exact(sample["mu"].as_str().unwrap());
         row.push(Complex::new(mu, 0.0));
-        let result: Value = serde_json::from_str(
-            &std::fs::read_to_string(root.join("cases").join(&id).join("result.json")).unwrap(),
-        )
-        .unwrap();
-        let reference = result["first_output"]["lanes"][0]["values"]
+        let reference = references["cases"][id.as_str()]["values"]
             .as_array()
             .unwrap()
             .iter()
-            .map(|z| {
-                Complex::new(
-                    exact(z[0]["exact_rational"].as_str().unwrap()),
-                    exact(z[1]["exact_rational"].as_str().unwrap()),
-                )
-            })
+            .map(|z| Complex::new(exact(z[0].as_str().unwrap()), exact(z[1].as_str().unwrap())))
             .collect();
         cases.push(Case {
             id,
