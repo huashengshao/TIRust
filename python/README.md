@@ -21,10 +21,11 @@ broken, a known break of this non-core crate: gammaloop `865afdc4`'s
 `spynso3` calls Symbolica's Python `evaluator_multiple` with 17 arguments,
 and the shared Symbolica revision `20a9da94` takes 18 (E0061). The
 pyAmpliCol coordination record accepts the break (DECISIONS 2026-11-06
-~19:45); the follow-up moves the GammaLoop pin to a revision whose `spynso3`
-builds on `20a9da94`. The core crates `iregi-rust` and `iregi-masters` and
-every default member build and test (see
-[the environment notes](../docs/environment.md)):
+~19:45). It is fixed together with pyAmpliCol's combined Symbolica re-pin,
+because the GammaLoop revisions whose `spynso3` builds on `20a9da94` need more
+than a pin move (see [the environment notes](../docs/environment.md)). The
+core crates `iregi-rust` and `iregi-masters` and every default member build
+and test:
 
 ```bash
 source scripts/env.sh
