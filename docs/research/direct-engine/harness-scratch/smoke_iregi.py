@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """Smoke: run original IREGI binary64 timing driver on opening inputs, compute E/A vs saved reference.
 
-Usage (from iregi-rust root): python3 smoke_iregi.py BINARY MODE ID [ID...]
+Usage: python3 smoke_iregi.py BINARY MODE ID [ID...]
 MODE: 0=IBP 1=PV 2=Hybrid.  Read-only w.r.t. the repo.
+The saved reference is the lane-0 array of the archived capture, kept compactly in
+crates/iregi-rust/tests/fixtures/opening-rank6-20261026-references.json.
 """
 import json, math, subprocess, sys, time
 from fractions import Fraction as F
 from pathlib import Path
 
-ROOT = Path('/shared/external/iregi/iregi-rust')
+ROOT = Path(__file__).resolve().parents[4]
 SUITE = ROOT / 'validation/benchmark/opening-rank6-20261026/inputs.json'
+REFERENCES = ROOT / 'crates/iregi-rust/tests/fixtures/opening-rank6-20261026-references.json'
 
 
 def wire(case, mode, warmup, repeats, iterations, tag='BENCH'):
@@ -23,10 +26,8 @@ def wire(case, mode, warmup, repeats, iterations, tag='BENCH'):
 
 
 def reference(case):
-    path = ROOT / 'validation/benchmark/opening-rank6-20261026/cases' / case['id'] / 'result.json'
-    v = json.loads(path.read_text())['first_output']
-    vals = v['lanes'][0]['values']
-    return v['basis'], [tuple(F(c['exact_rational']) for c in pair) for pair in vals]
+    v = json.loads(REFERENCES.read_text())['cases'][case['id']]
+    return v['basis'], [tuple(F(c) for c in pair) for pair in v['values']]
 
 
 def ea(case, moments):

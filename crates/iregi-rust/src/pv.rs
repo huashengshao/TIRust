@@ -2266,7 +2266,8 @@ mod tests {
     /// Independent validation: scalar leaf values and complete tensor moments
     /// come from separately executed original IREGI, not from our IBP compiler.
     #[test]
-    #[ignore = "requires scripts/build-reference.sh"]
+    #[ignore = "requires target/reference/iregi-reference-original, built by the evidence \
+                archive's validation/reference/build.py (validation/README.md)"]
     fn original_iregi_cartesian_moments() {
         use std::{
             io::Write,

@@ -34,11 +34,12 @@ protocol's section 3 APIs, it opens an issue mentioning @ValentinHirschi
 protocol section 6). Keep the published report link and measurement provenance
 current; never invent timings or claim unperformed validation.
 
-Interim rule until pyAmpliCol's slimming commit (protocol section 2 item 6):
-docs/data/results.json and docs/data/report-validation.json are still tracked
-on main. TIRust's agent never stages them or any new raw capture, and restores
-them after a local build:
-git restore docs/data/results.json docs/data/report-validation.json
+Slimness (protocol sections 2 item 6 and 5): validation/ keeps only the
+fixtures that tests read and its README.md (scripts/keep-validation.txt); the
+evidence lives in the archive named in validation/README.md. New captures, raw
+JSON/JSONL, logs and report data (docs/data/) are git-ignored; never force-add
+them. A new fixture that a test must read goes to the test's own crate (for
+example crates/iregi-rust/tests/fixtures/), not under validation/.
 
 Blob-size policy (protocol section 5): MAX_BLOB_BYTES = 1 MiB (1048576 bytes).
 No push adds a larger blob unless its exact path is in .blob-size-allowlist,
@@ -46,12 +47,16 @@ and none adds a blob under dependencies/symbolica/,
 dependencies/symbolica-patches/ or dependencies/oneloopmaster/. Change this
 value only by pull request.
 
-Update docs/benchmark.typ at each milestone. docs/benchmark.pdf stays tracked
-as a slim report of mostly the summary tables, committed by pull request (keep
-it under 1 MiB, or add its exact path to .blob-size-allowlist in the same pull
-request with a one-line justification); give the user the link to it. The full
-report and the evidence go to huashengshao/iregi-rust-evidence or a release
-asset (gh release create tirust-bench-<date> ...). Run the freeze check first:
+At each milestone update docs/benchmark-summary.json (scripts/build-benchmark-summary.py)
+and, if needed, docs/benchmark-summary.typ, then rebuild docs/benchmark.pdf with
+bash scripts/build-benchmark-report.sh (fixed creation timestamp from the data,
+embedded fonts only; --check verifies a byte-identical rebuild).
+docs/benchmark.pdf stays tracked as a slim report of mostly the summary tables,
+committed by pull request (keep it under 1 MiB, or add its exact path to
+.blob-size-allowlist in the same pull request with a one-line justification);
+give the user the link to it. The full report and the evidence go to
+huashengshao/iregi-rust-evidence or a release asset (gh release create
+tirust-bench-<date> ...). Run the freeze check first:
 no tag or release while the FREEZE issue is open (protocol section 4); gh
 release create makes the tag on the server, so the pre-push hook does not see
 it (amendment of 6 Nov 2026 in docs/PYAMPLICOL-COLLABORATION.md). Include the measured original

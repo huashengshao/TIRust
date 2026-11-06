@@ -63,6 +63,6 @@ extension into a separate Community native host. Static exports use marimo's
 CDN frontend; changing numerical controls requires a running Python backend.
 The earlier wheel003 rendering failure remains archived. Exact revisions,
 commands, source guards and screenshots are recorded in
-[`validation/python-notebooks/native-wheel004`](../../validation/python-notebooks/native-wheel004);
+`validation/python-notebooks/native-wheel004` in the [evidence archive](../../validation/README.md);
 the mathematical and performance limits remain in the
 [benchmark report](../../docs/benchmark.pdf).

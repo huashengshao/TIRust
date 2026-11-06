@@ -2,7 +2,9 @@
 """Preliminary (non-archival) same-CPU timings: original IREGI f64 (IBP/PV/Hybrid) and COLLIER (selected
 opening-double option) on the 18 opening inputs. Run pinned via taskset. Output JSON lines to stdout.
 
-usage: prelim_iregi_collier.py IREGI_TENSOR_BIN IREGI_GENERAL_BIN COLLIER_BIN
+usage: prelim_iregi_collier.py IREGI_TENSOR_BIN IREGI_GENERAL_BIN COLLIER_BIN COLLIER_SUMMARY
+COLLIER_SUMMARY: the archived validation/benchmark/opening-double-20261026/collier/summary.json
+(evidence archive, validation/README.md), which names COLLIER's selected option per input.
 """
 import json, math, statistics, subprocess, sys, time
 from fractions import Fraction as F
@@ -10,8 +12,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from smoke_iregi import SUITE, ea
 
-ROOT = Path('/shared/external/iregi/iregi-rust')
-COLLIER_SUMMARY = ROOT / 'validation/benchmark/opening-double-20261026/collier/summary.json'
 TARGET_NS = 20_000_000
 REPEATS = 7
 
@@ -64,9 +64,9 @@ def timed(make, binary, case):
 
 
 def main():
-    tensor_bin, general_bin, collier_bin = sys.argv[1:4]
+    tensor_bin, general_bin, collier_bin, collier_summary = sys.argv[1:5]
     cases = json.loads(SUITE.read_text())['cases']
-    collier_sel = {r['id']: r for r in json.loads(COLLIER_SUMMARY.read_text())['rows']}
+    collier_sel = {r['id']: r for r in json.loads(Path(collier_summary).read_text())['rows']}
     for case in cases:
         ordinary = case['table'] == 'ordinary'
         modes = (0, 1, 2) if ordinary else (0,)

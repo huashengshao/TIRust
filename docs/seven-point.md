@@ -64,7 +64,7 @@ captures agree with stable original IREGI IBP and Hybrid results for all four
 slots at the unchanged normalized `1e-10` gate; all four precision pairs pass
 `2^-80`. Original PV is unstable on that point. Both the failed first 256-bit
 attempt and the successful separately bounded follow-up are retained in
-[the current-build capsule](../validation/highpoint-seven-point-current-cargo/README.md).
+[the current-build capsule](../validation/README.md) (evidence archive: `validation/highpoint-seven-point-current-cargo/README.md`).
 
 The current-build workspace lifecycle remains **incomplete**: its fixed time
 limit stopped the nine-call schedule after six completed calls. Those records

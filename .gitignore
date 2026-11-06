@@ -12,20 +12,23 @@ __pycache__/
 # docs/PYAMPLICOL-COLLABORATION.md): raw captures, raw JSON/JSONL, logs and
 # generated PDFs are not committed here; they go to
 # huashengshao/iregi-rust-evidence or to release assets. When code writes such
-# output to a new path, add that path here in the same PR. Ignore rules do not
-# apply to files that are already tracked: those stay until the slimming
-# commit, which also adds the entries for the report data under docs/data/.
-# docs/benchmark.pdf stays tracked (a slim summary, under 1 MiB).
+# output to a new path, add that path here in the same PR.
+# docs/benchmark.pdf stays tracked (a slim summary, under 1 MiB, built from
+# docs/benchmark-summary.typ by scripts/build-benchmark-report.sh).
 *.log
 *.log.gz
 *.jsonl
 *.jsonl.gz
 *.pdf
 !/docs/benchmark.pdf
-# validation/ keeps only the fixtures that tests read; everything else written
-# there (captures, payload archives, receipts, reports) is evidence.
+# Report data and raw benchmark results (the old full report's docs/data/).
+/docs/data/
+# validation/ keeps only the fixtures that tests read and its README.md
+# (scripts/keep-validation.txt); everything else written there (captures,
+# payload archives, receipts, reports) is evidence.
 /validation/**
 !/validation/**/
+!/validation/README.md
 !/validation/physical/ggh-numerator-reference.json
 !/validation/physical/madloop/fixtures/gghh-helicity-1.json
 !/validation/physical/madloop/fixtures/gghhh-helicity-1.json

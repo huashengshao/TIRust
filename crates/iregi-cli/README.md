@@ -177,19 +177,21 @@ by `execution_batch_ids`; those repeated counters must not be summed per case.
 `--case bubble` selects IDs containing a substring and `--algorithm ibp`
 overrides each fixture's stored method. Higher-precision comparisons still use
 the original binary64 expected values and cannot certify all extra digits.
-After building the binary, `python3 validation/cli_smoke.py` checks graph import,
+After building the binary, `validation/cli_smoke.py` of the evidence archive
+(named in [validation/README.md](../../validation/README.md)) checks graph import,
 all three precision modes, contraction, supplied invariants, and lane isolation.
 
 The physical top-loop `g g -> h` example includes model-derived vertices,
 external helicity wavefunctions, and a selected equal-color component:
 
 ```sh
-cargo run -p iregi-cli -- run examples/graphs/ggh_top_triangle.dot --model fixtures/models/sm.json --input validation/physical/ggh-cli-input.json --feynman-rules --external-wavefunctions --component 0,0 --convention oneloop
-python3 validation/physical/compare_cli.py --cli target/debug/iregi-rust
+cargo run -p iregi-cli -- run examples/graphs/ggh_top_triangle.dot --model fixtures/models/sm.json --input "$EVIDENCE/validation/physical/ggh-cli-input.json" --feynman-rules --external-wavefunctions --component 0,0 --convention oneloop
+python3 "$EVIDENCE/validation/physical/compare_cli.py" --cli target/debug/iregi-rust
 ```
 
-The second command requires the isolated original IREGI executable built by
-`bash scripts/build-reference.sh`. It checks all four Laurent slots of every
+`EVIDENCE` is a checkout of the evidence archive. The second command requires
+the isolated original IREGI executable built by the archive's reference builder
+(`validation/reference/build.py`). It checks all four Laurent slots of every
 tensor moment at the FeynKit routing, then compares the integrated numerator to
 the separately captured MadLoop graph with its documented color factor. Its
 report records input, executable, and reference hashes. MadLoop's own tensor
@@ -203,4 +205,4 @@ for preparing and reusing batched Symbolica coefficient evaluators. Numerical
 coefficient evaluation is separate from graph preparation and core tensor
 reduction. The in-process `physical_benchmark` example uses these same helpers;
 its measurement boundaries and correctness gates are documented in
-[`validation/benchmark/PHYSICAL.md`](../../validation/benchmark/PHYSICAL.md).
+`validation/benchmark/PHYSICAL.md` in the [evidence archive](../../validation/README.md).

@@ -1,0 +1,29 @@
+# Files kept under validation/ by the slimming (pyAmpliCol collaboration protocol, section 2
+# item 6, docs/PYAMPLICOL-COLLABORATION.md). The first 20 are the fixtures that tests, the CLI
+# default and the examples read; the last line is the summary that links to the evidence
+# archive. Everything else under validation/ is evidence kept in that archive; the history
+# rewrite (protocol section 4) removes it from every commit, and .gitignore ignores new files
+# there except these paths (one "!/<path>" line each). Format: one path per line; "#" starts
+# a comment line.
+validation/physical/ggh-numerator-reference.json
+validation/physical/madloop/fixtures/gghh-helicity-1.json
+validation/physical/madloop/fixtures/gghhh-helicity-1.json
+validation/physical/madloop/fixtures/gggg-up-helicity-1.json
+validation/physical/gghh-tensor-reference.json
+validation/physical/gghhh-cli-input.json
+validation/reference/fixtures.json
+validation/reference/snapping/reductions.json
+validation/pv-high-rank/lightlike-feynman-parameters.json
+validation/highpoint-seven-point-current-cargo/fixture.json
+validation/generalized-pv/reference-capture.json
+validation/generalized-pv/reference-mixed-capture.json
+validation/generalized-pv/reference-complex-capture.json
+validation/public-highpoint/fixture-conditioned_masses.json
+validation/benchmark/opening-rank6-20261026/inputs.json
+validation/benchmark/baseline-6b24c03-licensed/results.json
+validation/collier-reference/timing-initial8/summary.json
+validation/selected-native-four-engine/posthoc-revision2/summary.json
+validation/selected-native-four-engine/posthoc-revision2/qualification.json
+validation/selected-native-four-engine/v3-frozen/qualification.json
+# summary (not a fixture)
+validation/README.md
