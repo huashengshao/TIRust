@@ -1,0 +1,24 @@
+#!/bin/sh
+MAX_BLOB_BYTES=1048576   # policy value, see AGENTS.md
+remote=$1
+t='FREEZE: history rewrite'
+open=$(gh issue list --repo huashengshao/iregi-rust --state open --limit 1000 \
+  --json title --jq ".[] | select(.title == \"$t\") | .title" </dev/null) ||
+  { echo 'pre-push: freeze check failed (gh installed and authenticated? issues enabled?)' >&2; exit 1; }
+[ -z "$open" ] || { echo 'pre-push: FREEZE open, keep work local' >&2; exit 1; }
+z=0000000000000000000000000000000000000000
+while read -r lref lsha rref rsha; do
+  [ "$lsha" = "$z" ] && continue
+  if [ "$rsha" = "$z" ]; then set -- "$lsha" --not --remotes="$remote"; else set -- "$rsha..$lsha"; fi
+  git rev-list --objects "$@" >/dev/null || { echo 'pre-push: rev-list failed' >&2; exit 1; }
+  git rev-list --objects "$@" |
+    git cat-file --batch-check='%(objecttype) %(objectsize) %(rest)' |
+    awk -v max="$MAX_BLOB_BYTES" '
+      FILENAME == ARGV[1] { ok[$0] = 1; next }
+      $1 == "blob" { p = $0; sub(/^[^ ]+ [^ ]+ /, "", p)
+        if (p ~ /^dependencies\/(symbolica|symbolica-patches|oneloopmaster)\//) {
+          print "pre-push: " p " is under a path stripped by the rewrite"; bad = 1 }
+        else if ($2 > max && !(p in ok)) { print "pre-push: " p " is " $2 " bytes > " max; bad = 1 } }
+      END { exit bad }' .blob-size-allowlist - >&2 || exit 1
+done
+exit 0
