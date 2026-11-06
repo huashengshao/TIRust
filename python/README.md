@@ -16,7 +16,9 @@ TIRust provides reusable plans and genuine batched one-loop tensor reduction.
 Its Python interface links the same Rust implementation and one Symbolica kernel
 with the upstream graph, tensor and numerical types.
 
-Build the standalone wheel from the repository root:
+Build the standalone wheel from the repository root. This build is currently
+broken on the shared Symbolica revision `20a9da94` until the GammaLoop pin
+moves (see [the environment notes](../docs/environment.md)):
 
 ```bash
 source scripts/env.sh
