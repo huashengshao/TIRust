@@ -730,15 +730,16 @@ const GATE_REFUSED_BOX: [[f64; 4]; 4] = [
 
 #[test]
 fn gate_refused_binary64_box_is_kept_by_the_rotation_check() {
-    // In binary64 alone (precision rescue disabled) the checked retry
-    // evaluates the gate-refused box below the gate with rotated propagators
-    // too; the copies agree, so the binary64 array is returned.
+    // In binary64 alone (precision rescue disabled) the per-box a priori
+    // method choice (stage 4: the small-Gram expansions or the alternative
+    // PV) keeps the gate-refused box, because its rotated copy agrees
+    // (difference 3.2e-14, E/A 3.3e-14); the checked retry below the gate
+    // never runs for it.
     use iregi_rust::PrecisionRescue;
     let (result, stats, notes, error) = physical_box(&GATE_REFUSED_BOX, 6, PrecisionRescue::Disabled);
     assert_eq!(result.statuses[0], LaneStatus::Success, "{notes:?}");
     assert!(!result.fallback_used[0], "{stats:?}");
-    // Kept by one binary64 retry (the per-box method choice, first since it
-    // covers boxes, or PV below the gate).
+    // Kept by one binary64 retry: the per-box method choice.
     assert_eq!(stats.checked_successes + stats.expansion_successes, 1, "{stats:?}");
     assert!(stats.precision_rescue.is_empty(), "{stats:?}");
     let estimate = result.estimated_error(0).expect("measured by the rotation check");
