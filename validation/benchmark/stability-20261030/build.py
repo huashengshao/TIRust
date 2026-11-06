@@ -22,6 +22,15 @@ import subprocess
 import time
 from pathlib import Path
 
+# TIRust's benchmark binaries are built with hardware FMA (Huasheng's decision,
+# 6 Nov 2026; huashengshao/TIRust#5): outputs are bit-identical with and without it
+# (the double-double arithmetic needs a correctly rounded fma either way, and Rust
+# never contracts a*b+c), and its own target directory keeps the default build
+# (tests, library, pyAmpliCol's baseline x86-64 builds) free of the flag. The
+# reference codes keep their flags.
+TIRUST_RUSTFLAGS = "-C target-feature=+fma"
+TIRUST_TARGET = "target/fma-build"
+
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 OUT = ROOT / "target/stability-20261030"
@@ -74,18 +83,18 @@ def main() -> None:
     record["quad_reference"] = {"binary": str(QUAD.relative_to(ROOT)), "sha256": sha256(QUAD),
                                 "provenance": "target/quad-iregi-source-audit/build-v6-001/build.json"}
 
-    env = dict(os.environ, CARGO_TARGET_DIR=str(ROOT / "target/optimized-build"))
+    env = dict(os.environ, CARGO_TARGET_DIR=str(ROOT / TIRUST_TARGET), RUSTFLAGS=TIRUST_RUSTFLAGS)
     cargo = ["cargo", "build", "--release", "--offline", "-p", "iregi-rust", "--example", "stability_driver",
              "--features", "native-f64-abc"]
     record["steps"]["tirust_cargo_s"] = run(cargo, env=env)
-    built = ROOT / "target/optimized-build/release/examples/stability_driver"
+    built = ROOT / TIRUST_TARGET / "release/examples/stability_driver"
     tirust = BIN / "tirust-stability"
     shutil.copy2(built, tirust)
     head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
     dirty = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"], cwd=ROOT, capture_output=True,
                            text=True).stdout.rstrip("\n")
     changed = [line[3:] for line in dirty.splitlines()]
-    record["tirust"] = {"binary": str(tirust.relative_to(ROOT)), "sha256": sha256(tirust), "git_head": head,
+    record["tirust"] = {"rustflags": TIRUST_RUSTFLAGS, "binary": str(tirust.relative_to(ROOT)), "sha256": sha256(tirust), "git_head": head,
                         "tracked_changes": changed,
                         "source_changes": [c for c in changed if c.startswith(("crates/", "dependencies/", "Cargo"))],
                         "cargo": " ".join(cargo)}

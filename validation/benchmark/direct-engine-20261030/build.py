@@ -20,6 +20,15 @@ import subprocess
 import time
 from pathlib import Path
 
+# TIRust's benchmark binaries are built with hardware FMA (Huasheng's decision,
+# 6 Nov 2026; huashengshao/TIRust#5): outputs are bit-identical with and without it
+# (the double-double arithmetic needs a correctly rounded fma either way, and Rust
+# never contracts a*b+c), and its own target directory keeps the default build
+# (tests, library, pyAmpliCol's baseline x86-64 builds) free of the flag. The
+# reference codes keep their flags.
+TIRUST_RUSTFLAGS = "-C target-feature=+fma"
+TIRUST_TARGET = "target/fma-build"
+
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 OUT = ROOT / "target/direct-engine-20261030"
@@ -70,17 +79,17 @@ def main() -> None:
                          "driver_sha256": sha256(HERE / "drivers/collier_batch.f90"),
                          "archive_sha256": sha256(collier_source / "libcollier.a")}
 
-    env = dict(os.environ, CARGO_TARGET_DIR=str(ROOT / "target/optimized-build"))
+    env = dict(os.environ, CARGO_TARGET_DIR=str(ROOT / TIRUST_TARGET), RUSTFLAGS=TIRUST_RUSTFLAGS)
     cargo = ["cargo", "build", "--release", "--offline", "-p", "iregi-rust", "--example", "direct_timing",
              "--features", "native-f64-abc"]
     record["steps"]["tirust_cargo_s"] = run(cargo, env=env)
-    built = ROOT / "target/optimized-build/release/examples/direct_timing"
+    built = ROOT / TIRUST_TARGET / "release/examples/direct_timing"
     tirust = BIN / "tirust-direct-timing"
     shutil.copy2(built, tirust)
     head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
     dirty = subprocess.run(["git", "status", "--porcelain", "crates", "Cargo.toml", "Cargo.lock"], cwd=ROOT,
                            capture_output=True, text=True).stdout.strip()
-    record["tirust"] = {"binary": str(tirust.relative_to(ROOT)), "sha256": sha256(tirust), "cargo": " ".join(cargo),
+    record["tirust"] = {"rustflags": TIRUST_RUSTFLAGS, "binary": str(tirust.relative_to(ROOT)), "sha256": sha256(tirust), "cargo": " ".join(cargo),
                         "profile": "release (thin LTO, codegen-units=1)", "git_head": head,
                         "source_tree_dirty": bool(dirty)}
     ninjars = ROOT / "target/stability-20261030/bin/ninjars"

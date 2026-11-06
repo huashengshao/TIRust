@@ -19,6 +19,15 @@ import sys
 import time
 from pathlib import Path
 
+# TIRust's benchmark binaries are built with hardware FMA (Huasheng's decision,
+# 6 Nov 2026; huashengshao/TIRust#5): outputs are bit-identical with and without it
+# (the double-double arithmetic needs a correctly rounded fma either way, and Rust
+# never contracts a*b+c), and its own target directory keeps the default build
+# (tests, library, pyAmpliCol's baseline x86-64 builds) free of the flag. The
+# reference codes keep their flags.
+TIRUST_RUSTFLAGS = "-C target-feature=+fma"
+TIRUST_TARGET = "target/fma-build"
+
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[3]
 BIN = ROOT / "target/amplitude-20261102/bin"
@@ -52,16 +61,16 @@ def main() -> None:
                                              str(driver), str(collier_source / "libcollier.a"), "-o", str(collier)])
     record["collier"] = {"binary": str(collier.relative_to(ROOT)), "sha256": sha256(collier), "flags": FFLAGS,
                          "driver_sha256": sha256(driver), "archive_sha256": sha256(collier_source / "libcollier.a")}
-    env = dict(os.environ, CARGO_TARGET_DIR=str(ROOT / "target/optimized-build"))
+    env = dict(os.environ, CARGO_TARGET_DIR=str(ROOT / TIRUST_TARGET), RUSTFLAGS=TIRUST_RUSTFLAGS)
     cargo = ["cargo", "build", "--release", "--offline", "-p", "iregi-rust", "--example", "amplitude_timing",
              "--features", "native-f64-abc"]
     record["steps"]["tirust_cargo_s"] = run(cargo, env=env)
     tirust = BIN / "tirust-amplitude-timing"
-    shutil.copy2(ROOT / "target/optimized-build/release/examples/amplitude_timing", tirust)
+    shutil.copy2(ROOT / TIRUST_TARGET / "release/examples/amplitude_timing", tirust)
     head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
     dirty = subprocess.run(["git", "status", "--porcelain", "crates", "Cargo.toml", "Cargo.lock"], cwd=ROOT,
                            capture_output=True, text=True).stdout.strip()
-    record["tirust"] = {"binary": str(tirust.relative_to(ROOT)), "sha256": sha256(tirust), "cargo": " ".join(cargo),
+    record["tirust"] = {"rustflags": TIRUST_RUSTFLAGS, "binary": str(tirust.relative_to(ROOT)), "sha256": sha256(tirust), "cargo": " ".join(cargo),
                         "profile": "release (thin LTO, codegen-units=1)", "git_head": head,
                         "source_tree_dirty": bool(dirty)}
     (HERE / record_name).write_text(json.dumps(record, indent=1) + "\n")
