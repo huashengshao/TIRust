@@ -31,6 +31,7 @@
 //! wherever its coefficients came from. Building and storing such keys
 //! costs about as much as a small gather, so only subsets of a size and rank
 //! that some integral gathers inside a larger one are shared.
+use symbolica::domains::float::{Complex, DoubleFloat};
 use std::{
     collections::HashMap,
     hash::{BuildHasherDefault, Hasher},
@@ -82,6 +83,11 @@ pub(crate) struct SubsetStore {
     map: Mutex<HashMap<Vec<u64>, SharedValue, BuildHasherDefault<KeyHasher>>>,
     /// Gathered moments: the computed Laurent slots (`re, im`) of each moment.
     moments: Mutex<HashMap<Vec<u64>, Vec<f64>, BuildHasherDefault<KeyHasher>>>,
+    /// Double-double scalar masters (oneloopmaster's native kernels,
+    /// `[finite, single, double]`) by family and arguments, limb for limb:
+    /// the partial rescues, rotation checks and double-double tiers of an
+    /// amplitude evaluate the same box and triangle masters many times.
+    dd_masters: Mutex<HashMap<Vec<u64>, [Complex<DoubleFloat>; 3], BuildHasherDefault<KeyHasher>>>,
     /// Sharing on (`false`: the floors still apply, nothing is shared).
     enabled: std::sync::atomic::AtomicBool,
     /// Coefficient rank floor per subset size (number of propagators).
@@ -175,10 +181,25 @@ impl SubsetStore {
         self.moments.lock().unwrap_or_else(|e| e.into_inner()).insert(key, moments);
     }
 
+    /// Pass the stored double-double master for `key` to `write`; a hit when
+    /// it exists and `write` accepts it.
+    pub(crate) fn dd_master_with(&self, key: &[u64], write: impl FnOnce(&[Complex<DoubleFloat>; 3]) -> bool) -> bool {
+        match self.dd_masters.lock().unwrap_or_else(|e| e.into_inner()).get(key) {
+            Some(value) => write(value),
+            None => false,
+        }
+    }
+
+    /// Store a freshly evaluated double-double master.
+    pub(crate) fn put_dd_master(&self, key: Vec<u64>, value: [Complex<DoubleFloat>; 3]) {
+        self.dd_masters.lock().unwrap_or_else(|e| e.into_inner()).insert(key, value);
+    }
+
     /// Forget every result and reset the counters.
     pub(crate) fn clear(&self) {
         self.map.lock().unwrap_or_else(|e| e.into_inner()).clear();
         self.moments.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        self.dd_masters.lock().unwrap_or_else(|e| e.into_inner()).clear();
         for counter in [&self.hits, &self.misses, &self.moment_hits, &self.moment_misses] {
             counter.store(0, Ordering::Relaxed);
         }
