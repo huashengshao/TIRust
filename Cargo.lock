@@ -1713,6 +1713,7 @@ dependencies = [
 [[package]]
 name = "graphica"
 version = "3.0.1"
+source = "git+https://github.com/ValentinHirschi/symbolica.git?rev=20a9da94071d7dd64ea5cdd6ed9d6e8f8cefeacc#20a9da94071d7dd64ea5cdd6ed9d6e8f8cefeacc"
 dependencies = [
  "ahash 0.8.12",
  "dyn-clone",
@@ -2743,7 +2744,8 @@ dependencies = [
 
 [[package]]
 name = "numerica"
-version = "3.0.1"
+version = "3.0.2"
+source = "git+https://github.com/ValentinHirschi/symbolica.git?rev=20a9da94071d7dd64ea5cdd6ed9d6e8f8cefeacc#20a9da94071d7dd64ea5cdd6ed9d6e8f8cefeacc"
 dependencies = [
  "ahash 0.8.12",
  "astro-float",
@@ -2800,6 +2802,7 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 [[package]]
 name = "oneloop"
 version = "0.1.0"
+source = "git+https://github.com/alphal00p/oneloopmaster.git?rev=5efc7f67902847cefc392dd340f1a98adac7009a#5efc7f67902847cefc392dd340f1a98adac7009a"
 dependencies = [
  "bincode",
  "symbolica",
@@ -4183,7 +4186,8 @@ dependencies = [
 
 [[package]]
 name = "symbolica"
-version = "3.0.1"
+version = "3.0.2"
+source = "git+https://github.com/ValentinHirschi/symbolica.git?rev=20a9da94071d7dd64ea5cdd6ed9d6e8f8cefeacc#20a9da94071d7dd64ea5cdd6ed9d6e8f8cefeacc"
 dependencies = [
  "ahash 0.8.12",
  "append-only-vec",
@@ -4216,6 +4220,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "wide 1.7.1",
+ "xmlparser",
 ]
 
 [[package]]
@@ -5714,6 +5719,12 @@ checksum = "05f360fc0b24296329c78fda852a1e9ae82de9cf7b27dae4b7f62f118f77b9ed"
 dependencies = [
  "tap",
 ]
+
+[[package]]
+name = "xmlparser"
+version = "0.13.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "66fee0b777b0f5ac1c69bb06d361268faafa61cd4682ae064a171c16c433e9e4"
 
 [[package]]
 name = "xmlwriter"

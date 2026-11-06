@@ -1,7 +1,9 @@
 # Algebra reuse in scalar-master neighborhoods
 
-The dependency pins are recorded in the workspace and in
-`dependencies/oneloopmaster/PATCHES.md`. Every expression operation below uses
+The dependency pins are recorded in the workspace `Cargo.toml`. The oneloopmaster
+changes this crate relies on (formerly `dependencies/oneloopmaster/PATCHES.md`)
+are merged into alphal00p/oneloopmaster main (5efc7f67, one commit per former
+section). Every expression operation below uses
 Symbolica. Numerical lane validation compares primal values; it does not
 implement symbolic manipulation.
 

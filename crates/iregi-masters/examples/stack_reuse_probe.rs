@@ -1,4 +1,6 @@
-//! Opt-in qualification of Symbolica's existing ordinary-root stack allocator.
+//! Opt-in qualification of Symbolica's existing ordinary-root stack allocator
+//! (oneloop's `OneLoopExpressions::evaluator_with_stack_reuse`; moved here from
+//! the former vendored oneloopmaster copy, since its inputs are TIRust's).
 //!
 //! Run with an exclusive Symbolica lease and an explicit artifact directory:
 //! stack_reuse_probe target/stack-reuse [A0|B0|dB0|C0|D0] [--emit]
