@@ -1,9 +1,9 @@
 # pyAmpliCol collaboration protocol (binding)
 
 Received from Valentin Hirschi (pyAmpliCol) and passed to TIRust's agent by
-Huasheng Shao on 6 November 2026. It binds every agent working in this
-repository and overrides anything conflicting in AGENTS.md, PLAN.md or
-HANDOFF.md. The text below is verbatim; change it only by a pull request agreed
+Huasheng Shao on 6 November 2026. It binds TIRust's (Huasheng's) agent and
+overrides anything conflicting in AGENTS.md, PLAN.md or HANDOFF.md;
+pyAmpliCol's agents push to main and merge pull requests (sections 0-2). The text below is verbatim; change it only by a pull request agreed
 with pyAmpliCol. Huasheng answers the freeze window and the licence question
 (section 2 item 5) separately.
 
