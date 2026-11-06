@@ -1,0 +1,3708 @@
+{
+ "schema_version": 1,
+ "evidence": "https://github.com/huashengshao/TIRust/releases/tag/tirust-bench-20261106",
+ "ratio_direction": "TIRust/reference, measured in the same capture; below one: TIRust faster",
+ "captures": {
+  "timing": {
+   "campaign": "direct-engine-20261030",
+   "environment": {
+    "cpu": 141,
+    "started": "2026-11-06T15:30:35Z",
+    "loadavg_start": [
+     "198.64",
+     "202.85",
+     "191.20"
+    ],
+    "cpu_model": "AMD EPYC 9754 128-Core Processor",
+    "uname": "Linux itphlies 6.18.45 #1-NixOS SMP PREEMPT_DYNAMIC Wed Aug 19 16:18:21 UTC 2026 x86_64",
+    "target_ns_per_block": 20000000,
+    "rounds": {
+     "batch1": 11,
+     "batch32": 7
+    },
+    "seed": 20261030,
+    "skip_iregi": [
+     "ordinary-n7-r7:32"
+    ],
+    "finished": "2026-11-06T15:46:17Z",
+    "loadavg_end": [
+     "141.23",
+     "161.02",
+     "176.76"
+    ]
+   },
+   "summary_sha256": "37d746bd769b7f40b53aeee45fe99f855b7b6f01eecc30f05f62ce0a9668a783"
+  },
+  "amplitude": {
+   "campaign": "amplitude-20261102",
+   "environment": {
+    "cpu": 156,
+    "started": "2026-11-06T15:46:27Z",
+    "loadavg_start": [
+     "140.45",
+     "160.21",
+     "176.33"
+    ],
+    "cpu_model": "AMD EPYC 9754 128-Core Processor",
+    "rounds": 7,
+    "lanes": 32,
+    "seed": 20261102,
+    "points": "target/stability-20261030/points-003.json",
+    "finished": "2026-11-06T15:46:43Z",
+    "loadavg_end": [
+     "158.37",
+     "163.49",
+     "177.16"
+    ]
+   },
+   "summary_sha256": "2fcd2f7537ef3a1a3bd5994e65a5e499c87478f7388cf43aee9adf18430e53f5"
+  },
+  "stability": {
+   "campaign": "stability-20261030",
+   "points_sha256": "fc1f4fa10f7a37b93cfd9739dd6e271143ea56a41ce1a3cb1283a1aebf8d5039",
+   "accuracy_metric": "E/A: dimensionally rescaled whole-array max discrepancy over all Cartesian moments and four Laurent slots (weights mu^(rank+4-2N)) against quadruple-precision original IREGI.",
+   "summary_sha256": "b0b137b17e3f5cef64a4a3a41059551a1f7a97afab88fe155264ea30b0b952f5"
+  }
+ },
+ "tirust_builds": {
+  "timing": {
+   "sha256": "d5862ec9a757073915af372e4565490ab3f86015760882383a35556b8d0fd55b",
+   "git_head": "a0c4884cc5b47e5e6e6c82bc3f1de7719cebdec1",
+   "rustflags": "-C target-feature=+fma",
+   "profile": "release (thin LTO, codegen-units=1)",
+   "cargo": "cargo build --release --offline -p iregi-rust --example direct_timing --features native-f64-abc",
+   "source_tree_dirty": false
+  },
+  "amplitude": {
+   "sha256": "ceaa2303799ccff3569bdcddb750e5a4ab1d9ae5f9d07eafeb6e8f4eccc1cb9a",
+   "git_head": "a0c4884cc5b47e5e6e6c82bc3f1de7719cebdec1",
+   "rustflags": "-C target-feature=+fma",
+   "profile": "release (thin LTO, codegen-units=1)",
+   "cargo": "cargo build --release --offline -p iregi-rust --example amplitude_timing --features native-f64-abc",
+   "source_tree_dirty": false
+  },
+  "stability": {
+   "sha256": "2cc9ddc5790595f186879508c1cd19ffb77be5f422593b101b7c88b8d3883cb8",
+   "git_head": "a0c4884cc5b47e5e6e6c82bc3f1de7719cebdec1",
+   "rustflags": "-C target-feature=+fma",
+   "profile": null,
+   "cargo": "cargo build --release --offline -p iregi-rust --example stability_driver --features native-f64-abc",
+   "source_tree_dirty": false
+  }
+ },
+ "reference_builds": {
+  "timing": {
+   "iregi": {
+    "sha256": "f63159d71d60ddb120295bbcf4498cd688cb5e9fafe205d614c0026eb337ccd0",
+    "flags": [
+     "-O3",
+     "-std=legacy",
+     "-fallow-argument-mismatch"
+    ]
+   },
+   "collier": {
+    "sha256": "29baa9928840c77e92f2a1a71f84cbaf205371813e9ce8f1232eb2651b6fec9f",
+    "flags": [
+     "-O3",
+     "-std=legacy",
+     "-fallow-argument-mismatch",
+     "-Wtabs"
+    ]
+   },
+   "ninjars": {
+    "sha256": "22d1353dcbb816f8df0bf8e431a7942ff87a87da141b98162b7febef9a31d9d3",
+    "flags": null
+   }
+  },
+  "amplitude": {
+   "collier": {
+    "sha256": "55a6bd7fae67cb4035891d6810a2d0eb8a3050187761536e54e4365c3083a5ea",
+    "flags": [
+     "-O3",
+     "-std=legacy",
+     "-fallow-argument-mismatch",
+     "-Wtabs"
+    ]
+   }
+  },
+  "stability": {
+   "iregi": {
+    "sha256": "cf13ff4f171d1947f9cbfb568867de6b4da8fce25bd21cb96245130456b28a6a",
+    "flags": [
+     "-O3",
+     "-std=legacy",
+     "-fallow-argument-mismatch"
+    ]
+   },
+   "collier": {
+    "sha256": "12b7a408fb7e99d69c94712cd52277b08e7d45ef60a30647870bc2ca3e8b349b",
+    "flags": [
+     "-O3",
+     "-std=legacy",
+     "-fallow-argument-mismatch",
+     "-Wtabs"
+    ]
+   },
+   "ninjars": {
+    "sha256": "22d1353dcbb816f8df0bf8e431a7942ff87a87da141b98162b7febef9a31d9d3",
+    "flags": null
+   }
+  }
+ },
+ "timing": {
+  "accuracy_metric": "E/A: dimensionally rescaled whole-array max discrepancy over all moments and four Laurent slots, versus the archived reference tensors admitted against quadruple-precision original IREGI.",
+  "rows": [
+   {
+    "id": "ordinary-n1-r0",
+    "table": "ordinary",
+    "label": "N=1, R=0",
+    "n": 1,
+    "rank": 0,
+    "powers": [
+     1
+    ],
+    "dimension_shift": 0,
+    "batch1": {
+     "tirust": {
+      "status": "measured",
+      "us": 0.36201189990480076,
+      "lanes": {
+       "success": 1
+      },
+      "error": 0.0
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 0.3483269733842129,
+      "lanes": {
+       "success": 1
+      },
+      "error": 0.0
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 0.3540432798747233,
+      "lanes": {
+       "success": 1
+      },
+      "error": 0.0
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 0.7790003992812936,
+      "lanes": {
+       "success": 1
+      },
+      "error": 0.0
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "measured",
+      "us": 0.39221406178750573,
+      "lanes": {
+       "success": 1
+      },
+      "error": 0.0
+     },
+     "ninjars": {
+      "status": "measured",
+      "us": 0.24873340606689454,
+      "lanes": {
+       "success": 1
+      },
+      "error": 1.4835356363635178e-16
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.46681096334236205,
+       "ci99": [
+        0.46209028692823084,
+        0.4724172421514004
+       ],
+       "pairs": 11
+      },
+      "tirust_over_collier": {
+       "median": 0.9270228441538287,
+       "ci99": [
+        0.9203916515139973,
+        0.9370069596923205
+       ],
+       "pairs": 11
+      },
+      "tirust_contracted_over_ninjars": {
+       "median": 1.420060807089218,
+       "ci99": [
+        1.3509546057641602,
+        1.4460431527402957
+       ],
+       "pairs": 11
+      }
+     }
+    },
+    "batch32": {
+     "tirust": {
+      "status": "measured",
+      "us": 0.17335704097510374,
+      "lanes": {
+       "success": 32
+      },
+      "error": 0.0
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 0.17362687029330165,
+      "lanes": {
+       "success": 32
+      },
+      "error": 0.0
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 0.17859176443106312,
+      "lanes": {
+       "success": 32
+      },
+      "error": 0.0
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 0.7914172770182292,
+      "lanes": {
+       "success": 32
+      },
+      "error": 0.0
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "measured",
+      "us": 0.4152761526298269,
+      "lanes": {
+       "success": 32
+      },
+      "error": 0.0
+     },
+     "ninjars": {
+      "status": "measured",
+      "us": 0.12113285827636718,
+      "lanes": {
+       "success": 32
+      },
+      "error": 1.4835356363635178e-16
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.21877991011074793,
+       "ci99": [
+        0.2155168560935849,
+        0.2203335390440357
+       ],
+       "pairs": 7
+      },
+      "tirust_over_collier": {
+       "median": 0.4169423156847677,
+       "ci99": [
+        0.4140078878739916,
+        0.42080994955374096
+       ],
+       "pairs": 7
+      },
+      "tirust_contracted_over_ninjars": {
+       "median": 1.4722654509630202,
+       "ci99": [
+        1.4299491828943094,
+        1.4897910101676388
+       ],
+       "pairs": 7
+      }
+     }
+    }
+   },
+   {
+    "id": "ordinary-n1-r6",
+    "table": "ordinary",
+    "label": "N=1, R=6",
+    "n": 1,
+    "rank": 6,
+    "powers": [
+     1
+    ],
+    "dimension_shift": 0,
+    "batch1": {
+     "tirust": {
+      "status": "measured",
+      "us": 2.956905920519059,
+      "lanes": {
+       "success": 1
+      },
+      "error": 1.5689172819682284e-20
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 3.1209008810572687,
+      "lanes": {
+       "success": 1
+      },
+      "error": 1.5689172819682284e-20
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 3.5525127830533236,
+      "lanes": {
+       "success": 1
+      },
+      "error": 1.5689172819682284e-20
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 23.38982664756447,
+      "lanes": {
+       "success": 1
+      },
+      "error": 3.765401476723748e-19
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "measured",
+      "us": 4.662863357664233,
+      "lanes": {
+       "success": 1
+      },
+      "error": 1.5689172819682284e-20
+     },
+     "ninjars": {
+      "status": "not measured",
+      "us": null,
+      "lanes": null,
+      "error": null
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.1257874273101196,
+       "ci99": [
+        0.12526739202294518,
+        0.12700722014395818
+       ],
+       "pairs": 11
+      },
+      "tirust_over_collier": {
+       "median": 0.6344183992121393,
+       "ci99": [
+        0.6271578877889499,
+        0.6362967322336309
+       ],
+       "pairs": 11
+      },
+      "tirust_contracted_over_ninjars": null
+     }
+    },
+    "batch32": {
+     "tirust": {
+      "status": "measured",
+      "us": 2.706522686298077,
+      "lanes": {
+       "success": 32
+      },
+      "error": 1.5689172819682284e-20
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 2.686293168604651,
+      "lanes": {
+       "success": 32
+      },
+      "error": 1.5689172819682284e-20
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 3.0095340169270837,
+      "lanes": {
+       "success": 32
+      },
+      "error": 1.5689172819682284e-20
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 23.42083173076923,
+      "lanes": {
+       "success": 32
+      },
+      "error": 3.765401476723748e-19
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "measured",
+      "us": 4.754900826446281,
+      "lanes": {
+       "success": 32
+      },
+      "error": 1.5689172819682284e-20
+     },
+     "ninjars": {
+      "status": "not measured",
+      "us": null,
+      "lanes": null,
+      "error": null
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.11536417729580248,
+       "ci99": [
+        0.11219963312005729,
+        0.1169566331247481
+       ],
+       "pairs": 7
+      },
+      "tirust_over_collier": {
+       "median": 0.5700912266251935,
+       "ci99": [
+        0.5670743451489821,
+        0.5776435057520589
+       ],
+       "pairs": 7
+      },
+      "tirust_contracted_over_ninjars": null
+     }
+    }
+   },
+   {
+    "id": "ordinary-n2-r1",
+    "table": "ordinary",
+    "label": "N=2, R=1",
+    "n": 2,
+    "rank": 1,
+    "powers": [
+     1,
+     1
+    ],
+    "dimension_shift": 0,
+    "batch1": {
+     "tirust": {
+      "status": "measured",
+      "us": 0.8657401693539033,
+      "lanes": {
+       "success": 1
+      },
+      "error": 4.415197605258389e-16
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 0.8794987900120999,
+      "lanes": {
+       "success": 1
+      },
+      "error": 4.415197605258389e-16
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 0.8986674346605228,
+      "lanes": {
+       "success": 1
+      },
+      "error": 4.415197605258389e-16
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 3.13675205327414,
+      "lanes": {
+       "success": 1
+      },
+      "error": 2.1654153860184458e-16
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "measured",
+      "us": 1.1245194178203763,
+      "lanes": {
+       "success": 1
+      },
+      "error": 1.1080177429756723e-15
+     },
+     "ninjars": {
+      "status": "measured",
+      "us": 1.0800984802246094,
+      "lanes": {
+       "success": 1
+      },
+      "error": 5.473677838676988e-16
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.27551422763475086,
+       "ci99": [
+        0.2748196015940302,
+        0.27910815628222035
+       ],
+       "pairs": 11
+      },
+      "tirust_over_collier": {
+       "median": 0.7696862532680272,
+       "ci99": [
+        0.7650843749664746,
+        0.7788943703372828
+       ],
+       "pairs": 11
+      },
+      "tirust_contracted_over_ninjars": {
+       "median": 0.8438962440782192,
+       "ci99": [
+        0.8138387506747004,
+        0.8473373280827593
+       ],
+       "pairs": 11
+      }
+     }
+    },
+    "batch32": {
+     "tirust": {
+      "status": "measured",
+      "us": 0.6191082084276017,
+      "lanes": {
+       "success": 32
+      },
+      "error": 4.415197605258389e-16
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 0.6202460317460317,
+      "lanes": {
+       "success": 32
+      },
+      "error": 4.415197605258389e-16
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 0.6372920171113688,
+      "lanes": {
+       "success": 32
+      },
+      "error": 4.415197605258389e-16
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 3.0421525735294117,
+      "lanes": {
+       "success": 32
+      },
+      "error": 2.1654153860184458e-16
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "measured",
+      "us": 1.1328363175675678,
+      "lanes": {
+       "success": 32
+      },
+      "error": 1.1080177429756723e-15
+     },
+     "ninjars": {
+      "status": "measured",
+      "us": 0.5960175018310547,
+      "lanes": {
+       "success": 32
+      },
+      "error": 5.473677838676988e-16
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.20445417826622844,
+       "ci99": [
+        0.2004863249835322,
+        0.20616374134662285
+       ],
+       "pairs": 7
+      },
+      "tirust_over_collier": {
+       "median": 0.5476702759366592,
+       "ci99": [
+        0.545889743479806,
+        0.5534563928228248
+       ],
+       "pairs": 7
+      },
+      "tirust_contracted_over_ninjars": {
+       "median": 1.0687565101649197,
+       "ci99": [
+        1.0571213517354225,
+        1.0755638623977875
+       ],
+       "pairs": 7
+      }
+     }
+    }
+   },
+   {
+    "id": "ordinary-n2-r6",
+    "table": "ordinary",
+    "label": "N=2, R=6",
+    "n": 2,
+    "rank": 6,
+    "powers": [
+     1,
+     1
+    ],
+    "dimension_shift": 0,
+    "batch1": {
+     "tirust": {
+      "status": "measured",
+      "us": 4.570998957247133,
+      "lanes": {
+       "success": 1
+      },
+      "error": 4.415197605258389e-16
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 4.599665256478055,
+      "lanes": {
+       "success": 1
+      },
+      "error": 4.415197605258389e-16
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 4.903591006423983,
+      "lanes": {
+       "success": 1
+      },
+      "error": 4.415197605258389e-16
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 386.0478823529412,
+      "lanes": {
+       "success": 1
+      },
+      "error": 2.1654153860184458e-16
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "measured",
+      "us": 8.545483309143687,
+      "lanes": {
+       "success": 1
+      },
+      "error": 2.249782219242109e-16
+     },
+     "ninjars": {
+      "status": "not measured",
+      "us": null,
+      "lanes": null,
+      "error": null
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.01184127928876643,
+       "ci99": [
+        0.011716726304408558,
+        0.011892176177987728
+       ],
+       "pairs": 11
+      },
+      "tirust_over_collier": {
+       "median": 0.5349230349096213,
+       "ci99": [
+        0.5304445354431411,
+        0.5391798785714454
+       ],
+       "pairs": 11
+      },
+      "tirust_contracted_over_ninjars": null
+     }
+    },
+    "batch32": {
+     "tirust": {
+      "status": "measured",
+      "us": 4.15336125,
+      "lanes": {
+       "success": 32
+      },
+      "error": 4.415197605258389e-16
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 4.086683510638298,
+      "lanes": {
+       "success": 32
+      },
+      "error": 4.415197605258389e-16
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 4.402930908203125,
+      "lanes": {
+       "success": 32
+      },
+      "error": 4.415197605258389e-16
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 394.784453125,
+      "lanes": {
+       "success": 32
+      },
+      "error": 2.1654153860184458e-16
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "measured",
+      "us": 8.629205051369864,
+      "lanes": {
+       "success": 32
+      },
+      "error": 2.249782219242109e-16
+     },
+     "ninjars": {
+      "status": "not measured",
+      "us": null,
+      "lanes": null,
+      "error": null
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.010517562998066082,
+       "ci99": [
+        0.009427715470039141,
+        0.010569731342292152
+       ],
+       "pairs": 7
+      },
+      "tirust_over_collier": {
+       "median": 0.4816146233262479,
+       "ci99": [
+        0.47834997729829326,
+        0.4854146826520961
+       ],
+       "pairs": 7
+      },
+      "tirust_contracted_over_ninjars": null
+     }
+    }
+   },
+   {
+    "id": "ordinary-n3-r2",
+    "table": "ordinary",
+    "label": "N=3, R=2",
+    "n": 3,
+    "rank": 2,
+    "powers": [
+     1,
+     1,
+     1
+    ],
+    "dimension_shift": 0,
+    "batch1": {
+     "tirust": {
+      "status": "measured",
+      "us": 3.756802389147601,
+      "lanes": {
+       "success": 1
+      },
+      "error": 4.421364192039781e-15
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 3.778845007739938,
+      "lanes": {
+       "success": 1
+      },
+      "error": 4.421364192039781e-15
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 3.783211757400124,
+      "lanes": {
+       "success": 1
+      },
+      "error": 4.421364192039781e-15
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 24.807680303030303,
+      "lanes": {
+       "success": 1
+      },
+      "error": 1.856444430998122e-15
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "measured",
+      "us": 8.27066841278156,
+      "lanes": {
+       "success": 1
+      },
+      "error": 6.961110662644009e-15
+     },
+     "ninjars": {
+      "status": "measured",
+      "us": 46.201345703125,
+      "lanes": {
+       "success": 1
+      },
+      "error": 7.91546060614576e-15
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.1507895065657509,
+       "ci99": [
+        0.14992176899595525,
+        0.1523815393606952
+       ],
+       "pairs": 11
+      },
+      "tirust_over_collier": {
+       "median": 0.45470653721145576,
+       "ci99": [
+        0.45103347149024653,
+        0.4559241940753997
+       ],
+       "pairs": 11
+      },
+      "tirust_contracted_over_ninjars": {
+       "median": 0.08178105836060738,
+       "ci99": [
+        0.08044218975387532,
+        0.08297830171857343
+       ],
+       "pairs": 11
+      }
+     }
+    },
+    "batch32": {
+     "tirust": {
+      "status": "measured",
+      "us": 3.541184210526316,
+      "lanes": {
+       "success": 32
+      },
+      "error": 4.421364192039781e-15
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 3.5567555147058822,
+      "lanes": {
+       "success": 32
+      },
+      "error": 4.421364192039781e-15
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 3.573978794642857,
+      "lanes": {
+       "success": 32
+      },
+      "error": 4.421364192039781e-15
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 25.1889453125,
+      "lanes": {
+       "success": 32
+      },
+      "error": 1.856444430998122e-15
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "measured",
+      "us": 8.304997944078947,
+      "lanes": {
+       "success": 32
+      },
+      "error": 6.961110662644009e-15
+     },
+     "ninjars": {
+      "status": "measured",
+      "us": 37.4077822265625,
+      "lanes": {
+       "success": 32
+      },
+      "error": 7.91546060614576e-15
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.14061105368148585,
+       "ci99": [
+        0.13935102495537963,
+        0.19201058553187605
+       ],
+       "pairs": 7
+      },
+      "tirust_over_collier": {
+       "median": 0.4282665809486376,
+       "ci99": [
+        0.42162162073899834,
+        0.5805774605017858
+       ],
+       "pairs": 7
+      },
+      "tirust_contracted_over_ninjars": {
+       "median": 0.0955410500680537,
+       "ci99": [
+        0.09255926050450333,
+        0.09717525929899198
+       ],
+       "pairs": 7
+      }
+     }
+    }
+   },
+   {
+    "id": "ordinary-n3-r3",
+    "table": "ordinary",
+    "label": "N=3, R=3",
+    "n": 3,
+    "rank": 3,
+    "powers": [
+     1,
+     1,
+     1
+    ],
+    "dimension_shift": 0,
+    "batch1": {
+     "tirust": {
+      "status": "measured",
+      "us": 4.355086393088553,
+      "lanes": {
+       "success": 1
+      },
+      "error": 4.421364192039781e-15
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 4.3339044142051115,
+      "lanes": {
+       "success": 1
+      },
+      "error": 4.421364192039781e-15
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 4.413062631210637,
+      "lanes": {
+       "success": 1
+      },
+      "error": 4.421364192039781e-15
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 67.15592446043165,
+      "lanes": {
+       "success": 1
+      },
+      "error": 1.856444430998122e-15
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "measured",
+      "us": 10.663423819742489,
+      "lanes": {
+       "success": 1
+      },
+      "error": 6.961110662644009e-15
+     },
+     "ninjars": {
+      "status": "measured",
+      "us": 72.884130859375,
+      "lanes": {
+       "success": 1
+      },
+      "error": 6.0013573375130906e-15
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.06446007988926471,
+       "ci99": [
+        0.06266628257078223,
+        0.0655647889042663
+       ],
+       "pairs": 11
+      },
+      "tirust_over_collier": {
+       "median": 0.4090577101084855,
+       "ci99": [
+        0.400132271220507,
+        0.41416989595165604
+       ],
+       "pairs": 11
+      },
+      "tirust_contracted_over_ninjars": {
+       "median": 0.06091403196453905,
+       "ci99": [
+        0.05972095102322346,
+        0.0611123632724946
+       ],
+       "pairs": 11
+      }
+     }
+    },
+    "batch32": {
+     "tirust": {
+      "status": "measured",
+      "us": 4.08585304054054,
+      "lanes": {
+       "success": 32
+      },
+      "error": 4.421364192039781e-15
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 4.182444563356165,
+      "lanes": {
+       "success": 32
+      },
+      "error": 4.421364192039781e-15
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 4.100705782312925,
+      "lanes": {
+       "success": 32
+      },
+      "error": 4.421364192039781e-15
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 66.15836875,
+      "lanes": {
+       "success": 32
+      },
+      "error": 1.856444430998122e-15
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "measured",
+      "us": 10.717216145833333,
+      "lanes": {
+       "success": 32
+      },
+      "error": 6.961110662644009e-15
+     },
+     "ninjars": {
+      "status": "measured",
+      "us": 61.73586328125,
+      "lanes": {
+       "success": 32
+      },
+      "error": 6.0013573375130906e-15
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.06168376295871603,
+       "ci99": [
+        0.060783450164657984,
+        0.062474186016308414
+       ],
+       "pairs": 7
+      },
+      "tirust_over_collier": {
+       "median": 0.3819597898550463,
+       "ci99": [
+        0.36108856260587335,
+        0.3851343474875054
+       ],
+       "pairs": 7
+      },
+      "tirust_contracted_over_ninjars": {
+       "median": 0.0662693011055801,
+       "ci99": [
+        0.06593472248437457,
+        0.06692361674286451
+       ],
+       "pairs": 7
+      }
+     }
+    }
+   },
+   {
+    "id": "ordinary-n3-r6",
+    "table": "ordinary",
+    "label": "N=3, R=6",
+    "n": 3,
+    "rank": 6,
+    "powers": [
+     1,
+     1,
+     1
+    ],
+    "dimension_shift": 0,
+    "batch1": {
+     "tirust": {
+      "status": "measured",
+      "us": 8.550809523809523,
+      "lanes": {
+       "success": 1
+      },
+      "error": 4.421364192039781e-15
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 8.547523066004258,
+      "lanes": {
+       "success": 1
+      },
+      "error": 4.421364192039781e-15
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 8.96155737704918,
+      "lanes": {
+       "success": 1
+      },
+      "error": 4.421364192039781e-15
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 2701.51375,
+      "lanes": {
+       "success": 1
+      },
+      "error": 1.856444430998122e-15
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "measured",
+      "us": 50.64942391304348,
+      "lanes": {
+       "success": 1
+      },
+      "error": 6.961110662644009e-15
+     },
+     "ninjars": {
+      "status": "not measured",
+      "us": null,
+      "lanes": null,
+      "error": null
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.0031610155337668277,
+       "ci99": [
+        0.003144213950897359,
+        0.0032011828280251358
+       ],
+       "pairs": 11
+      },
+      "tirust_over_collier": {
+       "median": 0.16875541561948892,
+       "ci99": [
+        0.16731640332622486,
+        0.16974589348612362
+       ],
+       "pairs": 11
+      },
+      "tirust_contracted_over_ninjars": null
+     }
+    },
+    "batch32": {
+     "tirust": {
+      "status": "measured",
+      "us": 8.278058277027027,
+      "lanes": {
+       "success": 32
+      },
+      "error": 4.421364192039781e-15
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 8.235600892857143,
+      "lanes": {
+       "success": 32
+      },
+      "error": 4.421364192039781e-15
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 8.497711267605633,
+      "lanes": {
+       "success": 32
+      },
+      "error": 4.421364192039781e-15
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 2760.37865625,
+      "lanes": {
+       "success": 32
+      },
+      "error": 1.856444430998122e-15
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "measured",
+      "us": 51.06372115384615,
+      "lanes": {
+       "success": 32
+      },
+      "error": 6.961110662644009e-15
+     },
+     "ninjars": {
+      "status": "not measured",
+      "us": null,
+      "lanes": null,
+      "error": null
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.0030027829591775285,
+       "ci99": [
+        0.002978785141139912,
+        0.0030213764718769734
+       ],
+       "pairs": 7
+      },
+      "tirust_over_collier": {
+       "median": 0.16221510398224243,
+       "ci99": [
+        0.16114609456977144,
+        0.16300309726808027
+       ],
+       "pairs": 7
+      },
+      "tirust_contracted_over_ninjars": null
+     }
+    }
+   },
+   {
+    "id": "ordinary-n4-r4",
+    "table": "ordinary",
+    "label": "N=4, R=4",
+    "n": 4,
+    "rank": 4,
+    "powers": [
+     1,
+     1,
+     1,
+     1
+    ],
+    "dimension_shift": 0,
+    "batch1": {
+     "tirust": {
+      "status": "measured",
+      "us": 32.54216304347826,
+      "lanes": {
+       "success": 1
+      },
+      "error": 1.5594865891229013e-14
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 32.16470383912249,
+      "lanes": {
+       "success": 1
+      },
+      "error": 1.5594865891229013e-14
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 32.51134963768116,
+      "lanes": {
+       "success": 1
+      },
+      "error": 1.5594865891229013e-14
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 532.9954594594594,
+      "lanes": {
+       "success": 1
+      },
+      "error": 1.037176972611101e-14
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "measured",
+      "us": 50.425398734177215,
+      "lanes": {
+       "success": 1
+      },
+      "error": 9.7398943650474e-15
+     },
+     "ninjars": {
+      "status": "measured",
+      "us": 261.81421875,
+      "lanes": {
+       "success": 1
+      },
+      "error": 8.327823796866087e-14
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.06100398015813272,
+       "ci99": [
+        0.060170655237193754,
+        0.06183628434311593
+       ],
+       "pairs": 11
+      },
+      "tirust_over_collier": {
+       "median": 0.6450692582873034,
+       "ci99": [
+        0.6385242002308829,
+        0.6528868664218179
+       ],
+       "pairs": 11
+      },
+      "tirust_contracted_over_ninjars": {
+       "median": 0.12447304863116097,
+       "ci99": [
+        0.12308117758367433,
+        0.12610510451693158
+       ],
+       "pairs": 11
+      }
+     }
+    },
+    "batch32": {
+     "tirust": {
+      "status": "measured",
+      "us": 31.620146875,
+      "lanes": {
+       "success": 32
+      },
+      "error": 1.5594865891229013e-14
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 31.630065789473683,
+      "lanes": {
+       "success": 32
+      },
+      "error": 1.5594865891229013e-14
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 31.864352430555556,
+      "lanes": {
+       "success": 32
+      },
+      "error": 1.5594865891229013e-14
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 529.819375,
+      "lanes": {
+       "success": 32
+      },
+      "error": 1.037176972611101e-14
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "measured",
+      "us": 50.17242067307692,
+      "lanes": {
+       "success": 32
+      },
+      "error": 9.7398943650474e-15
+     },
+     "ninjars": {
+      "status": "measured",
+      "us": 233.03425,
+      "lanes": {
+       "success": 32
+      },
+      "error": 8.327823796866087e-14
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.059787548799811976,
+       "ci99": [
+        0.05903393750776716,
+        0.06071542942500647
+       ],
+       "pairs": 7
+      },
+      "tirust_over_collier": {
+       "median": 0.6302296451079491,
+       "ci99": [
+        0.6209824452185466,
+        0.6354721912109913
+       ],
+       "pairs": 7
+      },
+      "tirust_contracted_over_ninjars": {
+       "median": 0.13708457322294618,
+       "ci99": [
+        0.1328557869350656,
+        0.138146203599676
+       ],
+       "pairs": 7
+      }
+     }
+    }
+   },
+   {
+    "id": "ordinary-n4-r6",
+    "table": "ordinary",
+    "label": "N=4, R=6",
+    "n": 4,
+    "rank": 6,
+    "powers": [
+     1,
+     1,
+     1,
+     1
+    ],
+    "dimension_shift": 0,
+    "batch1": {
+     "tirust": {
+      "status": "measured",
+      "us": 49.38807386363636,
+      "lanes": {
+       "success": 1
+      },
+      "error": 1.5992399267703864e-14
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 48.51703488372093,
+      "lanes": {
+       "success": 1
+      },
+      "error": 1.5992399267703864e-14
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 48.92031444759207,
+      "lanes": {
+       "success": 1
+      },
+      "error": 1.5992399267703864e-14
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 12484.122,
+      "lanes": {
+       "success": 1
+      },
+      "error": 1.0439792232228704e-14
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "measured",
+      "us": 265.32044,
+      "lanes": {
+       "success": 1
+      },
+      "error": 9.7398943650474e-15
+     },
+     "ninjars": {
+      "status": "measured",
+      "us": 1455.6735625,
+      "lanes": {
+       "success": 1
+      },
+      "error": 1.5882143433474727e-12
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.00395575498548549,
+       "ci99": [
+        0.003920471029417992,
+        0.0039824123978849015
+       ],
+       "pairs": 11
+      },
+      "tirust_over_collier": {
+       "median": 0.18683341812756724,
+       "ci99": [
+        0.18436632556973398,
+        0.18783423157617937
+       ],
+       "pairs": 11
+      },
+      "tirust_contracted_over_ninjars": {
+       "median": 0.03354042603785223,
+       "ci99": [
+        0.03325387834439012,
+        0.03444223803159761
+       ],
+       "pairs": 11
+      }
+     }
+    },
+    "batch32": {
+     "tirust": {
+      "status": "measured",
+      "us": 48.90233522727273,
+      "lanes": {
+       "success": 32
+      },
+      "error": 1.5992399267703864e-14
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 48.62562784090909,
+      "lanes": {
+       "success": 32
+      },
+      "error": 1.5992399267703864e-14
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 48.860943181818186,
+      "lanes": {
+       "success": 32
+      },
+      "error": 1.5992399267703864e-14
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 12621.99365625,
+      "lanes": {
+       "success": 32
+      },
+      "error": 1.0439792232228704e-14
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "measured",
+      "us": 266.4445416666667,
+      "lanes": {
+       "success": 32
+      },
+      "error": 9.7398943650474e-15
+     },
+     "ninjars": {
+      "status": "measured",
+      "us": 1403.55865625,
+      "lanes": {
+       "success": 32
+      },
+      "error": 1.5882143433474727e-12
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.003885527576888586,
+       "ci99": [
+        0.0038556685966369703,
+        0.004000283339813789
+       ],
+       "pairs": 7
+      },
+      "tirust_over_collier": {
+       "median": 0.18464310966162265,
+       "ci99": [
+        0.18301755366968145,
+        0.18698114930900617
+       ],
+       "pairs": 7
+      },
+      "tirust_contracted_over_ninjars": {
+       "median": 0.03481434947186936,
+       "ci99": [
+        0.03297104245163416,
+        0.03544637407986338
+       ],
+       "pairs": 7
+      }
+     }
+    }
+   },
+   {
+    "id": "ordinary-n5-r5",
+    "table": "ordinary",
+    "label": "N=5, R=5",
+    "n": 5,
+    "rank": 5,
+    "powers": [
+     1,
+     1,
+     1,
+     1,
+     1
+    ],
+    "dimension_shift": 0,
+    "batch1": {
+     "tirust": {
+      "status": "measured",
+      "us": 116.26011585365855,
+      "lanes": {
+       "success": 1
+      },
+      "error": 4.685450964102931e-12
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 116.86653703703703,
+      "lanes": {
+       "success": 1
+      },
+      "error": 4.685450964102931e-12
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 117.13530487804877,
+      "lanes": {
+       "success": 1
+      },
+      "error": 4.685450964102931e-12
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 8723.899666666666,
+      "lanes": {
+       "success": 1
+      },
+      "error": 9.657452317091753e-12
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "measured",
+      "us": 300.231078125,
+      "lanes": {
+       "success": 1
+      },
+      "error": 1.1008377788267852e-11
+     },
+     "ninjars": {
+      "status": "measured",
+      "us": 729.8189375,
+      "lanes": {
+       "success": 1
+      },
+      "error": 8.498957013657075e-12
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.013306842074713755,
+       "ci99": [
+        0.013099051935032989,
+        0.013329425086980873
+       ],
+       "pairs": 11
+      },
+      "tirust_over_collier": {
+       "median": 0.3860185965208508,
+       "ci99": [
+        0.38285922643287695,
+        0.3894307619592009
+       ],
+       "pairs": 11
+      },
+      "tirust_contracted_over_ninjars": {
+       "median": 0.16051779398356364,
+       "ci99": [
+        0.15922993847831715,
+        0.16110825717522198
+       ],
+       "pairs": 11
+      }
+     }
+    },
+    "batch32": {
+     "tirust": {
+      "status": "measured",
+      "us": 118.98893125,
+      "lanes": {
+       "success": 32
+      },
+      "error": 4.685450964102931e-12
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 119.00461874999999,
+      "lanes": {
+       "success": 32
+      },
+      "error": 4.685450964102931e-12
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 119.04855624999999,
+      "lanes": {
+       "success": 32
+      },
+      "error": 4.685450964102931e-12
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 8817.15375,
+      "lanes": {
+       "success": 32
+      },
+      "error": 9.657452317091753e-12
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "measured",
+      "us": 301.9638541666667,
+      "lanes": {
+       "success": 32
+      },
+      "error": 1.1008377788267852e-11
+     },
+     "ninjars": {
+      "status": "measured",
+      "us": 711.361375,
+      "lanes": {
+       "success": 32
+      },
+      "error": 8.498957013657075e-12
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.013605303894127965,
+       "ci99": [
+        0.013423685017605083,
+        0.013802848054151036
+       ],
+       "pairs": 7
+      },
+      "tirust_over_collier": {
+       "median": 0.39485746440872177,
+       "ci99": [
+        0.3786298257299823,
+        0.39885779933127513
+       ],
+       "pairs": 7
+      },
+      "tirust_contracted_over_ninjars": {
+       "median": 0.1679918043853786,
+       "ci99": [
+        0.1642399424384552,
+        0.16939200910631286
+       ],
+       "pairs": 7
+      }
+     }
+    }
+   },
+   {
+    "id": "ordinary-n5-r6",
+    "table": "ordinary",
+    "label": "N=5, R=6",
+    "n": 5,
+    "rank": 6,
+    "powers": [
+     1,
+     1,
+     1,
+     1,
+     1
+    ],
+    "dimension_shift": 0,
+    "batch1": {
+     "tirust": {
+      "status": "measured",
+      "us": 153.65785714285713,
+      "lanes": {
+       "success": 1
+      },
+      "error": 1.8197193898203026e-11
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 153.30714285714288,
+      "lanes": {
+       "success": 1
+      },
+      "error": 1.8197193898203026e-11
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 152.0922125984252,
+      "lanes": {
+       "success": 1
+      },
+      "error": 1.8197193898203026e-11
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 46123.202,
+      "lanes": {
+       "success": 1
+      },
+      "error": 3.7373873467236054e-11
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "measured",
+      "us": 1068.5296842105263,
+      "lanes": {
+       "success": 1
+      },
+      "error": 4.267443941902613e-11
+     },
+     "ninjars": {
+      "status": "measured",
+      "us": 1749.711625,
+      "lanes": {
+       "success": 1
+      },
+      "error": 2.3316645311547095e-11
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.0033369938170874957,
+       "ci99": [
+        0.0032537607102143726,
+        0.0033488187165385225
+       ],
+       "pairs": 11
+      },
+      "tirust_over_collier": {
+       "median": 0.1439454703124594,
+       "ci99": [
+        0.13372565905309045,
+        0.1456555574003033
+       ],
+       "pairs": 11
+      },
+      "tirust_contracted_over_ninjars": {
+       "median": 0.08695849189724683,
+       "ci99": [
+        0.08517365567696304,
+        0.08744135855345252
+       ],
+       "pairs": 11
+      }
+     }
+    },
+    "batch32": {
+     "tirust": {
+      "status": "measured",
+      "us": 155.2968125,
+      "lanes": {
+       "success": 32
+      },
+      "error": 1.8197193898203026e-11
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 153.7753203125,
+      "lanes": {
+       "success": 32
+      },
+      "error": 1.8197193898203026e-11
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 153.51275,
+      "lanes": {
+       "success": 32
+      },
+      "error": 1.8197193898203026e-11
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 47122.9788125,
+      "lanes": {
+       "success": 32
+      },
+      "error": 3.7373873467236054e-11
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "measured",
+      "us": 1064.76721875,
+      "lanes": {
+       "success": 32
+      },
+      "error": 4.267443941902613e-11
+     },
+     "ninjars": {
+      "status": "measured",
+      "us": 1722.6543125,
+      "lanes": {
+       "success": 32
+      },
+      "error": 2.3316645311547095e-11
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.003299245118418945,
+       "ci99": [
+        0.0031598918419886686,
+        0.0035079884253300182
+       ],
+       "pairs": 7
+      },
+      "tirust_over_collier": {
+       "median": 0.14528951771563486,
+       "ci99": [
+        0.13438548961714492,
+        0.1545437337521338
+       ],
+       "pairs": 7
+      },
+      "tirust_contracted_over_ninjars": {
+       "median": 0.08955405125722672,
+       "ci99": [
+        0.08700689677843337,
+        0.09006195469109336
+       ],
+       "pairs": 7
+      }
+     }
+    }
+   },
+   {
+    "id": "ordinary-n6-r6",
+    "table": "ordinary",
+    "label": "N=6, R=6",
+    "n": 6,
+    "rank": 6,
+    "powers": [
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ],
+    "dimension_shift": 0,
+    "batch1": {
+     "tirust": {
+      "status": "measured",
+      "us": 429.6269069767442,
+      "lanes": {
+       "success": 1
+      },
+      "error": 8.556037236765987e-12
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 428.1856363636364,
+      "lanes": {
+       "success": 1
+      },
+      "error": 8.556037236765987e-12
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 427.77089130434786,
+      "lanes": {
+       "success": 1
+      },
+      "error": 8.556037236765987e-12
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 202303.769,
+      "lanes": {
+       "success": 1
+      },
+      "error": 1.7730511804273565e-11
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "measured",
+      "us": 1952.0053636363634,
+      "lanes": {
+       "unstable": 1
+      },
+      "error": null
+     },
+     "ninjars": {
+      "status": "measured",
+      "us": 1338.57425,
+      "lanes": {
+       "unknown": 1
+      },
+      "error": null
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.0021251399116504863,
+       "ci99": [
+        0.0021016194772138907,
+        0.0021549749386785655
+       ],
+       "pairs": 11
+      },
+      "tirust_over_collier": {
+       "median": 0.22007739569693976,
+       "ci99": [
+        0.21817749374057735,
+        0.22297548021886388
+       ],
+       "pairs": 11
+      },
+      "tirust_contracted_over_ninjars": {
+       "median": 0.31866828588197077,
+       "ci99": [
+        0.31188495771935104,
+        0.3293191490929317
+       ],
+       "pairs": 11
+      }
+     }
+    },
+    "batch32": {
+     "tirust": {
+      "status": "measured",
+      "us": 419.073453125,
+      "lanes": {
+       "success": 32
+      },
+      "error": 8.556037236765987e-12
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 416.703921875,
+      "lanes": {
+       "success": 32
+      },
+      "error": 8.556037236765987e-12
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 418.53921875,
+      "lanes": {
+       "success": 32
+      },
+      "error": 8.556037236765987e-12
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 205858.3679375,
+      "lanes": {
+       "success": 32
+      },
+      "error": 1.7730511804273565e-11
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "measured",
+      "us": 1522.024125,
+      "lanes": {
+       "success": 31,
+       "unstable": 1
+      },
+      "error": null
+     },
+     "ninjars": {
+      "status": "measured",
+      "us": 1363.6271875,
+      "lanes": {
+       "unknown": 32
+      },
+      "error": null
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.002035982378145165,
+       "ci99": [
+        0.0020062920382421133,
+        0.002062400154803049
+       ],
+       "pairs": 7
+      },
+      "tirust_over_collier": {
+       "median": 0.2766922099542936,
+       "ci99": [
+        0.27273652810638427,
+        0.2786706345177946
+       ],
+       "pairs": 7
+      },
+      "tirust_contracted_over_ninjars": {
+       "median": 0.3070372908056878,
+       "ci99": [
+        0.2987203559769615,
+        0.3180480415954613
+       ],
+       "pairs": 7
+      }
+     }
+    }
+   },
+   {
+    "id": "ordinary-n7-r7",
+    "table": "ordinary",
+    "label": "N=7, R=7",
+    "n": 7,
+    "rank": 7,
+    "powers": [
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ],
+    "dimension_shift": 0,
+    "batch1": {
+     "tirust": {
+      "status": "measured",
+      "us": 2050.9242,
+      "lanes": {
+       "success": 1
+      },
+      "error": 2.0068292208842384e-11
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 2044.3701,
+      "lanes": {
+       "success": 1
+      },
+      "error": 2.0068292208842384e-11
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 2035.7151000000001,
+      "lanes": {
+       "success": 1
+      },
+      "error": 2.0068292208842384e-11
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 3711317.519,
+      "lanes": {
+       "success": 1
+      },
+      "error": 2.8786265930534525e-06
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "measured",
+      "us": 5079.346,
+      "lanes": {
+       "unstable": 1
+      },
+      "error": null
+     },
+     "ninjars": {
+      "status": "measured",
+      "us": 3438.027875,
+      "lanes": {
+       "unknown": 1
+      },
+      "error": null
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.0005512395656444693,
+       "ci99": [
+        0.0005376777023861024,
+        0.000555885393647452
+       ],
+       "pairs": 11
+      },
+      "tirust_over_collier": {
+       "median": 0.40168413029548794,
+       "ci99": [
+        0.39901542840477144,
+        0.411250888036374
+       ],
+       "pairs": 11
+      },
+      "tirust_contracted_over_ninjars": {
+       "median": 0.5916387167163384,
+       "ci99": [
+        0.5894856711620933,
+        0.597408002983091
+       ],
+       "pairs": 11
+      }
+     }
+    },
+    "batch32": {
+     "tirust": {
+      "status": "measured",
+      "us": 4244.41025,
+      "lanes": {
+       "success": 32
+      },
+      "error": 2.0068292208842384e-11
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 4105.73996875,
+      "lanes": {
+       "success": 20,
+       "best_effort": 12
+      },
+      "error": 2.0068292208842384e-11
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 4271.4935,
+      "lanes": {
+       "success": 32
+      },
+      "error": 2.0068292208842384e-11
+     },
+     "iregi": {
+      "status": "skipped (too slow at this batch)",
+      "us": null,
+      "lanes": null,
+      "error": null
+     },
+     "iregi_mode": null,
+     "collier": {
+      "status": "measured",
+      "us": 4794.6405625,
+      "lanes": {
+       "success": 31,
+       "unstable": 1
+      },
+      "error": null
+     },
+     "ninjars": {
+      "status": "measured",
+      "us": 3438.93734375,
+      "lanes": {
+       "unknown": 32
+      },
+      "error": null
+     },
+     "ratios": {
+      "tirust_over_iregi": null,
+      "tirust_over_collier": {
+       "median": 0.8863787547473743,
+       "ci99": [
+        0.8771029466250524,
+        0.8952550944776577
+       ],
+       "pairs": 7
+      },
+      "tirust_contracted_over_ninjars": {
+       "median": 1.2393485732987688,
+       "ci99": [
+        1.2015591771792185,
+        1.2949066233162245
+       ],
+       "pairs": 7
+      }
+     }
+    }
+   },
+   {
+    "id": "extended-n1-r6-dot2",
+    "table": "extended",
+    "label": "N=1, R=6",
+    "n": 1,
+    "rank": 6,
+    "powers": [
+     2
+    ],
+    "dimension_shift": 0,
+    "batch1": {
+     "tirust": {
+      "status": "measured",
+      "us": 3.505871546961326,
+      "lanes": {
+       "success": 1
+      },
+      "error": 4.499564438479887e-16
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 3.4498748538011696,
+      "lanes": {
+       "success": 1
+      },
+      "error": 4.499564438479887e-16
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 3.7670745526838965,
+      "lanes": {
+       "success": 1
+      },
+      "error": 4.499564438479887e-16
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 34.60560229445507,
+      "lanes": {
+       "success": 1
+      },
+      "error": 8.999128876959774e-17
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "not measured",
+      "us": null,
+      "lanes": null,
+      "error": null
+     },
+     "ninjars": {
+      "status": "not measured",
+      "us": null,
+      "lanes": null,
+      "error": null
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.10126079127811341,
+       "ci99": [
+        0.10054336123952493,
+        0.10453997596824106
+       ],
+       "pairs": 11
+      },
+      "tirust_over_collier": null,
+      "tirust_contracted_over_ninjars": null
+     }
+    },
+    "batch32": {
+     "tirust": {
+      "status": "measured",
+      "us": 3.135276417525773,
+      "lanes": {
+       "success": 32
+      },
+      "error": 4.499564438479887e-16
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 3.1951263020833336,
+      "lanes": {
+       "success": 32
+      },
+      "error": 4.499564438479887e-16
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 3.468292248603352,
+      "lanes": {
+       "success": 32
+      },
+      "error": 4.499564438479887e-16
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 35.03426909722222,
+      "lanes": {
+       "success": 32
+      },
+      "error": 8.999128876959774e-17
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "not measured",
+      "us": null,
+      "lanes": null,
+      "error": null
+     },
+     "ninjars": {
+      "status": "not measured",
+      "us": null,
+      "lanes": null,
+      "error": null
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.0898529078715908,
+       "ci99": [
+        0.0863845461473195,
+        0.09030839509807662
+       ],
+       "pairs": 7
+      },
+      "tirust_over_collier": null,
+      "tirust_contracted_over_ninjars": null
+     }
+    }
+   },
+   {
+    "id": "extended-n2-r2-dot2",
+    "table": "extended",
+    "label": "N=2, R=2",
+    "n": 2,
+    "rank": 2,
+    "powers": [
+     2,
+     1
+    ],
+    "dimension_shift": 0,
+    "batch1": {
+     "tirust": {
+      "status": "measured",
+      "us": 2.05836235050598,
+      "lanes": {
+       "success": 1
+      },
+      "error": 2.5965997206221066e-16
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 2.071889328984157,
+      "lanes": {
+       "success": 1
+      },
+      "error": 2.5965997206221066e-16
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 2.103356427921487,
+      "lanes": {
+       "success": 1
+      },
+      "error": 2.5965997206221066e-16
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 27.4438009478673,
+      "lanes": {
+       "success": 1
+      },
+      "error": 1.2982998603110533e-16
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "not measured",
+      "us": null,
+      "lanes": null,
+      "error": null
+     },
+     "ninjars": {
+      "status": "not measured",
+      "us": null,
+      "lanes": null,
+      "error": null
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.07539358654896146,
+       "ci99": [
+        0.07466852072039701,
+        0.07632406285291905
+       ],
+       "pairs": 11
+      },
+      "tirust_over_collier": null,
+      "tirust_contracted_over_ninjars": null
+     }
+    },
+    "batch32": {
+     "tirust": {
+      "status": "measured",
+      "us": 1.8199599038461538,
+      "lanes": {
+       "success": 32
+      },
+      "error": 2.5965997206221066e-16
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 1.845266447368421,
+      "lanes": {
+       "success": 32
+      },
+      "error": 2.5965997206221066e-16
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 1.8579537197231835,
+      "lanes": {
+       "success": 32
+      },
+      "error": 2.5965997206221066e-16
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 31.94490625,
+      "lanes": {
+       "success": 32
+      },
+      "error": 1.2982998603110533e-16
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "not measured",
+      "us": null,
+      "lanes": null,
+      "error": null
+     },
+     "ninjars": {
+      "status": "not measured",
+      "us": null,
+      "lanes": null,
+      "error": null
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.05695238918535064,
+       "ci99": [
+        0.05668602539599096,
+        0.05729248847230294
+       ],
+       "pairs": 7
+      },
+      "tirust_over_collier": null,
+      "tirust_contracted_over_ninjars": null
+     }
+    }
+   },
+   {
+    "id": "extended-n3-r4-dot2",
+    "table": "extended",
+    "label": "N=3, R=4",
+    "n": 3,
+    "rank": 4,
+    "powers": [
+     2,
+     1,
+     1
+    ],
+    "dimension_shift": 0,
+    "batch1": {
+     "tirust": {
+      "status": "measured",
+      "us": 9.258385598141697,
+      "lanes": {
+       "success": 1
+      },
+      "error": 5.712884164262732e-15
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 9.042426229508196,
+      "lanes": {
+       "success": 1
+      },
+      "error": 5.712884164262732e-15
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 9.149348696179503,
+      "lanes": {
+       "success": 1
+      },
+      "error": 5.712884164262732e-15
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 539.5143055555556,
+      "lanes": {
+       "success": 1
+      },
+      "error": 5.3911048401074755e-15
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "not measured",
+      "us": null,
+      "lanes": null,
+      "error": null
+     },
+     "ninjars": {
+      "status": "not measured",
+      "us": null,
+      "lanes": null,
+      "error": null
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.01716617944858163,
+       "ci99": [
+        0.01713671932565428,
+        0.017327479798957133
+       ],
+       "pairs": 11
+      },
+      "tirust_over_collier": null,
+      "tirust_contracted_over_ninjars": null
+     }
+    },
+    "batch32": {
+     "tirust": {
+      "status": "measured",
+      "us": 8.730156723484848,
+      "lanes": {
+       "success": 32
+      },
+      "error": 5.712884164262732e-15
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 8.666259134615384,
+      "lanes": {
+       "success": 32
+      },
+      "error": 5.712884164262732e-15
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 8.731588107638888,
+      "lanes": {
+       "success": 32
+      },
+      "error": 5.712884164262732e-15
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 558.72278125,
+      "lanes": {
+       "success": 32
+      },
+      "error": 5.3911048401074755e-15
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "not measured",
+      "us": null,
+      "lanes": null,
+      "error": null
+     },
+     "ninjars": {
+      "status": "not measured",
+      "us": null,
+      "lanes": null,
+      "error": null
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.01563907313001606,
+       "ci99": [
+        0.015532029844791647,
+        0.015742410229583798
+       ],
+       "pairs": 7
+      },
+      "tirust_over_collier": null,
+      "tirust_contracted_over_ninjars": null
+     }
+    }
+   },
+   {
+    "id": "extended-n4-r6-dot2",
+    "table": "extended",
+    "label": "N=4, R=6",
+    "n": 4,
+    "rank": 6,
+    "powers": [
+     2,
+     1,
+     1,
+     1
+    ],
+    "dimension_shift": 0,
+    "batch1": {
+     "tirust": {
+      "status": "measured",
+      "us": 38.71942558139535,
+      "lanes": {
+       "success": 1
+      },
+      "error": 6.045924885905901e-14
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 38.33355606407323,
+      "lanes": {
+       "success": 1
+      },
+      "error": 6.045924885905901e-14
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 38.72390654205607,
+      "lanes": {
+       "success": 1
+      },
+      "error": 6.045924885905901e-14
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 14952.236,
+      "lanes": {
+       "success": 1
+      },
+      "error": 7.78169701659662e-14
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "not measured",
+      "us": null,
+      "lanes": null,
+      "error": null
+     },
+     "ninjars": {
+      "status": "not measured",
+      "us": null,
+      "lanes": null,
+      "error": null
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.0025820967549589143,
+       "ci99": [
+        0.002562062025476642,
+        0.0025923816941212617
+       ],
+       "pairs": 11
+      },
+      "tirust_over_collier": null,
+      "tirust_contracted_over_ninjars": null
+     }
+    },
+    "batch32": {
+     "tirust": {
+      "status": "measured",
+      "us": 38.52417647058824,
+      "lanes": {
+       "success": 32
+      },
+      "error": 6.045924885905901e-14
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 37.69150735294117,
+      "lanes": {
+       "success": 32
+      },
+      "error": 6.045924885905901e-14
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 38.22270404411765,
+      "lanes": {
+       "success": 32
+      },
+      "error": 6.045924885905901e-14
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 15137.93309375,
+      "lanes": {
+       "success": 32
+      },
+      "error": 7.78169701659662e-14
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "not measured",
+      "us": null,
+      "lanes": null,
+      "error": null
+     },
+     "ninjars": {
+      "status": "not measured",
+      "us": null,
+      "lanes": null,
+      "error": null
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.0025477093585761167,
+       "ci99": [
+        0.0025416987176417184,
+        0.0025663290792784328
+       ],
+       "pairs": 7
+      },
+      "tirust_over_collier": null,
+      "tirust_contracted_over_ninjars": null
+     }
+    }
+   },
+   {
+    "id": "extended-n4-r6-dot3",
+    "table": "extended",
+    "label": "N=4, R=6",
+    "n": 4,
+    "rank": 6,
+    "powers": [
+     3,
+     1,
+     1,
+     1
+    ],
+    "dimension_shift": 0,
+    "batch1": {
+     "tirust": {
+      "status": "measured",
+      "us": 62.84496369636964,
+      "lanes": {
+       "success": 1
+      },
+      "error": 8.069836470133687e-14
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 62.9068064516129,
+      "lanes": {
+       "success": 1
+      },
+      "error": 8.069836470133687e-14
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 63.93235636363636,
+      "lanes": {
+       "success": 1
+      },
+      "error": 8.069836470133687e-14
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 18212.495,
+      "lanes": {
+       "success": 1
+      },
+      "error": 9.918285168954533e-14
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "not measured",
+      "us": null,
+      "lanes": null,
+      "error": null
+     },
+     "ninjars": {
+      "status": "not measured",
+      "us": null,
+      "lanes": null,
+      "error": null
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.0034485936917675775,
+       "ci99": [
+        0.0034403759087844976,
+        0.003465003950374079
+       ],
+       "pairs": 11
+      },
+      "tirust_over_collier": null,
+      "tirust_contracted_over_ninjars": null
+     }
+    },
+    "batch32": {
+     "tirust": {
+      "status": "measured",
+      "us": 62.71036875,
+      "lanes": {
+       "success": 32
+      },
+      "error": 8.069836470133687e-14
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 63.368403125,
+      "lanes": {
+       "success": 32
+      },
+      "error": 8.069836470133687e-14
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 62.77080625,
+      "lanes": {
+       "success": 32
+      },
+      "error": 8.069836470133687e-14
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 18772.33265625,
+      "lanes": {
+       "success": 32
+      },
+      "error": 9.918285168954533e-14
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "not measured",
+      "us": null,
+      "lanes": null,
+      "error": null
+     },
+     "ninjars": {
+      "status": "not measured",
+      "us": null,
+      "lanes": null,
+      "error": null
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.003326390852348872,
+       "ci99": [
+        0.0032791236296885002,
+        0.0033519193735966433
+       ],
+       "pairs": 7
+      },
+      "tirust_over_collier": null,
+      "tirust_contracted_over_ninjars": null
+     }
+    }
+   },
+   {
+    "id": "extended-n3-r2-h1",
+    "table": "extended",
+    "label": "N=3, R=2",
+    "n": 3,
+    "rank": 2,
+    "powers": [
+     1,
+     1,
+     1
+    ],
+    "dimension_shift": 1,
+    "batch1": {
+     "tirust": {
+      "status": "measured",
+      "us": 4.103367606529574,
+      "lanes": {
+       "success": 1
+      },
+      "error": 1.35224926183109e-14
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 4.11528617921458,
+      "lanes": {
+       "success": 1
+      },
+      "error": 1.35224926183109e-14
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 4.132570659803463,
+      "lanes": {
+       "success": 1
+      },
+      "error": 1.35224926183109e-14
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 78.28841176470588,
+      "lanes": {
+       "success": 1
+      },
+      "error": 1.1338757339036354e-14
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "not measured",
+      "us": null,
+      "lanes": null,
+      "error": null
+     },
+     "ninjars": {
+      "status": "not measured",
+      "us": null,
+      "lanes": null,
+      "error": null
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.052440742447672155,
+       "ci99": [
+        0.05158641942508216,
+        0.05269008098652325
+       ],
+       "pairs": 11
+      },
+      "tirust_over_collier": null,
+      "tirust_contracted_over_ninjars": null
+     }
+    },
+    "batch32": {
+     "tirust": {
+      "status": "measured",
+      "us": 3.8808568869426754,
+      "lanes": {
+       "success": 32
+      },
+      "error": 1.35224926183109e-14
+     },
+     "tirust_binary64": {
+      "status": "measured",
+      "us": 3.928976055194805,
+      "lanes": {
+       "success": 32
+      },
+      "error": 1.35224926183109e-14
+     },
+     "tirust_contracted": {
+      "status": "measured",
+      "us": 3.896592863475177,
+      "lanes": {
+       "success": 32
+      },
+      "error": 1.35224926183109e-14
+     },
+     "iregi": {
+      "status": "measured",
+      "us": 83.6562265625,
+      "lanes": {
+       "success": 32
+      },
+      "error": 1.1338757339036354e-14
+     },
+     "iregi_mode": "IBP",
+     "collier": {
+      "status": "not measured",
+      "us": null,
+      "lanes": null,
+      "error": null
+     },
+     "ninjars": {
+      "status": "not measured",
+      "us": null,
+      "lanes": null,
+      "error": null
+     },
+     "ratios": {
+      "tirust_over_iregi": {
+       "median": 0.04634547249838463,
+       "ci99": [
+        0.04583144435919251,
+        0.04656522412686304
+       ],
+       "pairs": 7
+      },
+      "tirust_over_collier": null,
+      "tirust_contracted_over_ninjars": null
+     }
+    }
+   }
+  ]
+ },
+ "amplitudes": [
+  {
+   "id": "hexagon-r6",
+   "label": "gg -> gggg, top-loop hexagon, rank 6",
+   "n": 6,
+   "integrals": 57,
+   "lanes": 32,
+   "ms": {
+    "tirust-shared": 81.21199566666667,
+    "tirust-separate": 158.525934,
+    "collier-cache": 79.26736333333332,
+    "collier-nocache": 235.021979
+   },
+   "ratios": {
+    "tirust_shared_over_collier_cache": {
+     "median": 1.0245484806973801,
+     "ci99": [
+      0.9849370243567499,
+      1.0988928858066436
+     ],
+     "pairs": 7
+    },
+    "tirust_separate_over_collier_nocache": {
+     "median": 0.6768081763110334,
+     "ci99": [
+      0.645490169683412,
+      0.6920519608271838
+     ],
+     "pairs": 7
+    },
+    "tirust_shared_over_separate": {
+     "median": 0.5123096426938003,
+     "ci99": [
+      0.5083464606089125,
+      0.5385321463334809
+     ],
+     "pairs": 7
+    },
+    "collier_cache_over_nocache": {
+     "median": 0.3372763844071508,
+     "ci99": [
+      0.3259578695355256,
+      0.35249722536479994
+     ],
+     "pairs": 7
+    }
+   },
+   "tirust_lanes": {
+    "successful": 1824,
+    "best_effort": 0,
+    "sharing_on_equals_off": true,
+    "fingerprint": "00072b2bc3bf86bc"
+   },
+   "collier": {
+    "cache_vs_nocache_max_relative_sum_difference": 0.0,
+    "accuracy_flagged": {
+     "0": 101,
+     "1": 285
+    },
+    "error_flagged": {
+     "0": 0,
+     "1": 0
+    },
+    "calls": 1824
+   }
+  },
+  {
+   "id": "pentagon-r5",
+   "label": "gg -> Hgg, top-loop pentagon (g g g H g), rank 5",
+   "n": 5,
+   "integrals": 26,
+   "lanes": 32,
+   "ms": {
+    "tirust-shared": 13.645915666666665,
+    "tirust-separate": 17.072746416666668,
+    "collier-cache": 17.680708272727273,
+    "collier-nocache": 28.988309714285712
+   },
+   "ratios": {
+    "tirust_shared_over_collier_cache": {
+     "median": 0.778350349874286,
+     "ci99": [
+      0.7598547886392025,
+      0.797394028079835
+     ],
+     "pairs": 7
+    },
+    "tirust_separate_over_collier_nocache": {
+     "median": 0.5872066059766134,
+     "ci99": [
+      0.5653362108667118,
+      0.5960253673672528
+     ],
+     "pairs": 7
+    },
+    "tirust_shared_over_separate": {
+     "median": 0.8025989644099206,
+     "ci99": [
+      0.7816190643682959,
+      0.8187495824532393
+     ],
+     "pairs": 7
+    },
+    "collier_cache_over_nocache": {
+     "median": 0.6061187910313974,
+     "ci99": [
+      0.5866665391077961,
+      0.610693865340024
+     ],
+     "pairs": 7
+    }
+   },
+   "tirust_lanes": {
+    "successful": 832,
+    "best_effort": 0,
+    "sharing_on_equals_off": true,
+    "fingerprint": "2e7a57a2a74769b4"
+   },
+   "collier": {
+    "cache_vs_nocache_max_relative_sum_difference": 2.777103783421056e-16,
+    "accuracy_flagged": {
+     "0": 6,
+     "1": 13
+    },
+    "error_flagged": {
+     "0": 0,
+     "1": 0
+    },
+    "calls": 832
+   }
+  }
+ ],
+ "stability": [
+  {
+   "id": "box-r4",
+   "label": "gg -> HH, top-loop box, rank 4",
+   "n": 4,
+   "rank": 4,
+   "points": 10000,
+   "evaluated": 10000,
+   "with_reference": 10000,
+   "codes": [
+    {
+     "code": "tirust",
+     "label": "TIRust (default: automatic precision rescue)",
+     "median": 1.4368773152865978e-15,
+     "p99": 5.160337727953533e-12,
+     "max": 6.739205862982153e-11,
+     "above_1e-3": 0,
+     "no_array": 0,
+     "flagged": 122,
+     "rescued_by_bits": {
+      "106": 122
+     }
+    },
+    {
+     "code": "tirust-binary64",
+     "label": "TIRust binary64 only (rescue disabled; refused lanes: best-effort array)",
+     "median": 1.4740732746907741e-15,
+     "p99": 5.282186554092305e-12,
+     "max": 6.739205862982153e-11,
+     "above_1e-3": 0,
+     "no_array": 0,
+     "flagged": 2,
+     "rescued_by_bits": null
+    },
+    {
+     "code": "tirust-binary64-r20",
+     "label": "TIRust binary64 only, accuracy request 2^-20 (refused lanes: best-effort array)",
+     "median": 1.4749890781274762e-15,
+     "p99": 5.457002941996842e-11,
+     "max": 7.946625498831251e-08,
+     "above_1e-3": 0,
+     "no_array": 0,
+     "flagged": 0,
+     "rescued_by_bits": null
+    },
+    {
+     "code": "iregi-ibp",
+     "label": "IREGI IBP",
+     "median": 2.1998349767948108e-15,
+     "p99": 4.690309339888241e-11,
+     "max": 0.04429633213763991,
+     "above_1e-3": 2,
+     "no_array": 0,
+     "flagged": 0,
+     "rescued_by_bits": null
+    },
+    {
+     "code": "iregi-pv",
+     "label": "IREGI PV",
+     "median": 2.2304258776792803e-15,
+     "p99": 6.699609010892982e-11,
+     "max": 0.06797307988190722,
+     "above_1e-3": 3,
+     "no_array": 0,
+     "flagged": 0,
+     "rescued_by_bits": null
+    },
+    {
+     "code": "collier-coli",
+     "label": "COLLIER COLI",
+     "median": 1.056639354380597e-15,
+     "p99": 9.105926851974143e-12,
+     "max": 6.191952119843532e-11,
+     "above_1e-3": 0,
+     "no_array": 0,
+     "flagged": 335,
+     "rescued_by_bits": null
+    },
+    {
+     "code": "collier-dd",
+     "label": "COLLIER DD",
+     "median": 1.9809831565230197e-15,
+     "p99": 2.0923401899354113e-13,
+     "max": 8.474761130967852e-13,
+     "above_1e-3": 0,
+     "no_array": 0,
+     "flagged": 93,
+     "rescued_by_bits": null
+    },
+    {
+     "code": "ninjars",
+     "label": "NinjaRS (integrand reduction, binary64 fast engine)",
+     "median": 3.3351216778429006e-15,
+     "p99": 5.3213630757395925e-11,
+     "max": 0.0002953495068962995,
+     "above_1e-3": 0,
+     "no_array": null,
+     "flagged": null,
+     "rescued_by_bits": null,
+     "contracted": true
+    }
+   ]
+  },
+  {
+   "id": "box-r6",
+   "label": "gg -> HH kinematics, top-loop box, rank 6",
+   "n": 4,
+   "rank": 6,
+   "points": 10000,
+   "evaluated": 10000,
+   "with_reference": 10000,
+   "codes": [
+    {
+     "code": "tirust",
+     "label": "TIRust (default: automatic precision rescue)",
+     "median": 1.4524512724518745e-15,
+     "p99": 7.506764893267479e-12,
+     "max": 5.658415806401636e-11,
+     "above_1e-3": 0,
+     "no_array": 0,
+     "flagged": 348,
+     "rescued_by_bits": {
+      "106": 346,
+      "256": 2
+     }
+    },
+    {
+     "code": "tirust-binary64",
+     "label": "TIRust binary64 only (rescue disabled; refused lanes: best-effort array)",
+     "median": 1.5444419676087921e-15,
+     "p99": 7.952712396470452e-12,
+     "max": 2.7120441239165523e-10,
+     "above_1e-3": 0,
+     "no_array": 0,
+     "flagged": 4,
+     "rescued_by_bits": null
+    },
+    {
+     "code": "tirust-binary64-r20",
+     "label": "TIRust binary64 only, accuracy request 2^-20 (refused lanes: best-effort array)",
+     "median": 1.5458136945168323e-15,
+     "p99": 1.050028550878183e-09,
+     "max": 1.5580990132793286e-07,
+     "above_1e-3": 0,
+     "no_array": 0,
+     "flagged": 0,
+     "rescued_by_bits": null
+    },
+    {
+     "code": "iregi-ibp",
+     "label": "IREGI IBP",
+     "median": 2.2388312824955208e-15,
+     "p99": 1.1961277234921265e-08,
+     "max": 165.30599024210866,
+     "above_1e-3": 14,
+     "no_array": 0,
+     "flagged": 0,
+     "rescued_by_bits": null
+    },
+    {
+     "code": "iregi-pv",
+     "label": "IREGI PV",
+     "median": 0.13745033183762428,
+     "p99": 5.668682669124219,
+     "max": 351.5227594540626,
+     "above_1e-3": 10000,
+     "no_array": 0,
+     "flagged": 0,
+     "rescued_by_bits": null
+    },
+    {
+     "code": "collier-coli",
+     "label": "COLLIER COLI",
+     "median": 1.7417442915109031e-15,
+     "p99": 2.179293236657882e-11,
+     "max": 2.5175908391313924e-10,
+     "above_1e-3": 0,
+     "no_array": 0,
+     "flagged": 1499,
+     "rescued_by_bits": null
+    },
+    {
+     "code": "collier-dd",
+     "label": "COLLIER DD",
+     "median": 2.1271224369742066e-15,
+     "p99": 7.841632643577438e-13,
+     "max": 9.991261615624068e-11,
+     "above_1e-3": 0,
+     "no_array": 0,
+     "flagged": 538,
+     "rescued_by_bits": null
+    },
+    {
+     "code": "ninjars",
+     "label": "NinjaRS (integrand reduction, binary64 fast engine)",
+     "median": 3.959517756730706e-15,
+     "p99": 1.2667308552459655e-09,
+     "max": 0.009038942871227527,
+     "above_1e-3": 1,
+     "no_array": null,
+     "flagged": null,
+     "rescued_by_bits": null,
+     "contracted": true
+    }
+   ]
+  },
+  {
+   "id": "pentagon-r5",
+   "label": "gg -> Hgg, top-loop pentagon (g g g H g), rank 5",
+   "n": 5,
+   "rank": 5,
+   "points": 5000,
+   "evaluated": 5000,
+   "with_reference": 5000,
+   "codes": [
+    {
+     "code": "tirust",
+     "label": "TIRust (default: automatic precision rescue)",
+     "median": 3.3698092564592688e-15,
+     "p99": 1.2071831033290348e-11,
+     "max": 5.024016955659451e-11,
+     "above_1e-3": 0,
+     "no_array": 0,
+     "flagged": 43,
+     "rescued_by_bits": {
+      "106": 38,
+      "256": 5
+     }
+    },
+    {
+     "code": "tirust-binary64",
+     "label": "TIRust binary64 only (rescue disabled; refused lanes: best-effort array)",
+     "median": 3.2960800066765922e-15,
+     "p99": 8.474773001742291e-12,
+     "max": 4.78213902403048e-11,
+     "above_1e-3": 0,
+     "no_array": 0,
+     "flagged": 17,
+     "rescued_by_bits": null
+    },
+    {
+     "code": "tirust-binary64-r20",
+     "label": "TIRust binary64 only, accuracy request 2^-20 (refused lanes: best-effort array)",
+     "median": 3.333181206032236e-15,
+     "p99": 1.2435344279186207e-11,
+     "max": 2.2051176448701203e-10,
+     "above_1e-3": 0,
+     "no_array": 0,
+     "flagged": 0,
+     "rescued_by_bits": null
+    },
+    {
+     "code": "iregi-ibp",
+     "label": "IREGI IBP",
+     "median": 2.2682446537890933e-12,
+     "p99": 4977.931281286258,
+     "max": 4.218337744317411e+22,
+     "above_1e-3": 268,
+     "no_array": 0,
+     "flagged": 0,
+     "rescued_by_bits": null
+    },
+    {
+     "code": "iregi-pv",
+     "label": "IREGI PV",
+     "median": 6.881316153643589e-15,
+     "p99": 4.4053536656276775e-09,
+     "max": 0.18071764363675336,
+     "above_1e-3": 2,
+     "no_array": 0,
+     "flagged": 0,
+     "rescued_by_bits": null
+    },
+    {
+     "code": "collier-coli",
+     "label": "COLLIER COLI",
+     "median": 2.905190416685008e-15,
+     "p99": 9.764930801118492e-12,
+     "max": 1.5409448010179133e-10,
+     "above_1e-3": 0,
+     "no_array": 0,
+     "flagged": 77,
+     "rescued_by_bits": null
+    },
+    {
+     "code": "collier-dd",
+     "label": "COLLIER DD",
+     "median": 8.838969316153831e-15,
+     "p99": 1.3007102443035264e-12,
+     "max": 1.3278454959125223e-09,
+     "above_1e-3": 0,
+     "no_array": 0,
+     "flagged": 473,
+     "rescued_by_bits": null
+    },
+    {
+     "code": "ninjars",
+     "label": "NinjaRS (integrand reduction, binary64 fast engine)",
+     "median": 1.7403942833497092e-14,
+     "p99": 9.525472703325835e-11,
+     "max": 0.000152600827245853,
+     "above_1e-3": 0,
+     "no_array": null,
+     "flagged": null,
+     "rescued_by_bits": null,
+     "contracted": true
+    }
+   ]
+  },
+  {
+   "id": "hexagon-r6",
+   "label": "gg -> gggg, top-loop hexagon, rank 6",
+   "n": 6,
+   "rank": 6,
+   "points": 2000,
+   "evaluated": 2000,
+   "with_reference": 2000,
+   "codes": [
+    {
+     "code": "tirust",
+     "label": "TIRust (default: automatic precision rescue)",
+     "median": 5.91307638645655e-14,
+     "p99": 2.2431485824355388e-11,
+     "max": 5.01698237228615e-11,
+     "above_1e-3": 0,
+     "no_array": 0,
+     "flagged": 15,
+     "rescued_by_bits": {
+      "106": 8,
+      "256": 7
+     }
+    },
+    {
+     "code": "tirust-binary64",
+     "label": "TIRust binary64 only (rescue disabled; refused lanes: best-effort array)",
+     "median": 2.6385430250474512e-14,
+     "p99": 9.730317436445662e-12,
+     "max": 3.12207943957907e-10,
+     "above_1e-3": 0,
+     "no_array": 0,
+     "flagged": 57,
+     "rescued_by_bits": null
+    },
+    {
+     "code": "tirust-binary64-r20",
+     "label": "TIRust binary64 only, accuracy request 2^-20 (refused lanes: best-effort array)",
+     "median": 2.8289123574693183e-14,
+     "p99": 1.0023289749505896e-10,
+     "max": 3.1022522035749923e-09,
+     "above_1e-3": 0,
+     "no_array": 0,
+     "flagged": 0,
+     "rescued_by_bits": null
+    },
+    {
+     "code": "iregi-ibp",
+     "label": "IREGI IBP",
+     "median": 1.1807278772244872e+65,
+     "p99": 2.2884208963663335e+76,
+     "max": 4.097194062609441e+80,
+     "above_1e-3": 1993,
+     "no_array": 0,
+     "flagged": 0,
+     "rescued_by_bits": null
+    },
+    {
+     "code": "iregi-pv",
+     "label": "IREGI PV",
+     "median": 9.877051456168233e-13,
+     "p99": 2.6801290776500583e-06,
+     "max": 2795.92106867903,
+     "above_1e-3": 6,
+     "no_array": 0,
+     "flagged": 0,
+     "rescued_by_bits": null
+    },
+    {
+     "code": "collier-coli",
+     "label": "COLLIER COLI",
+     "median": 2.1453576351549545e-14,
+     "p99": 2.0339232829913802e-11,
+     "max": 2.1287760778238838e-10,
+     "above_1e-3": 0,
+     "no_array": 0,
+     "flagged": 210,
+     "rescued_by_bits": null
+    },
+    {
+     "code": "collier-dd",
+     "label": "COLLIER DD",
+     "median": 2.6202768592496543e-14,
+     "p99": 1.9839029428195868e-11,
+     "max": 3.38994009969552e-10,
+     "above_1e-3": 0,
+     "no_array": 0,
+     "flagged": 985,
+     "rescued_by_bits": null
+    },
+    {
+     "code": "ninjars",
+     "label": "NinjaRS (integrand reduction, binary64 fast engine)",
+     "median": 1.2692250995562148e-13,
+     "p99": 3.447785754782738e-06,
+     "max": 6448.867909106206,
+     "above_1e-3": 7,
+     "no_array": null,
+     "flagged": null,
+     "rescued_by_bits": null,
+     "contracted": true
+    }
+   ]
+  },
+  {
+   "id": "heptagon-r7",
+   "label": "gg -> ggggg, top-loop heptagon, rank 7",
+   "n": 7,
+   "rank": 7,
+   "points": 500,
+   "evaluated": 500,
+   "with_reference": 495,
+   "codes": [
+    {
+     "code": "tirust",
+     "label": "TIRust (default: automatic precision rescue)",
+     "median": 1.3777563248749413e-13,
+     "p99": 1.8766289564534722e-11,
+     "max": 3.4002782568809956e-11,
+     "above_1e-3": 0,
+     "no_array": 0,
+     "flagged": 32,
+     "rescued_by_bits": {
+      "106": 16,
+      "256": 16
+     }
+    },
+    {
+     "code": "tirust-binary64",
+     "label": "TIRust binary64 only (rescue disabled; refused lanes: best-effort array)",
+     "median": 8.516919504547683e-14,
+     "p99": 2.631349140997965e-11,
+     "max": 4.267136455435186e-10,
+     "above_1e-3": 0,
+     "no_array": 0,
+     "flagged": 27,
+     "rescued_by_bits": null
+    },
+    {
+     "code": "tirust-binary64-r20",
+     "label": "TIRust binary64 only, accuracy request 2^-20 (refused lanes: best-effort array)",
+     "median": 8.687196127103364e-14,
+     "p99": 2.2557420475992535e-10,
+     "max": 2.929258368070871e-09,
+     "above_1e-3": 0,
+     "no_array": 0,
+     "flagged": 0,
+     "rescued_by_bits": null
+    },
+    {
+     "code": "iregi-ibp",
+     "label": "IREGI IBP",
+     "median": 7.76031869667273e+85,
+     "p99": 1.4353800270601943e+95,
+     "max": 1.2692290576393072e+97,
+     "above_1e-3": 495,
+     "no_array": 0,
+     "flagged": 0,
+     "rescued_by_bits": null
+    },
+    {
+     "code": "iregi-pv",
+     "label": "IREGI PV",
+     "median": 117.16620184990852,
+     "p99": 162197.8196630621,
+     "max": 1357289.3442765987,
+     "above_1e-3": 495,
+     "no_array": 0,
+     "flagged": 0,
+     "rescued_by_bits": null
+    },
+    {
+     "code": "collier-coli",
+     "label": "COLLIER COLI",
+     "median": 8.332928022319956e-14,
+     "p99": 5.049352195254168e-11,
+     "max": 5.010611959106861e-10,
+     "above_1e-3": 0,
+     "no_array": 0,
+     "flagged": 160,
+     "rescued_by_bits": null
+    },
+    {
+     "code": "collier-dd",
+     "label": "COLLIER DD",
+     "median": 9.830798677488006e-14,
+     "p99": 2.499737881528958e-10,
+     "max": 5.850641616781775e-10,
+     "above_1e-3": 0,
+     "no_array": 0,
+     "flagged": 409,
+     "rescued_by_bits": null
+    },
+    {
+     "code": "ninjars",
+     "label": "NinjaRS (integrand reduction, binary64 fast engine)",
+     "median": 4.857098237383277e-13,
+     "p99": 0.0002962932680594,
+     "max": 2.5846951031656995,
+     "above_1e-3": 3,
+     "no_array": null,
+     "flagged": null,
+     "rescued_by_bits": null,
+     "contracted": true
+    }
+   ]
+  }
+ ]
+}
