@@ -17,8 +17,14 @@ Its Python interface links the same Rust implementation and one Symbolica kernel
 with the upstream graph, tensor and numerical types.
 
 Build the standalone wheel from the repository root. This build is currently
-broken on the shared Symbolica revision `20a9da94` until the GammaLoop pin
-moves (see [the environment notes](../docs/environment.md)):
+broken, a known break of this non-core crate: gammaloop `865afdc4`'s
+`spynso3` calls Symbolica's Python `evaluator_multiple` with 17 arguments,
+and the shared Symbolica revision `20a9da94` takes 18 (E0061). The
+pyAmpliCol coordination record accepts the break (DECISIONS 2026-11-06
+~19:45); the follow-up moves the GammaLoop pin to a revision whose `spynso3`
+builds on `20a9da94`. The core crates `iregi-rust` and `iregi-masters` and
+every default member build and test (see
+[the environment notes](../docs/environment.md)):
 
 ```bash
 source scripts/env.sh
