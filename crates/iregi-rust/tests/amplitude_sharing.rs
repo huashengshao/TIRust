@@ -101,6 +101,9 @@ fn shared_subsets_give_bit_identical_results_and_are_reused() {
     // The hexagon gathers the moments of its six Gram-free pentagons, which
     // the pentagon integrals have gathered already: reused on every lane.
     assert!(stats.moments_reused >= 6 * POINTS.len() as u64, "too few moments reused: {stats:?}");
+    // The partial rescues and the double-double tier evaluate the same box
+    // and triangle masters repeatedly: some are reused.
+    assert!(stats.dd_masters_reused > 0 && stats.dd_masters_computed > 0, "no double-double master reused: {stats:?}");
     eprintln!("{stats:?}");
 
     amplitude.set_subset_sharing(false);

@@ -62,6 +62,11 @@ pub struct SubsetSharingStats {
     /// integral gathers inside a larger one).
     pub moments_reused: u64,
     pub moments_computed: u64,
+    /// Double-double scalar masters of the partial rescues and the
+    /// double-double tier (exact arguments, in each executor's own
+    /// propagator order).
+    pub dd_masters_reused: u64,
+    pub dd_masters_computed: u64,
 }
 
 /// One workspace per integral of an amplitude, evaluated together.
@@ -163,7 +168,15 @@ where
             .collect::<Result<Vec<_>, _>>();
         let (reused, computed) = self.store.counts();
         let (moments_reused, moments_computed) = self.store.moment_counts();
-        self.last = SubsetSharingStats { reused, computed, moments_reused, moments_computed };
+        let (dd_masters_reused, dd_masters_computed) = self.store.dd_master_counts();
+        self.last = SubsetSharingStats {
+            reused,
+            computed,
+            moments_reused,
+            moments_computed,
+            dd_masters_reused,
+            dd_masters_computed,
+        };
         self.store.clear();
         results
     }
