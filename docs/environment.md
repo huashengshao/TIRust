@@ -23,7 +23,9 @@ Its GammaLoop crates (gammaloop `865afdc4`) call Symbolica's Python
 `evaluator_multiple` with 17 arguments, but the shared Symbolica revision
 `20a9da94` takes 18 (E0061 in `spynso3`). So `--workspace` and the wheel build
 fail until the GammaLoop pin moves to a revision built for that Symbolica. The
-pyAmpliCol maintainers own that pin move.
+pyAmpliCol coordination record accepts this known break of a non-core crate
+(DECISIONS 2026-11-06 ~19:45), and the pyAmpliCol maintainers own that pin
+move.
 
 `env.sh` respects tools already on `PATH`. If a tool is absent, it searches
 installed Nix store packages without downloading or modifying system state.
