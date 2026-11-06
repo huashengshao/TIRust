@@ -18,6 +18,10 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--feynkit-root", type=Path, required=True)
     parser.add_argument("--typst-assets-root", type=Path, required=True)
+    parser.add_argument(
+        "--symbolica-root", type=Path, required=True,
+        help="checkout of the pinned Symbolica revision (the workspace [patch.crates-io] entry)",
+    )
     parser.add_argument("--output", type=Path, default=Path("python/tirust/data"))
     args = parser.parse_args()
     typst_package = tomllib.loads((args.typst_assets_root / "Cargo.toml").read_text())["package"]
@@ -53,7 +57,7 @@ def main() -> None:
         "typst-fonts-NOTICE": args.feynkit_root / "examples/notebooks/symbolica-host/licenses/typst-fonts-NOTICE",
         "STIX-Two-OFL.txt": args.feynkit_root / "crates/spynso3/typst/STIX-Two-OFL.txt",
         "FeynKit-LICENSE": args.feynkit_root / "LICENSE",
-        "Symbolica-LICENSE.md": Path("dependencies/symbolica/License.md"),
+        "Symbolica-LICENSE.md": args.symbolica_root / "License.md",
     }
     license_entries = []
     for name, source in licenses.items():

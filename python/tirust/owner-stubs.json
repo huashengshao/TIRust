@@ -1,13 +1,13 @@
 {
   "purpose": "private type-only mirrors; no runtime shadow packages",
-  "symbolica_base_revision": "9cdc2949",
+  "symbolica_base_revision": "20a9da94",
   "feynkit_revision": "865afdc43fb4e6b950439d34b4ec2c38352873e7",
   "files": [
     {
-      "owner_source": ".local/cargo-home/git/checkouts/symbolica-7e92af2066df6214/9cdc294/symbolica.pyi",
-      "owner_sha256": "cd9ae8824d2817da7b3a33974ee2b355c71e88c84bff54154a8bcf5580198959",
+      "owner_source": ".local/cargo-home/git/checkouts/symbolica-cc465e8cf60c7b8e/20a9da9/symbolica.pyi",
+      "owner_sha256": "eb156b72df726d8e6ff14ddb70b4ebb75d7a836866c16a031c6e29f227913fbc",
       "output": "symbolica/core.pyi",
-      "sha256": "cf09f394787c481b8ca5b07c54d02216e6a98381c480b02066f1fff5180d028f"
+      "sha256": "6dc1fa9e8126e280e2e429c85e50226d4b32c4fa5cfd5dd3bdd43382dbc522e5"
     },
     {
       "owner_source": ".local/cargo-home/git/checkouts/gammaloop-277a30c7f1437c23/865afdc/crates/feynkit-py/python/symbolica/community/hepkit/__init__.pyi",

@@ -181,7 +181,7 @@
     },
     {
       "name": "licenses/Symbolica-LICENSE.md",
-      "owner_source": "dependencies/symbolica/License.md",
+      "owner_source": ".local/cargo-home/git/checkouts/symbolica-cc465e8cf60c7b8e/20a9da9/License.md",
       "sha256": "95576170a17bc8996fb8a94473745545048b6edc5d91e3867f091f7fc6b26981"
     }
   ]
