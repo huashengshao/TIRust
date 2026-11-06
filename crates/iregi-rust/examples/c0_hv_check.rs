@@ -21,6 +21,9 @@ impl Rng {
 fn main() {
     let samples: usize = std::env::args().nth(1).map(|s| s.parse().unwrap()).unwrap_or(20000);
     let mut hand = oneloop::NativeEvaluator::<f64>::new(ScalarIntegral::C0).unwrap();
+    // The hand-written negative-Kallen C0 is opt-in in oneloop; without it both
+    // evaluators would run the generated code for every point sampled here.
+    hand.set_handwritten_negative_kallen_c0(true);
     let mut generated = oneloop::NativeEvaluator::<f64>::new(ScalarIntegral::C0).unwrap();
     generated.set_handwritten(false);
     let mut rng = Rng(0x9e3779b97f4a7c15);
