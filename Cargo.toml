@@ -10,7 +10,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.99"
 authors = ["huashengshao <erdissshaw@gmail.com>"]
-repository = "https://github.com/huashengshao/iregi-rust"
+repository = "https://github.com/huashengshao/TIRust"
 
 [workspace.dependencies]
 symbolica = { version = "3.0.1", default-features = false, features = ["integer-gmp", "float-mpfr", "native_code_generation", "bincode", "serde"] }

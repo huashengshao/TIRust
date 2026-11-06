@@ -23,7 +23,7 @@ test = ["pytest>=8"]
 notebooks = ["marimo==0.24.0"]
 
 [project.urls]
-Repository = "https://github.com/huashengshao/iregi-rust"
+Repository = "https://github.com/huashengshao/TIRust"
 
 [tool.maturin]
 manifest-path = "crates/iregi-python/Cargo.toml"

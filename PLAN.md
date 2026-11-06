@@ -63,7 +63,7 @@ At implementation start:
 - Assign this objective to the agent using `create_goal`, without a token budget.
 - Write this complete plan to `/shared/external/iregi/references/PLAN.md` and maintain a committed copy in the project.
 - Run all commands from `/shared/external/iregi/iregi-rust`. Keep implementation, dependency patches, generated reference builds, and benchmark artifacts there; the requested reference PLAN is the explicit exception.
-- Configure repository-local author identity as `huashengshao <erdissshaw@gmail.com>`. Commit and push validated milestones to the existing `origin/main` in [huashengshao/iregi-rust](https://github.com/huashengshao/iregi-rust), without force-pushing.
+- Configure repository-local author identity as `huashengshao <erdissshaw@gmail.com>`. Commit and push validated milestones to the existing `origin/main` in [huashengshao/TIRust](https://github.com/huashengshao/TIRust), without force-pushing.
 - Keep research agents involved in algorithm optimization, numeric correctness, and independent code review. Milestones are checkpoints; completion requires the full validation and reporting criteria below.
 
 ## Architecture and public interfaces

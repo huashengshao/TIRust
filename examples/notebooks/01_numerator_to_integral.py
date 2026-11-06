@@ -260,7 +260,7 @@ def _(mo):
     mo.md("""
     **Next:** open `02_dots_and_derivatives.py` to raise a propagator power and
     verify the result using a mass derivative. The
-    [benchmark report](https://github.com/huashengshao/iregi-rust/blob/main/docs/benchmark.pdf)
+    [benchmark report](https://github.com/huashengshao/TIRust/blob/main/docs/benchmark.pdf)
     documents independently validated domains and open cases.
     """)
     return
