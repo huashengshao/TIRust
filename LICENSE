@@ -44,6 +44,15 @@ licence and notices):
   python/tirust/data/licenses/STIX-Two-OFL.txt.
 - python/tirust/data/licenses: the licence texts of the bundled or linked
   components (typst-assets, the fonts, FeynKit, Symbolica), reproduced verbatim.
+- python/tirust/_types/symbolica/community/{tensor,graph,hepkit}/__init__.pyi:
+  type-only stubs mirrored by scripts/vendor-python-type-stubs.py with only
+  their import paths rewritten (sources and hashes in
+  python/tirust/owner-stubs.json), from gammaloop 865afdc4 (tensor: spynso3,
+  MIT; graph: linnet-render-py, MIT; hepkit: feynkit-py, MIT OR Apache-2.0, as
+  declared by their manifests), with GammaLoop's licence in
+  python/tirust/data/licenses/FeynKit-LICENSE. The same script generates the
+  stub of Symbolica's core (python/tirust/_types/symbolica/core.pyi) locally;
+  it is not part of this repository.
 - fixtures/models/sm.json: copied unchanged from gammaloop 865afdc4
   (crates/feynkit-model/tests/fixtures/sm.json), under GammaLoop's licence.
 - Reference material produced by third-party programs under validation/ and

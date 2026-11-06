@@ -395,6 +395,7 @@ Independent validation procedures and conventions are documented in
 TIRust's own code is under the BSD Zero Clause License ([LICENSE](LICENSE)),
 including the scalar masters generated from oneloopmaster's expressions. The
 third-party content listed in [LICENSE](LICENSE) (feynkit-integrals, linnest,
-the bundled fonts and licence texts, copied fixtures and reference captures)
+the bundled fonts and licence texts, the mirrored GammaLoop type stubs, copied
+fixtures and reference captures)
 keeps its own licence and notices. Dependencies fetched by Cargo, Symbolica in
 particular, carry their own licences.
