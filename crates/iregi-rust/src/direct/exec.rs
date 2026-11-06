@@ -139,6 +139,8 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     /// Per-subset results shared with other executors (binary64 only; see
     /// `super::shared`).
     shared: Option<Arc<SubsetStore>>,
+    /// The same store for a double-double executor: its scalar masters only.
+    dd_masters: Option<Arc<SubsetStore>>,
     /// The current lane's geometry found such a box or triangle.
     estimate_tripped: bool,
     gram_top_active: bool,
@@ -436,6 +438,7 @@ where
             profiling: false,
             profile: DirectProfile::default(),
             coefficients_only: false,
+            dd_masters: None,
             base_plan: plan.clone(),
             base_constants: constants.clone(),
             variants: HashMap::new(),
@@ -697,8 +700,22 @@ where
                         })
                         .unwrap_or(false)
                 });
-                if !hit {
+                // Double-double: masters shared limb for limb (a stored value
+                // is the kernels' output for exactly these arguments).
+                let dd_store = self.dd_masters.as_ref().filter(|store| store.enabled());
+                let dd_key = dd_store.is_some() && dd_master_key(&mut self.master_key, family, arity, &input[..arity + 1]);
+                let dd_hit = dd_key
+                    && dd_store.is_some_and(|store| {
+                        let output = &mut self.native_output;
+                        store.dd_master_with(&self.master_key, |stored| write_dd_master(output, stored))
+                    });
+                if !hit && !dd_hit {
                     evaluator.evaluate(&input[..arity + 1], &mut self.native_output)?;
+                    if let (true, Some(store)) = (dd_key, dd_store) {
+                        if let Some(value) = read_dd_master(&self.native_output) {
+                            store.put_dd_master(self.master_key.clone(), value);
+                        }
+                    }
                     if let Some(store) = store.as_ref() {
                         let o = &self.native_output;
                         let v = [o[0].re.to_f64(), o[0].im.to_f64(), o[1].re.to_f64(), o[1].im.to_f64(),
@@ -783,8 +800,10 @@ where
     }
 
     /// Share per-subset results (partial rescue, expansions) through `store`
-    /// (binary64 executors only; `None`: compute every one here).
+    /// (binary64 executors; `None`: compute every one here). A double-double
+    /// executor shares only its scalar masters, keyed limb for limb.
     pub(crate) fn set_shared_subsets(&mut self, store: Option<Arc<SubsetStore>>) {
+        self.dd_masters = store.clone().filter(|_| T::FIXED_BITS == Some(106));
         self.shared = store.filter(|_| T::FIXED_BITS == Some(53));
     }
 
@@ -996,6 +1015,9 @@ where
                     values.push(Complex::new(DoubleFloat::from(z.re.to_f64()), DoubleFloat::from(z.im.to_f64())));
                 }
                 values.push(Complex::new(DoubleFloat::from(mu), DoubleFloat::from(0.0)));
+                // Its scalar masters shared with the amplitude's other
+                // double-double evaluations (limb-exact keys).
+                executor.set_shared_subsets(self.shared.clone());
                 let result = executor
                     .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values })
                     .map_err(|e| e.to_string())?;
@@ -3311,6 +3333,37 @@ fn write_shared<T: NativeFloat>(out: &mut [L4<T>], prototype: &T, count: usize, 
 }
 
 /// The binary64 value `x` exactly in the executor's number type.
+/// Key of a double-double scalar master: family, arity and the limbs of
+/// every argument bit for bit (`false`: `T` is not double-double).
+fn dd_master_key<T: NativeFloat>(key: &mut Vec<u64>, family: usize, arity: usize, input: &[C<T>]) -> bool {
+    use symbolica::domains::float::DoubleFloat;
+    key.clear();
+    key.extend([7, family as u64, arity as u64]);
+    for z in input {
+        let Some(z) = (z as &dyn std::any::Any).downcast_ref::<C<DoubleFloat>>() else { return false };
+        let (re, im) = (z.re.into_inner(), z.im.into_inner());
+        key.extend([re.hi().to_bits(), re.lo().to_bits(), im.hi().to_bits(), im.lo().to_bits()]);
+    }
+    true
+}
+
+/// A stored double-double master into the kernels' output slots.
+fn write_dd_master<T: NativeFloat>(output: &mut [C<T>], stored: &[C<symbolica::domains::float::DoubleFloat>; 3]) -> bool {
+    for (slot, value) in output.iter_mut().zip(stored) {
+        let Some(slot) = (slot as &mut dyn std::any::Any).downcast_mut::<C<symbolica::domains::float::DoubleFloat>>() else {
+            return false;
+        };
+        *slot = value.clone();
+    }
+    true
+}
+
+/// The kernels' output as a double-double master to store.
+fn read_dd_master<T: NativeFloat>(output: &[C<T>]) -> Option<[C<symbolica::domains::float::DoubleFloat>; 3]> {
+    let read = |k: usize| (&output[k] as &dyn std::any::Any).downcast_ref::<C<symbolica::domains::float::DoubleFloat>>().cloned();
+    Some([read(0)?, read(1)?, read(2)?])
+}
+
 fn exact_f64<T: NativeFloat>(prototype: &T, x: f64) -> T {
     match (&x as &dyn std::any::Any).downcast_ref::<T>() {
         Some(value) => value.clone(),
