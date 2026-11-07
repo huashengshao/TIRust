@@ -48,6 +48,16 @@
 //! Cartesian moments themselves depend on the origin. In other frames
 //! nothing false is ever shared: their keys simply differ.
 //!
+//! **Use.** [`TensorStore::register`] every plan that will be reduced with
+//! the store (every (N, R) bucket) before the first call, then per chunk of
+//! phase-space points: reduce, and [`TensorStore::clear`] when the points
+//! change (registrations and rank floors survive it). Moments are shared
+//! for the subset sizes and ranks some registered or attached plan gathers
+//! inside a larger integral; without registering first, which moments meet
+//! depends on the order in which workspaces attach (a hexagon's pentagon
+//! moments are reused by a later pentagon call, not by an earlier one).
+//! Values never depend on it.
+//!
 //! **Lifetime and memory.** Nothing is removed until [`TensorStore::clear`].
 //! [`TensorStoreOptions::byte_budget`] (none by default: the caller's clears
 //! bound the store) stops inserting entries once their estimated size
@@ -72,8 +82,11 @@
 //! kernels: an embedder can serve them from its own cache. Its values are
 //! used as returned (results change only if they differ from TIRust's
 //! kernels); declining a master (`None`) leaves it to TIRust's kernels.
-//! The mass derivatives of dotted propagators (IBP jets) and workspaces with
-//! batched [`crate::MasterExecutionPolicy`] evaluators never consult it.
+//! The mass derivatives of dotted propagators (IBP jets), workspaces with
+//! batched [`crate::MasterExecutionPolicy`] evaluators and double-double or
+//! MPFR workspaces never consult it; nothing signals that beyond
+//! [`TensorStoreStatistics::masters_provided`] (an embedder crediting its
+//! cache checks that count).
 //!
 //! **Check passes never see the provider.** A check compares the same
 //! integrals in another propagator order or frame with a primary pass. A
@@ -147,7 +160,9 @@ pub trait MasterProvider: Send + Sync {
     fn master(&self, family: MasterFamily, arguments: &[Complex<f64>]) -> Option<[Complex<f64>; 3]>;
 }
 
-/// Options of a [`TensorStore`].
+/// Options of a [`TensorStore`]. Write them as
+/// `TensorStoreOptions { byte_budget: Some(b), ..Default::default() }`:
+/// options may be added (as for [`crate::EmbedderOptions`]).
 #[derive(Clone, Default)]
 pub struct TensorStoreOptions {
     /// Stop inserting entries once their estimated size reaches this many
@@ -169,8 +184,10 @@ impl std::fmt::Debug for TensorStoreOptions {
     }
 }
 
-/// Counts of a [`TensorStore`] since its last [`TensorStore::clear`].
+/// Counts of a [`TensorStore`] since its last [`TensorStore::clear`] (counts
+/// may be added).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct TensorStoreStatistics {
     /// Binary64 sub-integrals, pentagons, rescues and expansions reused and
     /// computed (scalar masters not included).
@@ -221,7 +238,9 @@ impl TensorStore {
     }
 
     /// Forget every entry and reset the counts (the caller's lifetime: once
-    /// per chunk of phase-space points). Attached workspaces stay attached.
+    /// per chunk of phase-space points). Attached workspaces stay attached;
+    /// registrations ([`Self::register`]) and rank floors
+    /// ([`Self::align_ranks`]) stay.
     pub fn clear(&self) {
         self.inner.clear();
     }
@@ -248,8 +267,9 @@ impl TensorStore {
 
     /// Share the moments of the subsets `plan` gathers inside its top
     /// integral (attaching a workspace does this for its own plan). Call it
-    /// for every plan before the first call of a chunk for the most hits;
-    /// values do not depend on it.
+    /// for every plan before the first call (registrations survive
+    /// [`Self::clear`]): otherwise which moments meet depends on the order
+    /// of the calls (see the module docs). Values do not depend on it.
     pub fn register(&self, plan: &DirectReductionPlan) {
         for (size, rank) in plan.nested_gathers() {
             self.inner.share_moments(size, rank);

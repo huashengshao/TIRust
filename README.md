@@ -152,21 +152,30 @@ rank-one lifecycle case. Each family's validated domain is documented separately
   workspaces of its own check passes. `TensorStore::align_ranks` raises the
   rank floor of injected boxes and triangles as `AmplitudeWorkspace` does
   (opt-in); `TensorStore::statistics` counts reuse per kind
-  (`tests/tensor_store.rs`).
+  (`tests/tensor_store.rs`). Use: `register()` every plan before the first
+  call (moments meet for the sizes and ranks some registered plan gathers,
+  else depending on the call order; registrations survive `clear()`), then
+  reduce and `clear()` once per point chunk.
+  The provider is not consulted by double-double or MPFR workspaces, IBP
+  mass-derivative jets or batched `MasterExecutionPolicy` evaluators
+  (`statistics().masters_provided` counts what it served).
 - `DirectWorkspace::reduce_batch_with_rotation(batch, rotation)`: the primary
   moments and, from the same call, those of the batch with its propagators
   relabelled cyclically (`DirectReductionPlan::rotated_batch`), the same
   integrals in the same frame through other PV systems: a stability check
   without a second call or a re-expanded numerator. The copy is a check pass:
   without a masters provider it is bit for bit a separate call on the rotated
-  batch and the subsets that keep their order are computed once; with one it
-  is computed in full by TIRust's kernels (`tests/rotation_copy.rs`).
+  batch, and the subsets that keep their order share the primary's masters
+  (with injected boxes and triangles, in binary64: their sub-integrals,
+  rescues, expansions and moments too, computed once); with one it is
+  computed in full by TIRust's kernels (`tests/rotation_copy.rs`).
 - Concurrency: `DirectWorkspace` is `Send`, `DirectReductionPlan` and
   `TensorStore` are `Send + Sync`; one workspace per thread gives every lane
   bit for bit what one workspace gives on one thread, for any thread count and
   batch split, with or without a store shared by the threads (binary64 gates,
-  method choice and partial rescue; double-double;
-  `tests/direct_concurrency.rs`).
+  method choice and partial rescue; double-double; MPFR;
+  `tests/direct_concurrency.rs`; embedder-mode and facade `TensorWorkspace`s
+  are not qualified there).
 - `examples/store_sharing_timing.rs` times a top-loop gg -> gggg hexagon and its
   56 pinches reduced in one call per propagator count, with and without the
   store, against one `AmplitudeWorkspace` call, and the rotation copy against
@@ -182,7 +191,9 @@ rank-one lifecycle case. Each family's validated domain is documented separately
   30 pinches containing the hexagon's last propagator are in the hexagon's
   own frame), so their sub-integrals and moments meet as well; between the
   others only the scalar masters meet. The rotation copy took 0.91x (gates)
-  and 0.69x (method choice) of two calls' time.
+  and 0.69x (method choice) of two calls' time. (Measured with the example
+  as first committed; a re-run of the final code on a loaded host reproduced
+  every checksum bit for bit and these ratios within 4 %.)
 
 ## Workspace
 

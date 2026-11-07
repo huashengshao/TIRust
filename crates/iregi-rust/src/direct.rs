@@ -259,8 +259,13 @@ where
     /// moved to the end; `rotation = 1` keeps every subset without
     /// propagator 0) repeat the primary's work exactly: they are taken from
     /// the attached [`TensorStore`] or, without one, from a store private to
-    /// this call (binary64: sub-integrals, pentagons, rescues, expansions,
-    /// moments and masters; double-double: masters). With a provider the
+    /// this call. That private store holds the masters and, in a binary64
+    /// workspace that injects boxes or triangles (partial rescue, small-Gram
+    /// expansions, method choice), the sub-integrals, pentagons, rescues,
+    /// expansions and moments too; a binary64 workspace on its gates alone
+    /// (where a sub-integral or moment key costs about what it saves) and a
+    /// double-double one share the masters only, and their copy computes its
+    /// PV sub-integrals, pentagons and moments again. With a provider the
     /// copy is computed in full by TIRust's kernels at the store's rank
     /// floors, bit for bit [`Self::reduce_batch`] on the rotated batch with
     /// [`TensorStore::check_view`] attached instead of the store: a provider
