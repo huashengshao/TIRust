@@ -24,6 +24,11 @@ use plan::DirectPlanData;
 
 use crate::{BatchResult, KinematicsBatch, ReductionError, ReductionSettings, basis::Monomial};
 
+/// Largest a priori estimate (COLLIER's w_pv2) at which the direct engine
+/// accepts the alternative PV reduction alone (2^-36); the natural `limit`
+/// of [`DirectWorkspace::set_alternative_first`].
+pub const ALTERNATIVE_PV_LIMIT: f64 = 1.0 / (1u64 << 36) as f64;
+
 /// Immutable structural plan of the direct engine. No sampled value is stored.
 #[derive(Clone, Debug)]
 pub struct DirectReductionPlan {
@@ -178,6 +183,22 @@ where
     /// small-Gram expansions or the alternative PV reduction (unchecked).
     pub fn enable_estimated_method_choice(&mut self, boost: u16, aux_threshold: T) {
         self.executor.enable_estimated_method_choice(boost, aux_threshold);
+    }
+
+    /// With a small-Gram method choice (`enable_gram_expansion`,
+    /// `enable_gram_expansion_everywhere`, `enable_estimated_method_choice`;
+    /// before or after enabling it): a box or triangle it serves whose a
+    /// priori estimate of the alternative PV reduction (COLLIER's w_pv2,
+    /// 2^-53 max(1, w)^ceil((r + 1) / 2), w = max_j |(Zadj f)_j| / |Delta|,
+    /// as the alternative-only reduction refuses above 2^-36) is at most
+    /// `limit` gets that reduction first, from triangles of its own rank;
+    /// the expansions follow only if it fails. `None` (the default): the
+    /// expansions first, the alternative PV as their check and fallback.
+    /// Like the expansions, the choice is unchecked: callers verify the
+    /// lanes. It applies to the workspace's own boxes and triangles (the
+    /// expansions' auxiliary triangles keep their order).
+    pub fn set_alternative_first(&mut self, limit: Option<f64>) {
+        self.executor.set_alternative_first(limit);
     }
 
     /// Evaluate the a priori estimate of `enable_estimated_method_choice`

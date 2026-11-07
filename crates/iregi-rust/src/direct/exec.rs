@@ -121,6 +121,9 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     /// converge: the alternative PV reduction without its a priori estimate
     /// (as after a failed expansion).
     gram_alt_direct: bool,
+    /// Alternative PV first for refused boxes and triangles whose a priori
+    /// estimate is at most this (with a small-Gram method choice).
+    gram_alternative_first: Option<f64>,
     /// Plan-derived tables of `expand_top`, per plan variant (built once).
     gram_tables: Vec<(Arc<DirectPlanData>, Arc<gram::TopTables>)>,
     /// Reused coefficient storage of `expand_top`.
@@ -343,6 +346,7 @@ where
             gram_top: None,
             gram_alt_only: false,
             gram_alt_direct: false,
+            gram_alternative_first: None,
             gram_tables: Vec::new(),
             gram_pool: gram::CoefficientPool::default(),
             gram_extra_ranks: 0,
@@ -760,6 +764,7 @@ where
     /// their precision; the caller checks the result a posteriori).
     pub(crate) fn enable_gram_expansion(&mut self, boost: u16) {
         self.gram = Some(Box::new(gram::GramRescue::new(boost)));
+        self.set_alternative_first(self.gram_alternative_first);
     }
 
     /// Every box and triangle (refused or not) by the small-Gram expansions,
@@ -767,13 +772,22 @@ where
     /// `aux_threshold`.
     pub(crate) fn enable_gram_expansion_everywhere(&mut self, boost: u16, aux_threshold: T) {
         self.gram = Some(Box::new(gram::GramRescue::everywhere(boost, aux_threshold)));
+        self.set_alternative_first(self.gram_alternative_first);
         self.gram_everywhere = true;
     }
 
     /// COLLIER-style a priori method choice in this executor's own pass.
     pub(crate) fn enable_estimated_method_choice(&mut self, boost: u16, aux_threshold: T) {
         self.gram = Some(Box::new(gram::GramRescue::everywhere(boost, aux_threshold)));
+        self.set_alternative_first(self.gram_alternative_first);
         self.gram_estimated = true;
+    }
+
+    pub(crate) fn set_alternative_first(&mut self, limit: Option<f64>) {
+        self.gram_alternative_first = limit;
+        if let Some(gram) = self.gram.as_mut() {
+            gram.set_alternative_first(limit);
+        }
     }
 
     /// Record, per lane, whether the a priori choice would leave PV for

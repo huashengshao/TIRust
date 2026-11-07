@@ -57,6 +57,10 @@ pub(crate) struct GramRescue<T: NativeFloat> {
     boosts: Vec<u16>,
     /// Alternative PV reduction only (no expansions).
     alternative: bool,
+    /// Try the alternative PV reduction first on the boxes whose a priori
+    /// estimate (COLLIER's w_pv2, as the alternative-only executors) is at
+    /// most this, before the expansions.
+    alternative_first: Option<f64>,
     /// Gate of the auxiliary executors' triangles (default: the parent's
     /// threshold squared).
     aux_threshold: Option<T>,
@@ -66,7 +70,11 @@ impl<T: NativeFloat> GramRescue<T> {
     pub(crate) fn new(boost: u16) -> Self {
         let mut boosts = vec![boost.min(FIRST_BOOST), boost];
         boosts.dedup();
-        Self { executors: HashMap::new(), boosts, alternative: false, aux_threshold: None }
+        Self { executors: HashMap::new(), boosts, alternative: false, alternative_first: None, aux_threshold: None }
+    }
+
+    pub(crate) fn set_alternative_first(&mut self, limit: Option<f64>) {
+        self.alternative_first = limit;
     }
 
     pub(crate) fn everywhere(boost: u16, aux_threshold: T) -> Self {
@@ -86,12 +94,13 @@ impl<T: NativeFloat> GramRescue<T> {
             eat(u64::from(boost));
         }
         eat(u64::from(self.alternative));
+        eat(self.alternative_first.map_or(u64::MAX, f64::to_bits));
         eat(self.aux_threshold.as_ref().map_or(u64::MAX, |t| t.to_f64().to_bits()));
         hash
     }
 
     pub(crate) fn alternative() -> Self {
-        Self { executors: HashMap::new(), boosts: vec![1], alternative: true, aux_threshold: None }
+        Self { executors: HashMap::new(), boosts: vec![1], alternative: true, alternative_first: None, aux_threshold: None }
     }
 }
 
@@ -764,9 +773,9 @@ pub(super) fn gram_factors<T: NativeFloat>(z: &[[C<T>; 3]; 3], f: &[C<T>; 3], m0
 /// up to (-24, -30); (-30, -30) moves two heptagon estimates.
 const NESTED_HOPELESS_LOG2: (f64, f64) = (-18.0, -30.0);
 
-/// Largest a priori error estimate of the alternative PV stage (the binary64
-/// retries accept rotated copies within 2^-36).
-const ALTERNATIVE_PV_LIMIT: f64 = 1.0 / (1u64 << 36) as f64;
+// Largest a priori error estimate of the alternative PV stage (the binary64
+// retries accept rotated copies within 2^-36).
+use crate::direct::ALTERNATIVE_PV_LIMIT;
 
 /// Largest accepted relative change of the last expansion pass.
 const EXPANSION_TOLERANCE: f64 = 1.0 / (1u64 << 30) as f64;
@@ -844,6 +853,34 @@ where
         gram_factors(&z, &f, &self.masses[origin], nm)
     }
 
+    /// COLLIER's a priori estimate of the alternative PV reduction of PV
+    /// subset `id` at coefficient rank `rank` (CalcDred's w_pv2):
+    /// 2^-53 max(1, w)^ceil((rank + 1) / 2), w = max_j |(Zadj f)_j| / |Delta|.
+    fn alternative_estimate_of(&self, id: usize, rank: u16) -> Option<f64> {
+        let subset = &self.plan.subsets[id];
+        let nm = subset.members.len().checked_sub(1).filter(|nm| (2..=3).contains(nm))?;
+        let n = self.plan.settings.propagators;
+        let members = &subset.members;
+        let origin = members[0];
+        let zero = czero(&self.prototype);
+        let dist = |i: usize, j: usize| &self.distances[i * n + j];
+        let z: [[C<T>; 3]; 3] = std::array::from_fn(|i| {
+            std::array::from_fn(|j| {
+                if i >= nm || j >= nm {
+                    return zero.clone();
+                }
+                let (a, b) = (members[i + 1], members[j + 1]);
+                csub(&cadd(dist(origin, a), dist(origin, b)), dist(a, b))
+            })
+        });
+        let geometry = subset.pv?;
+        let f: [C<T>; 3] = std::array::from_fn(|i| {
+            if i < nm { self.geometry[geometry.f as usize + i].clone() } else { zero.clone() }
+        });
+        let w = gram_indicator(&z, &f, nm)?;
+        Some(2f64.powi(-53) * w.max(1.0).powi((i32::from(rank) + 1) / 2))
+    }
+
     /// Evaluate every expansion box of this lane by its auxiliary executor
     /// and inject its coefficients.
     pub(super) fn inject_gram(&mut self, mu: &C<T>) -> Result<(), String> {
@@ -880,6 +917,12 @@ where
                 config.push(u64::from(skip));
                 config.push(gram.aux_threshold.as_ref().map_or(u64::MAX, |t| t.to_f64().to_bits()));
                 config.push(self.stability_threshold.to_f64().to_bits());
+                // The alternative PV first where its a priori estimate is
+                // small enough (top-level boxes and triangles).
+                let first = gram.alternative_first.filter(|_| !gram.alternative && self.gram_top.is_none()).filter(|&limit| {
+                    self.alternative_estimate_of(id, rank).is_some_and(|estimate| estimate <= limit)
+                });
+                config.push(first.map_or(u64::MAX, f64::to_bits));
                 let key = self.subset_key(2, &subset.members, rank, 0, &config, mu);
                 if let Some(shared) = self.shared_get(key.as_ref()) {
                     self.shared_write(start, count, &shared?)?;
@@ -889,13 +932,19 @@ where
                 let mut full = None;
                 let mut failure = String::new();
                 let mut done = false;
-                let attempts: Vec<(u16, bool)> =
-                    gram.boosts.iter().enumerate().map(|(i, &boost)| (boost, skip && i == 0)).collect();
+                // Boost 0 stands for the alternative-first executor (boost 1,
+                // alternative PV only).
+                let attempts: Vec<(u16, bool)> = first
+                    .map(|_| (0, false))
+                    .into_iter()
+                    .chain(gram.boosts.iter().enumerate().map(|(i, &boost)| (boost, skip && i == 0)))
+                    .collect();
                 for (boost, direct) in attempts {
+                let alternative_only = gram.alternative || boost == 0;
                 let executor = match gram.executors.entry((size, rank, boost, direct)) {
                     std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
                     std::collections::hash_map::Entry::Vacant(entry) => {
-                        let aux = DirectPlanData::with_top_child_boost(ReductionSettings::new(size, rank), boost)
+                        let aux = DirectPlanData::with_top_child_boost(ReductionSettings::new(size, rank), boost.max(1))
                             .map_err(|e| e.to_string())?;
                         let mut executor = DirectExecutor::<T>::new(
                             std::sync::Arc::new(aux),
@@ -910,13 +959,13 @@ where
                             gram.aux_threshold.clone().unwrap_or_else(|| self.stability_threshold.clone() * &self.stability_threshold),
                         );
                         executor.gram_top = Some(rank);
-                        executor.gram_alt_only = gram.alternative;
+                        executor.gram_alt_only = alternative_only;
                         executor.gram_alt_direct = direct;
-                        executor.gram_extra_ranks = gram
-                            .boosts
-                            .iter()
-                            .find(|&&next| next > boost)
-                            .map_or(0, |&next| next - boost);
+                        executor.gram_extra_ranks = if boost == 0 {
+                            0
+                        } else {
+                            gram.boosts.iter().find(|&&next| next > boost).map_or(0, |&next| next - boost)
+                        };
                         // (Bounded: the nested triangles' plans stay at rank <= 16.)
                         if let Some(threshold) = gram.aux_threshold.as_ref().filter(|_| rank + boost <= 17) {
                             // COLLIER chooses per C function too: the auxiliary

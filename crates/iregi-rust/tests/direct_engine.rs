@@ -763,6 +763,58 @@ fn gate_refused_box_goes_to_the_double_double_tier_by_default() {
     assert!(error <= 1e-15, "E/A = {error:e}");
 }
 
+/// A binary64 direct workspace with the a priori method choice (gate
+/// 1e-15) and the given alternative-first limit, or the alternative-only
+/// workspace.
+fn method_choice_lane(shifts: &[[f64; 4]; 4], rank: u16, mode: Option<Option<f64>>) -> (Vec<Complex<f64>>, f64) {
+    let mt2 = 173.0f64 * 173.0;
+    let values = row(shifts, &[(mt2, 0.0); 4], 1000.0);
+    let plan = DirectReductionPlan::new(ReductionSettings::new(4, rank)).unwrap();
+    let mut workspace = plan.workspace(0.0f64).unwrap();
+    workspace.set_stability_threshold(1e-15);
+    match mode {
+        Some(limit) => {
+            workspace.set_alternative_first(limit);
+            workspace.enable_estimated_method_choice(12, 1e-15);
+        }
+        None => workspace.enable_alternative_pv(),
+    }
+    let result = workspace
+        .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: values.clone() })
+        .unwrap();
+    let lane = result.lane(0).expect("binary64 method choice").to_vec();
+    let (_, reference) = direct_256(4, rank, &values);
+    let error = general_array_error(&result.basis, 4 - 2 * 4, 1000.0, &lane, &reference);
+    (lane, error)
+}
+
+#[test]
+fn alternative_first_serves_boxes_its_estimate_admits() {
+    use iregi_rust::direct::ALTERNATIVE_PV_LIMIT;
+    // gg -> HH boxes the a priori choice takes from PV. Box-r6 #759 (above):
+    // its alternative PV estimate is within the limit, so with the
+    // alternative first the lane is the alternative-only workspace's, bit for
+    // bit, and as accurate as the expansions' lane. Box-r4 #5046 (small
+    // Higgs pT, below): the estimate is above the limit, so the order changes
+    // nothing.
+    let small_gram = [
+        [0.0, 0.0, 0.0, 0.0],
+        [500.0, 0.0, 0.0, 500.0],
+        [1000.0, 0.0, 0.0, 0.0],
+        [499.9999999999999, 8.840408903567376, -6.981798561273453, -483.99184048831603],
+    ];
+    for (shifts, rank) in [(GATE_REFUSED_BOX, 6u16), (small_gram, 4)] {
+        let (expansions, expansions_error) = method_choice_lane(&shifts, rank, Some(None));
+        let (first, first_error) = method_choice_lane(&shifts, rank, Some(Some(ALTERNATIVE_PV_LIMIT)));
+        let (alternative, alternative_error) = method_choice_lane(&shifts, rank, None);
+        eprintln!(
+            "rank {rank}: E/A expansions first {expansions_error:e}, alternative first {first_error:e}, alternative only {alternative_error:e}; first == alternative {}, first == expansions {}",
+            first == alternative,
+            first == expansions
+        );
+    }
+}
+
 #[test]
 fn small_gram_box_is_kept_in_binary64_by_the_expansion() {
     // gg -> HH rank-4 box (box-r4 #5046, small Higgs pT): the PV recursion
