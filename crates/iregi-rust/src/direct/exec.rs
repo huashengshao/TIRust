@@ -1226,7 +1226,9 @@ where
                 let rank = self.injection_rank(size, subset.coefficient_rank.max(0) as u16);
                 let count = plan.coefficient_counts[id] as usize;
                 let start = subset.master.ok_or("partial rescue: no master")? as usize;
-                let key = self.subset_key(1, &subset.members, rank, 0, &[partial.threshold.to_bits()]);
+                // Its settings: the acceptance threshold and the inputs'
+                // precision (its lightlike tolerance).
+                let key = self.subset_key(1, &subset.members, rank, 0, &[partial.threshold.to_bits(), u64::from(self.input_bits)]);
                 if let Some(shared) = self.shared_get(key.as_ref(), PARTIAL_RESCUE, &subset.members) {
                     self.shared_write(start, count, &shared?)?;
                     continue;

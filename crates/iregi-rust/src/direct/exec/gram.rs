@@ -1001,7 +1001,10 @@ where
                     });
                 // The expansion's settings: boosts, alternative PV only, the
                 // skip, the auxiliary gate and this executor's gate (its
-                // default).
+                // default), then the alternative-first limit, the inputs'
+                // precision (the auxiliary executor's lightlike tolerance) and
+                // whether the data-derived further boost applies (a top-level
+                // executor, or an auxiliary one of its parent's last attempt).
                 let mut config: Vec<u64> = gram.boosts.iter().map(|&b| u64::from(b)).collect();
                 config.push(u64::from(gram.alternative));
                 config.push(u64::from(skip));
@@ -1013,7 +1016,8 @@ where
                     self.alternative_estimate_of(id, rank).is_some_and(|estimate| estimate <= limit)
                 });
                 config.push(first.map_or(u64::MAX, f64::to_bits));
-                config.push(u64::from(self.gram_final));
+                config.push(u64::from(self.input_bits));
+                config.push(u64::from(self.gram_top.is_none() || self.gram_final));
                 let key = self.subset_key(2, &subset.members, rank, 0, &config);
                 if let Some(shared) = self.shared_get(key.as_ref(), GRAM_EXPANSION, &subset.members) {
                     self.shared_write(start, count, &shared?)?;
