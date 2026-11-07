@@ -486,6 +486,49 @@ fn symbolic_engine_reads_supplied_invariants() {
     }
 }
 
+#[test]
+fn symbolic_engine_reads_supplied_on_shell_invariants() {
+    // The massive-b reproducer at 256 bits through the generic symbolic
+    // engine: with the on-shell invariants supplied it equals the direct
+    // engine and keeps the soft pole, which invariants recomputed from the
+    // rounded shifts lose (an engine ignoring the supplied values fails).
+    // The symbolic engine reads mu: 500 for the reproducer's mu^2 = 250000.
+    let prototype = Float::new(256);
+    let direct = reduce_exact(prototype.clone(), true);
+    let with_mu = |on_shell: bool| {
+        let mut settings = reproducer_settings(on_shell);
+        settings.scale_input = ScaleInput::Mu;
+        let mut row = reproducer_row(&prototype, on_shell);
+        *row.last_mut().unwrap() = Complex::new(Float::with_val(256, 500), Float::new(256));
+        (settings, row)
+    };
+    let (settings, row) = with_mu(true);
+    let plan = ReductionPlan::new(settings).unwrap();
+    let mut workspace = Workspace::new(&plan, prototype.clone()).unwrap();
+    let got = workspace.reduce_batch(&batch(row)).unwrap();
+    assert_eq!(got.statuses[0], LaneStatus::Success);
+    let got = got.lane(0).unwrap();
+    let deviation = precise_deviation(got, &direct, 256);
+    println!("symbolic engine (256 bits), on-shell invariants supplied, vs the direct engine: {deviation:e}");
+    assert!(deviation <= 1e-60, "{deviation:e}");
+    assert!(!got[1].re.is_zero() && got[2].re.is_zero(), "the single soft pole, no double pole");
+    // The Cartesian symbolic plan of the rounded shifts, for the record.
+    let (settings, row) = with_mu(false);
+    let cartesian = ReductionPlan::new(settings)
+        .and_then(|plan| Workspace::new(&plan, prototype.clone())?.reduce_batch(&batch(row)));
+    match cartesian {
+        Ok(result) => match result.lane(0) {
+            Ok(lane) => println!(
+                "symbolic engine, Cartesian rounded shifts: single pole {:e} (on shell {:e})",
+                lane[1].re.to_f64(),
+                got[1].re.to_f64()
+            ),
+            Err(status) => println!("symbolic engine, Cartesian rounded shifts: {status:?}"),
+        },
+        Err(error) => println!("symbolic engine, Cartesian rounded shifts: refused ({error})"),
+    }
+}
+
 /// Two lanes of `n <= 7` points: generic shifts and shifts routed by
 /// timelike external momenta, squared masses 1 to 4, mu = 3 (dyadic values,
 /// so their invariants are exact in every carrier here).
