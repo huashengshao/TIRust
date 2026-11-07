@@ -55,11 +55,13 @@ pub(crate) struct GramRescue<T: NativeFloat> {
     /// Boosts tried in order: a smaller one first (fewer high-rank triangles
     /// for its gate to refuse), the largest one only where it fails.
     boosts: Vec<u16>,
-    /// Alternative PV reduction only (no expansions).
+    /// Alternative PV reduction only (no expansions), on the boxes and
+    /// triangles whose a priori estimate (`alternative_estimate_of`) is at
+    /// most `ALTERNATIVE_PV_LIMIT`.
     alternative: bool,
     /// Try the alternative PV reduction first on the boxes whose a priori
-    /// estimate (COLLIER's w_pv2, as the alternative-only executors) is at
-    /// most this, before the expansions.
+    /// estimate (`alternative_estimate_of`) is at most this, before the
+    /// expansions.
     alternative_first: Option<f64>,
     /// Gate of the auxiliary executors' triangles (default: the parent's
     /// threshold squared).
@@ -712,11 +714,14 @@ pub(super) fn gram_indicator<T: NativeFloat>(z: &[[C<T>; 3]; 3], f: &[C<T>; 3], 
     (largest > 0.0 && w.is_finite()).then_some(w)
 }
 
-/// COLLIER's a priori convergence factors of the small-Gram expansion and
-/// of its variant for a small modified Cayley determinant (`fac_g` and
-/// `fac_gy` of its CalcCgn/CalcDgn, CalcCgy/CalcDgy):
-/// fac_g = |Delta| / max_j |(Zadj f)_j| * max(1, max |Xtilde| / (2 max_j |(Zadj f)_j|)),
-/// fac_gy = max(max_j |(Zadj f)_j|, |Delta|) / max |Xtilde| * max(1, max |f| / max |Z|).
+/// A priori estimate of the alternative PV reduction at coefficient rank
+/// `rank` from COLLIER's `w` (`gram_indicator`, its CalcDred w_pv2) and the
+/// cancellation `v` of the modified Cayley determinant
+/// (`cayley_cancellation`): 2^-53 (max(1, w) max(1, v))^ceil((rank + 1) / 2).
+pub(super) fn alternative_pv_estimate(w: f64, v: f64, rank: u16) -> f64 {
+    2f64.powi(-53) * (w.max(1.0) * v.max(1.0)).powi((i32::from(rank) + 1) / 2)
+}
+
 /// Cancellation in the modified Cayley determinant of a box or triangle,
 /// `det X = 2 m_0^2 Delta - sum_ab f_a Zadj_ab f_b`: the ratio of the sum of
 /// the terms' sizes to `|det X|` (`None` if it vanishes or is not finite).
@@ -756,6 +761,11 @@ pub(super) fn cayley_cancellation<T: NativeFloat>(z: &[[C<T>; 3]; 3], f: &[C<T>;
     ratio.is_finite().then_some(ratio)
 }
 
+/// COLLIER's a priori convergence factors of the small-Gram expansion and
+/// of its variant for a small modified Cayley determinant (`fac_g` and
+/// `fac_gy` of its CalcCgn/CalcDgn, CalcCgy/CalcDgy):
+/// fac_g = |Delta| / max_j |(Zadj f)_j| * max(1, max |Xtilde| / (2 max_j |(Zadj f)_j|)),
+/// fac_gy = max(max_j |(Zadj f)_j|, |Delta|) / max |Xtilde| * max(1, max |f| / max |Z|).
 pub(super) fn gram_factors<T: NativeFloat>(z: &[[C<T>; 3]; 3], f: &[C<T>; 3], m02: &C<T>, nm: usize) -> Option<(f64, f64)> {
     let zero = czero(&z[0][0].re);
     let size = |x: &C<T>| cnorm2(x).to_f64().sqrt();
@@ -891,12 +901,13 @@ where
     }
 
     /// A priori estimate of the alternative PV reduction of PV subset `id` at
-    /// coefficient rank `rank` for `set_alternative_first`: COLLIER's w_pv2
-    /// with the modified Cayley determinant's cancellation `v`
+    /// coefficient rank `rank` (`set_alternative_first`, `enable_alternative_pv`):
+    /// COLLIER's w_pv2 with the modified Cayley determinant's cancellation `v`
     /// (`cayley_cancellation`), 2^-53 (max(1, w) max(1, v))^ceil((rank + 1) / 2),
-    /// w = max_j |(Zadj f)_j| / |Delta|. (w_pv2 alone admits near-forward
-    /// gg -> HH boxes whose alternative PV keeps only E/A ~1e-4 at rank 6
-    /// while the expansions refuse them; there v ~ 1e3.)
+    /// w = max_j |(Zadj f)_j| / |Delta| (`alternative_pv_estimate`). (w_pv2
+    /// alone admits near-forward gg -> HH boxes whose alternative PV keeps
+    /// only E/A ~1e-4 at rank 6 while the expansions refuse them; there
+    /// v ~ 1e3.)
     fn alternative_estimate_of(&self, id: usize, rank: u16) -> Option<f64> {
         let subset = &self.plan.subsets[id];
         let nm = subset.members.len().checked_sub(1).filter(|nm| (2..=3).contains(nm))?;
@@ -920,7 +931,7 @@ where
         });
         let w = gram_indicator(&z, &f, nm)?;
         let v = cayley_cancellation(&z, &f, &self.masses[origin], nm)?;
-        Some(2f64.powi(-53) * (w.max(1.0) * v.max(1.0)).powi((i32::from(rank) + 1) / 2))
+        Some(alternative_pv_estimate(w, v, rank))
     }
 
     /// Evaluate every expansion box of this lane by its auxiliary executor
@@ -936,6 +947,18 @@ where
                 let rank = self.injection_rank(size, subset.coefficient_rank.max(0) as u16);
                 let count = plan.coefficient_counts[id] as usize;
                 let start = subset.master.ok_or("small-Gram expansion: no master")? as usize;
+                // The alternative PV alone (`enable_alternative_pv`) only
+                // where its a priori estimate with det X's cancellation is
+                // within `ALTERNATIVE_PV_LIMIT`; its executor checks w_pv2
+                // alone, which the cancellation escapes.
+                if gram.alternative
+                    && let Some(estimate) = self.alternative_estimate_of(id, rank).filter(|&e| e > ALTERNATIVE_PV_LIMIT)
+                {
+                    return Err(format!(
+                        "small-Gram expansion of {:?}: alternative PV: estimated error {estimate:e}",
+                        subset.members
+                    ));
+                }
                 // A nested triangle whose expansion cannot converge at the
                 // largest boost goes straight to the alternative PV at the
                 // first boost (same bubbles and gate as its expansion; a
@@ -1594,10 +1617,12 @@ where
                 // w_pv2): rounding grows like w^ceil(r/2), w = max |(Zadj f)_j|
                 // / |Delta|; its rotated copy shares that error (Delta and
                 // det X do not depend on the labelling), so large w is
-                // refused here instead of trusted to the rotation test.
+                // refused here instead of trusted to the rotation test. The
+                // parent executor counts det X's cancellation against its
+                // own limit before it calls this one (`inject_gram`).
                 let size = |z: &C<T>| cnorm2(z).to_f64().sqrt();
                 let w = (0..nm).map(|j| size(&adjf[j])).fold(0.0f64, f64::max) / size(&delta);
-                let estimate = 2f64.powi(-53) * w.max(1.0).powi((i32::from(target) + 1) / 2);
+                let estimate = alternative_pv_estimate(w, 1.0, target);
                 if !(estimate <= ALTERNATIVE_PV_LIMIT) {
                     return Err(format!("alternative PV: estimated error {estimate:e}"));
                 }

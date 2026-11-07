@@ -24,10 +24,11 @@ use plan::DirectPlanData;
 
 use crate::{BatchResult, KinematicsBatch, ReductionError, ReductionSettings, basis::Monomial};
 
-/// Largest a priori estimate (COLLIER's w_pv2) at which the direct engine
-/// accepts the alternative PV reduction alone (2^-36); the natural `limit`
-/// of [`DirectWorkspace::set_alternative_first`] (whose estimate also counts
-/// the modified Cayley determinant's cancellation).
+/// Largest a priori estimate (COLLIER's w_pv2 with the modified Cayley
+/// determinant's cancellation, see [`DirectWorkspace::set_alternative_first`])
+/// at which the direct engine accepts the alternative PV reduction alone
+/// ([`DirectWorkspace::enable_alternative_pv`]): 2^-36; also the natural
+/// `limit` of [`DirectWorkspace::set_alternative_first`].
 pub const ALTERNATIVE_PV_LIMIT: f64 = 1.0 / (1u64 << 36) as f64;
 
 /// Largest relative change of the last pass at which the direct engine's
@@ -178,9 +179,9 @@ where
         self.executor.enable_gram_expansion(boost);
     }
 
-    /// Boxes and triangles refused by their Gram gate are computed by the
-    /// alternative PV reduction through the modified Cayley matrix
-    /// (Denner-Dittmaier sect. 3.2) only. Unchecked, like the expansion.
+    /// Every box and triangle (refused by its Gram gate or not) by the
+    /// small-Gram expansions, else the alternative PV reduction; their own
+    /// triangles gated at `aux_threshold`. Unchecked, like the expansion.
     pub fn enable_gram_expansion_everywhere(&mut self, boost: u16, aux_threshold: T) {
         self.executor.enable_gram_expansion_everywhere(boost, aux_threshold);
     }
@@ -197,13 +198,12 @@ where
     /// before or after enabling it): a box or triangle it serves whose a
     /// priori estimate of the alternative PV reduction,
     /// 2^-53 (max(1, w) max(1, v))^ceil((r + 1) / 2) with COLLIER's
-    /// w = max_j |(Zadj f)_j| / |Delta| (w_pv2, as the alternative-only
-    /// reduction refuses above 2^-36) and the cancellation v of the modified
-    /// Cayley determinant det X = 2 m_0^2 Delta - f Zadj f (sum of the terms'
-    /// sizes over |det X|; the reduction divides by det X), is at most
-    /// `limit` gets that reduction first, from triangles of its own rank;
-    /// the expansions follow only if it fails. `None` (the default): the
-    /// expansions first, the alternative PV as their check and fallback.
+    /// w = max_j |(Zadj f)_j| / |Delta| (w_pv2) and the cancellation v of
+    /// the modified Cayley determinant det X = 2 m_0^2 Delta - f Zadj f (sum
+    /// of the terms' sizes over |det X|; the reduction divides by det X), is
+    /// at most `limit` gets that reduction first, from triangles of its own
+    /// rank; the expansions follow only if it fails. `None` (the default):
+    /// the expansions first, the alternative PV as their check and fallback.
     /// Natural limits: [`ALTERNATIVE_PV_LIMIT`] (the alternative-only
     /// reduction's) and [`EXPANSION_TOLERANCE`] (the expansions' own).
     /// Like the expansions, the choice is unchecked: callers verify the
@@ -227,6 +227,12 @@ where
         self.executor.set_shared_subsets(store);
     }
 
+    /// Boxes and triangles refused by their Gram gate are computed by the
+    /// alternative PV reduction through the modified Cayley matrix
+    /// (Denner-Dittmaier sect. 3.2) only, where its a priori estimate (as
+    /// for [`Self::set_alternative_first`], with det X's cancellation) is at
+    /// most [`ALTERNATIVE_PV_LIMIT`]; lanes with a box or triangle above it
+    /// are refused. Unchecked otherwise, like the expansion.
     pub fn enable_alternative_pv(&mut self) {
         self.executor.enable_alternative_pv();
     }
