@@ -1340,7 +1340,9 @@ where
     /// [`crate::TensorStore`]): the direct engine's workspaces of this
     /// facade or embedder-mode workspace (its checks, retries and
     /// double-double tier included); other engines ignore it. Attaching
-    /// registers the direct plan's nested moment gathers with the store.
+    /// registers the direct plan's nested moment gathers with the store. The
+    /// facade's loop-rotation test and cyclic-order checks never consult the
+    /// store's masters provider (see [`crate::TensorStore::check_view`]).
     pub fn set_tensor_store(&mut self, store: Option<&crate::TensorStore>) {
         let shared = store.map(|store| store.shared().clone());
         match &mut self.engine {

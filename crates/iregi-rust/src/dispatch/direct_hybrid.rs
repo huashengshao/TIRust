@@ -200,7 +200,9 @@ fn uniform_powers(settings: &ReductionSettings) -> bool {
 
 /// The batch with every lane's propagators rotated by one (shifts, supplied
 /// invariants and squared masses; the loop momentum is relabelled, the
-/// integral is unchanged).
+/// integral is unchanged). Every binary64 reduction of a rotated batch here
+/// is a check pass (`reduce_check_batch`: never through a masters provider;
+/// double-double workspaces have none).
 fn rotated<T: NativeFloat>(batch: &KinematicsBatch<T>, layout: &InputLayout) -> KinematicsBatch<T> {
     crate::direct::rotate_lanes(batch, layout, 1)
 }
@@ -833,7 +835,7 @@ where
         let first = workspace.reduce_batch(&sub)?;
         self.last.master_rows += workspace.last_master_rows();
         let mut child = workspace.last_profile();
-        let second = workspace.reduce_batch(&rotated(&sub, &layout))?;
+        let second = workspace.reduce_check_batch(&rotated(&sub, &layout))?;
         self.last.master_rows += workspace.last_master_rows();
         let rotated_profile = workspace.last_profile();
         child.geometry += rotated_profile.geometry;
@@ -877,7 +879,7 @@ where
                 values.extend_from_slice(&sub.values[k * width..(k + 1) * width]);
             }
             let near_batch = KinematicsBatch { rows: near.len(), components: batch.components, values };
-            let third = workspace.reduce_batch(&rotated(&rotated(&near_batch, &layout), &layout))?;
+            let third = workspace.reduce_check_batch(&rotated(&rotated(&near_batch, &layout), &layout))?;
             self.last.master_rows += workspace.last_master_rows();
             add_direct_profile(profile, workspace.last_profile());
             for (j, &k) in near.iter().enumerate() {
@@ -967,10 +969,12 @@ where
         let mut sub = KinematicsBatch { rows: lanes.len(), components: batch.components, values };
         let mut orders = Vec::with_capacity(n);
         for k in 0..n {
-            if k > 0 {
+            orders.push(if k > 0 {
                 sub = rotated(&sub, &layout);
-            }
-            orders.push(self.direct.reduce_batch(&sub)?);
+                self.direct.reduce_check_batch(&sub)?
+            } else {
+                self.direct.reduce_batch(&sub)?
+            });
             self.last.master_rows += self.direct.last_master_rows();
         }
         self.last.checked_rows += lanes.len();
@@ -1137,7 +1141,7 @@ where
         let n = self.plan.direct.settings().propagators;
         let layout = self.plan.layout.clone();
         let squared = self.squared_scale();
-        let check = self.direct.reduce_batch(&rotated(batch, &layout))?;
+        let check = self.direct.reduce_check_batch(&rotated(batch, &layout))?;
         self.last.master_rows += self.direct.last_master_rows();
         let rotated_profile = self.direct.last_profile();
         direct_profile.geometry += rotated_profile.geometry;
@@ -1199,7 +1203,7 @@ where
                 values.extend_from_slice(&batch.values[lane * width..(lane + 1) * width]);
             }
             let sub = KinematicsBatch { rows: near.len(), components: batch.components, values };
-            let third = self.direct.reduce_batch(&rotated(&rotated(&sub, &layout), &layout))?;
+            let third = self.direct.reduce_check_batch(&rotated(&rotated(&sub, &layout), &layout))?;
             self.last.master_rows += self.direct.last_master_rows();
             let third_profile = self.direct.last_profile();
             direct_profile.geometry += third_profile.geometry;
@@ -1518,10 +1522,12 @@ where
             let mut evaluations = Vec::with_capacity(orders);
             let mut relabelled = sub;
             for order in 0..orders {
-                if order > 0 {
+                evaluations.push(if order > 0 {
                     relabelled = rotated(&relabelled, &layout);
-                }
-                evaluations.push(workspace.reduce_batch(&relabelled)?);
+                    workspace.reduce_check_batch(&relabelled)?
+                } else {
+                    workspace.reduce_batch(&relabelled)?
+                });
             }
             for (k, &lane) in missing.iter().enumerate() {
                 let mu = lane_mu(batch, &layout, squared, lane);

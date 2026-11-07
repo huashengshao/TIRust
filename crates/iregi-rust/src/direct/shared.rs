@@ -282,6 +282,23 @@ impl SubsetStore {
         floors[size] = floors[size].max(rank);
     }
 
+    /// What a check pass (the same integrals in another propagator order or
+    /// frame, compared with a primary pass) may use in place of this store:
+    /// `None` when it is the store itself. Without a masters provider every
+    /// entry is TIRust's own result for its exact key, what the check would
+    /// compute. With one, a binary64 entry may hold the provider's masters,
+    /// and a provider that gives several argument orders one value (a
+    /// canonical-order cache) would hand the check the primary's masters bit
+    /// for bit: the check would no longer see their rounding. The view then
+    /// keeps the rank floors only (sharing off, no provider): the check
+    /// computes with TIRust's kernels.
+    pub(crate) fn check_view(&self) -> Option<SubsetStore> {
+        self.provider().is_some().then(|| SubsetStore {
+            floors: Mutex::new(self.floors.lock().unwrap_or_else(|e| e.into_inner()).clone()),
+            ..SubsetStore::default()
+        })
+    }
+
     /// The coefficient rank at which a `size`-propagator subset needed at
     /// `rank` is computed.
     pub(crate) fn rank_for(&self, size: usize, rank: u16) -> u16 {

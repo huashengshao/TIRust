@@ -539,6 +539,21 @@ where
         self.shared.clone().or_else(|| self.dd_masters.clone())
     }
 
+    /// Reduce `batch` as a check pass (another propagator order of integrals
+    /// a primary pass reduced): through the attached store's check view
+    /// ([`SubsetStore::check_view`]: with a masters provider, TIRust's
+    /// kernels and the store's rank floors, nothing shared), otherwise as
+    /// [`Self::reduce_batch`].
+    pub(crate) fn reduce_check_batch(&mut self, batch: &KinematicsBatch<T>) -> Result<BatchResult<T>, ReductionError> {
+        let Some(view) = self.shared.as_ref().and_then(|store| store.check_view()) else {
+            return self.reduce_batch(batch);
+        };
+        let attached = self.shared.replace(Arc::new(view));
+        let result = self.reduce_batch(batch);
+        self.shared = attached;
+        result
+    }
+
     /// Take the per-lane diagnostics, profile and master count of the most
     /// recent call (see [`Self::merge_call`]).
     pub(crate) fn take_call(&mut self) -> CallRecord {

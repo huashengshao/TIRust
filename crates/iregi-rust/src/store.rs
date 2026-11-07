@@ -74,6 +74,21 @@
 //! kernels); declining a master (`None`) leaves it to TIRust's kernels.
 //! The mass derivatives of dotted propagators (IBP jets) and workspaces with
 //! batched [`crate::MasterExecutionPolicy`] evaluators never consult it.
+//!
+//! **Check passes never see the provider.** A check compares the same
+//! integrals in another propagator order or frame with a primary pass. A
+//! provider that gives several argument orders one value (a cache in a
+//! canonical propagator order: a cyclic rotation is one of a box's dihedral
+//! relabellings) would hand the check the primary's boxes and triangles bit
+//! for bit, and the check would no longer see their rounding. TIRust's own
+//! check passes (the rotation copy of
+//! [`crate::DirectWorkspace::reduce_batch_with_rotation`], the facade's
+//! loop-rotation test and cyclic-order checks) therefore reduce through
+//! [`TensorStore::check_view`]: TIRust's kernels at the store's rank floors,
+//! no entry of the store read (any binary64 entry may hold the provider's
+//! masters). An embedder's own check passes (other frames, rescaled
+//! re-tests) attach [`TensorStore::check_view`] to the workspaces they use,
+//! or a store without a provider.
 use std::sync::Arc;
 
 use symbolica::domains::float::Complex;
@@ -125,7 +140,8 @@ impl MasterFamily {
 /// [`crate::Convention::OneLoop`] (the single pole is the total, UV plus IR),
 /// exactly what the kernel returns for these arguments. Implementations are
 /// called from every thread that reduces with the store and must give the
-/// same value for the same arguments.
+/// same value for the same arguments. Check passes never call it (see the
+/// module docs): a provider may serve masters in a canonical argument order.
 pub trait MasterProvider: Send + Sync {
     /// The master at `arguments`, or `None` to leave it to TIRust's kernel.
     fn master(&self, family: MasterFamily, arguments: &[Complex<f64>]) -> Option<[Complex<f64>; 3]>;
@@ -247,6 +263,20 @@ impl TensorStore {
     pub fn align_ranks(&self, plan: &DirectReductionPlan) {
         for (size, rank) in plan.subset_ranks() {
             self.inner.raise_floor(size, rank);
+        }
+    }
+
+    /// The store for check passes (the same integrals in another propagator
+    /// order or frame, compared with a primary pass; see the module docs):
+    /// without a masters provider this store itself (its entries are
+    /// TIRust's own results for their exact keys, what a check computes);
+    /// with one, a store with this store's rank floors as they are now, no
+    /// provider and sharing off, so that the check computes every master
+    /// with TIRust's kernels.
+    pub fn check_view(&self) -> TensorStore {
+        match self.inner.check_view() {
+            Some(view) => Self { inner: Arc::new(view) },
+            None => self.clone(),
         }
     }
 

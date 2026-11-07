@@ -1,10 +1,18 @@
 //! The rotation copy (`DirectWorkspace::reduce_batch_with_rotation`): the
 //! rotated frame's moments from the same call, bit for bit those of a
 //! separate call on the rotated batch, agreeing with the primary to the
-//! reduction's accuracy, with the primary's diagnostics and shared work.
+//! reduction's accuracy, with the primary's diagnostics and shared work;
+//! check passes (the copy, the facade's loop-rotation test) never consult a
+//! masters provider.
+use std::{
+    collections::HashSet,
+    sync::{Arc, Mutex},
+};
+
 use iregi_rust::{
-    BatchResult, DirectReductionPlan, DirectWorkspace, InvariantInput, KinematicsBatch, LaneStatus, ReductionError,
-    ReductionSettings, TensorStore, direct::EXPANSION_TOLERANCE,
+    BatchResult, DirectReductionPlan, DirectWorkspace, InvariantInput, KinematicsBatch, LaneStatus, MasterFamily,
+    MasterProvider, ReductionError, ReductionSettings, TensorReductionPlan, TensorStore, TensorStoreOptions,
+    TensorWorkspace, direct::EXPANSION_TOLERANCE,
 };
 use iregi_masters::NativeFloat;
 use symbolica::domains::float::{Complex, DoubleFloat};
@@ -219,4 +227,154 @@ fn rotated_batches_relabel_shifts_invariants_and_masses() {
         }
     }
     assert_eq!(new[layout.scale], row[layout.scale]);
+}
+
+/// Invariant pairs `(i, j)` in the kernels' argument order (see
+/// `MasterFamily`) and the propagator relabellings that leave the master
+/// unchanged: a triangle's 6 permutations, a box's 8 dihedral ones.
+fn symmetries(family: MasterFamily) -> Option<(&'static [(usize, usize)], Vec<Vec<usize>>)> {
+    match family {
+        MasterFamily::Triangle => Some((
+            &[(0, 1), (1, 2), (0, 2)],
+            vec![vec![0, 1, 2], vec![1, 2, 0], vec![2, 0, 1], vec![0, 2, 1], vec![2, 1, 0], vec![1, 0, 2]],
+        )),
+        MasterFamily::Box => Some((
+            &[(0, 1), (1, 2), (2, 3), (0, 3), (0, 2), (1, 3)],
+            (0..4).flat_map(|r| [(0..4).map(|k| (k + r) % 4).collect(), (0..4).map(|k| (r + 4 - k) % 4).collect()]).collect(),
+        )),
+        _ => None,
+    }
+}
+
+fn bits(arguments: &[Complex<f64>]) -> Vec<u64> {
+    arguments.iter().flat_map(|z| [z.re.to_bits(), z.im.to_bits()]).collect()
+}
+
+/// An embedder's master cache keyed on a canonical propagator order (as
+/// pyAmpliCol's MasterCache: triangles over their 6 relabellings, boxes over
+/// their 8 dihedral ones), each master evaluated in that order by TIRust's
+/// own kernels; `canonical = false`: the kernels at the arguments as given.
+/// Records every row it is asked for and the canonical boxes and triangles.
+struct CanonicalProvider {
+    kernels: Mutex<Vec<oneloop::NativeEvaluator<f64>>>,
+    canonical: bool,
+    asked: Mutex<HashSet<(usize, Vec<u64>)>>,
+    rows: Mutex<HashSet<(usize, Vec<u64>)>>,
+}
+
+impl CanonicalProvider {
+    fn new(canonical: bool) -> Self {
+        let kernels = [
+            iregi_masters::ScalarIntegral::A0,
+            iregi_masters::ScalarIntegral::B0,
+            iregi_masters::ScalarIntegral::C0,
+            iregi_masters::ScalarIntegral::D0,
+        ]
+        .into_iter()
+        .map(|family| oneloop::NativeEvaluator::with_binary_precision(family, 53).unwrap())
+        .collect();
+        Self { kernels: Mutex::new(kernels), canonical, asked: Mutex::default(), rows: Mutex::default() }
+    }
+
+    fn asked(&self) -> HashSet<(usize, Vec<u64>)> {
+        self.asked.lock().unwrap().clone()
+    }
+
+    fn rows(&self) -> usize {
+        self.rows.lock().unwrap().len()
+    }
+}
+
+impl MasterProvider for CanonicalProvider {
+    fn master(&self, family: MasterFamily, arguments: &[Complex<f64>]) -> Option<[Complex<f64>; 3]> {
+        let index = [MasterFamily::Tadpole, MasterFamily::Bubble, MasterFamily::Triangle, MasterFamily::Box]
+            .iter()
+            .position(|&f| f == family)
+            .unwrap();
+        self.asked.lock().unwrap().insert((index, bits(arguments)));
+        let mut arguments = arguments.to_vec();
+        if let Some((pairs, relabellings)) = symmetries(family) {
+            let at = |a: usize, b: usize| pairs.iter().position(|&pair| pair == (a.min(b), a.max(b))).unwrap();
+            let n = relabellings[0].len();
+            let relabel = |sigma: &Vec<usize>| {
+                let mut new: Vec<Complex<f64>> = pairs.iter().map(|&(i, j)| arguments[at(sigma[i], sigma[j])]).collect();
+                new.extend((0..n).map(|k| arguments[pairs.len() + sigma[k]]));
+                new.push(arguments[pairs.len() + n]);
+                new
+            };
+            let canonical = relabellings.iter().map(relabel).min_by_key(|candidate| bits(candidate)).unwrap();
+            self.rows.lock().unwrap().insert((index, bits(&canonical)));
+            if self.canonical {
+                arguments = canonical;
+            }
+        }
+        let mut output = vec![Complex::new(0.0, 0.0); 3];
+        self.kernels.lock().unwrap()[index].evaluate(&arguments, &mut output).ok()?;
+        Some([output[0], output[1], output[2]])
+    }
+}
+
+#[test]
+fn check_passes_never_consult_the_masters_provider() {
+    let n = 5;
+    let plan = DirectReductionPlan::new(settings(n, 3, true)).unwrap();
+    let batch = lanes(n, 6, true, 29);
+    let rotated = plan.rotated_batch(&batch, 1).unwrap();
+    let attached = |provider: &Arc<CanonicalProvider>| {
+        let store = TensorStore::with_options(TensorStoreOptions { masters: Some(provider.clone()), ..Default::default() });
+        let mut workspace = plan.workspace(0.0f64).unwrap();
+        workspace.set_tensor_store(Some(&store));
+        (store, workspace)
+    };
+    // The hazard: through a canonical-order provider, a call on the rotated
+    // batch asks for other argument orders, of no new canonical box or
+    // triangle: it receives the primary's masters bit for bit.
+    let provider = Arc::new(CanonicalProvider::new(true));
+    let (store, mut workspace) = attached(&provider);
+    let primary = workspace.reduce_batch(&batch).unwrap();
+    let (asked, rows) = (provider.asked(), provider.rows());
+    let mut blind = plan.workspace(0.0f64).unwrap();
+    blind.set_tensor_store(Some(&store));
+    let blind = blind.reduce_batch(&rotated).unwrap();
+    assert!(provider.asked().len() > asked.len());
+    assert_eq!(provider.rows(), rows, "a rotated box or triangle is one of the primary's");
+    // The rotation copy never asks the provider: TIRust's kernels on the
+    // rotated batch, as with the store's check view attached.
+    let provider = Arc::new(CanonicalProvider::new(true));
+    let (store, mut workspace) = attached(&provider);
+    let (again, copy) = workspace.reduce_batch_with_rotation(&batch, 1).unwrap();
+    assert_eq!(fingerprint(&again), fingerprint(&primary));
+    assert_eq!(provider.asked(), asked, "the copy asked the provider");
+    assert_eq!(fingerprint(&copy), fingerprint(&plan.workspace(0.0f64).unwrap().reduce_batch(&rotated).unwrap()));
+    let view = store.check_view();
+    assert!(!view.has_master_provider());
+    let mut viewed = plan.workspace(0.0f64).unwrap();
+    viewed.set_tensor_store(Some(&view));
+    assert_eq!(fingerprint(&viewed.reduce_batch(&rotated).unwrap()), fingerprint(&copy));
+    // The copy sees the masters' rounding in its own order (the blind call
+    // differs from it there only), and agrees with the primary.
+    let (mut seen, mut served) = (0, 0);
+    for lane in 0..batch.rows {
+        if let (Ok(a), Ok(b), Ok(c)) = (primary.lane(lane), copy.lane(lane), blind.lane(lane)) {
+            assert!(difference(a, b) <= 1e-6 && difference(c, b) <= 1e-6, "lane {lane}");
+            seen += usize::from(b != c);
+            served += 1;
+        }
+    }
+    eprintln!("copy differs from the blind call on {seen} of {served} lanes");
+    assert!(served > 0 && seen > 0, "{seen} of {served}");
+    // The facade's loop-rotation test and cyclic-order checks: the provider
+    // is asked only for the primary's orders, and with TIRust's kernels
+    // behind it the facade is bit for bit the facade without a store.
+    let tensor = TensorReductionPlan::new(settings(n, 3, true)).unwrap();
+    let provider = Arc::new(CanonicalProvider::new(false));
+    let store = TensorStore::with_options(TensorStoreOptions { masters: Some(provider.clone()), ..Default::default() });
+    let mut facade = TensorWorkspace::new(&tensor, 0.0f64).unwrap();
+    facade.set_tensor_store(Some(&store));
+    let result = facade.reduce_batch(&batch).unwrap();
+    let facade_asked = provider.asked();
+    assert!(!facade_asked.is_empty() && facade_asked.is_subset(&asked), "{} rows, {} beyond the primary's", facade_asked.len(), facade_asked.difference(&asked).count());
+    let plain = TensorWorkspace::new(&tensor, 0.0f64).unwrap().reduce_batch(&batch).unwrap();
+    assert_eq!(fingerprint(&result), fingerprint(&plain));
+    assert!(result.statuses.contains(&LaneStatus::Success), "{:?}", result.statuses);
 }

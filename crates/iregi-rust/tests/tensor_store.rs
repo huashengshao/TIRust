@@ -422,3 +422,38 @@ fn a_masters_provider_serves_every_master_and_changes_values_only_by_its_own() {
         }
     }
 }
+
+#[test]
+fn the_check_view_keeps_the_rank_floors_and_leaves_the_provider_out() {
+    // Without a provider the view is the store itself.
+    let store = TensorStore::new();
+    let mut boxes = workspace(4, false);
+    boxes.set_tensor_store(Some(&store.check_view()));
+    boxes.reduce_batch(&bucket(4, MT2)).unwrap();
+    assert!(store.statistics().masters_computed > 0);
+    // With one (doubling boxes: other values than TIRust's): the rank
+    // floors as they are, no provider, nothing shared.
+    let provider = Arc::new(KernelProvider::new(2.0, false));
+    let store = TensorStore::with_options(TensorStoreOptions { masters: Some(provider.clone()), ..Default::default() });
+    let floors = TensorStore::new();
+    for store in [&store, &floors] {
+        store.align_ranks(&plan(6));
+    }
+    let view = store.check_view();
+    assert!(!view.has_master_provider() && !view.sharing());
+    let run = |store: &TensorStore| {
+        [5u32, 4]
+            .map(|size| {
+                let mut chosen = workspace(size as usize, true);
+                chosen.set_tensor_store(Some(store));
+                fingerprint(&chosen.reduce_batch(&bucket(size, MT2)).unwrap())
+            })
+            .to_vec()
+    };
+    assert_eq!(run(&view), run(&floors));
+    // The floors matter here: without them the method choice's injected
+    // boxes and triangles come out otherwise.
+    assert_ne!(run(&floors), run(&TensorStore::new()));
+    assert_eq!(provider.calls.load(Ordering::Relaxed), 0);
+    assert_eq!(view.statistics(), TensorStoreStatistics::default());
+}

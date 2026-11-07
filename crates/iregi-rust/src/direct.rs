@@ -234,23 +234,42 @@ where
         self.executor.reduce_batch(batch)
     }
 
+    /// [`Self::reduce_batch`] as a check pass: the masters provider of an
+    /// attached store is never consulted (see
+    /// [`Self::reduce_batch_with_rotation`]).
+    pub(crate) fn reduce_check_batch(
+        &mut self,
+        batch: &KinematicsBatch<T>,
+    ) -> Result<BatchResult<T>, ReductionError> {
+        self.executor.reduce_check_batch(batch)
+    }
+
     /// Reduce `batch` and its rotated copy in one call (U3): returns
     /// `(primary, copy)`, where `copy` holds the moments of
-    /// [`DirectReductionPlan::rotated_batch`]`(batch, rotation)`, bit for bit
-    /// what [`Self::reduce_batch`] returns for that batch, lane for lane in
-    /// the order of `batch`. The copy's moments are the same integrals in the
-    /// same loop-momentum frame, reduced through other PV systems, so a lane
-    /// and its copy agree to the reduction's accuracy (a stability check
-    /// without a second call or a re-expanded numerator).
+    /// [`DirectReductionPlan::rotated_batch`]`(batch, rotation)`, lane for
+    /// lane in the order of `batch`. The copy's moments are the same
+    /// integrals in the same loop-momentum frame, reduced through other PV
+    /// systems, so a lane and its copy agree to the reduction's accuracy (a
+    /// stability check without a second call or a re-expanded numerator).
     ///
-    /// The copy's subsets that keep their propagator order (those without a
-    /// propagator moved to the end; `rotation = 1` keeps every subset without
-    /// propagator 0) repeat the primary's work exactly; they are taken from
+    /// The copy is a check pass: it never consults a masters provider
+    /// ([`crate::TensorStoreOptions::masters`]). Without one it is bit for bit
+    /// what [`Self::reduce_batch`] returns for the rotated batch, and its
+    /// subsets that keep their propagator order (those without a propagator
+    /// moved to the end; `rotation = 1` keeps every subset without
+    /// propagator 0) repeat the primary's work exactly: they are taken from
     /// the attached [`TensorStore`] or, without one, from a store private to
     /// this call (binary64: sub-integrals, pentagons, rescues, expansions,
-    /// moments and masters; double-double: masters). Per-lane diagnostics
-    /// (`last_conditions`, `last_gram_lanes`, `last_estimate_lanes`) describe
-    /// the primary; `last_profile` and `last_master_rows` cover both.
+    /// moments and masters; double-double: masters). With a provider the
+    /// copy is computed in full by TIRust's kernels at the store's rank
+    /// floors, bit for bit [`Self::reduce_batch`] on the rotated batch with
+    /// [`TensorStore::check_view`] attached instead of the store: a provider
+    /// that gives several argument orders one value (a canonical-order
+    /// cache) would hand the copy the primary's boxes and triangles bit for
+    /// bit and the check would no longer see the masters' rounding. Per-lane
+    /// diagnostics (`last_conditions`, `last_gram_lanes`,
+    /// `last_estimate_lanes`) describe the primary; `last_profile` and
+    /// `last_master_rows` cover both.
     pub fn reduce_batch_with_rotation(
         &mut self,
         batch: &KinematicsBatch<T>,
@@ -275,7 +294,7 @@ where
         let outcome = (|| {
             let primary = self.executor.reduce_batch(batch)?;
             let first = self.executor.take_call();
-            let copy = self.executor.reduce_batch(&rotated)?;
+            let copy = self.executor.reduce_check_batch(&rotated)?;
             self.executor.merge_call(first);
             Ok((primary, copy))
         })();
@@ -293,7 +312,8 @@ where
     /// nothing. Attaching registers this plan's nested moment gathers with
     /// the store. Results are bit-identical with and without the store
     /// unless [`TensorStore::align_ranks`] raised its rank floor (or its
-    /// masters provider returns other values than TIRust's kernels).
+    /// masters provider returns other values than TIRust's kernels). Check
+    /// passes (the rotation copy) never consult the provider.
     pub fn set_tensor_store(&mut self, store: Option<&TensorStore>) {
         if let Some(store) = store {
             store.register(&DirectReductionPlan { data: self.executor.base_plan().clone() });
