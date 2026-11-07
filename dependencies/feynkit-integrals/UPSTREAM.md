@@ -2,9 +2,13 @@
 
 Source repository: https://github.com/alphal00p/gammaloop
 
-Pinned revision: `865afdc43fb4e6b950439d34b4ec2c38352873e7`, matching the FeynKit
-revision used by the embedding iregi-rust workspace. The source files were copied
-from its supplied reference checkout. Pristine source copies are retained under
+Pinned revision: `865afdc43fb4e6b950439d34b4ec2c38352873e7`, the FeynKit revision
+the embedding iregi-rust workspace used when the files were extracted. The
+workspace's own GammaLoop crates have since moved to
+`9102f885722e856e30227ed46e685e5c465905f7` (73a8835); this extraction stays at
+865afdc4 and is not re-synchronised with it (`integrals.rs`,
+`integrals/partial_fraction.rs` and the manifest differ there; `LICENSE` is
+identical). The source files were copied from its supplied reference checkout. Pristine source copies are retained under
 `upstream/` so the extraction can be audited without network access.
 
 | Source file | SHA-256 |

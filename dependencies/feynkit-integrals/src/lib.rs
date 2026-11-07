@@ -1,8 +1,10 @@
 //! FeynKit's exact affine propagator partial fractions without graph types.
 //!
 //! The partial-fraction engine and exact Gaussian-rational polynomial/matrix
-//! helpers are extracted from FeynKit revision `865afdc43fb4e6b950439d34b4ec2c38352873e7`.
-//! See `UPSTREAM.md` for provenance and the deliberately narrower constructor.
+//! helpers are extracted from FeynKit revision `865afdc43fb4e6b950439d34b4ec2c38352873e7`
+//! (the workspace's own GammaLoop crates are at 9102f885 since 73a8835; the
+//! extraction is not re-synchronised). See `UPSTREAM.md` for provenance and
+//! the deliberately narrower constructor.
 //! Symbolica performs every polynomial manipulation, rank calculation and solve.
 
 use std::collections::BTreeSet;
