@@ -1,7 +1,7 @@
 # Files kept under validation/ by the slimming (pyAmpliCol collaboration protocol, section 2
 # item 6, docs/PYAMPLICOL-COLLABORATION.md). The first 20 are the fixtures that tests, the CLI
-# default and the examples read; the last line is the summary that links to the evidence
-# archive. Everything else under validation/ is evidence kept in that archive; the history
+# default and the examples read; the last line is the summary that names where the evidence
+# is kept. Everything else under validation/ is evidence kept in that private backup; the history
 # rewrite (protocol section 4) removes it from every commit, and .gitignore ignores new files
 # there except these paths (one "!/<path>" line each). Format: one path per line; "#" starts
 # a comment line.

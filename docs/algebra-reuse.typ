@@ -63,7 +63,7 @@ entries match independent integer binomials; seven generalized fixtures check
 normalization, unit powers, mass derivatives and a tadpole dimension shift.
 The original #raw("STOP") returns exit code zero, so the harness also requires
 an explicit result record. Evidence lives in
-#raw("validation/reference/fixtures.json") and in the evidence archive named in
+#raw("validation/reference/fixtures.json") and in the private backup named in
 #raw("validation/README.md").
 
 OneLoopMaster documents corrected analytic-continuation defects in its

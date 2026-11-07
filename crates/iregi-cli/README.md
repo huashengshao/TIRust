@@ -177,7 +177,7 @@ by `execution_batch_ids`; those repeated counters must not be summed per case.
 `--case bubble` selects IDs containing a substring and `--algorithm ibp`
 overrides each fixture's stored method. Higher-precision comparisons still use
 the original binary64 expected values and cannot certify all extra digits.
-After building the binary, `validation/cli_smoke.py` of the evidence archive
+After building the binary, `validation/cli_smoke.py` of the private backup
 (named in [validation/README.md](../../validation/README.md)) checks graph import,
 all three precision modes, contraction, supplied invariants, and lane isolation.
 
@@ -189,8 +189,8 @@ cargo run -p iregi-cli -- run examples/graphs/ggh_top_triangle.dot --model fixtu
 python3 "$EVIDENCE/validation/physical/compare_cli.py" --cli target/debug/iregi-rust
 ```
 
-`EVIDENCE` is a checkout of the evidence archive. The second command requires
-the isolated original IREGI executable built by the archive's reference builder
+`EVIDENCE` is a checkout of the private backup. The second command requires
+the isolated original IREGI executable built by the backup's reference builder
 (`validation/reference/build.py`). It checks all four Laurent slots of every
 tensor moment at the FeynKit routing, then compares the integrated numerator to
 the separately captured MadLoop graph with its documented color factor. Its
@@ -205,4 +205,4 @@ for preparing and reusing batched Symbolica coefficient evaluators. Numerical
 coefficient evaluation is separate from graph preparation and core tensor
 reduction. The in-process `physical_benchmark` example uses these same helpers;
 its measurement boundaries and correctness gates are documented in
-`validation/benchmark/PHYSICAL.md` in the [evidence archive](../../validation/README.md).
+`validation/benchmark/PHYSICAL.md` in the [private backup](../../validation/README.md).

@@ -12,7 +12,7 @@ from [docs/benchmark-summary.typ](docs/benchmark-summary.typ) by
 measurements, failed attempts, reference defects and explicit qualification
 limits, and its evidence are assets of the release
 [tirust-bench-20261106](https://github.com/huashengshao/TIRust/releases/tag/tirust-bench-20261106);
-the validation evidence is in the archive named in [validation/README.md](validation/README.md).
+the validation evidence is in the private backup named in [validation/README.md](validation/README.md).
 
 **Direct numerical engine (binary64 default).** `TensorReductionPlan::new` now
 selects a direct engine for unit-power or single-dotted, `h<=3`, Cartesian-shift
@@ -22,7 +22,7 @@ sub-topologies use their constant-one denominator identity, a dotted propagator
 is a Taylor jet in its squared mass, and `D=4+2h` uses
 `C(lambda+h,kappa)(-2)^h`. Lanes with ill-conditioned systems fall back to the
 symbolic engine, which is prepared only on demand (`new_without_direct` keeps the
-old dispatch). In the [same-session benchmark](validation/README.md) (evidence archive: `validation/benchmark/direct-engine-20261030/README.md`)
+old dispatch). In the [same-session benchmark](validation/README.md) (private backup: `validation/benchmark/direct-engine-20261030/README.md`)
 TIRust is faster than original IREGI and COLLIER on all 18 opening inputs, singly
 and in batches of 32: in the latest capture TIRust/IREGI 0.0008-0.36 and
 TIRust/COLLIER 0.06-0.68, with full-array agreement against the archived
@@ -35,7 +35,7 @@ rank six of the previous engine, followed by dotted and dimension-shifted reques
 direct integral API. Large coloured cells separate TIRust time from nested
 scalar-master evaluation. Exact inputs, raw calls, preparation costs, precision
 and reproduction commands are in the
-[binary64 opening timing suite](validation/README.md) (evidence archive: `validation/benchmark/opening-double-20261026/README.md`).
+[binary64 opening timing suite](validation/README.md) (private backup: `validation/benchmark/opening-double-20261026/README.md`).
 Both opening tables use double precision throughout. They show the fastest
 measured configured path per input, with the achieved full-array relative
 discrepancy alongside each total. The ordinary table includes COLLIER's total
@@ -91,10 +91,10 @@ Dual components. Numerator and graph preparation accept the upstream Symbolica,
 FeynKit and Spenso types registered in the same native host. See the
 [extension architecture](docs/research/python-interface.md) for source revisions
 and the separate Community-host integration boundary.
-The [current restored-source wheel](validation/README.md) (evidence archive: `validation/python-interface/restored-zero-profile-wheel-refresh-smoke/README.md`)
+The [current restored-source wheel](validation/README.md) (private backup: `validation/python-interface/restored-zero-profile-wheel-refresh-smoke/README.md`)
 passes ten installed API smoke cases, including precision/Dual transport,
 checked rejection and a six-point rank-one workspace lifecycle. The earlier
-[65 API cases, seven notebook runs and consumer typing](validation/README.md) (evidence archive: `validation/python-interface/facade-wheel-004/README.md`)
+[65 API cases, seven notebook runs and consumer typing](validation/README.md) (private backup: `validation/python-interface/facade-wheel-004/README.md`)
 remain historical evidence. The standalone native host is qualified; loading
 the extension in an external Symbolica Community host remains separate work.
 
@@ -249,7 +249,7 @@ qualification and per-family performance remain explicit in the report.
 
 The retained massive triangle and box cases also validate first, second and
 mixed squared-mass derivatives against raised-power IBP reductions across all
-four Laurent slots. See the [C0/D0 qualification](validation/README.md) (evidence archive: `validation/c0d0-dual-identity/README.md`)
+four Laurent slots. See the [C0/D0 qualification](validation/README.md) (private backup: `validation/c0d0-dual-identity/README.md`)
 for the tested inputs, precision settings and independent audits.
 
 For `Float`, the workspace prototype sets constant precision; supplied values
@@ -278,7 +278,7 @@ qualified through four propagators. Generalized requests with more propagators
 retain IBP and genuine shifted masters, including the six-dimensional pentagon,
 and report that limitation in `preparation_notes()`. A mixed plan reports PV as
 its primary method and records both methods' preparation counts. Hybrid retains
-the independent IBP numerical fallback. The [qualification record](validation/README.md) (evidence archive: `validation/generalized-pv/PROMOTION.md`)
+the independent IBP numerical fallback. The [qualification record](validation/README.md) (private backup: `validation/generalized-pv/PROMOTION.md`)
 documents the tested cases and remaining coverage.
 
 For generalized scalar integrals, `ScalarReductionPlan`,
@@ -297,7 +297,7 @@ scalar fixture converges at 128 and 256 bits against an independent parameter
 integral, at requested binary64 accuracy. Its binary64 cancellation rejection
 and earlier preparation timeouts remain recorded. This does not qualify all
 six/seven-point requests or high-rank tensors; see the
-[bounded qualification](validation/README.md) (evidence archive: `validation/invariant-certificate/solve-vector/qualification-status.json`).
+[bounded qualification](validation/README.md) (private backup: `validation/invariant-certificate/solve-vector/qualification-status.json`).
 
 `CertifiedPlanarReductionPlan` and `CertifiedPlanarWorkspace<T>` provide an
 explicit PV path for planar five-point tensors through rank seven. They certify
@@ -347,8 +347,8 @@ buffers. Numerical sample results are never stored in that cache.
 Ordinary scalar masters, reduction evaluators and numerator contractions reuse
 temporary storage through Symbolica's existing root allocator. The instruction
 and arithmetic order stay unchanged; Dual
-preparation keeps its existing allocation path. The [paired qualification](validation/README.md) (evidence archive: `validation/stack-reuse/production-factory/integration-qualification.json`)
-records master output agreement; the [core qualification](validation/README.md) (evidence archive: `validation/core-stack-reuse/adoption/qualification.json`)
+preparation keeps its existing allocation path. The [paired qualification](validation/README.md) (private backup: `validation/stack-reuse/production-factory/integration-qualification.json`)
+records master output agreement; the [core qualification](validation/README.md) (private backup: `validation/core-stack-reuse/adoption/qualification.json`)
 records the later reduction/contraction integration. Controlled performance
 gates are assessed separately.
 
@@ -387,7 +387,7 @@ one set of local captures. The PDF build fixes the creation timestamp from that
 data (the report date) and uses only Typst's embedded fonts, so it is
 reproducible. The reference builder and capture scripts that produced the kept
 fixtures under `validation/` (formerly `validation/reference/{build,capture,audit}.py`
-and `scripts/build-reference.sh`) are in the evidence archive.
+and `scripts/build-reference.sh`) are in the private backup named in [validation/README.md](validation/README.md).
 
 `cargo test` runs the default members. `crates/iregi-python` does not build
 until its GammaLoop pin moves (see [docs/environment.md](docs/environment.md)).
@@ -396,12 +396,12 @@ Tests using Symbolica must respect the installed license's process and thread
 limits. The cold concurrent plan-preparation test is ignored because it requires
 a multithread-enabled Symbolica license; preparing a variant first allows the
 separate concurrent cache-lookup test to use only Rust synchronization.
-The [licensed concurrency qualification](validation/README.md) (evidence archive: `validation/concurrent-workspaces/README.md`)
+The [licensed concurrency qualification](validation/README.md) (private backup: `validation/concurrent-workspaces/README.md`)
 records the explicit cold test and 360 compared calls from independent concurrent
 workspaces. It contains no license key.
 Independent validation procedures and conventions are documented in
 `validation/reference/README.md`, `validation/physical/README.md` and
-`validation/pv-high-rank/README.md` in the [evidence archive](validation/README.md),
+`validation/pv-high-rank/README.md` in the [private backup](validation/README.md),
 and in [docs/conventions.typ](docs/conventions.typ).
 
 ## Licence

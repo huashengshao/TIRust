@@ -1,5 +1,5 @@
 {
- "source": "validation/benchmark/opening-rank6-20261026/cases/<id>/result.json: first_output.basis and the exact rationals of first_output.lanes[0].values, copied verbatim (exact, at each value's recorded working precision: 53 bits for most, up to 128 bits for some); the captures are in the evidence archive named in validation/README.md",
+ "source": "validation/benchmark/opening-rank6-20261026/cases/<id>/result.json: first_output.basis and the exact rationals of first_output.lanes[0].values, copied verbatim (exact, at each value's recorded working precision: 53 bits for most, up to 128 bits for some); the captures are in the private backup named in validation/README.md",
  "source_sha256": {
   "ordinary-n1-r0": "cb815594a666b872c719d3d5ba17f884b1c1164f0b63fb4de521166ce6489948",
   "ordinary-n1-r6": "f9071c9ce07895549e24b47db5e87df33909efb1f23a50e9a36ba80d531fa5d1",

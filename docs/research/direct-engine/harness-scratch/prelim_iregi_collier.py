@@ -4,7 +4,7 @@ opening-double option) on the 18 opening inputs. Run pinned via taskset. Output 
 
 usage: prelim_iregi_collier.py IREGI_TENSOR_BIN IREGI_GENERAL_BIN COLLIER_BIN COLLIER_SUMMARY
 COLLIER_SUMMARY: the archived validation/benchmark/opening-double-20261026/collier/summary.json
-(evidence archive, validation/README.md), which names COLLIER's selected option per input.
+(private backup, validation/README.md), which names COLLIER's selected option per input.
 """
 import json, math, statistics, subprocess, sys, time
 from fractions import Fraction as F

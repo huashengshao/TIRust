@@ -36,7 +36,7 @@ current; never invent timings or claim unperformed validation.
 
 Slimness (protocol sections 2 item 6 and 5): validation/ keeps only the
 fixtures that tests read and its README.md (scripts/keep-validation.txt); the
-evidence lives in the archive named in validation/README.md. New captures, raw
+evidence lives in the private backup named in validation/README.md. New captures, raw
 JSON/JSONL, logs and report data (docs/data/) are git-ignored; never force-add
 them. A new fixture that a test must read goes to the test's own crate (for
 example crates/iregi-rust/tests/fixtures/), not under validation/.

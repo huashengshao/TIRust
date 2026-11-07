@@ -6,14 +6,14 @@ The validation evidence (captures, qualification records, reviews, reference
 builders, payload archives, logs and the full benchmark data) lives outside the
 repository:
 
-PENDING-EVIDENCE-ARCHIVE: the URL and commit of the evidence archive from the reply on huashengshao/TIRust#15.
+No public evidence archive (huashengshao/TIRust#15): the evidence stays in a private backup of the history before the slimming (`validation/` at commit `1646d22` of the pre-rewrite history), kept privately by the maintainers and not published (that history also contains a modified Symbolica copy).
 
 The full benchmark report and its evidence bundle of 6 November 2026 are assets of the
 release [tirust-bench-20261106](https://github.com/huashengshao/TIRust/releases/tag/tirust-bench-20261106);
 [docs/benchmark.pdf](../docs/benchmark.pdf) is the slim summary.
 A path `validation/<path>` cited in the documentation or in source comments
-that is not one of the files below refers to the same path in the evidence
-archive. New captures written under `validation/` are git-ignored (slimness
+that is not one of the files below refers to the same path in that private
+backup. New captures written under `validation/` are git-ignored (slimness
 policy, docs/PYAMPLICOL-COLLABORATION.md section 5).
 
 | Fixture | Read by |

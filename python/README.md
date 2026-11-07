@@ -4,7 +4,7 @@ Status: a fresh local development wheel is qualified on Linux with CPython 3.13.
 All 65 focused numerical, precision, native interoperability and facade cases
 pass, together with seven actual marimo notebook runtime cases. Installed-wheel
 consumer typing passes with zero errors or warnings.
-The [qualification evidence](../validation/README.md) (evidence archive: `validation/python-interface/facade-wheel-004/README.md`)
+The [qualification evidence](../validation/README.md) (private backup: `validation/python-interface/facade-wheel-004/README.md`)
 records the exact wheel, 201 selected source files including all 158 coherent
 build bodies, tested coverage and preserved
 failed attempts. These are frontend checks on specified fixtures; full-array

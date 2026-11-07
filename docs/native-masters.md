@@ -58,9 +58,9 @@ interface use their existing default constructors.
 
 ## Validation and performance scope
 
-The [constructor capsule](../validation/README.md) (evidence archive: `validation/native-f64-sixpoint-constructors/README.md`)
+The [constructor capsule](../validation/README.md) (private backup: `validation/native-f64-sixpoint-constructors/README.md`)
 records twenty historical ordinary tests and seven new constructor tests.
-The [whole-call capsule](../validation/README.md) (evidence archive: `validation/native-f64-sixpoint-whole/README.md`)
+The [whole-call capsule](../validation/README.md) (private backup: `validation/native-f64-sixpoint-whole/README.md`)
 compares distinct baseline/candidate cores, complete tensor and master arrays,
 repeated workspaces, precision/Dual controls and original IREGI on the retained
 bubble/triangle corpus. Retained six-point reference, precision and lifecycle
