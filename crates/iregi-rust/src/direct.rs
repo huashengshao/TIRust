@@ -247,6 +247,9 @@ where
         let private = self.executor.shared_subsets().is_none().then(|| {
             let store = Arc::new(shared::SubsetStore::default());
             store.set_enabled(true);
+            // Without injected boxes and triangles, a sub-integral or moment
+            // key costs about what it saves; the masters are shared.
+            store.set_masters_only(!self.executor.injects_subsets());
             for (size, rank) in plan.nested_gathers() {
                 store.share_moments(size, rank);
             }

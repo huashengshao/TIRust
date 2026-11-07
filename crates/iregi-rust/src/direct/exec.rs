@@ -526,6 +526,13 @@ where
         &self.base_plan
     }
 
+    /// Whether this executor injects externally computed boxes and
+    /// triangles (partial rescue, small-Gram methods): the per-subset results
+    /// worth sharing beyond the scalar masters.
+    pub(crate) fn injects_subsets(&self) -> bool {
+        self.partial.is_some() || self.gram.is_some()
+    }
+
     /// The store this executor shares through (binary64: everything;
     /// double-double: scalar masters), if any.
     pub(crate) fn shared_subsets(&self) -> Option<Arc<SubsetStore>> {
@@ -1010,7 +1017,7 @@ where
     /// subset's propagators bit for bit and the lane's mu^2 (whichever scale
     /// input the plan reads). `None` without a store.
     fn subset_key(&self, tag: u64, members: &[usize], rank: u16, count: usize, config: &[u64]) -> Option<Vec<u64>> {
-        if !self.shared.as_ref()?.enabled() {
+        if !self.shared.as_ref()?.shares_subsets() {
             return None;
         }
         let mut key = Vec::new();
@@ -2604,7 +2611,7 @@ where
         // the bubble lightlike, so plan variants share too).
         let mut skip = skip;
         let mut computed: Vec<(usize, usize, Vec<u64>)> = Vec::new();
-        let store = self.shared.clone().filter(|store| store.enabled() && !program_is_moments);
+        let store = self.shared.clone().filter(|store| store.shares_subsets() && !program_is_moments);
         if let (Some(store), Some(mu2)) = (store.as_ref(), self.lane_mu2.clone()) {
             if self.gram_top.is_none() {
                 let gram = self.gram.as_ref();
@@ -3073,7 +3080,7 @@ where
             Store(Vec<u64>),
             Compute,
         }
-        let store = self.shared.clone().filter(|store| store.enabled());
+        let store = self.shared.clone().filter(|store| store.shares_subsets());
         let slots = Self::gather_slots::<FULL>();
         let mut moments: Vec<Moments> = Vec::new();
         if let Some(store) = store.as_ref() {

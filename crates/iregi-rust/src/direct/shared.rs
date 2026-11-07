@@ -153,6 +153,9 @@ pub(crate) struct SubsetStore {
     dd_masters: Mutex<HashMap<Vec<u64>, [Complex<DoubleFloat>; 3], BuildHasherDefault<KeyHasher>>>,
     /// Sharing on (`false`: the floors still apply, nothing is shared).
     enabled: std::sync::atomic::AtomicBool,
+    /// Share the scalar masters only (no sub-integrals, rescues, expansions
+    /// or moments): a store whose other keys would cost about what they save.
+    masters_only: std::sync::atomic::AtomicBool,
     /// Coefficient rank floor per subset size (number of propagators).
     floors: Mutex<Vec<u16>>,
     /// `(size, rank)` of the gathers whose moments are shared.
@@ -258,6 +261,16 @@ impl SubsetStore {
 
     pub(crate) fn enabled(&self) -> bool {
         self.enabled.load(Ordering::Relaxed)
+    }
+
+    pub(crate) fn set_masters_only(&self, masters_only: bool) {
+        self.masters_only.store(masters_only, Ordering::Relaxed);
+    }
+
+    /// Sub-integrals, rescues, expansions and moments are shared (sharing
+    /// on, not masters only).
+    pub(crate) fn shares_subsets(&self) -> bool {
+        self.enabled() && !self.masters_only.load(Ordering::Relaxed)
     }
 
     /// Raise the floor of `size`-propagator subsets to `rank`.
