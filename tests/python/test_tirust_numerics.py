@@ -47,7 +47,8 @@ def test_batch_metadata_lane_failure_and_empty(dtype, bits, accuracy):
         # family batches count symbolic work, which only a fallback would add.
         detail = result.engine_execution
         assert detail["engine"] == "direct"
-        assert detail["input_rows"] == 3 and detail["direct_successes"] == 2
+        assert detail["input_rows"] == 3
+        assert detail["direct_successes"] == 2
         assert detail["fallback_rows"] == detail["symbolic_rows"] == 0
         assert "fallback" not in detail
         assert result.stats["argument_rows"] == result.stats["master_family_batches"] == 0
