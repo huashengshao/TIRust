@@ -72,8 +72,8 @@
 //! kernels: an embedder can serve them from its own cache. Its values are
 //! used as returned (results change only if they differ from TIRust's
 //! kernels); declining a master (`None`) leaves it to TIRust's kernels.
-//! Masters of dotted propagators (jets) and of workspaces with batched
-//! [`crate::MasterExecutionPolicy`] evaluators never consult it.
+//! The mass derivatives of dotted propagators (IBP jets) and workspaces with
+//! batched [`crate::MasterExecutionPolicy`] evaluators never consult it.
 use std::sync::Arc;
 
 use symbolica::domains::float::Complex;

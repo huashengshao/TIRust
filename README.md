@@ -120,6 +120,53 @@ rank-one lifecycle case. Each family's validated domain is documented separately
   enumeration, and the affine-power planner takes the caller's
   `AffinePowerBudget`.
 
+## Tensor store, rotation copy and concurrency
+
+- `TensorStore` (`DirectWorkspace::set_tensor_store`,
+  `TensorWorkspace::set_tensor_store` for the facade and embedder mode): the
+  per-subset results of `AmplitudeWorkspace` kept across calls until the caller
+  clears them (`TensorStore::clear`, once per chunk of points), shared by any
+  number of workspaces of different plans and threads. An embedder that
+  reduces a parent family and its pinches in separate calls (one per (N, R)
+  bucket) shares binary64 scalar masters, PV sub-integrals, Gram-free
+  pentagons, partial rescues, small-Gram expansions and gathered moments, and
+  double-double masters. Entries are pure functions of exact keys: results are
+  bit-identical with and without the store, in any call order and thread
+  count. Master keys hold invariants, masses and mu^2 only (translation-
+  invariant: with `SuppliedInvariants` a box meets its copy in another frame);
+  sub-integral and moment keys hold the shifts, so parent and pinches meet in
+  an aligned loop-momentum frame supplied by the caller (common propagators
+  with equal shifts, in the same relative order). `TensorStoreOptions`:
+  `byte_budget` (none by default; stops inserting, values unchanged) and
+  `masters`, a `MasterProvider` serving binary64 scalar masters from the
+  embedder's own cache (oneloopmaster's argument order, OneLOop
+  normalisation). `TensorStore::align_ranks` raises the rank floor of injected
+  boxes and triangles as `AmplitudeWorkspace` does (opt-in);
+  `TensorStore::statistics` counts reuse per kind (`tests/tensor_store.rs`).
+- `DirectWorkspace::reduce_batch_with_rotation(batch, rotation)`: the primary
+  moments and, from the same call, those of the batch with its propagators
+  relabelled cyclically (`DirectReductionPlan::rotated_batch`), the same
+  integrals in the same frame through other PV systems: a stability check
+  without a second call or a re-expanded numerator. The copy is bit for bit a
+  separate call on the rotated batch; the subsets that keep their order are
+  computed once (`tests/rotation_copy.rs`).
+- Concurrency: `DirectWorkspace` is `Send`, `DirectReductionPlan` and
+  `TensorStore` are `Send + Sync`; one workspace per thread gives every lane
+  bit for bit what one workspace gives on one thread, for any thread count and
+  batch split, with or without a store shared by the threads (binary64 gates,
+  method choice and partial rescue; double-double;
+  `tests/direct_concurrency.rs`).
+- `examples/store_sharing_timing.rs` times a top-loop gg -> gggg hexagon and its
+  56 pinches reduced in one call per propagator count, with and without the
+  store, against one `AmplitudeWorkspace` call, and the rotation copy against
+  two calls. On 32 RAMBO points (binary64, one pinned core, 7 November 2026),
+  the store across the five calls in the hexagon's frame was 1.27x faster
+  than no store with the conditioning gates alone, 2.1x in embedder mode (the
+  method choice for gate-refused lanes) and 1.13x on the facade, where one
+  `AmplitudeWorkspace` call gave 1.14x; with every integral in its own frame and
+  supplied invariants 1.30x, 1.97x and 1.16x. The rotation copy took 0.95x
+  (gates) and 0.69x (method choice) of two calls' time.
+
 ## Workspace
 
 | Crate | Purpose |
