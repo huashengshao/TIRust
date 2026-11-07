@@ -33,9 +33,11 @@ class NativeGalleryTests(unittest.TestCase):
         _, definitions = load_app("01_numerator_to_integral.py").run()
         self.assertIsInstance(definitions["diagram"], self.tirust.FeynmanDiagram)
         self.assertIs(definitions["graph"].diagram, definitions["diagram"])
-        graph_html = definitions["diagram"]._repr_html_()
-        self.assertIn("<svg", graph_html)
-        self.assertIn("Feynman diagram", graph_html)
+        # gammaloop 9102f885 displays diagrams through a MIME bundle (no _repr_html_).
+        bundle = definitions["diagram"]._repr_mimebundle_()
+        self.assertIn("<svg", bundle["image/svg+xml"])
+        self.assertIn("<svg", bundle["text/html"])
+        self.assertIn("Feynman diagram", bundle["text/html"])
         self.assertIsInstance(definitions["numerator"].expression, self.tirust.Expression)
         tensors = definitions["tensors"]
         contraction = definitions["integral"]
