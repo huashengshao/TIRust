@@ -66,6 +66,24 @@ def test_generic_tag_profile_and_result_snapshot_are_owned():
     assert result.engine_execution["execution"]["input_rows"] == 1
 
 
+def test_binary64_default_is_direct_and_profiles_only_on_request():
+    # The direct workspace has no profiling preparation note (only the generic
+    # one above has); the profile on each result is what profiling changes.
+    plan = ReductionPlan(1, 0)
+    batch = plan.pack(shifts=[[[0, 0, 0, 0]]], masses_squared=[[2]], mu=[3])
+    for profiling in (True, False):
+        workspace = plan.workspace(profiling=profiling, accuracy_bits=40)
+        assert workspace.engine == "direct"
+        result = workspace.reduce_batch(batch)
+        assert result.success == (True,)
+        assert result.engine_execution["engine"] == "direct"
+        empty = workspace.reduce_batch([])
+        for profiled in (result, empty):
+            assert (profiled.profile is not None) == profiling
+        if profiling:
+            assert result.profile["total_seconds"] >= 0
+
+
 @pytest.mark.parametrize("shape", [[[0]], [[0, 0], [1, 0], [0, 1], [1, 1]]])
 def test_explicit_dual_shape_uses_generic_and_preserves_components(shape):
     plan = ReductionPlan(1, 0)

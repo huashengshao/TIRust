@@ -834,6 +834,52 @@ fn alternative_first_serves_boxes_its_estimate_admits() {
     }
 }
 
+/// A binary64 direct workspace whose boxes refused by the Gram gate (1e-15)
+/// get the alternative PV reduction alone (`enable_alternative_pv`): its
+/// lane (`None` when refused), whether the lane used the alternative PV and
+/// the lane's E/A against a 256-bit direct evaluation.
+fn alternative_only_lane(shifts: &[[f64; 4]; 4], rank: u16) -> (Result<Vec<Complex<f64>>, LaneStatus>, bool, Option<f64>) {
+    let mt2 = 173.0f64 * 173.0;
+    let values = row(shifts, &[(mt2, 0.0); 4], 1000.0);
+    let plan = DirectReductionPlan::new(ReductionSettings::new(4, rank)).unwrap();
+    let mut workspace = plan.workspace(0.0f64).unwrap();
+    workspace.set_stability_threshold(1e-15);
+    workspace.enable_alternative_pv();
+    let result = workspace
+        .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: values.clone() })
+        .unwrap();
+    let lane = result.lane(0).map(|lane| lane.to_vec()).map_err(|status| status.clone());
+    let error = lane.as_ref().ok().map(|lane| {
+        let (_, reference) = direct_256(4, rank, &values);
+        general_array_error(&result.basis, 4 - 2 * 4, 1000.0, lane, &reference)
+    });
+    (lane, workspace.last_gram_lanes()[0], error)
+}
+
+#[test]
+fn alternative_only_refuses_boxes_whose_cayley_determinant_cancels() {
+    // Near-forward gg -> HH boxes (Higgs sin 0.0045 and 0.01 at rank 6, 0.005
+    // at rank 4): the Gram gate refuses them, and COLLIER's w_pv2 alone
+    // (estimate 2^-53 max(1, w)^ceil((r + 1) / 2) <= 2.2e-12) admits the
+    // alternative PV, which kept only E/A 9.7e-5, 8.9e-8 and 2.2e-8. det X
+    // cancels there (term sizes over |det X|: v ~ 1600, 350, 1300), and the
+    // estimate with v (8e-3, 9e-7, 9e-8) refuses them.
+    for (sin_theta, rank) in [(0.0045, 6u16), (0.01, 6), (0.005, 4)] {
+        let (lane, _, error) = alternative_only_lane(&forward_box(sin_theta, 1.0), rank);
+        let refused =
+            matches!(&lane, Err(LaneStatus::Unstable(reason)) if reason.contains("alternative PV: estimated error"));
+        assert!(refused, "sin {sin_theta}, rank {rank}: {:?}, E/A {error:?}", lane.err());
+    }
+    // Less forward (v ~ 90 and 16): the estimate admits the alternative PV
+    // (3e-12 and 4e-13), which serves the lanes accurately.
+    for (sin_theta, rank) in [(0.02, 4u16), (0.05, 6)] {
+        let (lane, gram, error) = alternative_only_lane(&forward_box(sin_theta, 1.0), rank);
+        assert!(lane.is_ok() && gram, "sin {sin_theta}, rank {rank}: {:?}", lane.err());
+        let error = error.unwrap();
+        assert!(error <= 1e-10, "sin {sin_theta}, rank {rank}: E/A = {error:e}");
+    }
+}
+
 #[test]
 fn small_gram_box_is_kept_in_binary64_by_the_expansion() {
     // gg -> HH rank-4 box (box-r4 #5046, small Higgs pT): the PV recursion
