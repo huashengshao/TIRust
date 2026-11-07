@@ -210,6 +210,64 @@ fn expansion_need(
     need
 }
 
+thread_local! {
+    /// [`cayley_need`] by `(nm, max_rank, target, passes, l, k, gi, gj)`.
+    static CAYLEY_NEEDS: std::cell::RefCell<HashMap<(usize, u16, u16, u16, [usize; 4]), Need>> =
+        std::cell::RefCell::new(HashMap::new());
+}
+
+/// As [`expansion_need`] for the expansion for small Gram and small modified
+/// Cayley determinants (`expand_top`'s `gc_metric` and `gc_momentum`): the
+/// coefficients of orders `0..=passes` that every key of rank at most
+/// `target` of every order depends on. Its second adjugates
+/// `Zadj2_(gi n)(gj m)` exist exactly for `n != gi`, `m != gj`.
+fn cayley_need(grading: &Grading, target: u16, passes: u16, (l, k, gi, gj): (usize, usize, usize, usize)) -> Need {
+    let key = (grading.nm, grading.max_rank, target, passes, [l, k, gi, gj]);
+    if let Some(need) = CAYLEY_NEEDS.with(|cache| cache.borrow().get(&key).cloned()) {
+        return need;
+    }
+    let nm = grading.nm;
+    let size = grading.end(grading.max_rank);
+    let orders = usize::from(passes) + 1;
+    let mut need = vec![vec![false; size]; orders];
+    let mut stack: Vec<(usize, u32)> = (0..orders).flat_map(|s| (0..grading.end(target)).map(move |index| (s, index as u32))).collect();
+    while let Some((s, index)) = stack.pop() {
+        if index == NONE || need[s][index as usize] {
+            continue;
+        }
+        need[s][index as usize] = true;
+        let (lambda, kappa) = grading.key(index as usize);
+        if lambda > 0 {
+            // As `gc_metric` for (level, target_kappa) = (lambda, kappa).
+            for m in (0..nm).filter(|&m| m != l) {
+                if kappa[m] > 0 {
+                    stack.push((s, grading.plus(grading.minus(index, m), l)));
+                }
+            }
+            if s > 0 {
+                let source = grading.plus(grading.lower(index), l);
+                stack.push((s - 1, source));
+                stack.push((s - 1, grading.plus(source, k)));
+            }
+        } else if kappa.iter().any(|&x| x > 0) {
+            // As `gc_momentum` (the scalar of each order is set directly).
+            let metric = grading.higher(index);
+            stack.push((s, metric));
+            for m in (0..nm).filter(|&m| m != gj) {
+                if kappa[m] > 0 {
+                    stack.push((s, grading.minus(metric, m)));
+                }
+            }
+            if s > 0 {
+                stack.push((s - 1, grading.plus(index, gi)));
+            }
+        }
+    }
+    let need = std::rc::Rc::new(need);
+    CAYLEY_NEEDS.with(|cache| cache.borrow_mut().insert(key, need.clone()));
+    need
+}
+
 impl Grading {
     fn new(nm: usize, max_rank: u16) -> Self {
         let count = |d: usize| match nm {
@@ -438,7 +496,12 @@ impl<T: NativeFloat> Coefficients<T> {
     /// [`Coefficients::with_capacity`] on reused storage (same contents:
     /// nothing present).
     fn pooled(pool: &RefCell<CoefficientPool<T>>, capacity: usize) -> Self {
-        match pool.borrow_mut().free.pop() {
+        let mut pool = pool.borrow_mut();
+        // The smallest storage that holds `capacity` values, else the
+        // largest (the least to extend).
+        let fit = |len: usize| if len >= capacity { (1, usize::MAX - len) } else { (0, len) };
+        let best = (0..pool.free.len()).max_by_key(|&i| fit(pool.free[i].0.len()));
+        match best.map(|i| pool.free.swap_remove(i)) {
             Some((mut values, mut present)) => {
                 // Stale values stay (never read before they are stored).
                 present.clear();
@@ -504,6 +567,8 @@ struct TopLayout {
     /// Metric keys of each degree through the grading's rank, by decreasing
     /// `kappa_l`, for each `l` (the small-Cayley variant's order).
     gc_kappas: Vec<Vec<Vec<[u16; 3]>>>,
+    /// The lowest rank with a `MISSING` source (`u16::MAX`: none).
+    missing_rank: u16,
 }
 
 impl TopTables {
@@ -575,6 +640,11 @@ impl TopLayout {
                 }
             }
         }
+        let missing_rank = (0..end)
+            .filter(|&index| spz_source[index] == MISSING || shat_source[index].contains(&MISSING))
+            .map(|index| rank_of(&grading.key(index)))
+            .min()
+            .unwrap_or(u16::MAX);
         let output = lookup(mask).map(|layout| {
             layout
                 .iter()
@@ -596,7 +666,7 @@ impl TopLayout {
                     .collect()
             })
             .collect();
-        Ok(Self { child_rank, spz_source, shat_source, output, gc_kappas })
+        Ok(Self { child_rank, spz_source, shat_source, output, gc_kappas, missing_rank })
     }
 }
 
@@ -1023,8 +1093,11 @@ where
         // The keys of a block come in increasing kappa_0 (as `compositions`
         // lists them), so every term below is already in place; the terms
         // are read through the grading's neighbour tables.
-        let mut spz: Coefficients<T> = Coefficients::pooled(pool, grading.end(child_rank));
-        for r in 0..=child_rank {
+        // The alternative PV alone (the executors that skip the expansions)
+        // reads them below rank `target` only.
+        let built = if self.gram_alt_only || self.gram_alt_direct { target } else { child_rank };
+        let mut spz: Coefficients<T> = Coefficients::pooled(pool, grading.end(built));
+        for r in 0..=built {
             for lambda in 0..=r / 2 {
                 for index in grading.block(r, lambda) {
                     let kappa = grading.key(index).1;
@@ -1048,8 +1121,8 @@ where
         }
         // Shat_n(lambda, kappa) = triangle without member n+1 (if kappa_n = 0)
         // minus the shifted pinch zero, for every key of `spz`.
-        let mut shat: Vec<Coefficients<T>> = (0..nm).map(|_| Coefficients::pooled(pool, grading.end(child_rank))).collect();
-        for r in 0..=child_rank {
+        let mut shat: Vec<Coefficients<T>> = (0..nm).map(|_| Coefficients::pooled(pool, grading.end(built))).collect();
+        for r in 0..=built {
             for lambda in 0..=r / 2 {
                 for index in grading.block(r, lambda) {
                     let kappa = grading.key(index).1;
@@ -1066,6 +1139,10 @@ where
                     }
                 }
             }
+        }
+        // A source missing above `built` fails as building every rank would.
+        if layout.missing_rank != u16::MAX && layout.missing_rank > built {
+            return Err("small-Gram expansion: triangle coefficient outside its layout".into());
         }
         let shat_of = |m: usize, lambda: u16, kappa: [u16; 3]| -> Result<&L4<T>, String> {
             shat[m].get(&grading, (lambda, kappa)).ok_or_else(|| "small-Gram expansion: Shat outside the triangle ranks".to_string())
@@ -1518,7 +1595,9 @@ where
                 let (gc_two, gc_neg_one) = (real(2), csub(&zero, &real(1)));
                 // Metric keys of each degree, by decreasing kappa_l.
                 let gc_kappas = &layout.gc_kappas[l];
-                let gc_metric = |cur: &mut Coefficients<T>, prev: Option<&Coefficients<T>>, r: u16| -> Result<(), String> {
+                // Only the coefficients the results depend on.
+                let gc_need = cayley_need(&grading, target, gc_passes, (l, k, gi, gj));
+                let gc_metric = |cur: &mut Coefficients<T>, prev: Option<&Coefficients<T>>, need: &[bool], r: u16| -> Result<(), String> {
                     for level in 1..=r / 2 {
                         let kappas = gc_kappas.get(usize::from(r - 2 * level)).ok_or("small-Gram/Cayley expansion: rank beyond the grading")?;
                         for &target_kappa in kappas {
@@ -1530,6 +1609,9 @@ where
                             let here = grading.index(level, &target_kappa).ok_or_else(|| {
                                 format!("small-Gram expansion: coefficient {:?} outside the expansion ranks", (level, target_kappa))
                             })? as u32;
+                            if !need[here as usize] {
+                                continue;
+                            }
                             let source = grading.plus(grading.lower(here), l);
                             let mut acc = lzero(&zero);
                             if let Some(prev) = prev {
@@ -1554,13 +1636,16 @@ where
                     }
                     Ok(())
                 };
-                let gc_momentum = |cur: &mut Coefficients<T>, prev: Option<&Coefficients<T>>, p: u16| -> Result<(), String> {
+                let gc_momentum = |cur: &mut Coefficients<T>, prev: Option<&Coefficients<T>>, need: &[bool], p: u16| -> Result<(), String> {
                     let dimension = self.prototype.from_usize(p as usize + 4 - nm);
                     for kappa in composition_iter(p, nm) {
                         // (1, kappa) of rank p + 2 <= max_rank - 1 and its
                         // neighbours through the grading's tables.
                         let metric_at = grading.index(1, &kappa).map_or(NONE, |index| index as u32);
                         let here = grading.lower(metric_at);
+                        if here != NONE && !need[here as usize] {
+                            continue;
+                        }
                         let mut metric = cur.need_at(metric_at, || (1, kappa), "small-Gram/Cayley expansion")?.clone();
                         mul_dimension(&mut metric, &dimension);
                         let mut bracket = lzero(&zero);
@@ -1609,10 +1694,10 @@ where
                         let span = 2 * (order - s as u16);
                         let (lower, upper) = gc_orders.split_at_mut(s);
                         for r in gc_done[s].0 + 1..=target + 2 + span {
-                            gc_metric(&mut upper[0], lower.last(), r)?;
+                            gc_metric(&mut upper[0], lower.last(), &gc_need[s], r)?;
                         }
                         for p in gc_done[s].1 + 1..=target + span {
-                            gc_momentum(&mut upper[0], lower.last(), p)?;
+                            gc_momentum(&mut upper[0], lower.last(), &gc_need[s], p)?;
                         }
                         gc_done[s] = (gc_done[s].0.max(target + 2 + span), gc_done[s].1.max(target + span));
                     }
@@ -1716,6 +1801,91 @@ mod tests {
             assert_eq!(need.len(), 8);
             assert_eq!(need.iter().flatten().filter(|&&x| x).count(), expected, "(j, k, l) = {:?}", (j, k, l));
             assert!(need.iter().all(|order| order[..grading.end(5)].iter().all(|&x| x)));
+        }
+    }
+
+    #[test]
+    fn cayley_need_is_the_dependency_cone_of_the_results() {
+        // An independent model of `gc_metric` / `gc_momentum`: walk every
+        // key each order computes, record the coefficients it reads (by key
+        // arithmetic, not the neighbour tables), and close the results
+        // (every key of rank <= target of every order) over those reads.
+        for (nm, target, child_rank) in [(3usize, 5u16, 12u16), (3, 4, 15), (2, 12, 19)] {
+            let grading = Grading::new(nm, child_rank + 2);
+            let passes = (child_rank - 1 - target) / 2;
+            let orders = usize::from(passes) + 1;
+            let at = |lambda: u16, kappa: [u16; 3]| grading.index(lambda, &kappa).unwrap();
+            let mut checked = 0;
+            for l in 0..nm {
+                for k in 0..nm {
+                    for gi in 0..nm {
+                        for gj in 0..nm {
+                            let mut reads: Vec<Vec<Vec<(usize, usize)>>> = vec![vec![Vec::new(); grading.end(grading.max_rank)]; orders];
+                            let mut computed = vec![vec![false; grading.end(grading.max_rank)]; orders];
+                            for s in 0..orders {
+                                let span = 2 * (passes - s as u16);
+                                for r in 1..=target + 2 + span {
+                                    for level in 1..=r / 2 {
+                                        for tau in compositions(r - 2 * level, nm) {
+                                            let here = at(level, tau);
+                                            computed[s][here] = true;
+                                            for m in (0..nm).filter(|&m| m != l && tau[m] > 0) {
+                                                let mut key = tau;
+                                                key[m] -= 1;
+                                                key[l] += 1;
+                                                reads[s][here].push((s, at(level, key)));
+                                            }
+                                            if s > 0 {
+                                                let mut source = tau;
+                                                source[l] += 1;
+                                                reads[s][here].push((s - 1, at(level - 1, source)));
+                                                source[k] += 1;
+                                                reads[s][here].push((s - 1, at(level - 1, source)));
+                                            }
+                                        }
+                                    }
+                                }
+                                for p in 1..=target + span {
+                                    for kappa in compositions(p, nm) {
+                                        let here = at(0, kappa);
+                                        computed[s][here] = true;
+                                        reads[s][here].push((s, at(1, kappa)));
+                                        for m in (0..nm).filter(|&m| m != gj && kappa[m] > 0) {
+                                            let mut key = kappa;
+                                            key[m] -= 1;
+                                            reads[s][here].push((s, at(1, key)));
+                                        }
+                                        if s > 0 {
+                                            let mut key = kappa;
+                                            key[gi] += 1;
+                                            reads[s][here].push((s - 1, at(0, key)));
+                                        }
+                                    }
+                                }
+                                computed[s][0] = true;
+                            }
+                            let mut cone = vec![vec![false; grading.end(grading.max_rank)]; orders];
+                            let mut stack: Vec<(usize, usize)> =
+                                (0..orders).flat_map(|s| (0..grading.end(target)).map(move |index| (s, index))).collect();
+                            while let Some((s, index)) = stack.pop() {
+                                if cone[s][index] {
+                                    continue;
+                                }
+                                assert!(computed[s][index], "a read of an uncomputed key");
+                                cone[s][index] = true;
+                                stack.extend(reads[s][index].iter().copied());
+                            }
+                            let need = cayley_need(&grading, target, passes, (l, k, gi, gj));
+                            assert_eq!(need.len(), orders);
+                            for s in 0..orders {
+                                assert_eq!(need[s], cone[s], "nm {nm} target {target} (l, k, gi, gj) {:?} order {s}", (l, k, gi, gj));
+                            }
+                            checked += 1;
+                        }
+                    }
+                }
+            }
+            assert_eq!(checked, nm.pow(4));
         }
     }
 
