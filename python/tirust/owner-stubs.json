@@ -1,10 +1,10 @@
 {
   "purpose": "private type-only mirrors; no runtime shadow packages",
-  "symbolica_base_revision": "b9eaa735",
+  "symbolica_base_revision": "dfe6bd97",
   "feynkit_revision": "9102f885722e856e30227ed46e685e5c465905f7",
   "files": [
     {
-      "owner_source": ".local/cargo-home/git/checkouts/symbolica-cc465e8cf60c7b8e/b9eaa73/symbolica.pyi",
+      "owner_source": ".local/cargo-home/git/checkouts/symbolica-cc465e8cf60c7b8e/dfe6bd9/symbolica.pyi",
       "owner_sha256": "eb156b72df726d8e6ff14ddb70b4ebb75d7a836866c16a031c6e29f227913fbc",
       "output": "symbolica/core.pyi",
       "sha256": "6dc1fa9e8126e280e2e429c85e50226d4b32c4fa5cfd5dd3bdd43382dbc522e5"

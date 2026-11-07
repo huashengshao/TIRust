@@ -32,7 +32,7 @@ def main() -> None:
         "symbolica/community/tensor/__init__.pyi": args.feynkit_root / "docs/api/python/spynso3.pyi",
         "symbolica/community/graph/__init__.pyi": args.feynkit_root / "crates/linnet-render-py/python/symbolica/community/graph/__init__.pyi",
     }
-    manifest = {"purpose": "private type-only mirrors; no runtime shadow packages", "symbolica_base_revision": "b9eaa735", "feynkit_revision": "9102f885722e856e30227ed46e685e5c465905f7", "files": []}
+    manifest = {"purpose": "private type-only mirrors; no runtime shadow packages", "symbolica_base_revision": "dfe6bd97", "feynkit_revision": "9102f885722e856e30227ed46e685e5c465905f7", "files": []}
     for relative, source in sources.items():
         original = source.read_bytes()
         text = original.decode()
