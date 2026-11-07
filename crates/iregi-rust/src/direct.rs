@@ -235,6 +235,15 @@ where
         self.executor.set_stability_threshold(threshold);
     }
 
+    /// Precision (bits) of the inputs this workspace evaluates; by default
+    /// its working precision. A bubble is lightlike (closed-form coefficients)
+    /// when |p^2| is at most 2^-(bits - 13) of its scale: 2^-40 for binary64
+    /// inputs, also when they are evaluated at a higher precision (rescue
+    /// tiers), and relative to the working precision for inputs given at it.
+    pub fn set_input_precision(&mut self, bits: u32) {
+        self.executor.set_input_precision(bits);
+    }
+
     /// Per lane of the most recent call: for lanes refused on conditioning,
     /// the refused estimate (the quantity compared with the stability
     /// threshold; zero for an exactly singular pivot), else `None`. Callers

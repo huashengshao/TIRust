@@ -42,6 +42,12 @@ pub enum DirectMasters {
 /// Marks a monomial not yet reached by the product being built.
 const NO_SLOT: u32 = u32::MAX;
 
+/// A bubble is lightlike when |p^2| is at most `2^-(p - LIGHTLIKE_MARGIN_BITS)`
+/// of its largest scale (|p^2|, |m0^2|, |m1^2|), `p` the precision of the
+/// inputs (by default the working precision): 2^-40 for binary64 inputs, also
+/// when they are evaluated at a higher precision (rescue tiers).
+const LIGHTLIKE_MARGIN_BITS: i64 = 13;
+
 /// Stage timings of the most recent profiled call.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DirectProfile {
@@ -190,6 +196,9 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     scale_squared: bool,
     /// The current lane's scale argument as given (mu or mu^2).
     lane_scale: C<T>,
+    /// Precision (bits) of the inputs: the lightlike bubble rule is relative
+    /// to it. The working precision unless set (`set_input_precision`).
+    input_bits: u32,
     shifts: Vec<[C<T>; 4]>,
     masses: Vec<C<T>>,
     /// `g_lambda` blocks, `lambda * stride + monomial`.
@@ -373,6 +382,7 @@ where
             layout: InputLayout::of(&plan.settings),
             scale_squared: plan.settings.scale_input == ScaleInput::MuSquared,
             lane_scale: zero.clone(),
+            input_bits: prototype.get_precision(),
             shifts: vec![[zero.clone(), zero.clone(), zero.clone(), zero.clone()]; plan.settings.propagators],
             masses: vec![zero.clone(); plan.settings.propagators],
             g_buffer: vec![lzero(&zero); gather_degree * (usize::from(plan.settings.rank) / 2 + 1)],
@@ -490,6 +500,10 @@ where
 
     pub fn set_stability_threshold(&mut self, threshold: T) {
         self.stability_threshold = threshold;
+    }
+
+    pub fn set_input_precision(&mut self, bits: u32) {
+        self.input_bits = bits;
     }
 
     pub fn last_conditions(&self) -> &[Option<f64>] {
@@ -1092,6 +1106,8 @@ where
                             .map_err(|e| e.to_string())?;
                         let mut executor = DirectExecutor::<DoubleFloat>::new(Arc::new(small), DoubleFloat::from(0.0), DirectMasters::Native)
                             .map_err(|e| e.to_string())?;
+                        // It evaluates this lane's inputs, at their precision.
+                        executor.input_bits = self.input_bits;
                         executor.set_stability_threshold(DoubleFloat::from(partial.threshold));
                         executor.coefficients_only = true;
                         entry.insert(executor)
@@ -1127,6 +1143,23 @@ where
     /// `2^-bits` at working precision.
     fn binary_tolerance(&self, bits: u64) -> T {
         self.prototype.one() / &self.prototype.from_usize(2).pow(bits)
+    }
+
+    /// `2^-(p - margin)` for working precision `p` bits: a tolerance `margin`
+    /// bits above the working precision's unit roundoff, the same at every
+    /// precision relative to it (binary64: `2^-(53 - margin)`).
+    fn precision_tolerance(&self, margin: i64) -> T {
+        self.tolerance_at(self.prototype.get_precision(), margin)
+    }
+
+    /// `2^-(bits - margin)` at working precision.
+    fn tolerance_at(&self, bits: u32, margin: i64) -> T {
+        let bits = i64::from(bits) - margin;
+        if bits >= 0 {
+            self.binary_tolerance(bits as u64)
+        } else {
+            self.prototype.from_usize(2).pow((-bits) as u64)
+        }
     }
 
     /// The constant-one identity `sum_i c_i D_i = 1` over `members`, if their
@@ -1365,7 +1398,11 @@ where
                             .iter()
                             .map(|z| cnorm2(z).sqrt())
                             .fold(self.prototype.zero(), |a, b| if b > a { b } else { a });
-                        let lightlike = cnorm2(p2).sqrt() <= scale * &self.binary_tolerance(40);
+                        // Precision-relative: 2^-40 in binary64 (13 bits above
+                        // its roundoff), 2^-93 in double-double, 2^-(p-13) at p
+                        // MPFR bits; never a fixed binary64 bound at higher
+                        // precision.
+                        let lightlike = cnorm2(p2).sqrt() <= scale * &self.tolerance_at(self.input_bits, LIGHTLIKE_MARGIN_BITS);
                         if subset.lightlike {
                             if !lightlike {
                                 return Err(GeometryFailure::Relation(format!(
@@ -1870,11 +1907,16 @@ where
                 let ratio = cmul(&b, &inverse_a);
                 if cnorm2(&ratio) <= self.prototype.one() / &self.prototype.from_usize(4) {
                     let minus_ratio = csub(&self.zero, &ratio);
-                    let tolerance = self.binary_tolerance(60);
+                    // Truncated 7 bits below the working precision's roundoff
+                    // (2^-60 in binary64). |ratio| <= 1/2, so the m-th term is
+                    // at most 2^-m of the first and the tolerance is reached
+                    // within p + 8 terms; the bound only stops a nonfinite sum.
+                    let tolerance = self.precision_tolerance(-7);
+                    let terms = self.prototype.get_precision() as usize + 64;
                     for (k, value) in m_values.iter_mut().enumerate() {
                         let mut sum = self.zero.clone();
                         let mut power = self.one.clone();
-                        for m in 0..200 {
+                        for m in 0..terms {
                             let term = cscale(&power, &(self.prototype.one() / &self.prototype.from_usize(k + m + 1)));
                             sum = cadd(&sum, &term);
                             if cnorm2(&term).sqrt() <= cnorm2(&sum).sqrt() * &tolerance {

@@ -994,6 +994,7 @@ where
                             DirectMasters::Native,
                         )
                         .map_err(|e| e.to_string())?;
+                        executor.input_bits = self.input_bits;
                         // Its triangles carry `boost` extra ranks whose errors
                         // enter only Delta-suppressed terms (COLLIER relaxes them
                         // likewise); the caller's a posteriori check decides.

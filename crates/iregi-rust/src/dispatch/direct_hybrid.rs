@@ -1687,6 +1687,8 @@ where
 {
     let mut workspace = workspace?;
     workspace.set_stability_threshold(threshold);
+    // The tier evaluates the caller's binary64 inputs, lifted exactly.
+    workspace.set_input_precision(53);
     workspace.set_profiling(profiling);
     Ok(Box::new(workspace))
 }
