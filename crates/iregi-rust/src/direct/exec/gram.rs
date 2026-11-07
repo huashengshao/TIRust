@@ -346,7 +346,9 @@ impl Grading {
     }
 }
 
-/// Expansion coefficients stored by their `Grading` index.
+/// Expansion coefficients stored by their `Grading` index. `present` marks
+/// the stored ones and its length is the set's extent; `values` may be longer
+/// (reused storage), and only present entries are ever read.
 #[derive(Clone)]
 struct Coefficients<T> {
     values: Vec<L4<T>>,
@@ -392,13 +394,23 @@ impl<T: NativeFloat> Coefficients<T> {
     /// Insert at an index of `grading`.
     #[inline]
     fn insert_at(&mut self, grading: &Grading, index: usize, value: L4<T>, zero: &C<T>) {
-        if index >= self.values.len() {
-            let end = grading.end(rank_of(&grading.key(index)));
-            self.values.resize(end, lzero(zero));
-            self.present.resize(end, false);
+        if index >= self.present.len() {
+            self.extend_to(grading, index, zero);
         }
         self.values[index] = value;
         self.present[index] = true;
+    }
+
+    /// Extend the set through the rank of `index` (nothing new present;
+    /// storage beyond the old extent is reused as it is, else zeroed).
+    #[cold]
+    #[inline(never)]
+    fn extend_to(&mut self, grading: &Grading, index: usize, zero: &C<T>) {
+        let end = grading.end(rank_of(&grading.key(index)));
+        if self.values.len() < end {
+            self.values.resize(end, lzero(zero));
+        }
+        self.present.resize(end, false);
     }
 }
 
@@ -428,9 +440,9 @@ impl<T: NativeFloat> Coefficients<T> {
     fn pooled(pool: &RefCell<CoefficientPool<T>>, capacity: usize) -> Self {
         match pool.borrow_mut().free.pop() {
             Some((mut values, mut present)) => {
-                values.clear();
+                // Stale values stay (never read before they are stored).
                 present.clear();
-                values.reserve(capacity);
+                values.reserve(capacity.saturating_sub(values.len()));
                 present.reserve(capacity);
                 Self { values, present }
             }
@@ -446,8 +458,9 @@ impl<T: NativeFloat> Coefficients<T> {
     /// The coefficients of index below `end` (a rank prefix), on reused
     /// storage.
     fn prefix_pooled(&self, pool: &RefCell<CoefficientPool<T>>, end: usize) -> Self {
-        let end = end.min(self.values.len());
+        let end = end.min(self.present.len());
         let mut out = Self::pooled(pool, end);
+        out.values.clear();
         out.values.extend_from_slice(&self.values[..end]);
         out.present.extend_from_slice(&self.present[..end]);
         out
@@ -455,7 +468,7 @@ impl<T: NativeFloat> Coefficients<T> {
 
     /// A clone on reused storage.
     fn clone_pooled(&self, pool: &RefCell<CoefficientPool<T>>) -> Self {
-        self.prefix_pooled(pool, self.values.len())
+        self.prefix_pooled(pool, self.present.len())
     }
 }
 
