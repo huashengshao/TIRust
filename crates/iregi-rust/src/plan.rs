@@ -617,7 +617,7 @@ impl ReductionPlan {
             compiler.set_analytic_jet_order(analytic_jet_order).map_err(ReductionError::Preparation)?;
             let exponents:Vec<_>=basis.iter().map(|m|m.0).collect();
             let moments=compiler.compile_affine_descent_chart_moments(&context.key,&context.inactive,
-                &exponents,crate::pv::AffineDescentBudget::default()).map_err(ReductionError::Preparation)?;
+                &exponents,crate::pv::AffineDescentBudget::unbounded()).map_err(ReductionError::Preparation)?;
             preparation_notes.push(format!("Certified constant-one affine descent: original q, N3->same-rank bubbles, coordinate chart {:?}, inactive children {:?}; every selected row requires fresh full-Taylor rank/chart/cofactor certificates",context.key,context.inactive));
             (moments,compiler.leaves().to_vec(),compiler.aliases().to_vec(),Algorithm::PassarinoVeltman)
         } else if !ordinary

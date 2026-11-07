@@ -72,7 +72,8 @@ impl CertifiedAffinePlan {
             .clone();
         entry
             .get_or_init(|| {
-                let budget = AffineDescentBudget::default();
+                // Three points (`settings_supported`) bound the enumeration.
+                let budget = AffineDescentBudget::unbounded();
                 match shape {
                     None => AffineDescentGuardPlan::new(3, 1, budget),
                     Some(shape) => AffineDescentGuardPlan::new_dual(

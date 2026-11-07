@@ -103,13 +103,22 @@ rank-one lifecycle case. Each family's validated domain is documented separately
 - `DirectReductionPlan::capabilities(&prototype)` (`DirectCapabilities`): the
   largest point count (64, the subset-mask width), rank (C(R+4,4) within the
   u32 monomial indices: 564), raised power (2^(64/N) - 1 IBP key fields,
-  at most the settings' u16) and dimension shift, plus the algorithmic limits
-  (one raised power, through six points; shifts through four points). Rank
-  and point count are otherwise limited by memory and the achieved precision
+  at most the settings' u16) and dimension shift (R + 2h within the u16
+  coefficient ranks: `max_dimension_shift(rank)`), plus the algorithmic
+  limits (one raised power, through six points; shifts through four points);
+  `admits(&settings)` is the same check as `supports`. The bounds are the same
+  for every carrier: a lane whose coefficients leave the carrier's exponent
+  range (binary64 near h = 700) is refused per lane, typed. Rank and point
+  count are otherwise limited by memory (a plan whose 2^N subsets cannot be
+  allocated is refused typed) and the achieved precision
   (`tests/lifted_caps.rs`: rank 33 and 36 tadpoles against their closed form,
-  raised powers 6 and 7 and h = 5 against independent references, a
-  13-point family evaluated). The validated domain N <= 6, R <= 6 is
-  documentation, not a limit. The symbolic engine has no preparation budget.
+  raised powers 6 and 7 and h = 5 against independent references, 13- and
+  17-point families evaluated and checked against a reordering of their
+  propagators). The validated domain N <= 6, R <= 6 is documentation, not a
+  limit. The generic symbolic engine has no preparation budget; the opt-in
+  certified affine route serves three points only, which bound its chart
+  enumeration, and the affine-power planner takes the caller's
+  `AffinePowerBudget`.
 
 ## Workspace
 

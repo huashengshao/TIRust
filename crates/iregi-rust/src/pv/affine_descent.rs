@@ -23,6 +23,21 @@ impl Default for AffineDescentBudget {
     }
 }
 
+impl AffineDescentBudget {
+    /// No budget: for a caller whose domain already bounds the enumeration
+    /// (the certified affine route serves three points only, see
+    /// `certified_affine::settings_supported`: a handful of charts and
+    /// cofactors).
+    pub(crate) fn unbounded() -> Self {
+        Self {
+            max_propagators: usize::MAX,
+            max_charts: usize::MAX,
+            max_constraints: usize::MAX,
+            max_cofactors: usize::MAX,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct AffineChartKey {
     pub coordinate_rows: Vec<usize>,
