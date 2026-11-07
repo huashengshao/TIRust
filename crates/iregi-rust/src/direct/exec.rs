@@ -615,7 +615,18 @@ where
 
     /// mu^2 of `row`: the supplied value, or the square of the supplied mu.
     fn mu_squared(&self, batch: &KinematicsBatch<T>, row: usize) -> C<T> {
+        // Written out, not through `squared_scale`: the call cost ~2 % on the
+        // shortest binary64 rows (a 160 ns tadpole) in a paired timing A/B.
         let scale = &batch.values[row * self.layout.width() + self.layout.scale];
+        if self.scale_squared {
+            scale.clone()
+        } else {
+            cmul(scale, scale)
+        }
+    }
+
+    /// mu^2 of a scale input in this plan's convention (mu or mu^2).
+    fn squared_scale(&self, scale: &C<T>) -> C<T> {
         if self.scale_squared {
             scale.clone()
         } else {
@@ -915,14 +926,16 @@ where
     }
 
     /// Exact key of a shared per-subset result: what it is (`tag`), the
-    /// subset's size, rank and value count, the method's settings, and the
-    /// subset's propagators bit for bit. `None` without a store.
-    fn subset_key(&self, tag: u64, members: &[usize], rank: u16, count: usize, config: &[u64], mu: &C<T>) -> Option<Vec<u64>> {
+    /// subset's size, rank and value count, the method's settings, the
+    /// subset's propagators bit for bit and the lane's mu^2 (whichever scale
+    /// input the plan reads). `None` without a store.
+    fn subset_key(&self, tag: u64, members: &[usize], rank: u16, count: usize, config: &[u64]) -> Option<Vec<u64>> {
         if !self.shared.as_ref()?.enabled() {
             return None;
         }
         let mut key = Vec::new();
-        self.fill_subset_key(&mut key, tag, members, rank, count, config, mu);
+        let mu2 = self.squared_scale(&self.lane_scale);
+        self.fill_subset_key(&mut key, tag, members, rank, count, config, &mu2);
         Some(key)
     }
 
@@ -1100,7 +1113,7 @@ where
                 let rank = self.injection_rank(size, subset.coefficient_rank.max(0) as u16);
                 let count = plan.coefficient_counts[id] as usize;
                 let start = subset.master.ok_or("partial rescue: no master")? as usize;
-                let key = self.subset_key(1, &subset.members, rank, 0, &[partial.threshold.to_bits()], &self.lane_scale);
+                let key = self.subset_key(1, &subset.members, rank, 0, &[partial.threshold.to_bits()]);
                 if let Some(shared) = self.shared_get(key.as_ref()) {
                     self.shared_write(start, count, &shared?)?;
                     continue;

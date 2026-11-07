@@ -965,7 +965,7 @@ where
                     self.alternative_estimate_of(id, rank).is_some_and(|estimate| estimate <= limit)
                 });
                 config.push(first.map_or(u64::MAX, f64::to_bits));
-                let key = self.subset_key(2, &subset.members, rank, 0, &config, &self.lane_scale);
+                let key = self.subset_key(2, &subset.members, rank, 0, &config);
                 if let Some(shared) = self.shared_get(key.as_ref()) {
                     self.shared_write(start, count, &shared?)?;
                     continue;
