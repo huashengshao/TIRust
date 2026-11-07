@@ -782,7 +782,10 @@ fn method_choice_serves_small_gram_rows_accurately() {
 /// same Gram matrix) is the control. At TIRust main 3558433 ranks 0 to 2 and
 /// the massive control agree to <= 7e-9, while the massless rank-3 array is
 /// off by 1.2e-2 (UV1), 7.4e3 (IR1) and 1.6e4 (finite) of the slots' sizes,
-/// returned `Success`.
+/// returned `Success`: the expansions do not reach their tolerance and the
+/// fallback alternative PV divided by the modified Cayley determinant, which
+/// vanishes for this IR-divergent triangle. Since then that lane is refused;
+/// the control is still served.
 #[test]
 fn small_gram_expansion_of_an_ir_divergent_triangle() {
     let case = &CASES[0];
@@ -825,6 +828,11 @@ fn small_gram_expansion_of_an_ir_divergent_triangle() {
                 .collect();
             let Ok(array) = result.lane(0) else {
                 println!("m^2 {mass2} rank {rank}: {:?}", result.statuses[0]);
+                // The IR-finite control's modified Cayley determinant does
+                // not cancel: its lanes must be served.
+                if mass2 != 0.0 {
+                    failures.push(format!("m^2 {mass2} rank {rank}: refused"));
+                }
                 continue;
             };
             let mu = case.mu2.sqrt();
