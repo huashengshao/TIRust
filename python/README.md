@@ -18,7 +18,7 @@ with the upstream graph, tensor and numerical types.
 
 Build the standalone wheel from the repository root. Its GammaLoop crates are
 pinned to gammaloop `9102f885`, the revision the Symbolica Community build of
-the shared Symbolica revision `b9eaa735` uses (see
+the shared Symbolica revision `dfe6bd97` uses (see
 [the environment notes](../docs/environment.md)):
 
 ```bash
@@ -36,7 +36,7 @@ unchanged:
 
 ```bash
 python3 -I scripts/vendor-python-type-stubs.py \
-  --symbolica-stub .local/cargo-home/git/checkouts/symbolica-*/b9eaa73/symbolica.pyi \
+  --symbolica-stub .local/cargo-home/git/checkouts/symbolica-*/dfe6bd9/symbolica.pyi \
   --feynkit-root .local/cargo-home/git/checkouts/gammaloop-*/9102f88 \
   --output python/tirust/_types
 ```

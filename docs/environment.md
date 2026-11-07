@@ -21,7 +21,7 @@ This tests the default members, which are every crate except the Python
 extension `crates/iregi-python`. That extension and every GammaLoop crate
 (`feynkit-*`, `spenso`, `idenso`, `spynso3`, `linnet-render-py`) are pinned to
 gammaloop `9102f885`, the revision that the Symbolica Community build of the
-shared Symbolica revision `b9eaa735` locks for the same Python modules; the
+shared Symbolica revision `dfe6bd97` locks for the same Python modules; the
 vendored `dependencies/linnest` is taken from that revision with its typed-CBOR
 repair (`dependencies/linnest-patches`). `cargo check --workspace` covers the
 extension; the wheel build is in `python/README.md`. The pyAmpliCol
