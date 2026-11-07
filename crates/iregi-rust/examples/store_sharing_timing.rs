@@ -14,6 +14,10 @@
 //! - `store-down` / `store-up`: one `TensorStore` attached to the five
 //!   workspaces, cleared once per chunk of points; calls from the hexagon down
 //!   to the bubbles, or up;
+//! - `own-separate` / `own-store`: every integral in its own frame (its last
+//!   propagator at the origin) with the invariants supplied, without and with
+//!   the store (hexagon first): only translation-invariant keys (the scalar
+//!   masters) can meet;
 //! - `amplitude-off` / `amplitude-on`: one `AmplitudeWorkspace` call over all
 //!   57 integrals (sharing inside one call; the facade only);
 //! - `rotation-two` / `rotation-copy`: per bucket, the primary and its copy
@@ -34,7 +38,7 @@ use std::{error::Error, hint::black_box, time::Instant};
 
 use iregi_rust::{
     AmplitudeOptions, AmplitudeWorkspace, BatchResult, Convention, DirectReductionPlan, DirectWorkspace, EmbedderOptions,
-    KinematicsBatch, ReductionSettings, TensorReductionPlan, TensorStore, TensorWeights, TensorWorkspace,
+    InvariantInput, KinematicsBatch, ReductionSettings, TensorReductionPlan, TensorStore, TensorWeights, TensorWorkspace,
     direct::EXPANSION_TOLERANCE,
 };
 use symbolica::domains::float::Complex;
@@ -143,6 +147,40 @@ fn settings(size: usize) -> ReductionSettings {
     settings
 }
 
+/// The settings of the own-frame buckets: the invariants supplied.
+fn supplied_settings(size: usize) -> ReductionSettings {
+    let mut settings = settings(size);
+    settings.invariants = InvariantInput::SuppliedInvariants;
+    settings
+}
+
+/// Every integral of `size` on every point in its OWN frame (its last
+/// propagator at the origin, as an embedder's families each have their own),
+/// with the invariants supplied: formed once per point and pair of the
+/// hexagon's propagators, so equal for every integral bit for bit.
+fn own_bucket(points: &[[[f64; 4]; 6]], size: usize) -> KinematicsBatch<f64> {
+    let mut values = Vec::new();
+    let mut rows = 0;
+    for members in subsets(size) {
+        for point in points {
+            let last = point[*members.last().unwrap()];
+            for &i in &members {
+                values.extend((0..4).map(|a| Complex::new(point[i][a] - last[a], 0.0)));
+            }
+            for (k, &i) in members.iter().enumerate() {
+                for &j in &members[k + 1..] {
+                    let d: Vec<f64> = (0..4).map(|a| point[i][a] - point[j][a]).collect();
+                    values.push(Complex::new(d[0] * d[0] - d[1] * d[1] - d[2] * d[2] - d[3] * d[3], 0.0));
+                }
+            }
+            values.extend(members.iter().map(|_| Complex::new(MT2, 0.0)));
+            values.push(Complex::new(MU, 0.0));
+            rows += 1;
+        }
+    }
+    KinematicsBatch { rows, components: 1, values }
+}
+
 /// Every integral of `size` on every point (integral-major).
 fn bucket(points: &[[[f64; 4]; 6]], size: usize) -> KinematicsBatch<f64> {
     let mut values = Vec::new();
@@ -201,10 +239,10 @@ enum Bucket {
 }
 
 impl Bucket {
-    fn new(engine: &str, size: usize) -> Fallible<Self> {
+    fn new(engine: &str, settings: ReductionSettings) -> Fallible<Self> {
         Ok(match engine {
             "gates" | "choice" => {
-                let mut workspace = DirectReductionPlan::new(settings(size))?.workspace(0.0f64)?;
+                let mut workspace = DirectReductionPlan::new(settings)?.workspace(0.0f64)?;
                 if engine == "choice" {
                     workspace.set_stability_threshold(1e-15);
                     workspace.enable_estimated_method_choice(12, 1e-15);
@@ -213,11 +251,11 @@ impl Bucket {
                 Self::Direct(Box::new(workspace))
             }
             "embedded" => Self::Facade(Box::new(TensorWorkspace::new_embedded(
-                &TensorReductionPlan::new(settings(size))?,
+                &TensorReductionPlan::new(settings)?,
                 0.0f64,
                 EmbedderOptions::default(),
             )?)),
-            "facade" => Self::Facade(Box::new(TensorWorkspace::new(&TensorReductionPlan::new(settings(size))?, 0.0f64)?)),
+            "facade" => Self::Facade(Box::new(TensorWorkspace::new(&TensorReductionPlan::new(settings)?, 0.0f64)?)),
             _ => return Err(format!("unknown engine {engine}").into()),
         })
     }
@@ -252,7 +290,15 @@ fn main() -> Fallible<()> {
     let points = points(count);
     let sizes = [6usize, 5, 4, 3, 2];
     let batches: Vec<(usize, KinematicsBatch<f64>)> = sizes.iter().map(|&s| (s, bucket(&points, s))).collect();
-    let mut buckets: Vec<Bucket> = sizes.iter().map(|&s| Bucket::new(&engine, s)).collect::<Fallible<_>>()?;
+    let mut buckets: Vec<Bucket> = sizes.iter().map(|&s| Bucket::new(&engine, settings(s))).collect::<Fallible<_>>()?;
+    let own_frames = modes.iter().any(|m| m.starts_with("own"));
+    let own_batches: Vec<KinematicsBatch<f64>> =
+        if own_frames { sizes.iter().map(|&s| own_bucket(&points, s)).collect() } else { Vec::new() };
+    let mut own_buckets: Vec<Bucket> = if own_frames {
+        sizes.iter().map(|&s| Bucket::new(&engine, supplied_settings(s))).collect::<Fallible<_>>()?
+    } else {
+        Vec::new()
+    };
     let rotation_plans: Vec<DirectReductionPlan> =
         sizes.iter().map(|&s| DirectReductionPlan::new(settings(s))).collect::<Result<_, _>>()?;
     let mut rotation_workspaces: Vec<DirectWorkspace<f64>> = rotation_plans
@@ -296,9 +342,15 @@ fn main() -> Fallible<()> {
             };
             let started;
             match mode.as_str() {
-                "separate" | "store-down" | "store-up" => {
-                    let shared = mode != "separate";
-                    for bucket in &mut buckets {
+                "separate" | "store-down" | "store-up" | "own-separate" | "own-store" => {
+                    let shared = mode.contains("store");
+                    let own = mode.starts_with("own");
+                    let (buckets, inputs): (&mut Vec<Bucket>, Vec<&KinematicsBatch<f64>>) = if own {
+                        (&mut own_buckets, own_batches.iter().collect())
+                    } else {
+                        (&mut buckets, batches.iter().map(|(_, batch)| batch).collect())
+                    };
+                    for bucket in buckets.iter_mut() {
                         bucket.set_store(shared.then_some(&store));
                     }
                     let mut order: Vec<usize> = (0..sizes.len()).collect();
@@ -311,7 +363,7 @@ fn main() -> Fallible<()> {
                         store.clear();
                     }
                     for &b in &order {
-                        results.push((b, buckets[b].reduce(&batches[b].1)?));
+                        results.push((b, buckets[b].reduce(inputs[b])?));
                     }
                     let elapsed = started.elapsed();
                     if shared {
