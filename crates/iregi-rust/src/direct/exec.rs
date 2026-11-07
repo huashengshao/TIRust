@@ -881,31 +881,14 @@ where
                         let output = &mut self.native_output;
                         store.dd_master_with(&self.master_key, |stored| write_dd_master(output, stored))
                     });
-                let provided = !hit
-                    && provider.as_ref().is_some_and(|shared| {
-                        let Some(provider) = shared.provider() else { return false };
-                        let zero = Complex::new(0.0, 0.0);
-                        let mut arguments = [zero; MASTER_KEY_WORDS / 2];
-                        for (argument, z) in arguments.iter_mut().zip(&input[..arity + 1]) {
-                            *argument = Complex::new(z.re.to_f64(), z.im.to_f64());
-                        }
-                        let family = crate::store::MasterFamily::of_index(family);
-                        let Some(value) = provider.master(family, &arguments[..arity + 1]) else { return false };
-                        for (output, z) in self.native_output.iter_mut().zip(&value) {
-                            *output = C::new(exact_f64(&self.prototype, z.re), exact_f64(&self.prototype, z.im));
-                        }
-                        shared.count_provider_master();
-                        true
+                if !hit && !dd_hit {
+                    // The embedder's master, if it serves this one.
+                    let provided = provider.as_ref().is_some_and(|shared| {
+                        provided_master(shared, family, &input[..arity + 1], &mut self.native_output, &self.prototype)
                     });
-                if provided {
-                    if let Some(store) = store.as_ref() {
-                        let o = &self.native_output;
-                        let v = [o[0].re.to_f64(), o[0].im.to_f64(), o[1].re.to_f64(), o[1].im.to_f64(),
-                            o[2].re.to_f64(), o[2].im.to_f64()];
-                        store.put_master(family, &key[..words], v);
+                    if !provided {
+                        evaluator.evaluate(&input[..arity + 1], &mut self.native_output)?;
                     }
-                } else if !hit && !dd_hit {
-                    evaluator.evaluate(&input[..arity + 1], &mut self.native_output)?;
                     if let (true, Some(store)) = (dd_key, dd_store) {
                         if let Some(value) = read_dd_master(&self.native_output) {
                             store.put_dd_master(self.master_key.clone(), value);
@@ -3598,6 +3581,26 @@ fn dd_master_key<T: NativeFloat>(key: &mut Vec<u64>, family: usize, arity: usize
         let (re, im) = (z.re.into_inner(), z.im.into_inner());
         key.extend([re.hi().to_bits(), re.lo().to_bits(), im.hi().to_bits(), im.lo().to_bits()]);
     }
+    true
+}
+
+/// The embedder's binary64 scalar master of `family` at `input` into
+/// `output` (see [`crate::MasterProvider`]); `false` when it declines. Out
+/// of line: the lane path without a provider stays as it was.
+#[inline(never)]
+fn provided_master<T: NativeFloat>(shared: &SubsetStore, family: usize, input: &[C<T>], output: &mut [C<T>], prototype: &T) -> bool {
+    let Some(provider) = shared.provider() else { return false };
+    let zero = Complex::new(0.0, 0.0);
+    let mut arguments = [zero; MASTER_KEY_WORDS / 2];
+    for (argument, z) in arguments.iter_mut().zip(input) {
+        *argument = Complex::new(z.re.to_f64(), z.im.to_f64());
+    }
+    let family = crate::store::MasterFamily::of_index(family);
+    let Some(value) = provider.master(family, &arguments[..input.len()]) else { return false };
+    for (slot, z) in output.iter_mut().zip(&value) {
+        *slot = C::new(exact_f64(prototype, z.re), exact_f64(prototype, z.im));
+    }
+    shared.count_provider_master();
     true
 }
 
