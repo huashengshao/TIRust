@@ -1591,7 +1591,7 @@ where
         let alt_pv_checked = || -> Result<Coefficients<T>, String> {
             let v = cayley_cancellation(&z, &f, &m02, nm).unwrap_or(f64::INFINITY);
             let rounding = 2f64.powi(-(self.prototype.get_precision().min(i32::MAX as u32) as i32)) * v;
-            if !(rounding <= EXPANSION_TOLERANCE) {
+            if rounding.is_nan() || rounding > EXPANSION_TOLERANCE {
                 return Err(format!("alternative PV: modified Cayley determinant cancels (relative rounding {rounding:e})"));
             }
             alt_pv()
