@@ -94,12 +94,7 @@ fn tiny_exact_coefficients_are_never_discarded() {
     );
 }
 
-// Known failure on Symbolica 20a9da94: exponents in (i32::MAX, u32::MAX] are
-// converted through i32 in to_polynomial_* and panic instead of being
-// reported. The fix is Symbolica b9eaa735 on symbolica-dev/symbolica#163;
-// re-enable this test with the Symbolica re-pin to that revision.
 #[test]
-#[ignore = "panics on Symbolica 20a9da94; fixed upstream in Symbolica b9eaa735 (symbolica-dev/symbolica#163); pyAmpliCol DECISIONS 2026-11-06 ~17:30"]
 fn oversized_loop_exponents_are_errors_without_integer_wraparound() {
     // Each expression is one monomial: no enormous sum is expanded.
     for exponent in ["65536", "2147483648", "4294967295", "4294967296", "18446744073709551616"] {
