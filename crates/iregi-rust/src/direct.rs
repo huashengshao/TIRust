@@ -30,6 +30,12 @@ use crate::{BatchResult, KinematicsBatch, ReductionError, ReductionSettings, bas
 /// the modified Cayley determinant's cancellation).
 pub const ALTERNATIVE_PV_LIMIT: f64 = 1.0 / (1u64 << 36) as f64;
 
+/// Largest relative change of the last pass at which the direct engine's
+/// small-Gram expansions accept their result (2^-30). As the `limit` of
+/// [`DirectWorkspace::set_alternative_first`]: the alternative PV first
+/// wherever its estimate is within what the expansions themselves accept.
+pub const EXPANSION_TOLERANCE: f64 = 1.0 / (1u64 << 30) as f64;
+
 /// Immutable structural plan of the direct engine. No sampled value is stored.
 #[derive(Clone, Debug)]
 pub struct DirectReductionPlan {
@@ -198,6 +204,8 @@ where
     /// `limit` gets that reduction first, from triangles of its own rank;
     /// the expansions follow only if it fails. `None` (the default): the
     /// expansions first, the alternative PV as their check and fallback.
+    /// Natural limits: [`ALTERNATIVE_PV_LIMIT`] (the alternative-only
+    /// reduction's) and [`EXPANSION_TOLERANCE`] (the expansions' own).
     /// Like the expansions, the choice is unchecked: callers verify the
     /// lanes. It applies to the workspace's own boxes and triangles (the
     /// expansions' auxiliary triangles keep their order).

@@ -802,36 +802,38 @@ fn method_choice_lane(shifts: &[[f64; 4]; 4], rank: u16, limit: Option<f64>) -> 
 
 #[test]
 fn alternative_first_serves_boxes_its_estimate_admits() {
-    use iregi_rust::direct::ALTERNATIVE_PV_LIMIT;
-    // Small-Gram rank-4 box, Higgs backward (sin 0.2): the estimate admits
-    // the alternative PV, which then serves the lane in place of the
-    // expansions, accurately.
-    let (expansions, _) = method_choice_lane(&forward_box(0.2, -1.0), 4, None);
-    let (first, error) = method_choice_lane(&forward_box(0.2, -1.0), 4, Some(ALTERNATIVE_PV_LIMIT));
-    assert!(expansions.is_some() && first.is_some() && first != expansions);
-    let error = error.unwrap();
-    assert!(error <= 1e-10, "E/A = {error:e}");
-    // Near-forward rank-6 box (sin 0.01): det X cancels (v ~ 350), so the
-    // estimate refuses the alternative PV (COLLIER's w_pv2 alone admits it,
-    // at E/A ~2e-7) and the lane is the expansions', bit for bit (refused
-    // in binary64 here).
-    let (expansions, _) = method_choice_lane(&forward_box(0.01, 1.0), 6, None);
-    let (first, _) = method_choice_lane(&forward_box(0.01, 1.0), 6, Some(ALTERNATIVE_PV_LIMIT));
-    assert_eq!(first, expansions);
-    // Box-r4 #5046 (small Higgs pT, see below): its estimate is above the
-    // limit, so the order changes nothing.
+    use iregi_rust::direct::{ALTERNATIVE_PV_LIMIT, EXPANSION_TOLERANCE};
     let small_gram = [
         [0.0, 0.0, 0.0, 0.0],
         [500.0, 0.0, 0.0, 500.0],
         [1000.0, 0.0, 0.0, 0.0],
         [499.9999999999999, 8.840408903567376, -6.981798561273453, -483.99184048831603],
     ];
-    let (expansions, _) = method_choice_lane(&small_gram, 4, None);
-    let (first, error) = method_choice_lane(&small_gram, 4, Some(ALTERNATIVE_PV_LIMIT));
-    assert!(first.is_some());
-    assert_eq!(first, expansions);
-    let error = error.unwrap();
-    assert!(error <= 1e-10, "E/A = {error:e}");
+    for limit in [ALTERNATIVE_PV_LIMIT, EXPANSION_TOLERANCE] {
+        // Small-Gram rank-4 box, Higgs backward (sin 0.2): the estimate
+        // admits the alternative PV, which then serves the lane in place of
+        // the expansions, accurately.
+        let (expansions, _) = method_choice_lane(&forward_box(0.2, -1.0), 4, None);
+        let (first, error) = method_choice_lane(&forward_box(0.2, -1.0), 4, Some(limit));
+        assert!(expansions.is_some() && first.is_some() && first != expansions);
+        let error = error.unwrap();
+        assert!(error <= 1e-10, "E/A = {error:e}");
+        // Near-forward rank-6 box (sin 0.01): det X cancels (v ~ 350), so the
+        // estimate refuses the alternative PV (COLLIER's w_pv2 alone admits
+        // it, at E/A ~2e-7) and the lane is the expansions', bit for bit
+        // (refused in binary64 here).
+        let (expansions, _) = method_choice_lane(&forward_box(0.01, 1.0), 6, None);
+        let (first, _) = method_choice_lane(&forward_box(0.01, 1.0), 6, Some(limit));
+        assert_eq!(first, expansions);
+        // Box-r4 #5046 (small Higgs pT, see below): its estimate is above
+        // the limit, so the order changes nothing.
+        let (expansions, _) = method_choice_lane(&small_gram, 4, None);
+        let (first, error) = method_choice_lane(&small_gram, 4, Some(limit));
+        assert!(first.is_some());
+        assert_eq!(first, expansions);
+        let error = error.unwrap();
+        assert!(error <= 1e-10, "E/A = {error:e}");
+    }
 }
 
 #[test]

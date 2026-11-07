@@ -813,11 +813,9 @@ pub(super) fn gram_factors<T: NativeFloat>(z: &[[C<T>; 3]; 3], f: &[C<T>; 3], m0
 const NESTED_HOPELESS_LOG2: (f64, f64) = (-18.0, -30.0);
 
 // Largest a priori error estimate of the alternative PV stage (the binary64
-// retries accept rotated copies within 2^-36).
-use crate::direct::ALTERNATIVE_PV_LIMIT;
-
-/// Largest accepted relative change of the last expansion pass.
-const EXPANSION_TOLERANCE: f64 = 1.0 / (1u64 << 30) as f64;
+// retries accept rotated copies within 2^-36) and largest accepted relative
+// change of the last expansion pass (2^-30).
+use crate::direct::{ALTERNATIVE_PV_LIMIT, EXPANSION_TOLERANCE};
 
 fn rank_of(key: &Key) -> u16 {
     2 * key.0 + key.1.iter().sum::<u16>()
