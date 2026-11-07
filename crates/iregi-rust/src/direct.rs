@@ -33,7 +33,10 @@ pub(crate) fn exec_ibp_field_max(n: usize) -> u64 {
 use exec::DirectExecutor;
 use plan::DirectPlanData;
 
-use crate::{BatchResult, KinematicsBatch, ReductionError, ReductionSettings, TensorStore, basis::Monomial};
+use crate::{
+    BatchResult, InputLayout, InvariantInput, KinematicsBatch, ReductionError, ReductionSettings, TensorStore,
+    basis::Monomial,
+};
 
 /// Largest a priori estimate (COLLIER's w_pv2 with the modified Cayley
 /// determinant's cancellation, see [`DirectWorkspace::set_alternative_first`])
@@ -99,6 +102,61 @@ impl DirectReductionPlan {
         &self.data.settings
     }
 
+    /// `batch` with every lane's propagators relabelled cyclically by
+    /// `rotation`: propagator `k` of the result is propagator
+    /// `(k + rotation) mod N` of `batch` (its shift, its supplied invariants
+    /// and its squared mass; the scale is kept). The loop momentum is only
+    /// relabelled, so the integral and its Cartesian moments are unchanged,
+    /// while the direct engine reduces it through other PV systems (another
+    /// origin: the propagator first in the new order), as in the loop-rotation
+    /// test of [`crate::TensorWorkspace`]. Propagators of unequal powers would
+    /// move away from their powers: such plans are refused.
+    pub fn rotated_batch<T: NativeFloat>(
+        &self,
+        batch: &KinematicsBatch<T>,
+        rotation: usize,
+    ) -> Result<KinematicsBatch<T>, ReductionError> {
+        let settings = &self.data.settings;
+        let n = settings.propagators;
+        if settings.powers.iter().any(|&power| power != settings.powers[0]) {
+            return Err(ReductionError::Unsupported(
+                "a rotated copy needs propagators of equal powers (the powers are fixed by the plan)".into(),
+            ));
+        }
+        if batch.components != 1 {
+            return Err(ReductionError::Unsupported(
+                "the direct engine evaluates ordinary numbers; use the generic workspace for Dual components".into(),
+            ));
+        }
+        let layout = InputLayout::of(settings);
+        let width = layout.width();
+        if batch.values.len() != batch.rows * width {
+            return Err(ReductionError::InvalidInput(format!("expected {width} values per row")));
+        }
+        let from = |k: usize| (k + rotation) % n.max(1);
+        let mut values = Vec::with_capacity(batch.values.len());
+        for row in batch.values.chunks_exact(width) {
+            for k in 0..n {
+                values.extend_from_slice(&row[4 * from(k)..4 * from(k) + 4]);
+            }
+            if let Some(supplied) = &layout.scalar_products {
+                // The invariants s_ij, i < j, of the relabelled propagators.
+                for i in 0..n {
+                    for j in i + 1..n {
+                        let (a, b) = (from(i), from(j));
+                        let (a, b) = (a.min(b), a.max(b));
+                        values.push(row[supplied.start + InvariantInput::invariant_index(n, a, b)].clone());
+                    }
+                }
+            }
+            for k in 0..n {
+                values.push(row[layout.masses.start + from(k)].clone());
+            }
+            values.push(row[layout.scale].clone());
+        }
+        Ok(KinematicsBatch { rows: batch.rows, components: 1, values })
+    }
+
     pub fn basis(&self) -> &[Monomial] {
         &self.data.basis
     }
@@ -160,6 +218,54 @@ where
         batch: &KinematicsBatch<T>,
     ) -> Result<BatchResult<T>, ReductionError> {
         self.executor.reduce_batch(batch)
+    }
+
+    /// Reduce `batch` and its rotated copy in one call (U3): returns
+    /// `(primary, copy)`, where `copy` holds the moments of
+    /// [`DirectReductionPlan::rotated_batch`]`(batch, rotation)`, bit for bit
+    /// what [`Self::reduce_batch`] returns for that batch, lane for lane in
+    /// the order of `batch`. The copy's moments are the same integrals in the
+    /// same loop-momentum frame, reduced through other PV systems, so a lane
+    /// and its copy agree to the reduction's accuracy (a stability check
+    /// without a second call or a re-expanded numerator).
+    ///
+    /// The copy's subsets that keep their propagator order (those without a
+    /// propagator moved to the end; `rotation = 1` keeps every subset without
+    /// propagator 0) repeat the primary's work exactly; they are taken from
+    /// the attached [`TensorStore`] or, without one, from a store private to
+    /// this call (binary64: sub-integrals, pentagons, rescues, expansions,
+    /// moments and masters; double-double: masters). Per-lane diagnostics
+    /// (`last_conditions`, `last_gram_lanes`, `last_estimate_lanes`) describe
+    /// the primary; `last_profile` and `last_master_rows` cover both.
+    pub fn reduce_batch_with_rotation(
+        &mut self,
+        batch: &KinematicsBatch<T>,
+        rotation: usize,
+    ) -> Result<(BatchResult<T>, BatchResult<T>), ReductionError> {
+        let plan = DirectReductionPlan { data: self.executor.base_plan().clone() };
+        let rotated = plan.rotated_batch(batch, rotation)?;
+        let private = self.executor.shared_subsets().is_none().then(|| {
+            let store = Arc::new(shared::SubsetStore::default());
+            store.set_enabled(true);
+            for (size, rank) in plan.nested_gathers() {
+                store.share_moments(size, rank);
+            }
+            store
+        });
+        if let Some(store) = &private {
+            self.executor.set_shared_subsets(Some(store.clone()));
+        }
+        let outcome = (|| {
+            let primary = self.executor.reduce_batch(batch)?;
+            let first = self.executor.take_call();
+            let copy = self.executor.reduce_batch(&rotated)?;
+            self.executor.merge_call(first);
+            Ok((primary, copy))
+        })();
+        if private.is_some() {
+            self.executor.set_shared_subsets(None);
+        }
+        outcome
     }
 
     /// Share per-subset results with every workspace holding `store`, across

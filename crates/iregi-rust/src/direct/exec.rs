@@ -275,6 +275,16 @@ pub(super) const PARTIAL_RESCUE: &str = "partial rescue";
 pub(super) const GRAM_EXPANSION: &str = "small-Gram expansion";
 const STORED_MEMBERS: &str = "(the subset)";
 
+/// Per-lane diagnostics, profile and master count of one call
+/// ([`DirectExecutor::take_call`]).
+pub(crate) struct CallRecord {
+    conditions: Vec<Option<f64>>,
+    gram: Vec<bool>,
+    estimate: Vec<bool>,
+    profile: DirectProfile,
+    master_rows: usize,
+}
+
 /// Per-output-moment conversion flags.
 #[derive(Clone)]
 struct OutputFlags<T> {
@@ -514,6 +524,39 @@ where
     /// variant).
     pub(crate) fn base_plan(&self) -> &Arc<DirectPlanData> {
         &self.base_plan
+    }
+
+    /// The store this executor shares through (binary64: everything;
+    /// double-double: scalar masters), if any.
+    pub(crate) fn shared_subsets(&self) -> Option<Arc<SubsetStore>> {
+        self.shared.clone().or_else(|| self.dd_masters.clone())
+    }
+
+    /// Take the per-lane diagnostics, profile and master count of the most
+    /// recent call (see [`Self::merge_call`]).
+    pub(crate) fn take_call(&mut self) -> CallRecord {
+        CallRecord {
+            conditions: std::mem::take(&mut self.lane_conditions),
+            gram: std::mem::take(&mut self.lane_gram),
+            estimate: std::mem::take(&mut self.lane_estimate),
+            profile: self.profile,
+            master_rows: self.master_rows,
+        }
+    }
+
+    /// After a second call: restore the first call's per-lane diagnostics
+    /// and add its profile and master count to the second's.
+    pub(crate) fn merge_call(&mut self, first: CallRecord) {
+        self.lane_conditions = first.conditions;
+        self.lane_gram = first.gram;
+        self.lane_estimate = first.estimate;
+        self.master_rows += first.master_rows;
+        let (a, b) = (&mut self.profile, first.profile);
+        a.geometry += b.geometry;
+        a.masters += b.masters;
+        a.recurrence += b.recurrence;
+        a.gather += b.gather;
+        a.output += b.output;
     }
 
     pub fn set_stability_threshold(&mut self, threshold: T) {
