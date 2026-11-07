@@ -15,8 +15,8 @@ limits, and its evidence are assets of the release
 the validation evidence is in the private backup named in [validation/README.md](validation/README.md).
 
 **Direct numerical engine (binary64 default).** `TensorReductionPlan::new` now
-selects a direct engine for unit-power or single-dotted, `h<=3`, Cartesian-shift
-PV/Hybrid requests through six points: the validated PV recurrences run
+selects a direct engine for unit-power or single-dotted, dimension-shifted
+(up to four points), Cartesian-shift or supplied-invariant PV/Hybrid requests: the validated PV recurrences run
 numerically per lane with oneloopmaster's direct scalar kernels, affinely dependent
 sub-topologies use their constant-one denominator identity, a dotted propagator
 is a Taylor jet in its squared mass, and `D=4+2h` uses
@@ -67,6 +67,47 @@ evidence. Historical rank-seven and higher-point checks remain in the report;
 additional rank-seven work is deferred. Physical comparisons retain their
 specified graph/rank-four scope, and the current Python smoke includes an N6
 rank-one lifecycle case. Each family's validated domain is documented separately.
+
+## Inputs, embedder mode and capabilities
+
+- `InvariantInput::SuppliedInvariants`: the invariants `s_ij = (p_i - p_j)^2`
+  (the S-matrix of the shifts, `i < j`, packed row-major after the shifts;
+  `InputLayout::of`). Every scalar the reduction forms from a pair of shifts
+  (Gram and Cayley systems, scalar-master arguments, the lightlike test) reads
+  them exactly as given, so an on-shell invariant equal to a squared mass stays
+  equal to it bit for bit and the masters take their on-shell branches in every
+  precision; the shifts still give the tensor components and the vector
+  geometry. The direct engine serves them at every point count; the symbolic
+  engine through five points (its high-point identities need
+  four-dimensionally consistent invariants). `tests/supplied_invariants.rs`:
+  double-double equals 256-bit MPFR within 4e-32 on the IR-divergent
+  (0, m_b, m_t) vertex triangle of b b~ > t t~ at a binary64-rounded point,
+  binary64 within 5e-16, while the invariants of the rounded shifts lose its
+  soft pole.
+- `ScaleInput::MuSquared` (`ReductionSettings::scale_input`): the last
+  argument is mu^2, used exactly; the direct engine reads it at every
+  precision, the facade forms mu = sqrt(mu^2) once for the other engines.
+- Embedder mode, `TensorWorkspace::new_embedded(plan, prototype,
+  EmbedderOptions)`: the direct engine at the workspace's precision
+  (binary64, double-double or MPFR) with its conditioning gates, then only what
+  is configured: the a priori method choice for gate-refused lanes (on by
+  default, unchecked and flagged per lane in `last_lane_routes`), partial
+  double-double rescue and precision tiers (binary64, off by default). No
+  loop-rotation test, no rescue-first routing, never the symbolic engine;
+  settings outside the direct engine are refused (`tests/embedder_mode.rs`).
+- The lightlike bubble rule is relative to the inputs' precision: |p^2| up
+  to 2^-(p - 13) of the bubble's scale (2^-40 for binary64 inputs, also in the
+  rescue tiers that lift them; `DirectWorkspace::set_input_precision`).
+- `DirectReductionPlan::capabilities(&prototype)` (`DirectCapabilities`): the
+  largest point count (64, the subset-mask width), rank (C(R+4,4) within the
+  u32 monomial indices: 564), raised power (2^(64/N) - 1 IBP key fields,
+  at most the settings' u16) and dimension shift, plus the algorithmic limits
+  (one raised power, through six points; shifts through four points). Rank
+  and point count are otherwise limited by memory and the achieved precision
+  (`tests/lifted_caps.rs`: rank 33 and 36 tadpoles against their closed form,
+  raised powers 6 and 7 and h = 5 against independent references, a
+  13-point family evaluated). The validated domain N <= 6, R <= 6 is
+  documentation, not a limit. The symbolic engine has no preparation budget.
 
 ## Workspace
 
@@ -163,7 +204,10 @@ Ok(())
 
 For binary64 workspaces `TensorReductionPlan::new` selects the direct numerical
 engine whenever the request is in its domain (unit powers or one raised power up
-to 5, `h<=3` up to four points, Cartesian shifts, `Preserve`, PV/Hybrid, N<=12 (unit powers at N>=7), rank <= 32);
+to six points, `h>=0` up to four points, Cartesian shifts or supplied
+invariants, `Preserve`, PV/Hybrid); its bounds come from its representation,
+not from fixed caps, and `DirectReductionPlan::capabilities` reports them (see
+"Inputs, embedder mode and capabilities" below);
 `engine_kind()` reports `Direct`, and `engine_execution()` reports direct
 successes, fallback rows and the fallback's own detail. Binary64 lanes are
 checked by conditioning gates and, for four or more propagators with equal
