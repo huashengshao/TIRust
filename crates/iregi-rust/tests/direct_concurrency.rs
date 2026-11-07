@@ -131,7 +131,7 @@ fn lanes_of<T: NativeFloat>(result: &BatchResult<T>, conditions: &[Option<f64>])
 /// Every lane through `threads` threads, each with its own workspace (made
 /// by `make`) and its share of the lanes, contiguous or round-robin, in
 /// batches of at most `chunk` lanes; optionally one store for all threads.
-fn run<T: NativeFloat>(
+fn run<T: NativeFloat + Send>(
     rows: &[Vec<Complex<f64>>],
     lift: &(impl Fn(f64) -> T + Sync),
     make: &(impl Fn() -> DirectWorkspace<T> + Sync),
@@ -142,7 +142,6 @@ fn run<T: NativeFloat>(
 ) -> Vec<Lane>
 where
     Complex<T>: symbolica::evaluate::EvaluationDomain,
-    T: Send,
 {
     let owner = |lane: usize| if round_robin { lane % threads } else { lane * threads / rows.len() };
     let mut out: Vec<Option<Lane>> = vec![None; rows.len()];

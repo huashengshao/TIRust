@@ -287,7 +287,7 @@ fn double_double_workspaces_share_their_masters() {
         workspace
     };
     let alone = make().reduce_batch(&lifted).unwrap();
-    assert!(alone.statuses.iter().any(|s| *s == LaneStatus::Success), "{:?}", alone.statuses);
+    assert!(alone.statuses.contains(&LaneStatus::Success), "{:?}", alone.statuses);
     let alone = fingerprint(&alone);
     let store = TensorStore::new();
     let mut workspace = make();

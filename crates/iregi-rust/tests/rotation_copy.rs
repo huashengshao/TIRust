@@ -176,7 +176,7 @@ fn the_copy_repeats_the_subsets_that_keep_their_order_through_the_store() {
     let mut both = plan.workspace(0.0f64).unwrap();
     both.reduce_batch_with_rotation(&batch, 1).unwrap();
     assert_eq!(both.last_master_rows(), masters);
-    assert!(primary.statuses.iter().any(|s| *s == LaneStatus::Success), "{:?}", primary.statuses);
+    assert!(primary.statuses.contains(&LaneStatus::Success), "{:?}", primary.statuses);
 }
 
 #[test]
