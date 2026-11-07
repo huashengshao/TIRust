@@ -134,8 +134,9 @@ rank-one lifecycle case. Each family's validated domain is documented separately
   bit-identical with and without the store, in any call order and thread
   count (unless `TensorStore::align_ranks` raised the rank floor, which moves
   injected boxes and triangles at their truncation level, or a masters
-  provider returns other values than TIRust's kernels). Master keys hold invariants, masses and mu^2 only (translation-
-  invariant: with `SuppliedInvariants` a box meets its copy in another frame);
+  provider returns other values than TIRust's kernels). Master keys hold
+  invariants, masses and mu^2 only (translation-invariant: with
+  `SuppliedInvariants` a box meets its copy in another frame);
   sub-integral and moment keys hold the shifts, so parent and pinches meet in
   an aligned loop-momentum frame supplied by the caller (common propagators
   with equal shifts, in the same relative order). `TensorStoreOptions`:

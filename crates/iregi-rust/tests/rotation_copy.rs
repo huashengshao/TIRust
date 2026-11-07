@@ -231,8 +231,11 @@ fn rotated_batches_relabel_shifts_invariants_and_masses() {
 
 /// Invariant pairs `(i, j)` in the kernels' argument order (see
 /// `MasterFamily`) and the propagator relabellings that leave the master
-/// unchanged: a triangle's 6 permutations, a box's 8 dihedral ones.
-fn symmetries(family: MasterFamily) -> Option<(&'static [(usize, usize)], Vec<Vec<usize>>)> {
+/// unchanged.
+type Symmetries = (&'static [(usize, usize)], Vec<Vec<usize>>);
+
+/// A triangle's 6 permutations, a box's 8 dihedral ones.
+fn symmetries(family: MasterFamily) -> Option<Symmetries> {
     match family {
         MasterFamily::Triangle => Some((
             &[(0, 1), (1, 2), (0, 2)],
