@@ -38,6 +38,42 @@ use crate::{
     basis::Monomial,
 };
 
+/// `batch` with every lane's propagators relabelled cyclically by `rotation`
+/// (see [`DirectReductionPlan::rotated_batch`]): rows of `layout.width()`
+/// ordinary numbers, the component count kept. Also the facade's
+/// loop-rotation test and cyclic-order checks.
+pub(crate) fn rotate_lanes<T: NativeFloat>(
+    batch: &KinematicsBatch<T>,
+    layout: &InputLayout,
+    rotation: usize,
+) -> KinematicsBatch<T> {
+    let n = layout.masses.len();
+    let width = layout.width();
+    let from = |k: usize| (k + rotation) % n.max(1);
+    let mut values = Vec::with_capacity(batch.values.len());
+    for lane in 0..batch.rows {
+        let row = &batch.values[lane * width..(lane + 1) * width];
+        for k in 0..n {
+            values.extend_from_slice(&row[4 * from(k)..4 * from(k) + 4]);
+        }
+        if let Some(supplied) = &layout.scalar_products {
+            // The invariants s_ij, i < j, of the relabelled propagators.
+            for i in 0..n {
+                for j in i + 1..n {
+                    let (a, b) = (from(i), from(j));
+                    let (a, b) = (a.min(b), a.max(b));
+                    values.push(row[supplied.start + InvariantInput::invariant_index(n, a, b)].clone());
+                }
+            }
+        }
+        for k in 0..n {
+            values.push(row[layout.masses.start + from(k)].clone());
+        }
+        values.push(row[layout.scale].clone());
+    }
+    KinematicsBatch { rows: batch.rows, components: batch.components, values }
+}
+
 /// Largest a priori estimate (COLLIER's w_pv2 with the modified Cayley
 /// determinant's cancellation, see [`DirectWorkspace::set_alternative_first`])
 /// at which the direct engine accepts the alternative PV reduction alone
@@ -117,7 +153,6 @@ impl DirectReductionPlan {
         rotation: usize,
     ) -> Result<KinematicsBatch<T>, ReductionError> {
         let settings = &self.data.settings;
-        let n = settings.propagators;
         if settings.powers.iter().any(|&power| power != settings.powers[0]) {
             return Err(ReductionError::Unsupported(
                 "a rotated copy needs propagators of equal powers (the powers are fixed by the plan)".into(),
@@ -133,28 +168,7 @@ impl DirectReductionPlan {
         if batch.values.len() != batch.rows * width {
             return Err(ReductionError::InvalidInput(format!("expected {width} values per row")));
         }
-        let from = |k: usize| (k + rotation) % n.max(1);
-        let mut values = Vec::with_capacity(batch.values.len());
-        for row in batch.values.chunks_exact(width) {
-            for k in 0..n {
-                values.extend_from_slice(&row[4 * from(k)..4 * from(k) + 4]);
-            }
-            if let Some(supplied) = &layout.scalar_products {
-                // The invariants s_ij, i < j, of the relabelled propagators.
-                for i in 0..n {
-                    for j in i + 1..n {
-                        let (a, b) = (from(i), from(j));
-                        let (a, b) = (a.min(b), a.max(b));
-                        values.push(row[supplied.start + InvariantInput::invariant_index(n, a, b)].clone());
-                    }
-                }
-            }
-            for k in 0..n {
-                values.push(row[layout.masses.start + from(k)].clone());
-            }
-            values.push(row[layout.scale].clone());
-        }
-        Ok(KinematicsBatch { rows: batch.rows, components: 1, values })
+        Ok(rotate_lanes(batch, &layout, rotation))
     }
 
     pub fn basis(&self) -> &[Monomial] {

@@ -202,31 +202,7 @@ fn uniform_powers(settings: &ReductionSettings) -> bool {
 /// invariants and squared masses; the loop momentum is relabelled, the
 /// integral is unchanged).
 fn rotated<T: NativeFloat>(batch: &KinematicsBatch<T>, layout: &InputLayout) -> KinematicsBatch<T> {
-    let n = layout.masses.len();
-    let width = layout.width();
-    let mut values = Vec::with_capacity(batch.values.len());
-    for lane in 0..batch.rows {
-        let row = &batch.values[lane * width..(lane + 1) * width];
-        for k in 0..n {
-            let from = (k + 1) % n;
-            values.extend_from_slice(&row[4 * from..4 * from + 4]);
-        }
-        if let Some(supplied) = &layout.scalar_products {
-            // Invariants s_ij, i < j, of the relabelled propagators.
-            for i in 0..n {
-                for j in i + 1..n {
-                    let (a, b) = ((i + 1) % n, (j + 1) % n);
-                    let (a, b) = (a.min(b), a.max(b));
-                    values.push(row[supplied.start + crate::InvariantInput::invariant_index(n, a, b)].clone());
-                }
-            }
-        }
-        for k in 0..n {
-            values.push(row[layout.masses.start + (k + 1) % n].clone());
-        }
-        values.push(row[layout.scale].clone());
-    }
-    KinematicsBatch { rows: batch.rows, components: batch.components, values }
+    crate::direct::rotate_lanes(batch, layout, 1)
 }
 
 /// mu of `lane` in binary64 (the weights of `lane_difference`), from the scale
