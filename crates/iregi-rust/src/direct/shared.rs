@@ -32,6 +32,15 @@
 //! costs about as much as a small gather, so only subsets of a size and rank
 //! that some integral gathers inside a larger one are shared.
 //!
+//! Binary64 scalar masters (oneloopmaster's native tadpole, bubble, triangle
+//! and box values) repeat most: the integrals of an amplitude and their
+//! rotated checks evaluate the same masters many times. They are kept in one
+//! map per family, keyed by the `re, im` bits of every argument (mu^2 last).
+//! The family fixes the number of arguments, so a key is an array of exactly
+//! 4, 8, 14 or 22 words, and the value (`re, im` of `[finite, single,
+//! double]`) sits in the table: a lookup touches one table slot and an insert
+//! allocates nothing. Hits and misses count with the coefficient results.
+//!
 //! Double-double executors (partial rescues, the double-double tier and its
 //! rotation check) share only their scalar masters, in a map of their own:
 //! oneloopmaster's native box, triangle, bubble and tadpole values keyed by
@@ -62,11 +71,13 @@ type MasterMap<const W: usize> = Mutex<HashMap<[u64; W], [f64; 6], BuildHasherDe
 pub(crate) const MASTER_KEY_WORDS: usize = 22;
 
 fn master_in<const W: usize>(map: &MasterMap<W>, words: &[u64]) -> Option<[f64; 6]> {
+    debug_assert_eq!(words.len(), W, "binary64 master key of the wrong length");
     let key: &[u64; W] = words.try_into().ok()?;
     map.lock().unwrap_or_else(|e| e.into_inner()).get(key).copied()
 }
 
 fn put_master_in<const W: usize>(map: &MasterMap<W>, words: &[u64], value: [f64; 6]) {
+    debug_assert_eq!(words.len(), W, "binary64 master key of the wrong length");
     if let Ok(key) = <[u64; W]>::try_from(words) {
         map.lock().unwrap_or_else(|e| e.into_inner()).insert(key, value);
     }
@@ -209,7 +220,9 @@ impl SubsetStore {
     }
 
     /// The stored binary64 scalar master of `family` for the argument bits
-    /// `words` (a hit), if any.
+    /// `words` (a hit), if any. `words` holds exactly the family's 4, 8, 14
+    /// or 22 words (checked in debug builds; a release build finds no master
+    /// for a key of another length).
     pub(crate) fn master(&self, family: usize, words: &[u64]) -> Option<[f64; 6]> {
         let value = match family {
             0 => master_in(&self.tadpoles, words),
@@ -223,7 +236,8 @@ impl SubsetStore {
         value
     }
 
-    /// Store a freshly evaluated binary64 scalar master (a miss).
+    /// Store a freshly evaluated binary64 scalar master (a miss); `words` as
+    /// for [`Self::master`] (a key of another length is not stored).
     pub(crate) fn put_master(&self, family: usize, words: &[u64], value: [f64; 6]) {
         self.misses.fetch_add(1, Ordering::Relaxed);
         match family {
@@ -312,5 +326,41 @@ impl SubsetStore {
     /// `(hits, misses)` of double-double scalar masters since the last clear.
     pub(crate) fn dd_master_counts(&self) -> (u64, u64) {
         (self.dd_master_hits.load(Ordering::Relaxed), self.dd_master_misses.load(Ordering::Relaxed))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn binary64_masters_are_kept_per_family_under_their_exact_key() {
+        let store = SubsetStore::default();
+        for (family, words) in [(0, 4), (1, 8), (2, 14), (3, 22)] {
+            let key: Vec<u64> = (0..words as u64).map(|w| w + 100 * family as u64).collect();
+            let value = [family as f64, 1.0, 2.0, 3.0, 4.0, 5.0];
+            assert_eq!(store.master(family, &key), None);
+            store.put_master(family, &key, value);
+            assert_eq!(store.master(family, &key), Some(value));
+            let mut other = key.clone();
+            other[words - 1] ^= 1;
+            assert_eq!(store.master(family, &other), None);
+        }
+        // Families do not see each other's masters.
+        let key = [7u64; 4];
+        store.put_master(0, &key, [1.0; 6]);
+        assert_eq!(store.master(0, &key), Some([1.0; 6]));
+        assert_eq!(store.master(1, &[7u64; 8]), None);
+        assert_eq!(store.counts(), (5, 5));
+        store.clear();
+        assert_eq!(store.master(0, &key), None);
+        assert_eq!(store.counts(), (0, 0));
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "binary64 master key of the wrong length")]
+    fn a_binary64_master_key_of_the_wrong_length_fails_in_debug_builds() {
+        SubsetStore::default().put_master(2, &[0u64; 12], [0.0; 6]);
     }
 }
