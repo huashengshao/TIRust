@@ -19,6 +19,17 @@ use iregi_masters::{MasterExecutionPolicy, NativeFloat};
 use symbolica::{domains::float::Complex, evaluate::EvaluationDomain};
 
 pub use exec::{DirectMasters, DirectProfile};
+pub use plan::DirectCapabilities;
+
+/// Width of each propagator's field in the packed IBP keys (`exec`).
+pub(crate) fn exec_ibp_field_bits(n: usize) -> u32 {
+    exec::ibp_field_bits(n)
+}
+
+/// Largest power those fields hold.
+pub(crate) fn exec_ibp_field_max(n: usize) -> u64 {
+    exec::ibp_field_max(exec::ibp_field_bits(n))
+}
 use exec::DirectExecutor;
 use plan::DirectPlanData;
 
@@ -68,6 +79,13 @@ impl DirectReductionPlan {
     /// Whether `settings` lie inside the direct engine's implemented domain.
     pub fn supports(settings: &ReductionSettings) -> bool {
         DirectPlanData::supported(settings).is_ok()
+    }
+
+    /// The capability query: what the direct engine serves for the carrier
+    /// of `prototype` (largest point count, rank, raised power and dimension
+    /// shift; see [`DirectCapabilities`]).
+    pub fn capabilities<T: NativeFloat>(prototype: &T) -> DirectCapabilities {
+        DirectCapabilities::of_representation(prototype.get_precision())
     }
 
     pub fn new(settings: ReductionSettings) -> Result<Self, ReductionError> {

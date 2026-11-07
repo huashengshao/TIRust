@@ -595,12 +595,12 @@ impl TopLayout {
         }
         let nm = members.len() - 1;
         let origin = members[0];
-        let lookup = |mask: u16| plan.coefficient_lookup.get(&mask);
+        let lookup = |mask: crate::direct::plan::SubsetMask| plan.coefficient_lookup.get(&mask);
         let mask = subset.mask;
         let children: Vec<&FastMap<(u16, Vec<u16>), u32>> = (0..nm)
-            .map(|i| lookup(mask & !(1u16 << members[i + 1])).ok_or("small-Gram expansion: missing pinch"))
+            .map(|i| lookup(mask & !(1 << members[i + 1])).ok_or("small-Gram expansion: missing pinch"))
             .collect::<Result<_, _>>()?;
-        let zero_child = lookup(mask & !(1u16 << origin)).ok_or("small-Gram expansion: missing triangle")?;
+        let zero_child = lookup(mask & !(1 << origin)).ok_or("small-Gram expansion: missing triangle")?;
         let child_rank = children
             .iter()
             .chain(std::iter::once(&zero_child))

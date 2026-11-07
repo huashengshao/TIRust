@@ -450,12 +450,6 @@ impl PvCompiler {
         if self.shifts.len() > 4 {
             return Err("generalized canonical PV coefficients beyond four propagators require an independent shifted-master completion".into());
         }
-        let mapped_rank = 2 * metrics + excess;
-        if mapped_rank > 32 {
-            return Err(
-                "generalized PV coefficient exceeds the 32-index preparation budget".into(),
-            );
-        }
         let metrics = u16::try_from(metrics)
             .map_err(|_| "generalized PV metric count is outside the supported integer range")?;
         let momenta: Vec<_> = request.powers[1..].iter().map(|&power| power - 1).collect();
@@ -1487,7 +1481,7 @@ mod tests {
     }
 
     #[test]
-    fn generalized_pv_eligibility_and_coefficient_budget_are_explicit() {
+    fn generalized_pv_eligibility_is_explicit_and_unbudgeted() {
         let mut bubble = PvCompiler::new(
             exact_shifts(&[[0, 0, 0, 0], [0, 1, 0, 0]]),
             vec![Atom::num(4), Atom::num(9)],
@@ -1504,14 +1498,15 @@ mod tests {
                     .is_none()
             );
         }
+        // 34 metric indices: beyond the former 32-index budget, served.
         assert!(
             bubble
                 .compile_generalized_scalar(&ScalarRequest {
                     powers: vec![1, 1],
                     dimension_shift: 17,
                 })
-                .unwrap_err()
-                .contains("preparation budget")
+                .unwrap()
+                .is_some()
         );
         let mut pentagon = PvCompiler::new(
             exact_shifts(&[

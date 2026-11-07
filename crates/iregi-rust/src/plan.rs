@@ -444,11 +444,6 @@ impl ReductionPlan {
                 "provide a nonempty topology and one positive power per propagator".into(),
             ));
         }
-        if settings.rank > 32 || n > 16 {
-            return Err(ReductionError::Unsupported(
-                "preparation budget exceeds 32 tensor indices or 16 propagators".into(),
-            ));
-        }
         if let Some(omitted) = certified_planar_chart {
             if !(crate::certified_planar::settings_supported(&settings)
                 || crate::certified_planar::supplied_six_point_child_settings(&settings))
@@ -1579,22 +1574,29 @@ mod tests {
     }
 
     #[test]
-    fn generalized_pv_hybrid_falls_back_when_mapped_coefficient_exceeds_budget() {
+    fn generalized_pv_serves_coefficients_beyond_the_former_budget() {
+        // h = 17 maps the tadpole onto a 34-index PV coefficient (the former
+        // budget was 32): PV and Hybrid prepare it, and it equals IBP.
         let mut configuration = settings(1, 0);
         configuration.algorithm = Algorithm::PassarinoVeltman;
         configuration.dimension_shift = 17;
-        assert!(
-            matches!(ReductionPlan::new(configuration.clone()), Err(ReductionError::Preparation(reason))
-            if reason.contains("preparation budget"))
-        );
+        let pv = ReductionPlan::new(configuration.clone()).unwrap();
+        assert_eq!(pv.algorithm_used(), Algorithm::PassarinoVeltman);
         configuration.algorithm = Algorithm::Hybrid;
-        let plan = ReductionPlan::new(configuration).unwrap();
-        assert_eq!(plan.algorithm_used(), Algorithm::Ibp);
-        assert!(
-            plan.preparation_notes()
-                .iter()
-                .any(|note| note.contains("PV preparation failed; using IBP"))
-        );
+        assert_eq!(ReductionPlan::new(configuration.clone()).unwrap().algorithm_used(), Algorithm::PassarinoVeltman);
+        configuration.algorithm = Algorithm::Ibp;
+        let ibp = ReductionPlan::new(configuration).unwrap();
+        let row = vec![Complex::new(0.0, 0.0); 4]
+            .into_iter()
+            .chain([Complex::new(2.25, 0.0), Complex::new(3.0, 0.0)])
+            .collect::<Vec<_>>();
+        let batch = crate::KinematicsBatch { rows: 1, components: 1, values: row };
+        let a = Workspace::new(&pv, 0.0f64).unwrap().reduce_batch(&batch).unwrap();
+        let b = Workspace::new(&ibp, 0.0f64).unwrap().reduce_batch(&batch).unwrap();
+        for (x, y) in a.lane(0).unwrap().iter().zip(b.lane(0).unwrap()) {
+            let scale = y.re.abs().max(y.im.abs()).max(1e-300);
+            assert!((x.re - y.re).abs() <= 1e-12 * scale && (x.im - y.im).abs() <= 1e-12 * scale, "{x:?} {y:?}");
+        }
     }
 
     #[test]

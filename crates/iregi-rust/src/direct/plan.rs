@@ -58,14 +58,76 @@ impl FastHasher {
 
 pub(crate) type FastMap<K, V> = HashMap<K, V, std::hash::BuildHasherDefault<FastHasher>>;
 
-/// Largest point count handled by the direct engine.
-pub(crate) const MAX_PROPAGATORS: usize = 12;
-/// Largest tensor rank handled by the direct engine.
-pub(crate) const MAX_RANK: u16 = 32;
-/// Largest power of the (single) dotted propagator.
-pub(crate) const MAX_POWER: u16 = 5;
-/// Largest dimension shift `h` in `D = 4 + 2h - 2 epsilon`.
-pub(crate) const MAX_SHIFT: i16 = 3;
+/// A subset of a plan's propagators, bit `i` for propagator `i`. Its width
+/// bounds the number of propagators (`SubsetMask::BITS`, reported by
+/// [`super::DirectCapabilities`]); the 2^N subsets of a plan bind memory far
+/// below it.
+pub(crate) type SubsetMask = u64;
+
+/// Every propagator of an `n`-point plan.
+pub(crate) fn full_mask(n: usize) -> SubsetMask {
+    if n >= SubsetMask::BITS as usize { SubsetMask::MAX } else { ((1 as SubsetMask) << n) - 1 }
+}
+/// What the direct engine's representation serves: every bound derived from
+/// a representation (or an algorithm), none a fixed budget. Rank and point
+/// count are otherwise limited by memory (C(R+4, 4) monomials per moment
+/// array, 2^N subsets per plan) and by the achieved precision, which callers
+/// measure; the validated domain (N <= 6, R <= 6, the opening benchmark) is
+/// documentation, not a limit.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DirectCapabilities {
+    /// Working precision of the carrier (bits). The structural bounds below
+    /// are the same for every carrier; accuracy is the carrier's.
+    pub carrier_bits: u32,
+    /// Largest number of propagators: the width of the subset masks (64).
+    pub max_propagators: usize,
+    /// Largest tensor rank: monomial and value indices are `u32`, so
+    /// C(R + 4, 4) <= u32::MAX.
+    pub max_rank: u16,
+    /// Propagators that may carry a raised power (one Taylor variable).
+    pub max_dotted_propagators: usize,
+    /// Largest number of propagators with a raised power (the seven-point
+    /// thin system has no mass-derivative jets).
+    pub max_dotted_points: usize,
+    /// Largest dimension shift `h` (the settings' `i16`).
+    pub max_dimension_shift: i16,
+    /// Largest number of propagators with a dimension shift (a shifted
+    /// pentagon is a genuine master, not reducible to boxes).
+    pub max_shifted_points: usize,
+}
+
+impl DirectCapabilities {
+    /// The bounds of the direct engine's representation for a carrier of
+    /// `carrier_bits` bits.
+    pub fn of_representation(carrier_bits: u32) -> Self {
+        // Largest R with C(R + 4, 4) <= u32::MAX.
+        let monomials = |r: u64| (r + 1) * (r + 2) * (r + 3) * (r + 4) / 24;
+        let mut max_rank = 0u64;
+        while max_rank < u64::from(u16::MAX) && monomials(max_rank + 1) <= u64::from(u32::MAX) {
+            max_rank += 1;
+        }
+        Self {
+            carrier_bits,
+            max_propagators: SubsetMask::BITS as usize,
+            max_rank: max_rank as u16,
+            max_dotted_propagators: 1,
+            max_dotted_points: 6,
+            max_dimension_shift: i16::MAX,
+            max_shifted_points: 4,
+        }
+    }
+
+    /// Largest raised power at `n` propagators: the packed IBP keys give each
+    /// propagator 64 / n bits (and the settings hold a `u16`).
+    pub fn max_power(&self, n: usize) -> u16 {
+        crate::direct::exec_ibp_field_max(n).min(u64::from(u16::MAX)) as u16
+    }
+
+    /// Whether `settings` lie inside the direct engine's domain.
+    pub fn admits(&self, settings: &ReductionSettings) -> Result<(), ReductionError> {
+        DirectPlanData::supported(settings)
+    }
+}
 pub(crate) const NO_GEOMETRY: u32 = u32::MAX;
 /// Highest pentagon coefficient rank from the Gram-free Denner--Dittmaier
 /// reduction (hep-ph/0509141, sect. 5, with the rank-5 UV remainder); higher
@@ -81,8 +143,8 @@ pub(crate) struct MonomialTable {
     pub degree_start: Vec<usize>,
     /// Index after multiplying by `z_a`; `u32::MAX` beyond the maximal degree.
     pub multiply: Vec<[u32; 4]>,
-    /// `e!` for each monomial.
-    pub factorials: Vec<u64>,
+    /// `e!` for each monomial (exact integers: no rank bound).
+    pub factorials: Vec<Integer>,
     /// Metric expansion of the untranslated moment of `e`:
     /// `L(e) = sum (src, lambda, c) c g_lambda(src)`, `src = e - 2a`,
     /// `lambda = |a|`, `c = e! (-1)^(a1+a2+a3) / (2^|a| a!)`.
@@ -117,9 +179,9 @@ impl MonomialTable {
                 })
             })
             .collect();
-        let factorials: Vec<u64> = exponents
+        let factorials: Vec<Integer> = exponents
             .iter()
-            .map(|e| e.iter().map(|&x| factorial_u64(x)).product())
+            .map(|e| e.iter().fold(Integer::from(1), |product, &x| product * &factorial(x)))
             .collect();
         let qexp = exponents
             .iter()
@@ -134,10 +196,11 @@ impl MonomialTable {
                                 let src = [e[0] - 2 * a0, e[1] - 2 * a1, e[2] - 2 * a2, e[3] - 2 * a3];
                                 let lambda: u16 = a.iter().sum();
                                 let sign = if (a1 + a2 + a3) % 2 == 0 { 1 } else { -1 };
-                                let denominator = (1i64 << lambda)
-                                    * a.iter().map(|&x| factorial_u64(x) as i64).product::<i64>();
+                                let denominator = a
+                                    .iter()
+                                    .fold(Integer::from(2).pow(u64::from(lambda)), |product, &x| product * &factorial(x));
                                 let constant = Rational::from((
-                                    Integer::from(sign * factorials[index] as i64),
+                                    Integer::from(sign) * &factorials[index],
                                     Integer::from(denominator),
                                 ));
                                 terms.push((lookup[&src], lambda, constant));
@@ -184,9 +247,6 @@ impl MonomialTable {
     }
 }
 
-fn factorial_u64(n: u16) -> u64 {
-    (1..=u64::from(n)).product()
-}
 
 /// Post-processing of one accumulated instruction.
 #[derive(Clone, Copy, Debug)]
@@ -235,7 +295,7 @@ pub(crate) enum SubsetKind {
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
 pub(crate) struct RelationGeometry {
-    pub mask: u16,
+    pub mask: SubsetMask,
     pub members: Vec<usize>,
     /// Geometry offset of the identity weights, one per member.
     pub weights: u32,
@@ -350,7 +410,7 @@ pub(crate) struct GatherKappa {
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
 pub(crate) struct Subset {
-    pub mask: u16,
+    pub mask: SubsetMask,
     pub members: Vec<usize>,
     pub kind: SubsetKind,
     pub coefficient_rank: i32,
@@ -428,7 +488,7 @@ pub(crate) struct DirectPlanData {
     pub coefficient_terms: Vec<u32>,
     /// Per PV subset mask: value index of `C(lambda, kappa)` (the small-Gram
     /// expansion fills a refused box from its triangles through these).
-    pub coefficient_lookup: FastMap<u16, FastMap<(u16, Vec<u16>), u32>>,
+    pub coefficient_lookup: FastMap<SubsetMask, FastMap<(u16, Vec<u16>), u32>>,
     /// Extra coefficient ranks of the top subset's pinches (see
     /// `with_top_child_boost`); variants keep it.
     pub top_child_boost: u16,
@@ -483,6 +543,14 @@ fn binomial(n: u16, k: u16) -> Integer {
     factorial(n) / factorial(k) / factorial(n - k)
 }
 
+/// `count + by` for the plan's `u32` value and geometry indices; a plan
+/// beyond them (memory binds long before) is refused, never wrapped.
+fn grow(count: u32, by: u32) -> Result<u32, ReductionError> {
+    count.checked_add(by).ok_or_else(|| {
+        ReductionError::Unsupported("direct plan: more values or geometry entries than its u32 indices address".into())
+    })
+}
+
 /// Weak compositions of `total` into `count` parts, in `pv.rs` order.
 pub(crate) fn compositions(total: u16, count: usize) -> Vec<Vec<u16>> {
     fn visit(total: u16, count: usize, prefix: &mut Vec<u16>, result: &mut Vec<Vec<u16>>) {
@@ -503,12 +571,18 @@ pub(crate) fn compositions(total: u16, count: usize) -> Vec<Vec<u16>> {
     result
 }
 
-fn without(mask: u16, member: usize) -> u16 {
-    mask & !(1u16 << member)
+fn without(mask: SubsetMask, member: usize) -> SubsetMask {
+    mask & !((1 as SubsetMask) << member)
 }
 
-fn members(mask: u16) -> Vec<usize> {
-    (0..16).filter(|&i| mask & (1 << i) != 0).collect()
+pub(crate) fn members(mask: SubsetMask) -> Vec<usize> {
+    let mut rest = mask;
+    let mut out = Vec::with_capacity(mask.count_ones() as usize);
+    while rest != 0 {
+        out.push(rest.trailing_zeros() as usize);
+        rest &= rest - 1;
+    }
+    out
 }
 
 /// Per-PV-subset coefficient layout.
@@ -520,14 +594,22 @@ struct CoefficientLayout {
 impl DirectPlanData {
     pub fn supported(settings: &ReductionSettings) -> Result<(), ReductionError> {
         let n = settings.propagators;
-        if n == 0 || n > MAX_PROPAGATORS {
+        let capabilities = DirectCapabilities::of_representation(53);
+        if n == 0 {
+            return Err(ReductionError::Unsupported("direct engine needs at least one propagator".into()));
+        }
+        if n > capabilities.max_propagators {
             return Err(ReductionError::Unsupported(format!(
-                "direct engine handles 1..={MAX_PROPAGATORS} propagators"
+                "direct engine: {n} propagators exceed its {}-bit subset masks",
+                capabilities.max_propagators
             )));
         }
-        if settings.rank > MAX_RANK {
+        if settings.rank > capabilities.max_rank {
             return Err(ReductionError::Unsupported(format!(
-                "direct engine handles rank <= {MAX_RANK}"
+                "direct engine: rank {} exceeds the {} monomials its u32 indices address (largest rank {})",
+                settings.rank,
+                u32::MAX,
+                capabilities.max_rank
             )));
         }
         if settings.powers.len() != n || settings.powers.contains(&0) {
@@ -536,29 +618,38 @@ impl DirectPlanData {
             ));
         }
         let dotted = settings.powers.iter().filter(|&&p| p > 1).count();
-        if dotted > 1 || settings.powers.iter().any(|&p| p > MAX_POWER) {
-            return Err(ReductionError::Unsupported(format!(
-                "direct engine handles at most one raised propagator power, up to {MAX_POWER}"
-            )));
+        if dotted > capabilities.max_dotted_propagators {
+            return Err(ReductionError::Unsupported(
+                "direct engine handles at most one raised propagator power (one Taylor variable)".into(),
+            ));
         }
-        if !(0..=MAX_SHIFT).contains(&settings.dimension_shift) {
-            return Err(ReductionError::Unsupported(format!(
-                "direct engine handles dimension shifts 0..={MAX_SHIFT}"
-            )));
-        }
-        if n >= 7 && dotted > 0 {
+        if dotted > 0 && n > capabilities.max_dotted_points {
             // The seven-point thin system picks its six members per lane;
             // its mass-derivative jets are not implemented.
+            return Err(ReductionError::Unsupported(format!(
+                "direct engine handles raised powers up to {} propagators",
+                capabilities.max_dotted_points
+            )));
+        }
+        let largest = capabilities.max_power(n);
+        if settings.powers.iter().any(|&p| p > largest) {
+            return Err(ReductionError::Unsupported(format!(
+                "direct engine: a raised power above {largest} exceeds its {}-bit IBP key fields at {n} propagators",
+                crate::direct::exec_ibp_field_bits(n)
+            )));
+        }
+        if settings.dimension_shift < 0 {
             return Err(ReductionError::Unsupported(
-                "direct engine handles seven propagators with unit powers".into(),
+                "direct engine handles nonnegative dimension shifts".into(),
             ));
         }
-        if settings.dimension_shift > 0 && n > 4 {
+        if settings.dimension_shift > 0 && n > capabilities.max_shifted_points {
             // A shifted scalar pentagon is a genuine master, not reducible
             // to four-dimensional boxes.
-            return Err(ReductionError::Unsupported(
-                "direct engine handles dimension shifts up to four propagators".into(),
-            ));
+            return Err(ReductionError::Unsupported(format!(
+                "direct engine handles dimension shifts up to {} propagators",
+                capabilities.max_shifted_points
+            )));
         }
         if settings.algorithm == Algorithm::Ibp {
             return Err(ReductionError::Unsupported(
@@ -587,7 +678,7 @@ impl DirectPlanData {
     /// constant-one denominator identity instead of its singular Gram system.
     pub fn with_relations(
         settings: ReductionSettings,
-        relation_masks: &[u16],
+        relation_masks: &[SubsetMask],
     ) -> Result<Self, ReductionError> {
         Self::with_profile(settings, relation_masks, &[])
     }
@@ -596,8 +687,8 @@ impl DirectPlanData {
     /// closed-form coefficients for the lightlike bubbles `lightlike_masks`.
     pub fn with_profile(
         settings: ReductionSettings,
-        relation_masks: &[u16],
-        lightlike_masks: &[u16],
+        relation_masks: &[SubsetMask],
+        lightlike_masks: &[SubsetMask],
     ) -> Result<Self, ReductionError> {
         Self::with_profile_boost(settings, relation_masks, lightlike_masks, 0)
     }
@@ -611,8 +702,8 @@ impl DirectPlanData {
 
     pub fn with_profile_boost(
         settings: ReductionSettings,
-        relation_masks: &[u16],
-        lightlike_masks: &[u16],
+        relation_masks: &[SubsetMask],
+        lightlike_masks: &[SubsetMask],
         boost: u16,
     ) -> Result<Self, ReductionError> {
         Self::supported(&settings)?;
@@ -622,7 +713,7 @@ impl DirectPlanData {
             .iter()
             .position(|&p| p > 1)
             .map(|d| (d, usize::from(settings.powers[d])));
-        let relation_for = |mask: u16| -> Option<usize> {
+        let relation_for = |mask: SubsetMask| -> Option<usize> {
             if mask.count_ones() >= 6 {
                 return None;
             }
@@ -632,11 +723,11 @@ impl DirectPlanData {
         let rank = settings.rank;
         let basis = tensor_basis(rank);
         let monomials = MonomialTable::new(rank);
-        let top: u16 = ((1u16 << n) - 1) as u16;
+        let top = full_mask(n);
         // Gram-free pentagon rank: not for dotted propagators (no geometry
         // jets of X^-1 yet) or when a box child is degenerate (it supplies
         // moments by its identity, not PV coefficients).
-        let dd_rank = |mask: u16, moment: i32| -> i32 {
+        let dd_rank = |mask: SubsetMask, moment: i32| -> i32 {
             if moment < 0 || jet.is_some() {
                 return -1;
             }
@@ -647,10 +738,10 @@ impl DirectPlanData {
         };
 
         // Propagate rank needs from the top topology to its pinches.
-        let mut coefficient_need: HashMap<u16, i32> = HashMap::new();
-        let mut moment_need: HashMap<u16, i32> = HashMap::new();
+        let mut coefficient_need: HashMap<SubsetMask, i32> = HashMap::new();
+        let mut moment_need: HashMap<SubsetMask, i32> = HashMap::new();
         moment_need.insert(top, i32::from(rank));
-        let mut masks: Vec<u16> = (1..=top).filter(|m| m & !top == 0).collect();
+        let mut masks: Vec<SubsetMask> = (1..=top).filter(|m| m & !top == 0).collect();
         masks.sort_by_key(|m| std::cmp::Reverse(m.count_ones()));
         for &mask in &masks {
             let size = mask.count_ones() as usize;
@@ -666,7 +757,7 @@ impl DirectPlanData {
                 continue;
             }
             match size {
-                5..=16 => {
+                5.. => {
                     let dd = if size == 5 { dd_rank(mask, moment) } else { -1 };
                     if moment > dd {
                         for member in members(mask) {
@@ -704,7 +795,7 @@ impl DirectPlanData {
 
         // Mass derivatives of a master reach every pinch of it by IBP.
         if let Some((dotted, _)) = jet {
-            let parents: Vec<u16> = coefficient_need
+            let parents: Vec<SubsetMask> = coefficient_need
                 .iter()
                 .filter(|&(&mask, &need)| need >= 0 && mask & (1 << dotted) != 0)
                 .map(|(&mask, _)| mask)
@@ -729,12 +820,12 @@ impl DirectPlanData {
         // Subsets in increasing size, so children precede parents.
         masks.reverse();
         let mut subsets = Vec::new();
-        let mut subset_index: HashMap<u16, usize> = HashMap::new();
+        let mut subset_index: HashMap<SubsetMask, usize> = HashMap::new();
         let mut value_count: u32 = 0;
         let mut geometry_count: u32 = 0;
-        let mut layouts: HashMap<u16, CoefficientLayout> = HashMap::new();
+        let mut layouts: HashMap<SubsetMask, CoefficientLayout> = HashMap::new();
         // D(0) of a Gram-free pentagon in its own momentum basis.
-        let mut shifted_layouts: HashMap<u16, HashMap<(u16, Vec<u16>), u32>> = HashMap::new();
+        let mut shifted_layouts: HashMap<SubsetMask, HashMap<(u16, Vec<u16>), u32>> = HashMap::new();
         let mut unit_finite = None;
         let mut relations = Vec::new();
         for &relation in relation_masks {
@@ -744,7 +835,7 @@ impl DirectPlanData {
                 weights: geometry_count,
                 members: member_list.clone(),
             });
-            geometry_count += member_list.len() as u32;
+            geometry_count = grow(geometry_count, member_list.len() as u32)?;
         }
         for &mask in &masks {
             let coefficient = coefficient_need.get(&mask).copied().unwrap_or(-1);
@@ -756,7 +847,7 @@ impl DirectPlanData {
             let size = member_list.len();
             let kind = match (relation_for(mask), size) {
                 (Some(relation), _) => SubsetKind::Relation(relation),
-                (None, 6..=16) => SubsetKind::Hexagon,
+                (None, 6..) => SubsetKind::Hexagon,
                 (None, 5) => SubsetKind::Pentagon,
                 _ => SubsetKind::Pv,
             };
@@ -779,7 +870,7 @@ impl DirectPlanData {
                 SubsetKind::Pv => {
                     let (geometry, length) = PvGeometry::new(geometry_base, size - 1);
                     subset.pv = Some(geometry);
-                    geometry_count += length;
+                    geometry_count = grow(geometry_count, length)?;
                     let momenta = size - 1;
                     let mut layout = CoefficientLayout {
                         lookup: FastMap::default(),
@@ -789,7 +880,7 @@ impl DirectPlanData {
                         for lambda in (0..=r / 2).rev() {
                             for kappa in compositions(r - 2 * lambda, momenta) {
                                 layout.lookup.insert((lambda, kappa), value_count);
-                                value_count += 1;
+                                value_count = grow(value_count, 1)?;
                             }
                         }
                     }
@@ -798,7 +889,7 @@ impl DirectPlanData {
                             for lambda in (0..=r / 2).rev() {
                                 for kappa in compositions(r - 2 * lambda, momenta) {
                                     layout.spz.insert((lambda, kappa), value_count);
-                                    value_count += 1;
+                                    value_count = grow(value_count, 1)?;
                                 }
                             }
                         }
@@ -818,18 +909,18 @@ impl DirectPlanData {
                         sums: NO_GEOMETRY,
                         dd_rank: dd,
                     };
-                    geometry_count += 29;
+                    geometry_count = grow(geometry_count, 29)?;
                     if dd >= 0 {
                         // Momenta and origin for the gather, X^-1, Xtt/det X.
                         let (geometry, length) = PvGeometry::new(geometry_count, 4);
                         subset.pv = Some(geometry);
-                        geometry_count += length;
+                        geometry_count = grow(geometry_count, length)?;
                         pentagon.xinv = geometry_count;
-                        geometry_count += 25;
+                        geometry_count = grow(geometry_count, 25)?;
                         pentagon.adjadj = geometry_count;
-                        geometry_count += 64;
+                        geometry_count = grow(geometry_count, 64)?;
                         pentagon.sums = geometry_count;
-                        geometry_count += 21;
+                        geometry_count = grow(geometry_count, 21)?;
                         subset.coefficient_rank = dd;
                         let mut layout = CoefficientLayout {
                             lookup: FastMap::default(),
@@ -841,7 +932,7 @@ impl DirectPlanData {
                                 for kappa in compositions(r - 2 * lambda, 4) {
                                     layout.lookup.insert((lambda, kappa.clone()), value_count);
                                     shifted.insert((lambda, kappa), value_count + 1);
-                                    value_count += 2;
+                                    value_count = grow(value_count, 2)?;
                                 }
                             }
                         }
@@ -849,14 +940,14 @@ impl DirectPlanData {
                         shifted_layouts.insert(mask, shifted);
                         if dd >= 5 && unit_finite.is_none() {
                             unit_finite = Some(value_count);
-                            value_count += 1;
+                            value_count = grow(value_count, 1)?;
                         }
                     }
                     subset.pentagon = Some(pentagon);
                 }
                 SubsetKind::Hexagon => {
                     subset.hexagon = Some(geometry_base);
-                    geometry_count += 5 * size as u32;
+                    geometry_count = grow(geometry_count, 5 * size as u32)?;
                 }
                 SubsetKind::Relation(_) => {
                     if coefficient >= 0 {
@@ -868,7 +959,7 @@ impl DirectPlanData {
             }
             if moment >= 0 {
                 subset.moment_base = Some(value_count);
-                value_count += tensor_basis(moment as u16).len() as u32;
+                value_count = grow(value_count, tensor_basis(moment as u16).len() as u32)?;
             }
             subset_index.insert(mask, subsets.len());
             subsets.push(subset);
@@ -1175,7 +1266,7 @@ impl DirectPlanData {
                         .iter()
                         .enumerate()
                         .filter(|&(i, _)| relative & (1 << i) != 0)
-                        .fold(0u16, |mask, (_, &member)| mask | (1 << member));
+                        .fold(0 as SubsetMask, |mask, (_, &member)| mask | ((1 as SubsetMask) << member));
                     match subset_index.get(&mask).map(|&k| &subsets[k]) {
                         None => eat(u64::MAX),
                         Some(sub) => {
@@ -1293,7 +1384,7 @@ impl DirectPlanData {
 
         // Pentagon and hexagon Cartesian moment recursions.
         let mut moment_program = Vec::new();
-        let child_moment = |mask: u16, exponents: [u16; 4]| -> u32 {
+        let child_moment = |mask: SubsetMask, exponents: [u16; 4]| -> u32 {
             let child = &subsets[subset_index[&mask]];
             let rank: u16 = exponents.iter().sum();
             debug_assert!(i32::from(rank) <= child.moment_rank);
@@ -1403,6 +1494,17 @@ impl DirectPlanData {
             }
         }
 
+        // Terms, constants and instructions are addressed by u32 too.
+        let limit = u32::MAX as usize;
+        if builder.terms.len() > limit
+            || builder.constants.len() > limit
+            || coefficient_program.len() > limit
+            || moment_program.len() > limit
+        {
+            return Err(ReductionError::Unsupported(
+                "direct plan: more terms, constants or instructions than its u32 indices address".into(),
+            ));
+        }
         let top_subset = &subsets[subset_index[&top]];
         let output = (0..basis.len() as u32)
             .map(|i| top_subset.moment_base.unwrap() + i)

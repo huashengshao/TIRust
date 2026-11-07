@@ -18,7 +18,7 @@ use super::{
         C, L4, cadd, cfma, cfma_real, cinv, cmul, cnorm2, cscale, csub, czero, div_dimension, lfma,
         lfma_slots, lzero, mul_dimension, real_lfma_slots, solve_in_place,
     },
-    plan::{DirectPlanData, Gather, NO_GEOMETRY, PostOp, Subset, SubsetKind, Term},
+    plan::{DirectPlanData, Gather, NO_GEOMETRY, PostOp, Subset, SubsetKind, SubsetMask, Term, members},
     shared::{MASTER_KEY_WORDS, SharedValue, SubsetStore},
 };
 use crate::{
@@ -62,12 +62,12 @@ pub struct DirectProfile {
 enum GeometryFailure {
     /// Singular or ill-conditioned Gram system of this subset; it may be
     /// affinely dependent and reducible by a denominator identity.
-    Singular(u16, String),
+    Singular(SubsetMask, String),
     /// A relation or lightlike assumption of the current variant does not
     /// hold on this lane.
     Relation(String),
     /// A bubble with (numerically) lightlike or vanishing momentum.
-    Lightlike(u16),
+    Lightlike(SubsetMask),
     Unstable(String),
 }
 
@@ -164,10 +164,10 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     plan: Arc<DirectPlanData>,
     base_plan: Arc<DirectPlanData>,
     /// Variants keyed by their minimal degenerate subsets.
-    variants: HashMap<(Vec<u16>, Vec<u16>), (Arc<DirectPlanData>, Arc<Vec<T>>)>,
-    lightlike_profile: Vec<u16>,
+    variants: HashMap<(Vec<SubsetMask>, Vec<SubsetMask>), (Arc<DirectPlanData>, Arc<Vec<T>>)>,
+    lightlike_profile: Vec<SubsetMask>,
     base_constants: Arc<Vec<T>>,
-    relation_profile: Vec<u16>,
+    relation_profile: Vec<SubsetMask>,
     prototype: T,
     zero: C<T>,
     one: C<T>,
@@ -233,7 +233,7 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     /// Per-lane IBP memo of raised-power scalars, keyed by packed powers.
     ibp_memo: HashMap<u64, L4<T>>,
     /// Per-lane inverse modified Cayley matrices, keyed by subset mask.
-    rinv_memo: HashMap<u16, Vec<C<T>>>,
+    rinv_memo: HashMap<SubsetMask, Vec<C<T>>>,
     /// `(-2)^h` of dimension-shifted gathers.
     gather_scale: T,
     /// The current lane's masters have no IR poles (two-slot kernels).
@@ -449,7 +449,7 @@ where
                             uv_zero: base + rank < 0,
                             odd: rank % 2 == 1,
                             weight: (settings.tensor_weights == TensorWeights::Multinomial)
-                                .then(|| prototype.from_usize(multinomial(monomial.0) as usize)),
+                                .then(|| multinomial_in(&prototype, monomial.0)),
                         }
                     })
                     .collect()
@@ -1280,21 +1280,21 @@ where
 
     /// Minimal support of the affine relation of a singular subset.
     #[inline(never)]
-    fn relation_support(&self, mask: u16) -> Result<u16, String> {
-        let members: Vec<usize> = (0..16).filter(|&i| mask & (1 << i) != 0).collect();
-        let weights = self.affine_relation(&members)?;
+    fn relation_support(&self, mask: SubsetMask) -> Result<SubsetMask, String> {
+        let member_list: Vec<usize> = members(mask);
+        let weights = self.affine_relation(&member_list)?;
         let largest = weights
             .iter()
             .map(cnorm2)
             .fold(self.prototype.zero(), |a, b| if b > a { b } else { a });
         let cut = largest * &self.binary_tolerance(80);
-        let mut support = 0u16;
-        for (weight, &member) in weights.iter().zip(&members) {
+        let mut support: SubsetMask = 0;
+        for (weight, &member) in weights.iter().zip(&member_list) {
             if cnorm2(weight) > cut {
                 support |= 1 << member;
             }
         }
-        let support_members: Vec<usize> = (0..16).filter(|&i| support & (1 << i) != 0).collect();
+        let support_members: Vec<usize> = members(support);
         self.affine_relation(&support_members)?;
         Ok(support)
     }
@@ -1778,9 +1778,21 @@ where
         let weights = subset.hexagon.unwrap() as usize;
         let size = members.len();
         let half = self.prototype.one() / &self.prototype.from_usize(2);
-        // Dropped members as bit sets over the member positions.
-        let drops: Vec<u32> = (0u32..(1 << size)).filter(|m| m.count_ones() as usize + 6 == size).collect();
-        let mut best: Option<(T, Vec<C<T>>, u32)> = None;
+        // Dropped members as bit sets over the member positions, every set of
+        // size - 6 positions in increasing order (Gosper's next combination).
+        let mut drops: Vec<u128> = Vec::new();
+        let dropped_count = size.saturating_sub(6) as u32;
+        let mut drop: u128 = (1u128 << dropped_count) - 1;
+        while drop < (1u128 << size) {
+            drops.push(drop);
+            if drop == 0 {
+                break;
+            }
+            let low = drop & drop.wrapping_neg();
+            let ripple = drop + low;
+            drop = (((ripple ^ drop) >> 2) / low) | ripple;
+        }
+        let mut best: Option<(T, Vec<C<T>>, u128)> = None;
         for drop in drops {
             let chosen: Vec<usize> = (0..size).filter(|&k| drop & (1 << k) == 0).collect();
             let origin = members[chosen[0]];
@@ -2166,7 +2178,7 @@ where
     }
 
     /// Inverse of the modified Cayley matrix `R_ij = d_ij - m_i^2 - m_j^2`.
-    fn cayley_inverse(&mut self, mask: u16) -> Result<Vec<C<T>>, String> {
+    fn cayley_inverse(&mut self, mask: SubsetMask) -> Result<Vec<C<T>>, String> {
         if let Some(inverse) = self.rinv_memo.get(&mask) {
             return Ok(inverse.clone());
         }
@@ -2202,7 +2214,8 @@ where
         Ok(inverse)
     }
 
-    /// Unit-dimension scalar with propagator powers `powers` (4 bits each),
+    /// Unit-dimension scalar with propagator powers `powers` (packed fields of
+    /// `ibp_field_bits(n)` bits each, see `ibp_power`),
     /// reduced to the lane's masters by Eq. (19) of hep-ph/0303184, as in
     /// the validated symbolic `ibp.rs`:
     /// `(v_l - 1) J(v) = sum_i Rinv_li [-(5-|v|-2eps) J(w) + sum_j w_j J(w-e_i+e_j)]`,
@@ -2212,8 +2225,9 @@ where
             return Ok(value.clone());
         }
         let n = self.plan.settings.propagators;
-        let power = |packed: u64, i: usize| (packed >> (4 * i)) & 15;
-        let mask: u16 = (0..n).filter(|&i| power(powers, i) > 0).fold(0, |m, i| m | (1 << i));
+        let bits = ibp_field_bits(n);
+        let power = |packed: u64, i: usize| ibp_power(packed, bits, i);
+        let mask: SubsetMask = (0..n).filter(|&i| power(powers, i) > 0).fold(0, |m, i| m | (1 << i));
         if mask == 0 {
             return Ok(lzero(&self.zero));
         }
@@ -2230,7 +2244,7 @@ where
         let active: Vec<usize> = (0..n).filter(|&i| power(powers, i) > 0).collect();
         let inverse = self.cayley_inverse(mask)?;
         let local_l = active.iter().position(|&i| i == l).unwrap();
-        let w = powers - (1 << (4 * l));
+        let w = powers - ibp_unit(bits, l);
         let base = self.ibp(w)?;
         let mut common = base;
         mul_dimension(&mut common, &self.prototype.from_i64(5 - total as i64));
@@ -2244,7 +2258,7 @@ where
                 if wj == 0 {
                     continue;
                 }
-                let child = w - (1 << (4 * i)) + (1 << (4 * j));
+                let child = w - ibp_unit(bits, i) + ibp_unit(bits, j);
                 let value = self.ibp(child)?;
                 lfma(&mut term, &C::new(self.prototype.from_usize(wj as usize), self.prototype.zero()), &value);
             }
@@ -2275,9 +2289,10 @@ where
                 if mask & (1 << dotted) == 0 {
                     continue;
                 }
-                let unit: u64 = (0..16).filter(|&i| mask & (1 << i) != 0).map(|i| 1u64 << (4 * i)).sum();
+                let bits = ibp_field_bits(plan.settings.propagators);
+                let unit: u64 = members(mask).into_iter().map(|i| ibp_unit(bits, i)).sum();
                 for order in 1..k_len {
-                    let value = self.ibp(unit + ((order as u64) << (4 * dotted)))?;
+                    let value = self.ibp(unit + order as u64 * ibp_unit(bits, dotted))?;
                     self.values_jet[order - 1][index as usize] = value;
                 }
             }
@@ -3485,6 +3500,28 @@ fn read_dd_master<T: NativeFloat>(output: &[C<T>]) -> Option<[C<symbolica::domai
     Some([read(0)?, read(1)?, read(2)?])
 }
 
+/// Width of each propagator's power field in the packed IBP keys of an
+/// `n`-propagator plan: the 64 key bits shared equally (dotted plans have at
+/// most six propagators, so at least 10 bits: powers up to 1023).
+pub(crate) fn ibp_field_bits(n: usize) -> u32 {
+    u64::BITS / n.max(1) as u32
+}
+
+/// Largest power a packed IBP field of `bits` bits holds.
+pub(crate) fn ibp_field_max(bits: u32) -> u64 {
+    if bits >= u64::BITS { u64::MAX } else { (1u64 << bits) - 1 }
+}
+
+/// One in field `i` of a packed IBP key.
+fn ibp_unit(bits: u32, i: usize) -> u64 {
+    1u64 << (bits as usize * i)
+}
+
+/// Power of propagator `i` in a packed IBP key.
+fn ibp_power(packed: u64, bits: u32, i: usize) -> u64 {
+    (packed >> (bits as usize * i)) & ibp_field_max(bits)
+}
+
 /// The binary64 value `x` exactly in the executor's number type.
 fn exact_f64<T: NativeFloat>(prototype: &T, x: f64) -> T {
     match (&x as &dyn std::any::Any).downcast_ref::<T>() {
@@ -3495,14 +3532,23 @@ fn exact_f64<T: NativeFloat>(prototype: &T, x: f64) -> T {
     }
 }
 
-fn multinomial(e: [u16; 4]) -> u64 {
-    // Product of binomials in u128 (exact; fits u64 up to rank 32).
-    let binomial = |n: u128, k: u128| (0..k).fold(1u128, |acc, i| acc * (n - i) / (i + 1));
-    let mut total = 0u128;
-    let mut value = 1u128;
+/// `rank! / prod(e!)` in the carrier: exact integers at every rank,
+/// converted once (correctly rounded where the carrier is narrower).
+fn multinomial_in<T: NativeFloat>(prototype: &T, e: [u16; 4]) -> T {
+    let binomial = |n: u64, k: u64| {
+        (0..k).fold(symbolica::domains::integer::Integer::from(1), |acc, i| {
+            acc * &symbolica::domains::integer::Integer::from(n - i) / &symbolica::domains::integer::Integer::from(i + 1)
+        })
+    };
+    let mut total = 0u64;
+    let mut value = symbolica::domains::integer::Integer::from(1);
     for &x in &e {
-        total += u128::from(x);
-        value *= binomial(total, u128::from(x));
+        total += u64::from(x);
+        value = value * &binomial(total, u64::from(x));
     }
-    u64::try_from(value).expect("multinomial beyond u64 (rank above 32)")
+    // The former u64 path, bit for bit, wherever the value fits.
+    match u64::try_from(value.clone()) {
+        Ok(small) => prototype.from_usize(small as usize),
+        Err(_) => prototype.from_rational(&symbolica::domains::rational::Rational::from(value)),
+    }
 }
