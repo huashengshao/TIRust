@@ -30,7 +30,9 @@
 //! determinants (sect. 3.5) is tried, then the alternative PV reduction
 //! through the modified Cayley matrix (sect. 3.2), which is exact where the
 //! modified Cayley determinant does not cancel (it vanishes for IR-divergent
-//! boxes and triangles; such lanes are refused).
+//! boxes and triangles). Where it cancels, the expansions get the larger
+//! boost their observed convergence rate predicts (`predicted_passes`); the
+//! lane is refused otherwise.
 
 use std::{cell::RefCell, collections::HashMap, sync::Arc};
 
