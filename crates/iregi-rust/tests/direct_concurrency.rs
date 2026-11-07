@@ -2,6 +2,9 @@
 //! one per thread, give every lane bit for bit what one workspace gives on
 //! one thread, whatever the number of threads and the lanes' grouping into
 //! batches; a tensor store shared by all threads changes nothing either.
+//! `DirectWorkspace`s in binary64 (gates, method choice, partial rescue),
+//! double-double and MPFR; embedder-mode and facade `TensorWorkspace`s are
+//! not covered here.
 use std::thread;
 
 use iregi_rust::{
@@ -10,6 +13,9 @@ use iregi_rust::{
 };
 use iregi_masters::NativeFloat;
 use symbolica::domains::float::{Complex, DoubleFloat};
+
+mod common;
+use common::hexagon::{Lcg, POINTS};
 
 fn send_sync<T: Send + Sync>() {}
 fn send<T: Send>() {}
@@ -21,51 +27,6 @@ fn workspaces_plans_and_stores_cross_threads() {
     send::<DirectWorkspace<symbolica::domains::float::Float>>();
     send_sync::<DirectReductionPlan>();
     send_sync::<TensorStore>();
-}
-
-/// Four top-loop gg -> gggg hexagon points (tests/amplitude_sharing.rs).
-const POINTS: [[[f64; 4]; 6]; 4] = [
-    [
-        [0.0, 0.0, 0.0, 0.0],
-        [500.0, 0.0, 0.0, 500.0],
-        [1000.0, 0.0, 0.0, 0.0],
-        [792.7874729156998, -82.84167294384719, -92.33145751079824, -165.97948836665938],
-        [496.1459371514851, -309.53730217508144, -274.5389438821032, -224.33807246752178],
-        [365.75699134826516, -254.15872221430251, -237.93327663297802, -112.1127847893476],
-    ],
-    [
-        [0.0, 0.0, 0.0, 0.0],
-        [500.0, 0.0, 0.0, 500.0],
-        [1000.0, 0.0, 0.0, 0.0],
-        [628.3485871137328, -126.38562954754646, -64.66171687618484, 343.46805923528484],
-        [493.6035005043037, -75.99778103019892, 59.08875070855528, 360.8785405535477],
-        [342.2594345535183, -151.0438342019983, 151.3291327069494, 267.2578797427977],
-    ],
-    [
-        [0.0, 0.0, 0.0, 0.0],
-        [500.0, 0.0, 0.0, 500.0],
-        [1000.0, 0.0, 0.0, 0.0],
-        [720.5411460864439, 41.03231623557652, 269.0508926250419, -63.44459971258532],
-        [580.5195723069281, 86.55172419413077, 347.3583949823081, 43.335359537087676],
-        [328.9555327352336, -146.2746278878062, 292.60284001366847, -34.62735579481515],
-    ],
-    [
-        [0.0, 0.0, 0.0, 0.0],
-        [500.0, 0.0, 0.0, 500.0],
-        [1000.0, 0.0, 0.0, 0.0],
-        [684.7727360619465, -266.1383293706448, -32.469872857286525, 165.7839706555041],
-        [491.59350180547904, -99.14409525080174, -121.72713563298282, 127.51801502347416],
-        [243.28769056900498, 107.6510206808816, -17.784570933495488, 217.44853912012346],
-    ],
-];
-
-struct Lcg(u64);
-
-impl Lcg {
-    fn next(&mut self) -> f64 {
-        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-        ((self.0 >> 11) as f64) / ((1u64 << 53) as f64)
-    }
 }
 
 /// Lanes of an `n`-point plan: the physical hexagon points' sub-topologies
@@ -234,4 +195,14 @@ fn double_double_lanes_are_bitwise_independent_of_the_thread_count() {
     let rows = lanes(5, 8);
     let double = || plan.workspace(DoubleFloat::from(0.0)).unwrap();
     check("N5 R5 double-double", &rows, &DoubleFloat::from, &double, &[1, 3, 4], true);
+}
+
+#[test]
+fn mpfr_lanes_are_bitwise_independent_of_the_thread_count() {
+    use symbolica::domains::float::Float;
+    let plan = DirectReductionPlan::new(ReductionSettings::new(4, 4)).unwrap();
+    // Every sixth lane (physical and generic boxes): MPFR is slow.
+    let rows: Vec<_> = lanes(4, 6).into_iter().step_by(6).collect();
+    let mpfr = || plan.workspace(Float::new(128)).unwrap();
+    check("N4 R4 MPFR 128 bits", &rows, &|x| Float::with_val(128, x), &mpfr, &[1, 3], false);
 }

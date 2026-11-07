@@ -10,22 +10,15 @@ use std::{
 };
 
 use iregi_rust::{
-    BatchResult, DirectReductionPlan, DirectWorkspace, InvariantInput, KinematicsBatch, LaneStatus, MasterFamily,
+    DirectReductionPlan, DirectWorkspace, InvariantInput, KinematicsBatch, LaneStatus, MasterFamily,
     MasterProvider, ReductionError, ReductionSettings, TensorReductionPlan, TensorStore, TensorStoreOptions,
     TensorWorkspace, direct::EXPANSION_TOLERANCE,
 };
 use iregi_masters::NativeFloat;
 use symbolica::domains::float::{Complex, DoubleFloat};
 
-/// A small deterministic generator (the lanes must not depend on a crate).
-struct Lcg(u64);
-
-impl Lcg {
-    fn next(&mut self) -> f64 {
-        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-        ((self.0 >> 11) as f64) / ((1u64 << 53) as f64)
-    }
-}
+mod common;
+use common::hexagon::{Lcg, fingerprint};
 
 /// Generic massive one-loop kinematics: `lanes` rows of `n` shifts (time
 /// component first, a few hundred GeV), squared masses and mu = 500.
@@ -69,14 +62,6 @@ fn lift(batch: &KinematicsBatch<f64>) -> KinematicsBatch<DoubleFloat> {
         components: 1,
         values: batch.values.iter().map(|z| Complex::new(DoubleFloat::from(z.re), DoubleFloat::from(z.im))).collect(),
     }
-}
-
-/// Every lane's array and status, exactly.
-fn fingerprint<T: NativeFloat>(result: &BatchResult<T>) -> (Vec<String>, String) {
-    let values = (0..result.rows())
-        .map(|lane| result.lane_with_estimate(lane).map_or_else(|| "refused".to_string(), |best| format!("{:?}", best.values)))
-        .collect();
-    (values, format!("{:?}", result.statuses))
 }
 
 /// Largest E/A between two lanes' arrays (moments weighted by mu^-rank are

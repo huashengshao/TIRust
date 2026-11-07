@@ -7,6 +7,8 @@
 //! the shifts or supplied (`InvariantInput::SuppliedInvariants`).
 #![allow(dead_code)]
 
+pub mod hexagon;
+
 use iregi_rust::{
     Convention, DirectReductionPlan, InvariantInput, KinematicsBatch, LaneStatus,
     ReductionSettings, TensorWeights,
