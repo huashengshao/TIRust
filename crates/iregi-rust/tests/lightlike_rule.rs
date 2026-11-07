@@ -6,7 +6,7 @@
 //! linearly with p^2), while binary64 still takes the lightlike closed form.
 use iregi_rust::{DirectReductionPlan, InvariantInput, KinematicsBatch, LaneStatus, ReductionSettings};
 use symbolica::domains::{
-    float::{Complex, Float, Real, RealLike, SingleFloat},
+    float::{Complex, Float, RealLike},
     integer::Integer,
     rational::Rational,
 };

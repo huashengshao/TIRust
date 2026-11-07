@@ -91,32 +91,18 @@ pub enum LaneRoute {
     Refused,
 }
 
-/// Extra triangle ranks of the small-Gram expansions (as the facade's choice).
-const GRAM_BOOST: u16 = 12;
-/// Gate of the method-choice pass (as the facade's choice).
-const METHOD_CHOICE_GATE: f64 = 1e-15;
-/// Working precisions of the precision tiers.
-const TIER_BITS: [u32; 3] = [106, 256, 512];
+// The facade's own constants: the method choice runs with its gate and
+// small-Gram boost, the precision tiers on its rescue ladder.
+use super::direct_hybrid::{
+    GRAM_BOOST, RESCUE_BITS as TIER_BITS, RESCUE_HEADROOM as TIER_HEADROOM, RESCUE_MARGIN as TIER_MARGIN,
+    ROTATION_GATE as METHOD_CHOICE_GATE, from_binary64,
+};
+
 /// A tier accepts conditioning down to `2^-(bits - TIER_HEADROOM)`: its
 /// rounding error amplified by at most `2^-40` relative, below binary64's
 /// accuracy (no a posteriori check in this mode).
-const TIER_HEADROOM: u32 = 40;
-/// Bits added to the binary64 conditioning estimate when choosing a lane's
-/// first tier.
-const TIER_MARGIN: u32 = 8;
-
 fn tier_threshold(bits: u32) -> f64 {
     2f64.powi(-((bits - TIER_HEADROOM) as i32))
-}
-
-/// The binary64 value `x` exactly in `prototype`'s domain.
-fn from_binary64<T: NativeFloat>(prototype: &T, x: f64) -> T {
-    match (&x as &dyn std::any::Any).downcast_ref::<T>() {
-        Some(value) => value.clone(),
-        None => Float::with_val(53, x)
-            .try_to_rational()
-            .map_or_else(|| prototype.zero(), |exact| prototype.from_rational(&exact)),
-    }
 }
 
 fn masters_for(policy: MasterExecutionPolicy) -> DirectMasters {

@@ -115,13 +115,13 @@ impl DirectHybridPlan {
 }
 
 /// Working precisions of the direct-engine rescue: double-double, then MPFR.
-const RESCUE_BITS: [u32; 3] = [106, 256, 512];
+pub(super) const RESCUE_BITS: [u32; 3] = [106, 256, 512];
 /// A tier accepts conditioning down to `2^-(bits - RESCUE_HEADROOM)`, so the
 /// estimated amplification of its rounding error stays below `2^-40`
 /// (stricter than the binary64 gate of `1e-12` at 53 bits).
-const RESCUE_HEADROOM: u32 = 40;
+pub(super) const RESCUE_HEADROOM: u32 = 40;
 /// Bits added to the binary64 estimate when choosing the first tier.
-const RESCUE_MARGIN: u32 = 8;
+pub(super) const RESCUE_MARGIN: u32 = 8;
 
 /// Largest accepted E/A between a binary64 lane and its rotated copy.
 const ROTATION_TOLERANCE: f64 = 1.0 / (1u64 << 34) as f64;
@@ -131,7 +131,7 @@ const ROTATION_TOLERANCE: f64 = 1.0 / (1u64 << 34) as f64;
 /// and gg->gggg hexagons (stability-20261030) the default `1e-12` refused
 /// lanes of which most were good to 1e-10, while `1e-15` keeps the
 /// accepted tail at <= 1e-9 before the rotation test.
-const ROTATION_GATE: f64 = 1e-15;
+pub(super) const ROTATION_GATE: f64 = 1e-15;
 
 /// Gate of the checked binary64 retry. On the stability-20261030 points
 /// (boxes to heptagons) no lane below 1e-21 passed the rotation check.
@@ -148,7 +148,7 @@ const CHECKED_MARGIN_BITS: i32 = 2;
 /// expansions converged on 22 of 34 rank-4 and 239 of 370 rank-6 lanes with
 /// 8, and on 34 and 254 with 12 (15 of them by the small-Cayley variant);
 /// every converged lane agreed with 256 bits to E/A <= 3.4e-11.
-const GRAM_BOOST: u16 = 12;
+pub(super) const GRAM_BOOST: u16 = 12;
 /// A lane whose rotated copy agrees within this many bits of the tolerance is
 /// evaluated in a third cyclic order, which must agree with the first too.
 const NEAR_MARGIN_BITS: i32 = 4;
@@ -327,7 +327,7 @@ fn first_tier(condition: f64) -> usize {
 }
 
 /// The binary64 value `x` in the caller's domain, whose precision is 53 bits.
-fn from_binary64<T: NativeFloat>(prototype: &T, x: f64) -> T {
+pub(super) fn from_binary64<T: NativeFloat>(prototype: &T, x: f64) -> T {
     match (&x as &dyn std::any::Any).downcast_ref::<T>() {
         Some(value) => value.clone(),
         None => Float::with_val(53, x)
