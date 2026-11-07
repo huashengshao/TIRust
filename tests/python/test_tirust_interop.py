@@ -52,8 +52,9 @@ digraph interop_bubble {
 def test_packaged_owner_assets_and_actual_svg_rendering() -> None:
     data = Path(tirust.__file__).with_name("data")
     manifest = json.loads((data / "manifest.json").read_text())
-    assert manifest["feynkit_revision"] == "865afdc43fb4e6b950439d34b4ec2c38352873e7"
-    assert len(manifest["assets"]) == 18
+    assert manifest["feynkit_revision"] == "9102f885722e856e30227ed46e685e5c465905f7"
+    # gammaloop 9102f885 bundles one rendering asset (linnet-render-py's STIX Two Math).
+    assert len(manifest["assets"]) == 1
     for asset in manifest["assets"]:
         payload = (data / asset["name"]).read_bytes()
         assert len(payload) == asset["bytes"]
@@ -63,7 +64,8 @@ def test_packaged_owner_assets_and_actual_svg_rendering() -> None:
     # The actual upstream registry validates these against compiled constants.
     configure_data_directory(data, validate=True)
     diagram = FeynmanDiagram.from_dot(Model.phi3(), BUBBLE_DOT)
-    rendered = diagram._repr_svg_()
+    # gammaloop 9102f885 displays diagrams through a MIME bundle (no _repr_svg_).
+    rendered = diagram._repr_mimebundle_()["image/svg+xml"]
     assert isinstance(rendered, str) and "<svg" in rendered
 
 

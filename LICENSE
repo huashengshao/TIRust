@@ -32,22 +32,20 @@ licence and notices):
   Apache-2.0 as declared by its manifest; upstream licence text in
   dependencies/feynkit-integrals/LICENSE, provenance in its UPSTREAM.md.
 - dependencies/linnest and dependencies/linnest-patches: linnest from
-  https://github.com/alphal00p/gammaloop, MIT as declared by its manifest;
+  https://github.com/alphal00p/gammaloop (revision 9102f885), MIT as
+  declared by its manifest;
   notices in dependencies/linnest/UPSTREAM_REPOSITORY_LICENSE,
   dependencies/linnest/typst/LICENSE (MIT) and
   dependencies/linnest/layout/native/LICENSE.networkx (BSD-3-Clause, NetworkX).
-- python/tirust/data/render/fonts: unchanged fonts from typst-assets 0.15.1 and
-  FeynKit (Libertinus Serif and STIX Two Math: SIL Open Font License 1.1; New
-  Computer Modern: GUST Font License 1.0, NewCM10-Regular GPL-3.0-or-later with
-  the font and distribution exceptions; DejaVu Sans Mono: Bitstream Vera
-  licence); licence texts in python/tirust/data/licenses/typst-fonts-NOTICE and
-  python/tirust/data/licenses/STIX-Two-OFL.txt.
+- python/tirust/data/render/fonts: the unchanged STIX Two Math font from
+  gammaloop 9102f885 (crates/linnet-render-py/fonts), SIL Open Font License
+  1.1; licence text in python/tirust/data/licenses/STIX-Two-OFL.txt.
 - python/tirust/data/licenses: the licence texts of the bundled or linked
-  components (typst-assets, the fonts, FeynKit, Symbolica), reproduced verbatim.
+  components (the font, FeynKit, Symbolica), reproduced verbatim.
 - python/tirust/_types/symbolica/community/{tensor,graph,hepkit}/__init__.pyi:
   type-only stubs mirrored by scripts/vendor-python-type-stubs.py with only
   their import paths rewritten (sources and hashes in
-  python/tirust/owner-stubs.json), from gammaloop 865afdc4 (tensor: spynso3,
+  python/tirust/owner-stubs.json), from gammaloop 9102f885 (tensor: spynso3,
   MIT; graph: linnet-render-py, MIT; hepkit: feynkit-py, MIT OR Apache-2.0, as
   declared by their manifests), with GammaLoop's licence in
   python/tirust/data/licenses/FeynKit-LICENSE. The same script generates the

@@ -6,8 +6,8 @@
  ciborium = "0.2.2"
 -dot-parser = { workspace = true }
 -linnet = { workspace = true, features = ["drawing", "nodestore-vec", "rkyv", "serde"] }
-+dot-parser = { version = "0.5", git = "https://github.com/alphal00p/gammaloop", rev = "865afdc43fb4e6b950439d34b4ec2c38352873e7" }
-+linnet = { git = "https://github.com/alphal00p/gammaloop", rev = "865afdc43fb4e6b950439d34b4ec2c38352873e7", default-features = false, features = ["drawing", "nodestore-vec", "rkyv", "serde"] }
++dot-parser = { version = "0.5", git = "https://github.com/alphal00p/gammaloop", rev = "9102f885722e856e30227ed46e685e5c465905f7" }
++linnet = { git = "https://github.com/alphal00p/gammaloop", rev = "9102f885722e856e30227ed46e685e5c465905f7", default-features = false, features = ["drawing", "nodestore-vec", "rkyv", "serde"] }
  rkyv = { version = "0.7", features = ["validation"] }
  serde = { version = "1.0", features = ["derive"] }
 -self_cell = { workspace = true }
@@ -28,7 +28,7 @@
  kurbo = { version = "0.13", optional = true }
  # Native SVG drawing shares Kurvst's curve geometry with the Typst renderer.
 -kurvst = { path = "../kurvst", optional = true }
-+kurvst = { git = "https://github.com/alphal00p/gammaloop", rev = "865afdc43fb4e6b950439d34b4ec2c38352873e7", optional = true }
++kurvst = { git = "https://github.com/alphal00p/gammaloop", rev = "9102f885722e856e30227ed46e685e5c465905f7", optional = true }
  
  [features]
  projection-service = []
@@ -42,7 +42,7 @@
 +serde_json = { version = "1", features = ["arbitrary_precision"] }
 --- a/src/svg/labels.rs
 +++ b/src/svg/labels.rs
-@@ -514,7 +514,7 @@
+@@ -790,7 +790,7 @@
      pub path: BezPath,
  }
  
@@ -51,7 +51,7 @@
  pub(super) struct Line {
      pub start: [f64; 2],
      pub end: [f64; 2],
-@@ -524,19 +524,26 @@
+@@ -800,19 +800,26 @@
  #[derive(Serialize)]
  struct PaintedStroke {
      radius: f64,
@@ -81,7 +81,7 @@
          let mut current = Point::ZERO;
          for &element in stroke.path.elements() {
              let command = match element {
-@@ -551,12 +558,12 @@
+@@ -827,12 +834,12 @@
                      }
                      continue;
                  }
@@ -97,7 +97,7 @@
              };
              current = element.end_point().unwrap_or(current);
              if let Some(last) = segments.last_mut() {
-@@ -599,7 +606,7 @@
+@@ -875,7 +882,7 @@
      label_padding: f64,
      fixed_arrows: &'a [Bounds],
      coordinated: bool,
@@ -106,7 +106,7 @@
      obstacle_padding: f64,
  }
  
-@@ -642,10 +649,7 @@
+@@ -918,10 +925,7 @@
          strokes: strokes.iter().map(PaintedStroke::from).collect(),
          accuracy: 0.005,
      };
@@ -118,7 +118,7 @@
      if placements
          .iter()
          .all(|placement| placement.candidates.len() == 1)
-@@ -676,7 +680,7 @@
+@@ -952,7 +956,7 @@
          label_padding: 0.6,
          fixed_arrows,
          coordinated: true,
@@ -127,9 +127,9 @@
          obstacle_padding: 0.08,
      })?;
      let mut math = SearchMath {
-@@ -748,3 +752,89 @@
+@@ -1088,3 +1092,89 @@
+         assert_eq!(content_corners(metrics, Anchor::North)[0][1], 0.0);
      }
-     (overlapping, hits, pairs / 2)
  }
 +
 +#[cfg(test)]
