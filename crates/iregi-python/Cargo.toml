@@ -23,10 +23,9 @@ iregi-rust.workspace = true
 iregi-masters.workspace = true
 iregi-prepare.workspace = true
 feynkit-graph.workspace = true
-feynkit-py = { git = "https://github.com/alphal00p/gammaloop", rev = "865afdc43fb4e6b950439d34b4ec2c38352873e7", default-features = false }
-spynso3 = { git = "https://github.com/alphal00p/gammaloop", rev = "865afdc43fb4e6b950439d34b4ec2c38352873e7", default-features = false }
-linnet-render-py = { git = "https://github.com/alphal00p/gammaloop", rev = "865afdc43fb4e6b950439d34b4ec2c38352873e7", default-features = false }
-symbolica-data = { git = "https://github.com/alphal00p/gammaloop", rev = "865afdc43fb4e6b950439d34b4ec2c38352873e7" }
-typst-renderer = { git = "https://github.com/alphal00p/gammaloop", rev = "865afdc43fb4e6b950439d34b4ec2c38352873e7" }
+feynkit-py = { git = "https://github.com/alphal00p/gammaloop", rev = "9102f885722e856e30227ed46e685e5c465905f7", default-features = false }
+spynso3 = { git = "https://github.com/alphal00p/gammaloop", rev = "9102f885722e856e30227ed46e685e5c465905f7", default-features = false }
+linnet-render-py = { git = "https://github.com/alphal00p/gammaloop", rev = "9102f885722e856e30227ed46e685e5c465905f7", default-features = false }
+symbolica-data = { git = "https://github.com/alphal00p/gammaloop", rev = "9102f885722e856e30227ed46e685e5c465905f7" }
 symbolica = { workspace = true, features = ["python_export"] }
 pyo3 = { version = "=0.28.3", features = ["multiple-pymethods"] }

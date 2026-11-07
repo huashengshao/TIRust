@@ -761,6 +761,79 @@ fn gate_refused_box_goes_to_the_double_double_tier_by_default() {
     assert!(error <= 1e-15, "E/A = {error:e}");
 }
 
+/// gg -> HH top-loop box (sqrt(s) = 1 TeV, m_H = 125 GeV) whose Higgs leaves
+/// at polar angle sin(theta) = `sin_theta` (azimuth 0.7) in the direction
+/// `sign` of the first gluon: small angles are small-Gram boxes, and for
+/// `sign` = 1 the modified Cayley determinant cancels as well.
+fn forward_box(sin_theta: f64, sign: f64) -> [[f64; 4]; 4] {
+    let p = (500.0f64 * 500.0 - 125.0 * 125.0).sqrt();
+    let cos_theta = sign * (1.0 - sin_theta * sin_theta).sqrt();
+    [
+        [0.0, 0.0, 0.0, 0.0],
+        [500.0, 0.0, 0.0, 500.0],
+        [1000.0, 0.0, 0.0, 0.0],
+        [500.0, p * sin_theta * 0.7f64.cos(), p * sin_theta * 0.7f64.sin(), p * cos_theta],
+    ]
+}
+
+/// A binary64 direct workspace with the a priori method choice (gate 1e-15,
+/// boost 12) and the given alternative-first limit: its lane (`None` when
+/// refused) and the lane's E/A against a 256-bit direct evaluation.
+fn method_choice_lane(shifts: &[[f64; 4]; 4], rank: u16, limit: Option<f64>) -> (Option<Vec<Complex<f64>>>, Option<f64>) {
+    let mt2 = 173.0f64 * 173.0;
+    let values = row(shifts, &[(mt2, 0.0); 4], 1000.0);
+    let plan = DirectReductionPlan::new(ReductionSettings::new(4, rank)).unwrap();
+    let mut workspace = plan.workspace(0.0f64).unwrap();
+    workspace.set_stability_threshold(1e-15);
+    workspace.set_alternative_first(limit);
+    workspace.enable_estimated_method_choice(12, 1e-15);
+    let result = workspace
+        .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: values.clone() })
+        .unwrap();
+    let lane = result.lane(0).ok().map(|lane| lane.to_vec());
+    let error = lane.as_ref().map(|lane| {
+        let (_, reference) = direct_256(4, rank, &values);
+        general_array_error(&result.basis, 4 - 2 * 4, 1000.0, lane, &reference)
+    });
+    (lane, error)
+}
+
+#[test]
+fn alternative_first_serves_boxes_its_estimate_admits() {
+    use iregi_rust::direct::{ALTERNATIVE_PV_LIMIT, EXPANSION_TOLERANCE};
+    let small_gram = [
+        [0.0, 0.0, 0.0, 0.0],
+        [500.0, 0.0, 0.0, 500.0],
+        [1000.0, 0.0, 0.0, 0.0],
+        [499.9999999999999, 8.840408903567376, -6.981798561273453, -483.99184048831603],
+    ];
+    for limit in [ALTERNATIVE_PV_LIMIT, EXPANSION_TOLERANCE] {
+        // Small-Gram rank-4 box, Higgs backward (sin 0.2): the estimate
+        // admits the alternative PV, which then serves the lane in place of
+        // the expansions, accurately.
+        let (expansions, _) = method_choice_lane(&forward_box(0.2, -1.0), 4, None);
+        let (first, error) = method_choice_lane(&forward_box(0.2, -1.0), 4, Some(limit));
+        assert!(expansions.is_some() && first.is_some() && first != expansions);
+        let error = error.unwrap();
+        assert!(error <= 1e-10, "E/A = {error:e}");
+        // Near-forward rank-6 box (sin 0.01): det X cancels (v ~ 350), so the
+        // estimate refuses the alternative PV (COLLIER's w_pv2 alone admits
+        // it, at E/A ~2e-7) and the lane is the expansions', bit for bit
+        // (refused in binary64 here).
+        let (expansions, _) = method_choice_lane(&forward_box(0.01, 1.0), 6, None);
+        let (first, _) = method_choice_lane(&forward_box(0.01, 1.0), 6, Some(limit));
+        assert_eq!(first, expansions);
+        // Box-r4 #5046 (small Higgs pT, see below): its estimate is above
+        // the limit, so the order changes nothing.
+        let (expansions, _) = method_choice_lane(&small_gram, 4, None);
+        let (first, error) = method_choice_lane(&small_gram, 4, Some(limit));
+        assert!(first.is_some());
+        assert_eq!(first, expansions);
+        let error = error.unwrap();
+        assert!(error <= 1e-10, "E/A = {error:e}");
+    }
+}
+
 #[test]
 fn small_gram_box_is_kept_in_binary64_by_the_expansion() {
     // gg -> HH rank-4 box (box-r4 #5046, small Higgs pT): the PV recursion

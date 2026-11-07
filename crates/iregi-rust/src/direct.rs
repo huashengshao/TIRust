@@ -24,6 +24,18 @@ use plan::DirectPlanData;
 
 use crate::{BatchResult, KinematicsBatch, ReductionError, ReductionSettings, basis::Monomial};
 
+/// Largest a priori estimate (COLLIER's w_pv2) at which the direct engine
+/// accepts the alternative PV reduction alone (2^-36); the natural `limit`
+/// of [`DirectWorkspace::set_alternative_first`] (whose estimate also counts
+/// the modified Cayley determinant's cancellation).
+pub const ALTERNATIVE_PV_LIMIT: f64 = 1.0 / (1u64 << 36) as f64;
+
+/// Largest relative change of the last pass at which the direct engine's
+/// small-Gram expansions accept their result (2^-30). As the `limit` of
+/// [`DirectWorkspace::set_alternative_first`]: the alternative PV first
+/// wherever its estimate is within what the expansions themselves accept.
+pub const EXPANSION_TOLERANCE: f64 = 1.0 / (1u64 << 30) as f64;
+
 /// Immutable structural plan of the direct engine. No sampled value is stored.
 #[derive(Clone, Debug)]
 pub struct DirectReductionPlan {
@@ -178,6 +190,27 @@ where
     /// small-Gram expansions or the alternative PV reduction (unchecked).
     pub fn enable_estimated_method_choice(&mut self, boost: u16, aux_threshold: T) {
         self.executor.enable_estimated_method_choice(boost, aux_threshold);
+    }
+
+    /// With a small-Gram method choice (`enable_gram_expansion`,
+    /// `enable_gram_expansion_everywhere`, `enable_estimated_method_choice`;
+    /// before or after enabling it): a box or triangle it serves whose a
+    /// priori estimate of the alternative PV reduction,
+    /// 2^-53 (max(1, w) max(1, v))^ceil((r + 1) / 2) with COLLIER's
+    /// w = max_j |(Zadj f)_j| / |Delta| (w_pv2, as the alternative-only
+    /// reduction refuses above 2^-36) and the cancellation v of the modified
+    /// Cayley determinant det X = 2 m_0^2 Delta - f Zadj f (sum of the terms'
+    /// sizes over |det X|; the reduction divides by det X), is at most
+    /// `limit` gets that reduction first, from triangles of its own rank;
+    /// the expansions follow only if it fails. `None` (the default): the
+    /// expansions first, the alternative PV as their check and fallback.
+    /// Natural limits: [`ALTERNATIVE_PV_LIMIT`] (the alternative-only
+    /// reduction's) and [`EXPANSION_TOLERANCE`] (the expansions' own).
+    /// Like the expansions, the choice is unchecked: callers verify the
+    /// lanes. It applies to the workspace's own boxes and triangles (the
+    /// expansions' auxiliary triangles keep their order).
+    pub fn set_alternative_first(&mut self, limit: Option<f64>) {
+        self.executor.set_alternative_first(limit);
     }
 
     /// Evaluate the a priori estimate of `enable_estimated_method_choice`

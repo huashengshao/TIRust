@@ -389,8 +389,9 @@ reproducible. The reference builder and capture scripts that produced the kept
 fixtures under `validation/` (formerly `validation/reference/{build,capture,audit}.py`
 and `scripts/build-reference.sh`) are in the private backup named in [validation/README.md](validation/README.md).
 
-`cargo test` runs the default members. `crates/iregi-python` does not build
-until its GammaLoop pin moves (see [docs/environment.md](docs/environment.md)).
+`cargo test` runs the default members; `crates/iregi-python` (the Python
+extension, gammaloop `9102f885`) builds with `cargo check --workspace` (see
+[docs/environment.md](docs/environment.md)).
 
 Tests using Symbolica must respect the installed license's process and thread
 limits. The cold concurrent plan-preparation test is ignored because it requires

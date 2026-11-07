@@ -912,6 +912,10 @@ converting `opening-rank6-20261026` (see that example's doc comment). Use
    worse, e.g. 3.1e-14 -> 6.8e-13). Binary64-only ladder unchanged.
    Allocations (bit-identical): master_key buffer + SubsetStore::get_with,
    hoisted scratch vectors, composition_iter / exact capacity, rhs reuse.
+   (Superseded for binary64 masters by #13, 0eb4d2b: they are kept in
+   per-family SubsetStore maps with [u64; 4/8/14/22] keys and [f64; 6]
+   values, through SubsetStore::master / put_master; master_key now holds
+   only double-double master keys, for dd_master_with / put_dd_master.)
    Evidence: binary64-only dumps byte-identical (27500); rescue dumps vs
    ac7128e: statuses unchanged, box-r4 1, box-r6 14, pentagon 31, hexagon
    11 arrays differ (<= 1.5e-10); stability (devopt driver, scratchpad

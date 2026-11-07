@@ -16,16 +16,10 @@ TIRust provides reusable plans and genuine batched one-loop tensor reduction.
 Its Python interface links the same Rust implementation and one Symbolica kernel
 with the upstream graph, tensor and numerical types.
 
-Build the standalone wheel from the repository root. This build is currently
-broken, a known break of this non-core crate: gammaloop `865afdc4`'s
-`spynso3` calls Symbolica's Python `evaluator_multiple` with 17 arguments,
-and the shared Symbolica revision `20a9da94` takes 18 (E0061). The
-pyAmpliCol coordination record accepts the break (DECISIONS 2026-11-06
-~19:45). It is fixed together with pyAmpliCol's combined Symbolica re-pin,
-because the GammaLoop revisions whose `spynso3` builds on `20a9da94` need more
-than a pin move (see [the environment notes](../docs/environment.md)). The
-core crates `iregi-rust` and `iregi-masters` and every default member build
-and test:
+Build the standalone wheel from the repository root. Its GammaLoop crates are
+pinned to gammaloop `9102f885`, the revision the Symbolica Community build of
+the shared Symbolica revision `dfe6bd97` uses (see
+[the environment notes](../docs/environment.md)):
 
 ```bash
 source scripts/env.sh
@@ -42,8 +36,8 @@ unchanged:
 
 ```bash
 python3 -I scripts/vendor-python-type-stubs.py \
-  --symbolica-stub .local/cargo-home/git/checkouts/symbolica-*/20a9da9/symbolica.pyi \
-  --feynkit-root .local/cargo-home/git/checkouts/gammaloop-*/865afdc \
+  --symbolica-stub .local/cargo-home/git/checkouts/symbolica-*/dfe6bd9/symbolica.pyi \
+  --feynkit-root .local/cargo-home/git/checkouts/gammaloop-*/9102f88 \
   --output python/tirust/_types
 ```
 
@@ -152,8 +146,9 @@ installed Symbolica Community wheel. The bindings remain an `rlib` suitable for
 future Community integration; integration into that complete host is a separate
 qualification step.
 
-The standalone package includes the unchanged rendering fonts required by the
-same pinned FeynKit/Spenso owners, with hashes and licenses under `tirust/data`.
+The standalone package includes the unchanged rendering font required by the
+same pinned FeynKit/Spenso owners (STIX Two Math, from `linnet-render-py`), with
+hashes and licenses under `tirust/data`.
 Its facade selects those package assets; a Community host keeps its own data
 configuration. `configure_data_directory(path)` can explicitly select and
 validate a replacement bundle against the upstream compiled asset hashes.

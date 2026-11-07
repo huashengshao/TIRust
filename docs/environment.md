@@ -18,33 +18,14 @@ scripts/cargo.sh test
 ```
 
 This tests the default members, which are every crate except the Python
-extension `crates/iregi-python`. That extension does not build at the moment.
-Its GammaLoop crates (gammaloop `865afdc4`) call Symbolica's Python
-`evaluator_multiple` with 17 arguments, but the shared Symbolica revision
-`20a9da94` takes 18 (E0061 in `spynso3`). So `--workspace` and the wheel build
-fail until the GammaLoop pin moves to a revision built for that Symbolica. The
-pyAmpliCol coordination record accepts this known break of a non-core crate
-(DECISIONS 2026-11-06 ~19:45), and the pyAmpliCol maintainers own that pin
-move, which they carry out with their combined Symbolica re-pin:
-
-- pyAmpliCol's own GammaLoop pin `d1904bf2` is older than `865afdc4` and makes
-  the same 17-argument call. The first GammaLoop revision with the 18-argument
-  call is `3f0df2a8` (alphal00p/gammaloop#209).
-- `iregi-python` passes FeynKit graph types into `iregi-prepare`, and the
-  workspace patch of `linnest` applies to every GammaLoop revision, so the
-  extension's GammaLoop crates cannot move alone: the whole workspace moves.
-- At `3f0df2a8` the vendored `dependencies/linnest` (taken from `865afdc4`, with
-  the typed-CBOR repair of `dependencies/linnest-patches`) no longer fits
-  `feynkit-graph` and `linnet-render-py`, and upstream `linnest` still lacks
-  that repair; `crates/typst-renderer` and the vendored Typst sources that the
-  root `[patch.crates-io]` names are gone, so the font assets that this
-  package takes from `typst-renderer` change. With the `linnest` patch and the
-  Typst patches dropped and the `typst-renderer` assets removed, `cargo check
-  --workspace --all-targets` passes at `3f0df2a8`.
-- The move therefore re-vendors `linnest` from the new revision with the
-  repair ported, and updates the packaged fonts and their manifest, the owner
-  stubs, `scripts/vendor-python-{data,type-stubs}.py`, the revision checks in
-  `tests/python` and the third-party notices in `LICENSE`.
+extension `crates/iregi-python`. That extension and every GammaLoop crate
+(`feynkit-*`, `spenso`, `idenso`, `spynso3`, `linnet-render-py`) are pinned to
+gammaloop `9102f885`, the revision that the Symbolica Community build of the
+shared Symbolica revision `dfe6bd97` locks for the same Python modules; the
+vendored `dependencies/linnest` is taken from that revision with its typed-CBOR
+repair (`dependencies/linnest-patches`). `cargo check --workspace` covers the
+extension; the wheel build is in `python/README.md`. The pyAmpliCol
+maintainers own these pins.
 
 `env.sh` respects tools already on `PATH`. If a tool is absent, it searches
 installed Nix store packages without downloading or modifying system state.
