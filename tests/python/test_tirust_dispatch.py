@@ -41,7 +41,11 @@ def _batch(plan, sample, scales):
 
 def test_generic_tag_profile_and_result_snapshot_are_owned():
     plan = ReductionPlan(1, 0)
-    workspace = plan.workspace(profiling=True, accuracy_bits=40)
+    # Binary64 workspaces use the direct engine (06c0de2); other domains keep
+    # the generic engine, so double-double pins the generic path.
+    workspace = plan.workspace(
+        dtype="double-double", precision=106, profiling=True, accuracy_bits=40
+    )
     assert workspace.engine == "generic"
     assert any("profiling=true" in note for note in workspace.preparation_notes)
     batch = plan.pack(shifts=[[[0, 0, 0, 0]]], masses_squared=[[2]], mu=[3])

@@ -42,8 +42,18 @@ def test_batch_metadata_lane_failure_and_empty(dtype, bits, accuracy):
     assert result.basis == plan.basis
     assert result.laurent_names == ("uv_single", "ir_single", "ir_double", "finite")
     assert result.stats["input_rows"] == 3
-    assert result.stats["argument_rows"] > 0
-    assert result.stats["master_family_batches"] > 0
+    if dtype == "f64":
+        # Binary64 runs the direct engine (06c0de2). Argument rows and master
+        # family batches count symbolic work, which only a fallback would add.
+        detail = result.engine_execution
+        assert detail["engine"] == "direct"
+        assert detail["input_rows"] == 3 and detail["direct_successes"] == 2
+        assert detail["fallback_rows"] == detail["symbolic_rows"] == 0
+        assert "fallback" not in detail
+        assert result.stats["argument_rows"] == result.stats["master_family_batches"] == 0
+    else:
+        assert result.stats["argument_rows"] > 0
+        assert result.stats["master_family_batches"] > 0
     assert result.stats["master_rows"] >= 2
     assert result.profile["total_seconds"] >= 0
     assert result.dtype == dtype and result.precision == bits
