@@ -16,8 +16,12 @@
 //!   to the bubbles, or up;
 //! - `own-separate` / `own-store`: every integral in its own frame (its last
 //!   propagator at the origin) with the invariants supplied, without and with
-//!   the store (hexagon first): only translation-invariant keys (the scalar
-//!   masters) can meet;
+//!   the store (hexagon first). A partially aligned frame: integrals with the
+//!   same last propagator share their shifts bit for bit (the 30 pinches
+//!   containing the hexagon's last propagator are in the hexagon's own
+//!   frame), so their sub-integrals and moments meet as in the aligned frame;
+//!   between integrals with different last propagators only the
+//!   translation-invariant keys (the scalar masters) meet;
 //! - `amplitude-off` / `amplitude-on`: one `AmplitudeWorkspace` call over all
 //!   57 integrals (sharing inside one call; the facade only);
 //! - `rotation-two` / `rotation-copy`: per bucket, the primary and its copy

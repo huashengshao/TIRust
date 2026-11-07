@@ -132,7 +132,9 @@ rank-one lifecycle case. Each family's validated domain is documented separately
   pentagons, partial rescues, small-Gram expansions and gathered moments, and
   double-double masters. Entries are pure functions of exact keys: results are
   bit-identical with and without the store, in any call order and thread
-  count. Master keys hold invariants, masses and mu^2 only (translation-
+  count (unless `TensorStore::align_ranks` raised the rank floor, which moves
+  injected boxes and triangles at their truncation level, or a masters
+  provider returns other values than TIRust's kernels). Master keys hold invariants, masses and mu^2 only (translation-
   invariant: with `SuppliedInvariants` a box meets its copy in another frame);
   sub-integral and moment keys hold the shifts, so parent and pinches meet in
   an aligned loop-momentum frame supplied by the caller (common propagators
@@ -140,16 +142,24 @@ rank-one lifecycle case. Each family's validated domain is documented separately
   `byte_budget` (none by default; stops inserting, values unchanged) and
   `masters`, a `MasterProvider` serving binary64 scalar masters from the
   embedder's own cache (oneloopmaster's argument order, OneLOop
-  normalisation). `TensorStore::align_ranks` raises the rank floor of injected
-  boxes and triangles as `AmplitudeWorkspace` does (opt-in);
-  `TensorStore::statistics` counts reuse per kind (`tests/tensor_store.rs`).
+  normalisation). Check passes never consult the provider: the rotation copy
+  and the facade's loop-rotation test and cyclic-order checks reduce through
+  `TensorStore::check_view` (TIRust's kernels at the store's rank floors, no
+  entry read), since a provider keyed on a canonical propagator order would
+  hand them the primary's boxes and triangles bit for bit and blind them to
+  the masters' rounding; an embedder attaches `check_view()` to the
+  workspaces of its own check passes. `TensorStore::align_ranks` raises the
+  rank floor of injected boxes and triangles as `AmplitudeWorkspace` does
+  (opt-in); `TensorStore::statistics` counts reuse per kind
+  (`tests/tensor_store.rs`).
 - `DirectWorkspace::reduce_batch_with_rotation(batch, rotation)`: the primary
   moments and, from the same call, those of the batch with its propagators
   relabelled cyclically (`DirectReductionPlan::rotated_batch`), the same
   integrals in the same frame through other PV systems: a stability check
-  without a second call or a re-expanded numerator. The copy is bit for bit a
-  separate call on the rotated batch; the subsets that keep their order are
-  computed once (`tests/rotation_copy.rs`).
+  without a second call or a re-expanded numerator. The copy is a check pass:
+  without a masters provider it is bit for bit a separate call on the rotated
+  batch and the subsets that keep their order are computed once; with one it
+  is computed in full by TIRust's kernels (`tests/rotation_copy.rs`).
 - Concurrency: `DirectWorkspace` is `Send`, `DirectReductionPlan` and
   `TensorStore` are `Send + Sync`; one workspace per thread gives every lane
   bit for bit what one workspace gives on one thread, for any thread count and
@@ -159,13 +169,19 @@ rank-one lifecycle case. Each family's validated domain is documented separately
 - `examples/store_sharing_timing.rs` times a top-loop gg -> gggg hexagon and its
   56 pinches reduced in one call per propagator count, with and without the
   store, against one `AmplitudeWorkspace` call, and the rotation copy against
-  two calls. On 32 RAMBO points (binary64, one pinned core, 7 November 2026),
-  the store across the five calls in the hexagon's frame was 1.27x faster
-  than no store with the conditioning gates alone, 2.1x in embedder mode (the
-  method choice for gate-refused lanes) and 1.13x on the facade, where one
-  `AmplitudeWorkspace` call gave 1.14x; with every integral in its own frame and
-  supplied invariants 1.30x, 1.97x and 1.16x. The rotation copy took 0.95x
-  (gates) and 0.69x (method choice) of two calls' time.
+  two calls. On 32 RAMBO points (binary64, one pinned core, 7 November 2026,
+  medians of 9 rounds), the store across the five calls in the hexagon's
+  frame was 1.23x (hexagon first) and 1.27x (bubbles first) faster than no
+  store with the conditioning gates alone, 2.15x and 2.14x in embedder mode
+  (the method choice for gate-refused lanes) and 1.13x and 1.14x on the
+  facade, where one `AmplitudeWorkspace` call gave 1.14x. With every integral
+  in its own frame (its last propagator at the origin) and supplied
+  invariants: 1.30x, 1.95x and 1.16x. That frame is partially aligned:
+  integrals with the same last propagator share their shifts bit for bit (the
+  30 pinches containing the hexagon's last propagator are in the hexagon's
+  own frame), so their sub-integrals and moments meet as well; between the
+  others only the scalar masters meet. The rotation copy took 0.91x (gates)
+  and 0.69x (method choice) of two calls' time.
 
 ## Workspace
 
