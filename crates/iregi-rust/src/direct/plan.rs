@@ -71,13 +71,20 @@ pub(crate) fn full_mask(n: usize) -> SubsetMask {
 /// What the direct engine's representation serves: every bound derived from
 /// a representation (or an algorithm), none a fixed budget. Rank and point
 /// count are otherwise limited by memory (C(R+4, 4) monomials per moment
-/// array, 2^N subsets per plan) and by the achieved precision, which callers
-/// measure; the validated domain (N <= 6, R <= 6, the opening benchmark) is
+/// array, 2^N subsets per plan: a plan whose subsets cannot be allocated is
+/// refused typed) and by the achieved precision, which callers measure; the
+/// validated domain (N <= 6, R <= 6, the opening benchmark) is
 /// documentation, not a limit.
+///
+/// The structural bounds are the same for every carrier. What a carrier
+/// adds is its precision and its exponent range: a lane whose coefficients
+/// leave the carrier's range (binary64 at very large ranks or dimension
+/// shifts, around h = 700) is refused per lane with a typed
+/// [`crate::LaneStatus::Unstable`] status ("nonfinite direct-engine
+/// coefficient"), never returned as a value.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DirectCapabilities {
-    /// Working precision of the carrier (bits). The structural bounds below
-    /// are the same for every carrier; accuracy is the carrier's.
+    /// Working precision of the carrier (bits).
     pub carrier_bits: u32,
     /// Largest number of propagators: the width of the subset masks (64).
     pub max_propagators: usize,
@@ -89,8 +96,11 @@ pub struct DirectCapabilities {
     /// Largest number of propagators with a raised power (the seven-point
     /// thin system has no mass-derivative jets).
     pub max_dotted_points: usize,
-    /// Largest dimension shift `h` (the settings' `i16`).
-    pub max_dimension_shift: i16,
+    /// Largest PV coefficient rank `R + 2h` (a rank-`R` integral in
+    /// `D + 2h` dimensions needs its subsets' coefficients up to `R + 2h`):
+    /// the `u16` coefficient ranks of the plan. It bounds the dimension shift
+    /// jointly with the rank, see [`Self::max_dimension_shift`].
+    pub max_coefficient_rank: u16,
     /// Largest number of propagators with a dimension shift (a shifted
     /// pentagon is a genuine master, not reducible to boxes).
     pub max_shifted_points: usize,
@@ -112,7 +122,7 @@ impl DirectCapabilities {
             max_rank: max_rank as u16,
             max_dotted_propagators: 1,
             max_dotted_points: 6,
-            max_dimension_shift: i16::MAX,
+            max_coefficient_rank: u16::MAX,
             max_shifted_points: 4,
         }
     }
@@ -123,9 +133,97 @@ impl DirectCapabilities {
         crate::direct::exec_ibp_field_max(n).min(u64::from(u16::MAX)) as u16
     }
 
-    /// Whether `settings` lie inside the direct engine's domain.
+    /// Largest dimension shift `h` at tensor rank `rank`: `R + 2h` within
+    /// [`Self::max_coefficient_rank`] (and `h` within the settings' `i16`).
+    pub fn max_dimension_shift(&self, rank: u16) -> i16 {
+        (self.max_coefficient_rank.saturating_sub(rank) / 2).min(i16::MAX as u16) as i16
+    }
+
+    /// Whether `settings` lie inside these bounds (the direct engine's
+    /// domain): `Ok` exactly when a plan can be built, up to memory.
     pub fn admits(&self, settings: &ReductionSettings) -> Result<(), ReductionError> {
-        DirectPlanData::supported(settings)
+        let n = settings.propagators;
+        if n == 0 {
+            return Err(ReductionError::Unsupported("direct engine needs at least one propagator".into()));
+        }
+        if n > self.max_propagators {
+            return Err(ReductionError::Unsupported(format!(
+                "direct engine: {n} propagators exceed its {}-bit subset masks",
+                self.max_propagators
+            )));
+        }
+        if settings.rank > self.max_rank {
+            return Err(ReductionError::Unsupported(format!(
+                "direct engine: rank {} exceeds the {} monomials its u32 indices address (largest rank {})",
+                settings.rank,
+                u32::MAX,
+                self.max_rank
+            )));
+        }
+        if settings.powers.len() != n || settings.powers.contains(&0) {
+            return Err(ReductionError::Unsupported(
+                "direct engine requires one positive power per propagator".into(),
+            ));
+        }
+        let dotted = settings.powers.iter().filter(|&&p| p > 1).count();
+        if dotted > self.max_dotted_propagators {
+            return Err(ReductionError::Unsupported(
+                "direct engine handles at most one raised propagator power (one Taylor variable)".into(),
+            ));
+        }
+        if dotted > 0 && n > self.max_dotted_points {
+            // The seven-point thin system picks its six members per lane;
+            // its mass-derivative jets are not implemented.
+            return Err(ReductionError::Unsupported(format!(
+                "direct engine handles raised powers up to {} propagators",
+                self.max_dotted_points
+            )));
+        }
+        let largest = self.max_power(n);
+        if settings.powers.iter().any(|&p| p > largest) {
+            return Err(ReductionError::Unsupported(format!(
+                "direct engine: a raised power above {largest} exceeds its {}-bit IBP key fields at {n} propagators",
+                crate::direct::exec_ibp_field_bits(n)
+            )));
+        }
+        if settings.dimension_shift < 0 {
+            return Err(ReductionError::Unsupported(
+                "direct engine handles nonnegative dimension shifts".into(),
+            ));
+        }
+        if settings.dimension_shift > self.max_dimension_shift(settings.rank) {
+            return Err(ReductionError::Unsupported(format!(
+                "direct engine: rank {} in D + 2*{} dimensions needs coefficient rank {} beyond its u16 coefficient ranks (largest shift at this rank {})",
+                settings.rank,
+                settings.dimension_shift,
+                u32::from(settings.rank) + 2 * settings.dimension_shift as u32,
+                self.max_dimension_shift(settings.rank)
+            )));
+        }
+        if settings.dimension_shift > 0 && n > self.max_shifted_points {
+            // A shifted scalar pentagon is a genuine master, not reducible
+            // to four-dimensional boxes.
+            return Err(ReductionError::Unsupported(format!(
+                "direct engine handles dimension shifts up to {} propagators",
+                self.max_shifted_points
+            )));
+        }
+        if settings.algorithm == Algorithm::Ibp {
+            return Err(ReductionError::Unsupported(
+                "direct engine implements the PV and Hybrid algorithms".into(),
+            ));
+        }
+        if settings.invariants == InvariantInput::SuppliedScalarProducts {
+            return Err(ReductionError::Unsupported(
+                "direct engine takes invariants from Cartesian shifts or as supplied invariants (SuppliedInvariants), not as supplied scalar products".into(),
+            ));
+        }
+        if settings.input_policy != InputPolicy::Preserve {
+            return Err(ReductionError::Unsupported(
+                "direct engine preserves inputs; legacy snapping uses the symbolic planner".into(),
+            ));
+        }
+        Ok(())
     }
 }
 pub(crate) const NO_GEOMETRY: u32 = u32::MAX;
@@ -593,80 +691,8 @@ struct CoefficientLayout {
 
 impl DirectPlanData {
     pub fn supported(settings: &ReductionSettings) -> Result<(), ReductionError> {
-        let n = settings.propagators;
-        let capabilities = DirectCapabilities::of_representation(53);
-        if n == 0 {
-            return Err(ReductionError::Unsupported("direct engine needs at least one propagator".into()));
-        }
-        if n > capabilities.max_propagators {
-            return Err(ReductionError::Unsupported(format!(
-                "direct engine: {n} propagators exceed its {}-bit subset masks",
-                capabilities.max_propagators
-            )));
-        }
-        if settings.rank > capabilities.max_rank {
-            return Err(ReductionError::Unsupported(format!(
-                "direct engine: rank {} exceeds the {} monomials its u32 indices address (largest rank {})",
-                settings.rank,
-                u32::MAX,
-                capabilities.max_rank
-            )));
-        }
-        if settings.powers.len() != n || settings.powers.contains(&0) {
-            return Err(ReductionError::Unsupported(
-                "direct engine requires one positive power per propagator".into(),
-            ));
-        }
-        let dotted = settings.powers.iter().filter(|&&p| p > 1).count();
-        if dotted > capabilities.max_dotted_propagators {
-            return Err(ReductionError::Unsupported(
-                "direct engine handles at most one raised propagator power (one Taylor variable)".into(),
-            ));
-        }
-        if dotted > 0 && n > capabilities.max_dotted_points {
-            // The seven-point thin system picks its six members per lane;
-            // its mass-derivative jets are not implemented.
-            return Err(ReductionError::Unsupported(format!(
-                "direct engine handles raised powers up to {} propagators",
-                capabilities.max_dotted_points
-            )));
-        }
-        let largest = capabilities.max_power(n);
-        if settings.powers.iter().any(|&p| p > largest) {
-            return Err(ReductionError::Unsupported(format!(
-                "direct engine: a raised power above {largest} exceeds its {}-bit IBP key fields at {n} propagators",
-                crate::direct::exec_ibp_field_bits(n)
-            )));
-        }
-        if settings.dimension_shift < 0 {
-            return Err(ReductionError::Unsupported(
-                "direct engine handles nonnegative dimension shifts".into(),
-            ));
-        }
-        if settings.dimension_shift > 0 && n > capabilities.max_shifted_points {
-            // A shifted scalar pentagon is a genuine master, not reducible
-            // to four-dimensional boxes.
-            return Err(ReductionError::Unsupported(format!(
-                "direct engine handles dimension shifts up to {} propagators",
-                capabilities.max_shifted_points
-            )));
-        }
-        if settings.algorithm == Algorithm::Ibp {
-            return Err(ReductionError::Unsupported(
-                "direct engine implements the PV and Hybrid algorithms".into(),
-            ));
-        }
-        if settings.invariants == InvariantInput::SuppliedScalarProducts {
-            return Err(ReductionError::Unsupported(
-                "direct engine takes invariants from Cartesian shifts or as supplied invariants (SuppliedInvariants), not as supplied scalar products".into(),
-            ));
-        }
-        if settings.input_policy != InputPolicy::Preserve {
-            return Err(ReductionError::Unsupported(
-                "direct engine preserves inputs; legacy snapping uses the symbolic planner".into(),
-            ));
-        }
-        Ok(())
+        // The structural bounds do not depend on the carrier.
+        DirectCapabilities::of_representation(53).admits(settings)
     }
 
     pub fn new(settings: ReductionSettings) -> Result<Self, ReductionError> {
@@ -741,7 +767,14 @@ impl DirectPlanData {
         let mut coefficient_need: HashMap<SubsetMask, i32> = HashMap::new();
         let mut moment_need: HashMap<SubsetMask, i32> = HashMap::new();
         moment_need.insert(top, i32::from(rank));
-        let mut masks: Vec<SubsetMask> = (1..=top).filter(|m| m & !top == 0).collect();
+        // Every nonempty subset: memory, not a cap, bounds the point count.
+        let mut masks: Vec<SubsetMask> = Vec::new();
+        masks.try_reserve_exact(top as usize).map_err(|_| {
+            ReductionError::Unsupported(format!(
+                "direct engine: the 2^{n} - 1 subsets of a {n}-propagator plan exceed the available memory"
+            ))
+        })?;
+        masks.extend(1..=top);
         masks.sort_by_key(|m| std::cmp::Reverse(m.count_ones()));
         for &mask in &masks {
             let size = mask.count_ones() as usize;
@@ -791,6 +824,16 @@ impl DirectPlanData {
                     }
                 }
             }
+        }
+
+        // Coefficient ranks are u16 (`DirectCapabilities::max_coefficient_rank`):
+        // `supported` admits R + 2h within them; a top-child boost on top
+        // must fit as well.
+        let largest = coefficient_need.values().copied().max().unwrap_or(-1);
+        if largest > i32::from(u16::MAX) {
+            return Err(ReductionError::Unsupported(format!(
+                "direct plan: coefficient rank {largest} beyond its u16 coefficient ranks"
+            )));
         }
 
         // Mass derivatives of a master reach every pinch of it by IBP.
@@ -1260,7 +1303,7 @@ impl DirectPlanData {
                     signature ^= x;
                     signature = signature.wrapping_mul(0x0100_0000_01b3);
                 };
-                for relative in 1u32..1 << subset.members.len() {
+                for relative in 1u64..=(u64::MAX >> (64 - subset.members.len())) {
                     let mask = subset
                         .members
                         .iter()
@@ -1296,8 +1339,10 @@ impl DirectPlanData {
         // Gathers of PV subsets whose moments are needed.
         let mut gathers = Vec::new();
         let mut products: Vec<Product> = Vec::new();
-        // (origin, exponent of each member's momentum) -> product.
-        let mut product_lookup: HashMap<(usize, [u16; 16]), u32> = HashMap::new();
+        // (origin, (propagator, exponent) of each member momentum with a
+        // nonzero exponent, in propagator order) -> product: sized by the
+        // subset, so any propagator index is addressed.
+        let mut product_lookup: HashMap<(usize, Vec<(usize, u16)>), u32> = HashMap::new();
         let mut gather_scratch = 0usize;
         for (id, subset) in subsets.iter().enumerate() {
             let gram_free = subset.pentagon.is_some_and(|geometry| geometry.dd_rank >= 0);
@@ -1314,10 +1359,12 @@ impl DirectPlanData {
             let pv = subset.pv.unwrap();
             let origin = subset.members[0];
             let embed = |kappa: &[u16]| {
-                let mut exponents = [0u16; 16];
-                for (i, &k) in kappa.iter().enumerate() {
-                    exponents[subset.members[i + 1]] = k;
-                }
+                let exponents: Vec<(usize, u16)> = kappa
+                    .iter()
+                    .enumerate()
+                    .filter(|&(_, &k)| k != 0)
+                    .map(|(i, &k)| (subset.members[i + 1], k))
+                    .collect();
                 (origin, exponents)
             };
             let mut kappas = Vec::new();

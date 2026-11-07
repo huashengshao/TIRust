@@ -5,8 +5,8 @@
 //! evaluated and checked against exact or independent references; the
 //! validated domain (N <= 6, R <= 6) is documentation, not a limit.
 use iregi_rust::{
-    DirectCapabilities, DirectReductionPlan, KinematicsBatch, LaneStatus, ReductionPlan, ReductionSettings,
-    Workspace,
+    DirectCapabilities, DirectReductionPlan, KinematicsBatch, LaneStatus, ReductionError, ReductionPlan,
+    ReductionSettings, Workspace,
 };
 use symbolica::domains::{
     float::{Complex, DoubleFloat, Float, FloatLike, Real, RealLike, SingleFloat},
@@ -32,7 +32,10 @@ fn capability_query_reports_bounds_derived_from_the_representation() {
     assert_eq!((caps.max_power(1), caps.max_power(4)), (u16::MAX, u16::MAX));
     assert_eq!((caps.max_power(5), caps.max_power(6)), (4095, 1023));
     assert_eq!((caps.max_dotted_propagators, caps.max_dotted_points, caps.max_shifted_points), (1, 6, 4));
-    assert_eq!(caps.max_dimension_shift, i16::MAX);
+    // R + 2h within the u16 coefficient ranks.
+    assert_eq!(caps.max_coefficient_rank, u16::MAX);
+    assert_eq!((caps.max_dimension_shift(0), caps.max_dimension_shift(1)), (i16::MAX, i16::MAX));
+    assert_eq!((caps.max_dimension_shift(2), caps.max_dimension_shift(caps.max_rank)), (32766, ((u16::MAX - caps.max_rank) / 2) as i16));
     // `supports` reads the same bounds (no plan is built here).
     let supports = |n: usize, rank: u16, powers: Option<Vec<u16>>, h: i16| {
         let mut settings = ReductionSettings::new(n, rank);
@@ -49,6 +52,32 @@ fn capability_query_reports_bounds_derived_from_the_representation() {
     assert!(!supports(7, 1, Some(vec![2, 1, 1, 1, 1, 1, 1]), 0), "raised powers stop at six points");
     assert!(!supports(3, 1, Some(vec![2, 2, 1]), 0), "one raised power");
     assert!(supports(3, 2, None, 9) && !supports(5, 2, None, 1), "shifts up to four points");
+    assert!(supports(1, 2, None, 32766) && !supports(1, 2, None, 32767), "R + 2h <= u16::MAX");
+    assert!(supports(1, 1, None, i16::MAX) && supports(1, 3, None, 32766) && !supports(1, 4, None, 32766));
+    // `admits` is the same check.
+    for (n, rank, h) in [(1, 2, 32766), (1, 2, 32767), (64, 0, 0), (65, 0, 0), (2, caps.max_rank + 1, 0)] {
+        let mut settings = ReductionSettings::new(n, rank);
+        settings.dimension_shift = h;
+        assert_eq!(caps.admits(&settings).is_ok(), DirectReductionPlan::supports(&settings));
+    }
+}
+
+#[test]
+fn requests_outside_the_capabilities_are_refused_typed() {
+    // R + 2h beyond the u16 coefficient ranks: refused before planning (it
+    // used to wrap and panic in the gather).
+    let mut settings = ReductionSettings::new(1, 2);
+    settings.dimension_shift = i16::MAX;
+    assert!(!DirectReductionPlan::supports(&settings));
+    assert!(matches!(DirectReductionPlan::new(settings), Err(ReductionError::Unsupported(_))));
+    // 64 propagators are inside the masks; their 2^64 - 1 subsets cannot be
+    // allocated: a typed refusal, not an abort.
+    let settings = ReductionSettings::new(64, 0);
+    assert!(DirectReductionPlan::supports(&settings));
+    match DirectReductionPlan::new(settings) {
+        Err(ReductionError::Unsupported(note)) => assert!(note.contains("subsets"), "{note}"),
+        other => panic!("{:?}", other.map(|_| ())),
+    }
 }
 
 /// Tadpole moments at the origin, `int l^e / (l^2 - m^2)`: every odd
@@ -206,6 +235,7 @@ fn tadpole_beyond_rank_32_matches_its_closed_form() {
     let low = tadpole_deviation(&tadpole(Float::new(256), 6));
     assert!(low <= 1e-70, "{low:e}");
     for rank in [33u16, 36] {
+        reset_peak_rss();
         let start = std::time::Instant::now();
         let (mpfr_result, double_result, binary64_result) =
             (tadpole(Float::new(256), rank), tadpole(DoubleFloat::from(0.0), rank), tadpole(0.0f64, rank));
@@ -213,8 +243,9 @@ fn tadpole_beyond_rank_32_matches_its_closed_form() {
         let double = tadpole_deviation(&double_result);
         let binary64 = tadpole_deviation(&binary64_result);
         println!(
-            "tadpole rank {rank}: E/A against the closed form: binary64 {binary64:e}, double-double {double:e}, 256 bits {mpfr:e} ({:.2?})",
-            start.elapsed()
+            "tadpole rank {rank}: E/A against the closed form: binary64 {binary64:e}, double-double {double:e}, 256 bits {mpfr:e} ({:.2?}, peak RSS {} MiB)",
+            start.elapsed(),
+            peak_rss_mib()
         );
         assert!(mpfr <= 1e-70 && double <= 1e-28 && binary64 <= 1e-13, "{binary64:e} {double:e} {mpfr:e}");
         // Every nonzero entry above rank 32 (ranks 34 and 36 of the rank-36
@@ -366,7 +397,8 @@ fn raised_powers_and_dimension_shifts_beyond_the_former_caps_match_independent_r
     assert!(at_512 <= 1e-30 && at_106 <= 1e-26, "{at_512:e} {at_106:e}");
 }
 
-/// Peak resident memory of this process so far (Linux; 0 elsewhere).
+/// Peak resident memory of this process since the last [`reset_peak_rss`]
+/// (Linux; 0 elsewhere).
 fn peak_rss_mib() -> u64 {
     std::fs::read_to_string("/proc/self/status")
         .ok()
@@ -379,10 +411,59 @@ fn peak_rss_mib() -> u64 {
         .map_or(0, |kib| kib / 1024)
 }
 
+/// Restart the peak-memory count (Linux `clear_refs`; ignored elsewhere), so
+/// a test's figure is its own.
+fn reset_peak_rss() {
+    let _ = std::fs::write("/proc/self/clear_refs", "5");
+}
+
+/// `x` (binary64) exactly in the carrier of `prototype`.
+fn lift<T: iregi_masters::NativeFloat>(prototype: &T, x: f64) -> T {
+    prototype.from_rational(&Float::with_val(53, x).try_to_rational().unwrap())
+}
+
+/// Largest |a - b| over the array relative to the largest |b|, in binary64.
+fn relative_deviation<T: iregi_masters::NativeFloat, U: iregi_masters::NativeFloat>(a: &[Complex<T>], b: &[Complex<U>]) -> f64 {
+    let (mut error, mut scale) = (0.0f64, 0.0f64);
+    for (x, y) in a.iter().zip(b) {
+        error = error.max((x.re.to_f64() - y.re.to_f64()).hypot(x.im.to_f64() - y.im.to_f64()));
+        scale = scale.max(y.re.to_f64().hypot(y.im.to_f64()));
+    }
+    error / scale
+}
+
+/// [`relative_deviation`] of two arrays of the reference carrier, formed at
+/// `bits` bits (not rounded to binary64 first).
+fn precise_deviation<T: iregi_masters::NativeFloat>(a: &[Complex<T>], b: &[Complex<T>], bits: u32) -> f64 {
+    let to = |x: &T| Float::with_val(bits, 0).from_rational(&iregi_masters::NativeFloat::exact_rational(x).unwrap());
+    let (mut error, mut scale) = (Float::with_val(bits, 0), Float::with_val(bits, 0));
+    for (x, y) in a.iter().zip(b) {
+        let (dr, di) = (to(&x.re) - &to(&y.re), to(&x.im) - &to(&y.im));
+        let e = (dr.clone() * &dr + di.clone() * &di).sqrt();
+        let s = (to(&y.re) * &to(&y.re) + to(&y.im) * &to(&y.im)).sqrt();
+        if e > error {
+            error = e;
+        }
+        if s > scale {
+            scale = s;
+        }
+    }
+    (error / &scale).to_f64()
+}
+
 /// An N-point family above the former 12-propagator cap, planned and
-/// evaluated in binary64 and at 256 bits (the achieved precision is their
-/// difference); plan size, times and peak memory are printed for the record.
-fn wide_family(n: usize, rank: u16) {
+/// evaluated in binary64 and in the reference carrier of `reference` (the
+/// achieved binary64 precision is their difference). The oracle: the same
+/// integral with its propagators in another order (a cyclic rotation by one:
+/// another PV origin and so another reduction path; the Cartesian moments in
+/// the loop momentum do not depend on the order) agrees in the reference
+/// carrier within `agreement`. Plan size, times and peak memory are printed
+/// for the record.
+fn wide_family<R: iregi_masters::NativeFloat>(n: usize, rank: u16, reference: R, agreement: f64)
+where
+    Complex<R>: symbolica::evaluate::EvaluationDomain,
+{
+    reset_peak_rss();
     // Deterministic generic kinematics: shifts in a unit box, masses 1..2.
     let mut state = 0x9E37_79B9_7F4A_7C15u64;
     let mut next = || {
@@ -391,51 +472,79 @@ fn wide_family(n: usize, rank: u16) {
         state ^= state << 17;
         (state >> 11) as f64 / (1u64 << 53) as f64
     };
-    let mut values = Vec::new();
+    let mut shifts = Vec::new();
     for i in 0..n {
-        for _ in 0..4 {
-            let x = if i == 0 { 0.0 } else { 2.0 * next() - 1.0 };
-            values.push(Complex::new(x, 0.0));
-        }
+        shifts.push(std::array::from_fn::<f64, 4, _>(|_| if i == 0 { 0.0 } else { 2.0 * next() - 1.0 }));
     }
-    for _ in 0..n {
-        values.push(Complex::new(1.0 + next(), 0.0));
-    }
-    values.push(Complex::new(1.0, 0.0));
+    let masses: Vec<f64> = (0..n).map(|_| 1.0 + next()).collect();
+    let row = |order: &[usize]| -> Vec<Complex<f64>> {
+        let mut values: Vec<Complex<f64>> =
+            order.iter().flat_map(|&i| shifts[i]).map(|x| Complex::new(x, 0.0)).collect();
+        values.extend(order.iter().map(|&i| Complex::new(masses[i], 0.0)));
+        values.push(Complex::new(1.0, 0.0));
+        values
+    };
+    let natural: Vec<usize> = (0..n).collect();
+    let rotated: Vec<usize> = (1..n).chain([0]).collect();
     let start = std::time::Instant::now();
     let plan = DirectReductionPlan::new(ReductionSettings::new(n, rank)).unwrap();
     let planned = start.elapsed();
     let (instructions, terms) = plan.instruction_counts();
+    let values = row(&natural);
     let start = std::time::Instant::now();
-    let binary64 = plan.workspace(0.0f64).unwrap().reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: values.clone() }).unwrap();
+    let binary64 = plan.workspace::<f64>(0.0).unwrap().reduce_batch(&KinematicsBatch::<f64> { rows: 1, components: 1, values: values.clone() }).unwrap();
     let evaluated = start.elapsed();
-    let lift: Vec<Complex<Float>> =
-        values.iter().map(|z| Complex::new(Float::with_val(256, z.re), Float::with_val(256, z.im))).collect();
-    let mut workspace = plan.workspace(Float::new(256)).unwrap();
-    workspace.set_stability_threshold(Float::with_val(256, 2f64.powi(-200)));
+    let bits = reference.get_precision();
+    let mut workspace = plan.workspace(reference.clone()).unwrap();
+    // Conditioning accepted down to 2^-(bits - 56) (2^-200 at 256 bits): the
+    // reference keeps far more than binary64's digits, the rotation checks.
+    workspace.set_stability_threshold(lift(&reference, 2f64.powi(-((bits - 56) as i32))));
+    let lifted = |values: Vec<Complex<f64>>| -> Vec<Complex<R>> {
+        values.iter().map(|z| Complex::new(lift(&reference, z.re), lift(&reference, z.im))).collect()
+    };
     let start = std::time::Instant::now();
-    let reference = workspace.reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: lift }).unwrap();
-    let evaluated_256 = start.elapsed();
-    assert_eq!(reference.statuses[0], LaneStatus::Success, "256 bits");
+    let precise = workspace.reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: lifted(values) }).unwrap();
+    let evaluated_reference = start.elapsed();
+    assert_eq!(precise.statuses[0], LaneStatus::Success, "{bits} bits");
+    let other = workspace.reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: lifted(row(&rotated)) }).unwrap();
+    assert_eq!(other.statuses[0], LaneStatus::Success, "{bits} bits, rotated");
+    let order = precise_deviation(other.lane(0).unwrap(), precise.lane(0).unwrap(), 2 * bits);
     let achieved = match binary64.lane(0) {
-        Ok(lane) => {
-            let (mut error, mut scale) = (0.0f64, 0.0f64);
-            for (a, b) in lane.iter().zip(reference.lane(0).unwrap()) {
-                error = error.max((a.re - b.re.to_f64()).hypot(a.im - b.im.to_f64()));
-                scale = scale.max(b.re.to_f64().hypot(b.im.to_f64()));
-            }
-            format!("{:e}", error / scale)
-        }
+        Ok(lane) => format!("{:e}", relative_deviation(lane, precise.lane(0).unwrap())),
         Err(status) => format!("binary64 refused: {status:?}"),
     };
     println!(
         "N{n} R{rank}: {instructions} instructions, {terms} terms; plan {planned:.2?}, binary64 {evaluated:.2?}, \
-         256 bits {evaluated_256:.2?}; binary64 vs 256 bits E/A {achieved}; peak RSS {} MiB",
+         {bits} bits {evaluated_reference:.2?}; binary64 vs {bits} bits E/A {achieved}; {bits} bits, rotated vs \
+         natural order E/A {order:e}; peak RSS {} MiB",
         peak_rss_mib()
     );
+    assert!(order <= agreement, "{order:e}");
 }
 
 #[test]
 fn families_beyond_twelve_propagators_are_planned_and_evaluated() {
-    wide_family(13, 1);
+    wide_family(13, 1, Float::new(256), 1e-60);
+}
+
+#[test]
+fn families_beyond_sixteen_propagators_are_planned() {
+    // Above the 16 entries of the direct plan's former fixed product key
+    // (plan construction panicked from 17 propagators on).
+    reset_peak_rss();
+    let start = std::time::Instant::now();
+    let plan = DirectReductionPlan::new(ReductionSettings::new(17, 0)).unwrap();
+    let (instructions, terms) = plan.instruction_counts();
+    println!("N17 R0: {instructions} instructions, {terms} terms; plan {:.2?}; peak RSS {} MiB", start.elapsed(), peak_rss_mib());
+    assert!(instructions > 0 && terms > 0);
+}
+
+#[test]
+#[ignore = "17-point family evaluated in binary64 and twice in double-double (the 2^17 subsets' six-member choices dominate: about 4 minutes in the devopt profile, far longer in a debug build); run explicitly"]
+fn families_beyond_sixteen_propagators_are_evaluated() {
+    // Generic unit-box kinematics amplify rounding by ~4e12 here (binary64
+    // E/A ~4e-4, recorded, not a limit): the double-double reference is
+    // checked by the reordering to better than binary64's unit roundoff,
+    // which is what it must resolve.
+    wide_family(17, 0, DoubleFloat::from(0.0), f64::EPSILON / 2.0);
 }
