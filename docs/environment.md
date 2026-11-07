@@ -18,14 +18,14 @@ scripts/cargo.sh test
 ```
 
 This tests the default members, which are every crate except the Python
-extension `crates/iregi-python`. That extension does not build at the moment.
-Its GammaLoop crates (gammaloop `865afdc4`) call Symbolica's Python
-`evaluator_multiple` with 17 arguments, but the shared Symbolica revision
-`20a9da94` takes 18 (E0061 in `spynso3`). So `--workspace` and the wheel build
-fail until the GammaLoop pin moves to a revision built for that Symbolica. The
-pyAmpliCol coordination record accepts this known break of a non-core crate
-(DECISIONS 2026-11-06 ~19:45), and the pyAmpliCol maintainers own that pin
-move.
+extension `crates/iregi-python`. That extension and every GammaLoop crate
+(`feynkit-*`, `spenso`, `idenso`, `spynso3`, `linnet-render-py`) are pinned to
+gammaloop `9102f885`, the revision that the Symbolica Community build of the
+shared Symbolica revision `b9eaa735` locks for the same Python modules; the
+vendored `dependencies/linnest` is taken from that revision with its typed-CBOR
+repair (`dependencies/linnest-patches`). `cargo check --workspace` covers the
+extension; the wheel build is in `python/README.md`. The pyAmpliCol
+maintainers own these pins.
 
 `env.sh` respects tools already on `PATH`. If a tool is absent, it searches
 installed Nix store packages without downloading or modifying system state.

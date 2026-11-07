@@ -9,24 +9,22 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
-import tomllib
 
-FEYNKIT_REVISION = "865afdc43fb4e6b950439d34b4ec2c38352873e7"
+FEYNKIT_REVISION = "9102f885722e856e30227ed46e685e5c465905f7"
+# Owners whose data.json lists the rendering assets the standalone host bundles.
+# spynso3 re-exports linnet-render-py's assets; no owner needs typst-assets fonts.
+OWNERS = ["linnet-render-py"]
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--feynkit-root", type=Path, required=True)
-    parser.add_argument("--typst-assets-root", type=Path, required=True)
     parser.add_argument(
         "--symbolica-root", type=Path, required=True,
         help="checkout of the pinned Symbolica revision (the workspace [patch.crates-io] entry)",
     )
     parser.add_argument("--output", type=Path, default=Path("python/tirust/data"))
     args = parser.parse_args()
-    typst_package = tomllib.loads((args.typst_assets_root / "Cargo.toml").read_text())["package"]
-    if (typst_package["name"], typst_package["version"]) != ("typst-assets", "0.15.1"):
-        raise SystemExit("rendering fonts must come from the locked typst-assets 0.15.1")
     revision = subprocess.check_output(
         ["git", "-C", str(args.feynkit_root), "rev-parse", "HEAD"], text=True
     ).strip()
@@ -34,7 +32,7 @@ def main() -> None:
         raise SystemExit("FeynKit assets must match the project's locked owner revision")
     entries = []
     manifests = []
-    for owner in ["typst-renderer", "spynso3"]:
+    for owner in OWNERS:
         crate = args.feynkit_root / "crates" / owner
         manifest_path = crate / "data.json"
         original = manifest_path.read_bytes()
@@ -46,16 +44,16 @@ def main() -> None:
             name = Path(entry["name"])
             if name.is_absolute() or ".." in name.parts or not str(name).startswith("render/fonts/"):
                 raise SystemExit("unexpected asset location in pinned owner manifest")
-            source = (args.typst_assets_root if entry.get("package") == "typst-assets" else crate) / entry["path"]
+            if "package" in entry:
+                raise SystemExit("owner asset from another package; extend this script before bundling it")
+            source = crate / entry["path"]
             payload = source.read_bytes()
             target = args.output / name
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(payload)
             entries.append({"name": str(name), "owner": owner, "constant": entry["constant"], "owner_source": str(source), "bytes": len(payload), "sha256": hashlib.sha256(payload).hexdigest()})
     licenses = {
-        "typst-assets-LICENSE": args.typst_assets_root / "LICENSE",
-        "typst-fonts-NOTICE": args.feynkit_root / "examples/notebooks/symbolica-host/licenses/typst-fonts-NOTICE",
-        "STIX-Two-OFL.txt": args.feynkit_root / "crates/spynso3/typst/STIX-Two-OFL.txt",
+        "STIX-Two-OFL.txt": args.feynkit_root / "crates/linnet-render-py/fonts/STIX-Two-OFL.txt",
         "FeynKit-LICENSE": args.feynkit_root / "LICENSE",
         "Symbolica-LICENSE.md": args.symbolica_root / "License.md",
     }
@@ -67,7 +65,6 @@ def main() -> None:
         license_entries.append({"name": "licenses/" + name, "owner_source": str(source), "sha256": hashlib.sha256(target.read_bytes()).hexdigest()})
     manifest = {
         "feynkit_revision": revision,
-        "typst_assets_version": "0.15.1",
         "scope": "unchanged pinned rendering fonts; no compiled library or license credential",
         "owner_manifests": manifests,
         "assets": entries,

@@ -60,8 +60,6 @@ pub fn initialize(py: Python<'_>) -> PyResult<()> {
 pub fn configure_data_directory(directory: PathBuf, validate: bool) -> PyResult<()> {
     symbolica_data::Data::set_directory(directory);
     if validate {
-        symbolica_data::Asset::prepare(typst_renderer::data_assets::ALL, "render/fonts/")
-            .map_err(reduction_error)?;
         symbolica_data::Asset::prepare(spynso3::data_assets::ALL, "render/fonts/")
             .map_err(reduction_error)?;
     }

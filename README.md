@@ -378,8 +378,9 @@ cargo test -- --test-threads=1
 bash scripts/build-benchmark-report.sh
 ```
 
-`cargo test` runs the default members. `crates/iregi-python` does not build
-until its GammaLoop pin moves (see [docs/environment.md](docs/environment.md)).
+`cargo test` runs the default members; `crates/iregi-python` (the Python
+extension, gammaloop `9102f885`) builds with `cargo check --workspace` (see
+[docs/environment.md](docs/environment.md)).
 
 Tests using Symbolica must respect the installed license's process and thread
 limits. The cold concurrent plan-preparation test is ignored because it requires
