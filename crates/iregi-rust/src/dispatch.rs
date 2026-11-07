@@ -1335,6 +1335,31 @@ where
         }
     }
 
+    /// Share per-subset results through the caller's persistent `store`,
+    /// across calls, until the caller clears it (`None`: detach; see
+    /// [`crate::TensorStore`]): the direct engine's workspaces of this
+    /// facade or embedder-mode workspace (its checks, retries and
+    /// double-double tier included); other engines ignore it. Attaching
+    /// registers the direct plan's nested moment gathers with the store.
+    pub fn set_tensor_store(&mut self, store: Option<&crate::TensorStore>) {
+        let shared = store.map(|store| store.shared().clone());
+        match &mut self.engine {
+            WorkspaceEngine::Direct(workspace) => {
+                if let Some(store) = store {
+                    store.register(workspace.direct_plan());
+                }
+                workspace.set_shared_subsets(shared);
+            }
+            WorkspaceEngine::Embedded(workspace) => {
+                if let Some(store) = store {
+                    store.register(workspace.plan());
+                }
+                workspace.set_shared_subsets(shared);
+            }
+            _ => {}
+        }
+    }
+
     /// The effective setting: `Disabled` for workspaces that never change
     /// precision.
     pub fn precision_rescue(&self) -> PrecisionRescue {

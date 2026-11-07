@@ -33,7 +33,7 @@ pub(crate) fn exec_ibp_field_max(n: usize) -> u64 {
 use exec::DirectExecutor;
 use plan::DirectPlanData;
 
-use crate::{BatchResult, KinematicsBatch, ReductionError, ReductionSettings, basis::Monomial};
+use crate::{BatchResult, KinematicsBatch, ReductionError, ReductionSettings, TensorStore, basis::Monomial};
 
 /// Largest a priori estimate (COLLIER's w_pv2 with the modified Cayley
 /// determinant's cancellation, see [`DirectWorkspace::set_alternative_first`])
@@ -160,6 +160,22 @@ where
         batch: &KinematicsBatch<T>,
     ) -> Result<BatchResult<T>, ReductionError> {
         self.executor.reduce_batch(batch)
+    }
+
+    /// Share per-subset results with every workspace holding `store`, across
+    /// calls, until the caller clears it (`None`: detach; see
+    /// [`TensorStore`]). Binary64 workspaces share sub-integrals, pentagons,
+    /// rescues, expansions, moments and scalar masters (and take the store's
+    /// masters provider); double-double ones their scalar masters; MPFR ones
+    /// nothing. Attaching registers this plan's nested moment gathers with
+    /// the store. Results are bit-identical with and without the store
+    /// unless [`TensorStore::align_ranks`] raised its rank floor (or its
+    /// masters provider returns other values than TIRust's kernels).
+    pub fn set_tensor_store(&mut self, store: Option<&TensorStore>) {
+        if let Some(store) = store {
+            store.register(&DirectReductionPlan { data: self.executor.base_plan().clone() });
+        }
+        self.executor.set_shared_subsets(store.map(|store| store.shared().clone()));
     }
 
     pub fn set_profiling(&mut self, enabled: bool) {

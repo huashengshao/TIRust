@@ -510,6 +510,12 @@ where
         self.master_rows
     }
 
+    /// The plan this executor was built for (its base plan, not a lane's
+    /// variant).
+    pub(crate) fn base_plan(&self) -> &Arc<DirectPlanData> {
+        &self.base_plan
+    }
+
     pub fn set_stability_threshold(&mut self, threshold: T) {
         self.stability_threshold = threshold;
     }
@@ -761,6 +767,8 @@ where
         // Scalar masters shared with the other integrals of an amplitude,
         // keyed by family and arguments bit for bit (binary64).
         let store = self.shared.clone().filter(|store| store.enabled());
+        // The embedder's binary64 masters on a miss (sharing on or off).
+        let provider = self.shared.as_ref().filter(|store| store.provider().is_some()).cloned();
         for family in 0..4 {
             let Some(evaluator) = self.native[family].as_mut() else {
                 continue;
@@ -823,7 +831,30 @@ where
                         let output = &mut self.native_output;
                         store.dd_master_with(&self.master_key, |stored| write_dd_master(output, stored))
                     });
-                if !hit && !dd_hit {
+                let provided = !hit
+                    && provider.as_ref().is_some_and(|shared| {
+                        let Some(provider) = shared.provider() else { return false };
+                        let zero = Complex::new(0.0, 0.0);
+                        let mut arguments = [zero; MASTER_KEY_WORDS / 2];
+                        for (argument, z) in arguments.iter_mut().zip(&input[..arity + 1]) {
+                            *argument = Complex::new(z.re.to_f64(), z.im.to_f64());
+                        }
+                        let family = crate::store::MasterFamily::of_index(family);
+                        let Some(value) = provider.master(family, &arguments[..arity + 1]) else { return false };
+                        for (output, z) in self.native_output.iter_mut().zip(&value) {
+                            *output = C::new(exact_f64(&self.prototype, z.re), exact_f64(&self.prototype, z.im));
+                        }
+                        shared.count_provider_master();
+                        true
+                    });
+                if provided {
+                    if let Some(store) = store.as_ref() {
+                        let o = &self.native_output;
+                        let v = [o[0].re.to_f64(), o[0].im.to_f64(), o[1].re.to_f64(), o[1].im.to_f64(),
+                            o[2].re.to_f64(), o[2].im.to_f64()];
+                        store.put_master(family, &key[..words], v);
+                    }
+                } else if !hit && !dd_hit {
                     evaluator.evaluate(&input[..arity + 1], &mut self.native_output)?;
                     if let (true, Some(store)) = (dd_key, dd_store) {
                         if let Some(value) = read_dd_master(&self.native_output) {

@@ -38,6 +38,7 @@ pub mod rescue;
 pub mod scalar;
 pub mod snapping;
 mod stability;
+pub mod store;
 pub mod tensor_rescue;
 pub mod types;
 pub use certified_planar::{CertifiedPlanarReductionPlan, CertifiedPlanarWorkspace};
@@ -64,6 +65,7 @@ pub use rescue::{
     RescueTrigger,
 };
 pub use scalar::{ScalarKinematicsBatch, ScalarReductionPlan, ScalarWorkspace};
+pub use store::{MasterFamily, MasterProvider, TensorStore, TensorStoreOptions, TensorStoreStatistics};
 pub use seven_point::{SevenPointExecutionStats, SevenPointReductionPlan, SevenPointWorkspace};
 pub use six_point::{SixPointExecutionStats, SixPointReductionPlan, SixPointWorkspace};
 pub use tensor_rescue::TensorRescueWorkspace;

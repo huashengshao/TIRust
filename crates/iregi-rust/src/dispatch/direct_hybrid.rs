@@ -537,6 +537,10 @@ where
         }
     }
 
+    pub(crate) fn direct_plan(&self) -> &DirectReductionPlan {
+        &self.plan.direct
+    }
+
     pub(crate) fn set_precision_rescue(&mut self, rescue: PrecisionRescue) {
         self.precision_rescue = rescue;
         self.options.precision_rescue = rescue;

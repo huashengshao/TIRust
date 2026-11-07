@@ -52,10 +52,12 @@ use std::{
     collections::HashMap,
     hash::{BuildHasherDefault, Hasher},
     sync::{
-        Mutex,
+        Arc, Mutex,
         atomic::{AtomicU64, Ordering},
     },
 };
+
+use crate::store::MasterProvider;
 
 /// Binary64 coefficient values (`[re, im]` of the four Laurent slots) of one
 /// subset, or the refusal message of its computation.
@@ -161,9 +163,95 @@ pub(crate) struct SubsetStore {
     moment_misses: AtomicU64,
     dd_master_hits: AtomicU64,
     dd_master_misses: AtomicU64,
+    /// Binary64 scalar masters alone (also counted in `hits` / `misses`).
+    master_hits: AtomicU64,
+    master_misses: AtomicU64,
+    /// Binary64 scalar masters the provider served.
+    provider_masters: AtomicU64,
+    /// Estimated bytes of the entries inserted since the last clear.
+    bytes: AtomicU64,
+    /// Largest `bytes` at which entries are still inserted (`u64::MAX`: no
+    /// bound); see [`Self::set_byte_budget`].
+    budget: Budget,
+    /// Results computed but not inserted (over the budget).
+    skipped: AtomicU64,
+    /// Binary64 scalar masters supplied by the caller, consulted after a
+    /// miss of the master maps (fixed at construction).
+    provider: ProviderSlot,
 }
 
+/// Byte budget of a store (`u64::MAX`: none). A newtype so that the store
+/// keeps its `Default` (no budget).
+#[derive(Debug)]
+struct Budget(AtomicU64);
+
+impl Default for Budget {
+    fn default() -> Self {
+        Self(AtomicU64::new(u64::MAX))
+    }
+}
+
+/// The optional master provider (no `Debug` on the trait object).
+#[derive(Default)]
+struct ProviderSlot(Option<Arc<dyn MasterProvider>>);
+
+impl std::fmt::Debug for ProviderSlot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(if self.0.is_some() { "Some(MasterProvider)" } else { "None" })
+    }
+}
+
+/// Bookkeeping words of one map entry beyond its key and value (an estimate:
+/// the budget bounds memory, it is not an allocator count).
+const ENTRY_OVERHEAD_BYTES: u64 = 64;
+
 impl SubsetStore {
+    /// A store whose binary64 scalar masters come from `provider` after a
+    /// miss (sharing on, no budget).
+    pub(crate) fn with_provider(provider: Option<Arc<dyn MasterProvider>>) -> Self {
+        Self { provider: ProviderSlot(provider), ..Self::default() }
+    }
+
+    /// The caller's binary64 master provider, if any.
+    pub(crate) fn provider(&self) -> Option<&Arc<dyn MasterProvider>> {
+        self.provider.0.as_ref()
+    }
+
+    /// Count a binary64 scalar master the provider served.
+    pub(crate) fn count_provider_master(&self) {
+        self.provider_masters.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Stop inserting entries once their estimated size exceeds `bytes`
+    /// (`None`: no bound). Values never change: a result not inserted is
+    /// computed again where it is needed.
+    pub(crate) fn set_byte_budget(&self, bytes: Option<u64>) {
+        self.budget.0.store(bytes.unwrap_or(u64::MAX), Ordering::Relaxed);
+    }
+
+    pub(crate) fn byte_budget(&self) -> Option<u64> {
+        let budget = self.budget.0.load(Ordering::Relaxed);
+        (budget != u64::MAX).then_some(budget)
+    }
+
+    /// Whether an entry of `bytes` (key, value and overhead) fits the
+    /// budget; it is then counted.
+    fn admit(&self, bytes: u64) -> bool {
+        let budget = self.budget.0.load(Ordering::Relaxed);
+        let bytes = bytes + ENTRY_OVERHEAD_BYTES;
+        if budget == u64::MAX {
+            self.bytes.fetch_add(bytes, Ordering::Relaxed);
+            return true;
+        }
+        let total = self.bytes.fetch_add(bytes, Ordering::Relaxed) + bytes;
+        if total > budget {
+            self.bytes.fetch_sub(bytes, Ordering::Relaxed);
+            self.skipped.fetch_add(1, Ordering::Relaxed);
+            return false;
+        }
+        true
+    }
+
     pub(crate) fn set_enabled(&self, enabled: bool) {
         self.enabled.store(enabled, Ordering::Relaxed);
     }
@@ -232,6 +320,7 @@ impl SubsetStore {
         };
         if value.is_some() {
             self.hits.fetch_add(1, Ordering::Relaxed);
+            self.master_hits.fetch_add(1, Ordering::Relaxed);
         }
         value
     }
@@ -240,6 +329,10 @@ impl SubsetStore {
     /// for [`Self::master`] (a key of another length is not stored).
     pub(crate) fn put_master(&self, family: usize, words: &[u64], value: [f64; 6]) {
         self.misses.fetch_add(1, Ordering::Relaxed);
+        self.master_misses.fetch_add(1, Ordering::Relaxed);
+        if !self.admit(8 * (words.len() as u64 + 6)) {
+            return;
+        }
         match family {
             0 => put_master_in(&self.tadpoles, words, value),
             1 => put_master_in(&self.bubbles, words, value),
@@ -251,6 +344,13 @@ impl SubsetStore {
     /// Store a freshly computed result (a miss).
     pub(crate) fn put(&self, key: Vec<u64>, value: SharedValue) {
         self.misses.fetch_add(1, Ordering::Relaxed);
+        let size = match &value {
+            Ok(values) => 64 * values.len() as u64,
+            Err(message) => message.len() as u64,
+        };
+        if !self.admit(8 * key.len() as u64 + size) {
+            return;
+        }
         self.map.lock().unwrap_or_else(|e| e.into_inner()).insert(key, value);
     }
 
@@ -270,6 +370,9 @@ impl SubsetStore {
     /// Store freshly gathered Cartesian moments (a miss).
     pub(crate) fn put_moments(&self, key: Vec<u64>, moments: Vec<f64>) {
         self.moment_misses.fetch_add(1, Ordering::Relaxed);
+        if !self.admit(8 * (key.len() + moments.len()) as u64) {
+            return;
+        }
         self.moments.lock().unwrap_or_else(|e| e.into_inner()).insert(key, moments);
     }
 
@@ -289,6 +392,9 @@ impl SubsetStore {
     /// Store a freshly evaluated double-double master (a miss).
     pub(crate) fn put_dd_master(&self, key: Vec<u64>, value: [Complex<DoubleFloat>; 3]) {
         self.dd_master_misses.fetch_add(1, Ordering::Relaxed);
+        if !self.admit(8 * key.len() as u64 + 96) {
+            return;
+        }
         self.dd_masters.lock().unwrap_or_else(|e| e.into_inner()).insert(key, value);
     }
 
@@ -308,6 +414,11 @@ impl SubsetStore {
             &self.moment_misses,
             &self.dd_master_hits,
             &self.dd_master_misses,
+            &self.master_hits,
+            &self.master_misses,
+            &self.provider_masters,
+            &self.bytes,
+            &self.skipped,
         ] {
             counter.store(0, Ordering::Relaxed);
         }
@@ -326,6 +437,35 @@ impl SubsetStore {
     /// `(hits, misses)` of double-double scalar masters since the last clear.
     pub(crate) fn dd_master_counts(&self) -> (u64, u64) {
         (self.dd_master_hits.load(Ordering::Relaxed), self.dd_master_misses.load(Ordering::Relaxed))
+    }
+
+    /// `(hits, misses, provider-served)` of binary64 scalar masters since the
+    /// last clear (hits and misses are also part of [`Self::counts`]).
+    pub(crate) fn master_counts(&self) -> (u64, u64, u64) {
+        (
+            self.master_hits.load(Ordering::Relaxed),
+            self.master_misses.load(Ordering::Relaxed),
+            self.provider_masters.load(Ordering::Relaxed),
+        )
+    }
+
+    /// `(estimated bytes inserted, results not inserted over the budget)`
+    /// since the last clear.
+    pub(crate) fn byte_counts(&self) -> (u64, u64) {
+        (self.bytes.load(Ordering::Relaxed), self.skipped.load(Ordering::Relaxed))
+    }
+
+    /// Stored entries of every map (coefficient results, binary64 masters,
+    /// moments, double-double masters).
+    pub(crate) fn entries(&self) -> u64 {
+        let len = |n: usize| n as u64;
+        len(self.map.lock().unwrap_or_else(|e| e.into_inner()).len())
+            + len(self.tadpoles.lock().unwrap_or_else(|e| e.into_inner()).len())
+            + len(self.bubbles.lock().unwrap_or_else(|e| e.into_inner()).len())
+            + len(self.triangles.lock().unwrap_or_else(|e| e.into_inner()).len())
+            + len(self.boxes.lock().unwrap_or_else(|e| e.into_inner()).len())
+            + len(self.moments.lock().unwrap_or_else(|e| e.into_inner()).len())
+            + len(self.dd_masters.lock().unwrap_or_else(|e| e.into_inner()).len())
     }
 }
 

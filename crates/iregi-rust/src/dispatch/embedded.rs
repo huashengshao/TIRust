@@ -121,6 +121,9 @@ pub(crate) struct EmbeddedWorkspace<T: NativeFloat> {
     last: DirectExecutionStats,
     profiling: bool,
     last_profile: Option<ExecutionProfile>,
+    /// The caller's tensor store (`crate::TensorStore`), for every direct
+    /// workspace of this lane pipeline, present and future.
+    store: Option<std::sync::Arc<crate::direct::shared::SubsetStore>>,
 }
 
 impl<T: NativeFloat> EmbeddedWorkspace<T>
@@ -154,7 +157,25 @@ where
             last: DirectExecutionStats::default(),
             profiling: false,
             last_profile: None,
+            store: None,
         })
+    }
+
+    /// Share through the caller's tensor store (`None`: detach): the direct
+    /// pass, the method choice and the double-double tier.
+    pub(crate) fn set_shared_subsets(&mut self, store: Option<std::sync::Arc<crate::direct::shared::SubsetStore>>) {
+        self.direct.set_shared_subsets(store.clone());
+        if let Some(choice) = self.choice.as_mut() {
+            choice.set_shared_subsets(store.clone());
+        }
+        if let Some(double) = self.double.as_mut() {
+            double.set_shared_subsets(store.clone());
+        }
+        self.store = store;
+    }
+
+    pub(crate) fn plan(&self) -> &DirectReductionPlan {
+        &self.plan
     }
 
     fn is_binary64(prototype: &T) -> bool {
@@ -267,6 +288,7 @@ where
                 workspace.enable_partial_rescue(tier_threshold(TIER_BITS[0]));
             }
             workspace.set_profiling(self.profiling);
+            workspace.set_shared_subsets(self.store.clone());
             self.choice = Some(Box::new(workspace));
         }
         let workspace = self.choice.as_mut().unwrap();
@@ -330,6 +352,7 @@ where
                     )?);
                 }
                 let workspace = self.double.as_mut().unwrap();
+                workspace.set_shared_subsets(self.store.clone());
                 run_tier::<T, DoubleFloat>(workspace, DoubleFloat::from, batch, &current, &self.prototype, result, profile, &mut self.last)?
             } else {
                 let slot = &mut self.mpfr[tier - 1];
