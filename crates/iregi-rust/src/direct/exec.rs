@@ -162,7 +162,9 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     native: [Option<oneloop::NativeEvaluator<T>>; 4],
     native_input: Vec<C<T>>,
     native_output: Vec<C<T>>,
-    /// Key of the current master in the shared store (reused buffer).
+    /// Key of the current double-double master in the shared store: family,
+    /// arity and both limbs of every argument (reused buffer). Binary64
+    /// masters use a fixed-size key of `MASTER_KEY_WORDS` words instead.
     master_key: Vec<u64>,
     master_inputs: [Vec<C<T>>; 4],
     /// Per lane, per family, per master: four Laurent slots.
