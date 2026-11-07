@@ -386,48 +386,178 @@ fn massive_b_reproducer_double_double_equals_mpfr_on_shell() {
     assert!(off[1].re == 0.0 && moved[1] >= 0.5 && moved[3] > 1e-6, "{moved:?} {:?}", &off[..4]);
 }
 
-#[test]
-fn symbolic_engine_reads_supplied_invariants() {
-    // The generic symbolic plan with supplied invariants equals its Cartesian
-    // plan in double-double on a generic triangle and box (supplied: the
-    // double-double invariants of the same shifts). From six propagators on
-    // the symbolic engine refuses them typed (the direct engine serves them).
-    for (n, rank) in [(3usize, 2u16), (4, 1)] {
-        let shifts: [[f64; 4]; 6] = [
-            [0.0, 0.0, 0.0, 0.0],
-            [3.0, 1.0, 0.5, 2.0],
-            [5.0, -1.5, 2.0, 0.25],
-            [7.5, 0.5, -2.5, 1.0],
-            [9.0, 2.25, 1.5, -3.0],
-            [4.0, -0.75, -1.0, 2.5],
-        ];
-        let masses = [1.0f64, 2.5, 0.75, 4.0, 1.5, 3.25];
-        let prototype = DoubleFloat::from(0.0);
-        let lifted: Vec<[DoubleFloat; 4]> = shifts[..n].iter().map(|s| s.map(|x| lift(&prototype, x))).collect();
-        let zero = DoubleFloat::from(0.0);
-        let real = |x: DoubleFloat| Complex::new(x, zero.clone());
-        let mut row: Vec<Complex<DoubleFloat>> = lifted.iter().flatten().cloned().map(real).collect();
-        row.extend(masses[..n].iter().map(|&m| real(DoubleFloat::from(m))));
-        row.push(real(DoubleFloat::from(3.0)));
+/// The generic symbolic plan of `settings` in the carrier of `prototype` on
+/// the binary64 rows `rows` (each: shifts, squared masses, mu): its Cartesian
+/// plan, then with the carrier's invariants of the same (exactly lifted)
+/// shifts supplied. Returns both statuses and, per lane where both succeed, the
+/// supplied-vs-Cartesian deviation.
+fn symbolic_supplied_vs_cartesian<T: NativeFloat>(
+    prototype: T,
+    settings: &ReductionSettings,
+    rows: &[Vec<Complex<f64>>],
+) -> (Vec<LaneStatus>, Vec<LaneStatus>, Vec<f64>)
+where
+    Complex<T>: symbolica::evaluate::EvaluationDomain,
+{
+    symbolic_supplied_vs_cartesian_at(prototype, None, settings, rows).0
+}
+
+/// [`symbolic_supplied_vs_cartesian`] with the workspaces' accuracy precision
+/// `accuracy` (bits; `None`: the working precision), also returning the
+/// Cartesian values.
+#[allow(clippy::type_complexity)]
+fn symbolic_supplied_vs_cartesian_at<T: NativeFloat>(
+    prototype: T,
+    accuracy: Option<u32>,
+    settings: &ReductionSettings,
+    rows: &[Vec<Complex<f64>>],
+) -> ((Vec<LaneStatus>, Vec<LaneStatus>, Vec<f64>), Vec<Complex<T>>)
+where
+    Complex<T>: symbolica::evaluate::EvaluationDomain,
+{
+    let n = settings.propagators;
+    let zero = prototype.zero();
+    let (mut cartesian, mut supplied_rows) = (Vec::new(), Vec::new());
+    for row in rows {
+        let lifted: Vec<Complex<T>> =
+            row.iter().map(|z| Complex::new(lift(&prototype, z.re), lift(&prototype, z.im))).collect();
+        let shifts: Vec<[T; 4]> =
+            (0..n).map(|i| std::array::from_fn(|a| lifted[4 * i + a].re.clone())).collect();
         let mut invariants = Vec::new();
         for i in 0..n {
             for j in i + 1..n {
-                invariants.push(real(square(&lifted[i], &lifted[j])));
+                invariants.push(Complex::new(square(&shifts[i], &shifts[j]), zero.clone()));
             }
         }
-        let supplied_row = with_invariants(&row, n, &invariants);
-        let settings = ReductionSettings::new(n, rank);
-        let plan = ReductionPlan::new(settings.clone()).unwrap();
-        let expected = Workspace::new(&plan, prototype.clone()).unwrap().reduce_batch(&batch(row)).unwrap();
-        let plan = ReductionPlan::new(supplied(&settings)).unwrap();
-        assert_eq!(plan.input_layout(), &iregi_rust::InputLayout::of(&supplied(&settings)));
-        let got = Workspace::new(&plan, prototype.clone()).unwrap().reduce_batch(&batch(supplied_row)).unwrap();
-        assert_eq!(got.statuses, expected.statuses);
-        let deviation = precise_deviation(got.lane(0).unwrap(), expected.lane(0).unwrap(), 256);
-        println!("symbolic N{n} R{rank}: supplied vs Cartesian {deviation:e}");
-        assert!(deviation <= 1e-28, "N{n} R{rank}: {deviation:e}");
+        supplied_rows.extend(with_invariants(&lifted, n, &invariants));
+        cartesian.extend(lifted);
     }
+    let lanes = rows.len();
+    let plan = ReductionPlan::new(settings.clone()).unwrap();
+    let mut workspace = Workspace::new(&plan, prototype.clone()).unwrap();
+    if let Some(bits) = accuracy {
+        workspace.set_accuracy_precision(bits).unwrap();
+    }
+    let expected = workspace.reduce_batch(&KinematicsBatch { rows: lanes, components: 1, values: cartesian }).unwrap();
+    let plan = ReductionPlan::new(supplied(settings)).unwrap();
+    assert_eq!(plan.input_layout(), &iregi_rust::InputLayout::of(&supplied(settings)));
+    let mut workspace = Workspace::new(&plan, prototype).unwrap();
+    if let Some(bits) = accuracy {
+        workspace.set_accuracy_precision(bits).unwrap();
+    }
+    let got = workspace.reduce_batch(&KinematicsBatch { rows: lanes, components: 1, values: supplied_rows }).unwrap();
+    let deviations = (0..lanes)
+        .filter(|&lane| got.statuses[lane] == LaneStatus::Success && expected.statuses[lane] == LaneStatus::Success)
+        .map(|lane| precise_deviation(got.lane(lane).unwrap(), expected.lane(lane).unwrap(), 256))
+        .collect();
+    let width = expected.basis.len() * 4;
+    let values = (0..lanes)
+        .flat_map(|lane| expected.lane(lane).map_or_else(|_| vec![Complex::new(zero.clone(), zero.clone()); width], <[_]>::to_vec))
+        .collect();
+    ((got.statuses, expected.statuses.clone(), deviations), values)
+}
+
+#[test]
+fn symbolic_engine_reads_supplied_invariants() {
+    // The generic symbolic plan with supplied invariants equals its Cartesian
+    // plan in double-double (supplied: the double-double invariants of the
+    // same shifts): PV on a generic triangle and box, IBP (no self-alias of
+    // the supplied symbols) on a dotted triangle.
+    let shifts: [[f64; 4]; 4] = [
+        [0.0, 0.0, 0.0, 0.0],
+        [3.0, 1.0, 0.5, 2.0],
+        [5.0, -1.5, 2.0, 0.25],
+        [7.5, 0.5, -2.5, 1.0],
+    ];
+    let masses = [1.0f64, 2.5, 0.75, 4.0];
+    let mut dotted = ReductionSettings::new(3, 1);
+    dotted.powers = vec![2, 1, 1];
+    dotted.algorithm = iregi_rust::Algorithm::Ibp;
+    for settings in [ReductionSettings::new(3, 2), ReductionSettings::new(4, 1), dotted] {
+        let n = settings.propagators;
+        let mut row: Vec<Complex<f64>> = shifts[..n].iter().flatten().map(|&x| Complex::new(x, 0.0)).collect();
+        row.extend(masses[..n].iter().map(|&m| Complex::new(m, 0.0)));
+        row.push(Complex::new(3.0, 0.0));
+        let (got, expected, deviations) = symbolic_supplied_vs_cartesian(DoubleFloat::from(0.0), &settings, &[row]);
+        assert_eq!(got, expected);
+        assert_eq!(got[0], LaneStatus::Success);
+        println!("symbolic N{n} R{} powers {:?}: supplied vs Cartesian {:e}", settings.rank, settings.powers, deviations[0]);
+        assert!(deviations[0] <= 1e-28, "{settings:?}: {:e}", deviations[0]);
+    }
+}
+
+/// Two lanes of `n <= 7` points: generic shifts and shifts routed by
+/// timelike external momenta, squared masses 1 to 4, mu = 3 (dyadic values,
+/// so their invariants are exact in every carrier here).
+fn generic_rows(n: usize) -> Vec<Vec<Complex<f64>>> {
+    let generic: [[f64; 4]; 7] = [
+        [0.0, 0.0, 0.0, 0.0],
+        [3.0, 1.0, 0.5, 2.0],
+        [5.0, -1.5, 2.0, 0.25],
+        [7.5, 0.5, -2.5, 1.0],
+        [9.0, 2.25, 1.5, -3.0],
+        [4.0, -0.75, -1.0, 2.5],
+        [6.5, 1.75, -0.5, -1.5],
+    ];
+    let routed: [[f64; 4]; 7] = [
+        [0.0, 0.0, 0.0, 0.0],
+        [5.0, 0.5, -0.75, 1.25],
+        [9.5, 1.5, 0.25, 0.5],
+        [15.0, 0.25, 1.0, -0.5],
+        [19.25, -0.75, 0.5, -1.25],
+        [24.0, -0.5, -0.25, 0.75],
+        [28.5, 0.75, -1.0, 0.25],
+    ];
+    let masses = [1.0f64, 2.5, 0.75, 4.0, 1.5, 3.25, 2.0];
+    [generic, routed]
+        .iter()
+        .map(|shifts| {
+            let mut row: Vec<Complex<f64>> = shifts[..n].iter().flatten().map(|&x| Complex::new(x, 0.0)).collect();
+            row.extend(masses[..n].iter().map(|&m| Complex::new(m, 0.0)));
+            row.push(Complex::new(3.0, 0.0));
+            row
+        })
+        .collect()
+}
+
+#[test]
+#[ignore = "generic five- to seven-point symbolic preparation (two plans each; about 13 minutes in a debug build); run explicitly"]
+fn symbolic_engine_reads_supplied_invariants_from_five_points_on() {
+    // Five points (PV), six and seven points: the exact four-dimensional
+    // denominator identities take their vector rows from the shifts and their
+    // constant row from the supplied invariants, in PV and in the IBP routing.
+    // At 256 bits with a requested accuracy of 64 bits (the generic plans'
+    // cancellation estimate refuses these lanes at the full working
+    // precision, for Cartesian shifts as well), the supplied-invariant plan
+    // equals its Cartesian plan and both equal the direct engine.
+    let mut six_ibp = ReductionSettings::new(6, 0);
+    six_ibp.algorithm = iregi_rust::Algorithm::Ibp;
+    for settings in [ReductionSettings::new(5, 1), ReductionSettings::new(6, 0), six_ibp, ReductionSettings::new(7, 0)] {
+        let n = settings.propagators;
+        let rows = generic_rows(n);
+        let started = std::time::Instant::now();
+        let ((got, expected, deviations), values) =
+            symbolic_supplied_vs_cartesian_at(Float::new(256), Some(64), &settings, &rows);
+        let elapsed = started.elapsed();
+        assert_eq!(got, expected);
+        assert!(got.iter().all(|status| *status == LaneStatus::Success), "{got:?}");
+        assert!(deviations.iter().all(|&d| d <= 1e-60), "{deviations:?}");
+        let mut direct_settings = settings.clone();
+        direct_settings.algorithm = iregi_rust::Algorithm::Hybrid;
+        let mut direct = DirectReductionPlan::new(direct_settings).unwrap().workspace(Float::new(256)).unwrap();
+        let lifted = rows.iter().flatten().map(|z| Complex::new(Float::with_val(256, z.re), Float::with_val(256, z.im))).collect();
+        let reference = direct.reduce_batch(&KinematicsBatch { rows: rows.len(), components: 1, values: lifted }).unwrap();
+        let stride = values.len() / rows.len();
+        let against_direct: Vec<f64> = (0..rows.len())
+            .map(|lane| precise_deviation(&values[lane * stride..(lane + 1) * stride], reference.lane(lane).unwrap(), 256))
+            .collect();
+        println!(
+            "symbolic N{n} R{} {:?} at 256 bits ({elapsed:?}): supplied vs Cartesian {deviations:?}, vs the direct engine {against_direct:?}",
+            settings.rank, settings.algorithm
+        );
+        assert!(against_direct.iter().all(|&d| d <= 1e-60), "{against_direct:?}");
+    }
+    // The facade serves supplied invariants by the direct engine.
     let settings = supplied(&ReductionSettings::new(6, 1));
-    assert!(matches!(ReductionPlan::new(settings.clone()), Err(iregi_rust::ReductionError::Unsupported(_))));
     assert_eq!(TensorReductionPlan::new(settings).unwrap().engine_kind(), iregi_rust::TensorEngineKind::Direct);
 }

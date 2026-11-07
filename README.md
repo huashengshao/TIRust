@@ -77,9 +77,11 @@ rank-one lifecycle case. Each family's validated domain is documented separately
   them exactly as given, so an on-shell invariant equal to a squared mass stays
   equal to it bit for bit and the masters take their on-shell branches in every
   precision; the shifts still give the tensor components and the vector
-  geometry. The direct engine serves them at every point count; the symbolic
-  engine through five points (its high-point identities need
-  four-dimensionally consistent invariants). `tests/supplied_invariants.rs`:
+  geometry. The direct engine and the generic symbolic engine serve them at
+  every point count (from six points on, the symbolic denominator identities
+  take their vector rows from the shifts and their constant row from the
+  supplied invariants; the specialised six- and seven-point plans take
+  Cartesian shifts only). `tests/supplied_invariants.rs`:
   double-double equals 256-bit MPFR within 4e-32 on the IR-divergent
   (0, m_b, m_t) vertex triangle of b b~ > t t~ at a binary64-rounded point,
   binary64 within 5e-16, while the invariants of the rounded shifts lose its

@@ -488,15 +488,12 @@ impl ReductionPlan {
                 "supplied scalar products with six or more propagators require validated four-dimensional Gram constraints in every Taylor component; coordinate inputs remain supported".into(),
             ));
         }
-        // The same holds for supplied invariants as independent symbols: the
-        // generic N6 plan took 18 minutes to prepare and refused a regular
-        // lane (estimated cancellation) that its Cartesian plan accepts. The
-        // direct engine serves supplied invariants at every N.
-        if settings.invariants == InvariantInput::SuppliedInvariants && n >= 6 {
-            return Err(ReductionError::Unsupported(
-                "supplied invariants with six or more propagators: the symbolic high-point identities need four-dimensionally consistent invariants; the direct engine (DirectReductionPlan, TensorReductionPlan, embedder mode) serves them".into(),
-            ));
-        }
+        // Supplied invariants (the S-matrix of the shifts) serve every N: from
+        // six propagators on, the exact four-dimensional denominator
+        // identities take their vector rows from the Cartesian shifts and
+        // their constant row from the supplied invariants (as in PV's
+        // high-point identity and the IBP routing below), so the caller's
+        // consistent kinematics make them exact to the supplied rounding.
         let requested_threshold = match &settings.input_policy {
             InputPolicy::Preserve => None,
             InputPolicy::LegacyOnShell { threshold } => Some(exact_threshold(threshold)?),
@@ -1150,7 +1147,10 @@ fn compile_scalar_tensors(
             let s = variable(&format!("s{i}_{j}"));
             distances[i][j] = s.clone();
             distances[j][i] = s.clone();
-            aliases.push((s, supplied_distances[i][j].clone()));
+            // Supplied invariants are these very symbols (no alias).
+            if supplied_distances[i][j] != s {
+                aliases.push((s, supplied_distances[i][j].clone()));
+            }
         }
     }
     let r = (0..n)
@@ -1192,10 +1192,14 @@ fn compile_scalar_tensors(
         compiler
             .set_certified_linear_coordinates(coordinates)
             .map_err(ReductionError::Preparation)?;
-    } else if settings.invariants == InvariantInput::FromShifts
+    } else if (settings.invariants == InvariantInput::FromShifts
         && (settings.input_policy == InputPolicy::Preserve
-            || crate::snapping::highpoint_legacy_domain(settings))
+            || crate::snapping::highpoint_legacy_domain(settings)))
+        || settings.invariants == InvariantInput::SuppliedInvariants
     {
+        // Supplied invariants are the S-matrix of these shifts: the routing
+        // identities (vector rows from the shifts, constant row from R) hold
+        // to the supplied rounding, as for derived invariants.
         compiler
             .set_routing(shifts.to_vec())
             .map_err(ReductionError::Preparation)?;
