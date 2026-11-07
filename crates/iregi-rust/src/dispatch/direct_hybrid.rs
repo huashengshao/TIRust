@@ -316,10 +316,16 @@ fn rescue_threshold(bits: u32) -> f64 {
 /// First tier that admits the binary64 conditioning estimate with margin. An
 /// exactly singular binary64 pivot carries no estimate and starts at 256 bits.
 fn first_tier(condition: f64) -> usize {
+    first_tier_under(condition, rescue_threshold)
+}
+
+/// [`first_tier`] for tiers that accept conditioning down to `threshold(bits)`
+/// (the facade's rescue or embedder mode's stricter tiers).
+pub(super) fn first_tier_under(condition: f64, threshold: impl Fn(u32) -> f64) -> usize {
     if condition > 0.0 {
         RESCUE_BITS
             .iter()
-            .position(|&bits| condition >= rescue_threshold(bits) * 2f64.powi(RESCUE_MARGIN as i32))
+            .position(|&bits| condition >= threshold(bits) * 2f64.powi(RESCUE_MARGIN as i32))
             .unwrap_or(RESCUE_BITS.len() - 1)
     } else {
         1
@@ -428,13 +434,20 @@ pub(crate) struct DirectHybridWorkspace<T: NativeFloat> {
     diagnostics: Vec<Vec<String>>,
 }
 
-fn masters_for(options: TensorWorkspaceOptions) -> DirectMasters {
-    match options.master_policy {
+pub(super) fn masters_for(policy: MasterExecutionPolicy) -> DirectMasters {
+    match policy {
         MasterExecutionPolicy::Default | MasterExecutionPolicy::NativeF64Abc => {
             DirectMasters::Native
         }
         MasterExecutionPolicy::Symbolica => DirectMasters::Policy(MasterExecutionPolicy::Symbolica),
     }
+}
+
+/// Add a direct-engine workspace's profile to the facade's.
+pub(super) fn add_direct_profile(profile: &mut ExecutionProfile, child: DirectProfile) {
+    profile.arguments += child.geometry;
+    profile.scalar_masters += child.masters;
+    profile.reduction += child.recurrence + child.gather + child.output;
 }
 
 impl<T: NativeFloat> DirectHybridWorkspace<T>
@@ -453,7 +466,7 @@ where
     ) -> Result<Self, ReductionError> {
         let mut direct = plan
             .direct
-            .workspace_with_masters(prototype.clone(), masters_for(options))?;
+            .workspace_with_masters(prototype.clone(), masters_for(options.master_policy))?;
         direct.set_profiling(options.profiling);
         if rotation_tested(plan.direct.settings()) {
             direct.set_stability_threshold(from_binary64(&prototype, ROTATION_GATE));
@@ -612,7 +625,7 @@ where
         profile: &mut ExecutionProfile,
     ) -> Result<Vec<(LaneStatus, Option<f64>)>, ReductionError> {
         let bits = RESCUE_BITS[tier];
-        let masters = masters_for(self.options);
+        let masters = masters_for(self.options.master_policy);
         let plan = &self.plan.direct;
         let profiling = self.profiling;
         if tier == 0 {
@@ -800,7 +813,7 @@ where
             let mut workspace = self
                 .plan
                 .direct
-                .workspace_with_masters(self.prototype.clone(), masters_for(self.options))?;
+                .workspace_with_masters(self.prototype.clone(), masters_for(self.options.master_policy))?;
             if expansion {
                 // The a priori gate decides which boxes are expanded.
                 if rotation_tested(self.plan.direct.settings()) {
@@ -848,9 +861,7 @@ where
         child.recurrence += rotated_profile.recurrence;
         child.gather += rotated_profile.gather;
         child.output += rotated_profile.output;
-        profile.arguments += child.geometry;
-        profile.scalar_masters += child.masters;
-        profile.reduction += child.recurrence + child.gather + child.output;
+        add_direct_profile(profile, child);
         if expansion {
             self.last.expansion_rows += lanes.len();
         } else {
@@ -888,10 +899,7 @@ where
             let near_batch = KinematicsBatch { rows: near.len(), components: batch.components, values };
             let third = workspace.reduce_batch(&rotated(&rotated(&near_batch, &layout), &layout))?;
             self.last.master_rows += workspace.last_master_rows();
-            let third_profile = workspace.last_profile();
-            profile.arguments += third_profile.geometry;
-            profile.scalar_masters += third_profile.masters;
-            profile.reduction += third_profile.recurrence + third_profile.gather + third_profile.output;
+            add_direct_profile(profile, workspace.last_profile());
             for (j, &k) in near.iter().enumerate() {
                 if third.statuses[j] == LaneStatus::Success {
                     let difference = lane_difference(
@@ -1504,7 +1512,7 @@ where
                 let mut workspace = self
                     .plan
                     .direct
-                    .workspace_with_masters(self.prototype.clone(), masters_for(self.options))?;
+                    .workspace_with_masters(self.prototype.clone(), masters_for(self.options.master_policy))?;
                 if stage == 0 {
                     if rotation_tested(self.plan.direct.settings()) {
                         workspace.set_stability_threshold(from_binary64(&self.prototype, ROTATION_GATE));
@@ -1623,7 +1631,7 @@ where
 /// Run `lanes` of `batch` on a rescue-tier workspace with exactly lifted
 /// inputs; round accepted lanes into `result`.
 #[allow(clippy::too_many_arguments)]
-fn run_tier<T: NativeFloat, R: NativeFloat>(
+pub(super) fn run_tier<T: NativeFloat, R: NativeFloat>(
     workspace: &mut DirectWorkspace<R>,
     lift: impl Fn(f64) -> R,
     batch: &KinematicsBatch<T>,
@@ -1653,10 +1661,7 @@ where
     };
     let rescued = workspace.reduce_batch(&sub)?;
     stats.master_rows += workspace.last_master_rows();
-    let child = workspace.last_profile();
-    profile.arguments += child.geometry;
-    profile.scalar_masters += child.masters;
-    profile.reduction += child.recurrence + child.gather + child.output;
+    add_direct_profile(profile, workspace.last_profile());
     let stride = result.basis.len() * 4 * result.components;
     let conditions = workspace.last_conditions();
     let mut outcomes = Vec::with_capacity(lanes.len());
@@ -1677,7 +1682,7 @@ where
     Ok(outcomes)
 }
 
-fn prepare_tier<R: NativeFloat>(
+pub(super) fn prepare_tier<R: NativeFloat>(
     workspace: Result<DirectWorkspace<R>, ReductionError>,
     threshold: R,
     profiling: bool,

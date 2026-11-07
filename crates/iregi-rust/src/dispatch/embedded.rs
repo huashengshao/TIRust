@@ -34,10 +34,12 @@ use symbolica::{
     evaluate::EvaluationDomain,
 };
 
-use super::direct_hybrid::{DirectExecutionStats, DirectRescueTier};
+use super::direct_hybrid::{
+    DirectExecutionStats, DirectRescueTier, add_direct_profile, first_tier_under, masters_for, prepare_tier, run_tier,
+};
 use crate::{
-    BatchResult, DirectMasters, DirectReductionPlan, DirectWorkspace, ExecutionProfile, KinematicsBatch,
-    LaneStatus, ReductionError, types::filled,
+    BatchResult, DirectReductionPlan, DirectWorkspace, ExecutionProfile, KinematicsBatch, LaneStatus, ReductionError,
+    types::filled,
 };
 
 /// Configuration of an embedder-mode workspace ([`TensorWorkspace::new_embedded`]).
@@ -94,7 +96,7 @@ pub enum LaneRoute {
 // The facade's own constants: the method choice runs with its gate and
 // small-Gram boost, the precision tiers on its rescue ladder.
 use super::direct_hybrid::{
-    GRAM_BOOST, RESCUE_BITS as TIER_BITS, RESCUE_HEADROOM as TIER_HEADROOM, RESCUE_MARGIN as TIER_MARGIN,
+    GRAM_BOOST, RESCUE_BITS as TIER_BITS, RESCUE_HEADROOM as TIER_HEADROOM,
     ROTATION_GATE as METHOD_CHOICE_GATE, from_binary64,
 };
 
@@ -103,13 +105,6 @@ use super::direct_hybrid::{
 /// accuracy (no a posteriori check in this mode).
 fn tier_threshold(bits: u32) -> f64 {
     2f64.powi(-((bits - TIER_HEADROOM) as i32))
-}
-
-fn masters_for(policy: MasterExecutionPolicy) -> DirectMasters {
-    match policy {
-        MasterExecutionPolicy::Default | MasterExecutionPolicy::NativeF64Abc => DirectMasters::Native,
-        MasterExecutionPolicy::Symbolica => DirectMasters::Policy(MasterExecutionPolicy::Symbolica),
-    }
 }
 
 #[derive(Clone)]
@@ -198,19 +193,13 @@ where
         }
     }
 
-    fn add_profile(profile: &mut ExecutionProfile, child: crate::DirectProfile) {
-        profile.arguments += child.geometry;
-        profile.scalar_masters += child.masters;
-        profile.reduction += child.recurrence + child.gather + child.output;
-    }
-
     pub(crate) fn reduce_batch(&mut self, batch: &KinematicsBatch<T>) -> Result<BatchResult<T>, ReductionError> {
         let started = self.profiling.then(std::time::Instant::now);
         let mut profile = ExecutionProfile::default();
         let mut result = self.direct.reduce_batch(batch)?;
         result.estimated_errors = filled(batch.rows, None);
         result.best_effort = filled(batch.rows, false);
-        Self::add_profile(&mut profile, self.direct.last_profile());
+        add_direct_profile(&mut profile, self.direct.last_profile());
         self.last = DirectExecutionStats {
             input_rows: batch.rows,
             master_rows: self.direct.last_master_rows(),
@@ -283,7 +272,7 @@ where
         let workspace = self.choice.as_mut().unwrap();
         let chosen = workspace.reduce_batch(&Self::sub_batch(batch, lanes))?;
         self.last.master_rows += workspace.last_master_rows();
-        Self::add_profile(profile, workspace.last_profile());
+        add_direct_profile(profile, workspace.last_profile());
         self.last.expansion_rows += lanes.len();
         let stride = result.basis.len() * 4 * result.components;
         let choice_conditions = workspace.last_conditions();
@@ -319,18 +308,10 @@ where
     ) -> Result<(), ReductionError> {
         // The first tier admitting the binary64 estimate with margin (an
         // exactly singular binary64 pivot carries a zero estimate: 256 bits).
-        let first = |condition: f64| {
-            if condition > 0.0 {
-                TIER_BITS
-                    .iter()
-                    .position(|&bits| condition >= tier_threshold(bits) * 2f64.powi(TIER_MARGIN as i32))
-                    .unwrap_or(TIER_BITS.len() - 1)
-            } else {
-                1
-            }
-        };
-        let mut pending: Vec<(usize, usize)> =
-            lanes.iter().map(|&lane| (lane, first(conditions[lane].unwrap_or(0.0)))).collect();
+        let mut pending: Vec<(usize, usize)> = lanes
+            .iter()
+            .map(|&lane| (lane, first_tier_under(conditions[lane].unwrap_or(0.0), tier_threshold)))
+            .collect();
         self.last.fallback_rows += pending.len();
         let masters = masters_for(self.options.master_policy);
         for (tier, &bits) in TIER_BITS.iter().enumerate() {
@@ -339,40 +320,32 @@ where
             if current.is_empty() {
                 continue;
             }
-            let sub = Self::sub_batch(batch, &current);
-            let (statuses, values, tier_conditions) = if tier == 0 {
+            // Accepted lanes are rounded into `result` by the facade's tier runner.
+            let outcomes = if tier == 0 {
                 if self.double.is_none() {
-                    let mut workspace = self.plan.workspace_with_masters::<DoubleFloat>(DoubleFloat::from(0.0), masters)?;
-                    workspace.set_stability_threshold(DoubleFloat::from(tier_threshold(bits)));
-                    workspace.set_input_precision(53);
-                    workspace.set_profiling(self.profiling);
-                    self.double = Some(Box::new(workspace));
+                    self.double = Some(prepare_tier::<DoubleFloat>(
+                        self.plan.workspace_with_masters::<DoubleFloat>(DoubleFloat::from(0.0), masters),
+                        DoubleFloat::from(tier_threshold(bits)),
+                        self.profiling,
+                    )?);
                 }
-                Self::run_tier::<DoubleFloat>(self.double.as_mut().unwrap(), DoubleFloat::from, &sub, profile, &mut self.last)?
+                let workspace = self.double.as_mut().unwrap();
+                run_tier::<T, DoubleFloat>(workspace, DoubleFloat::from, batch, &current, &self.prototype, result, profile, &mut self.last)?
             } else {
                 let slot = &mut self.mpfr[tier - 1];
                 if slot.is_none() {
-                    let mut workspace = self.plan.workspace_with_masters::<Float>(Float::new(bits), masters)?;
-                    workspace.set_stability_threshold(Float::with_val(bits, tier_threshold(bits)));
-                    workspace.set_input_precision(53);
-                    workspace.set_profiling(self.profiling);
-                    *slot = Some(Box::new(workspace));
+                    *slot = Some(prepare_tier::<Float>(
+                        self.plan.workspace_with_masters::<Float>(Float::new(bits), masters),
+                        Float::with_val(bits, tier_threshold(bits)),
+                        self.profiling,
+                    )?);
                 }
-                Self::run_tier::<Float>(slot.as_mut().unwrap(), |x| Float::with_val(bits, x), &sub, profile, &mut self.last)?
+                let workspace = slot.as_mut().unwrap();
+                run_tier::<T, Float>(workspace, |x| Float::with_val(bits, x), batch, &current, &self.prototype, result, profile, &mut self.last)?
             };
-            let stride = result.basis.len() * 4 * result.components;
             let mut successes = 0;
-            for (k, &lane) in current.iter().enumerate() {
-                if statuses[k] == LaneStatus::Success {
-                    for (out, value) in result.values[lane * stride..(lane + 1) * stride]
-                        .iter_mut()
-                        .zip(&values[k * stride..(k + 1) * stride])
-                    {
-                        *out = Complex::new(
-                            from_binary64(&self.prototype, value.re),
-                            from_binary64(&self.prototype, value.im),
-                        );
-                    }
+            for (&lane, (status, condition)) in current.iter().zip(&outcomes) {
+                if *status == LaneStatus::Success {
                     result.statuses[lane] = LaneStatus::Success;
                     result.fallback_used[lane] = true;
                     self.routes[lane] = LaneRoute::Tier(bits);
@@ -380,8 +353,8 @@ where
                     successes += 1;
                     pending.retain(|&(other, _)| other != lane);
                 } else {
-                    self.diagnostics[lane].push(format!("direct engine at {bits} bits: {:?}", statuses[k]));
-                    if tier_conditions[k].is_none() || tier + 1 == TIER_BITS.len() {
+                    self.diagnostics[lane].push(format!("direct engine at {bits} bits: {status:?}"));
+                    if condition.is_none() || tier + 1 == TIER_BITS.len() {
                         pending.retain(|&(other, _)| other != lane);
                     }
                 }
@@ -390,31 +363,5 @@ where
             self.last.precision_rescue.push(DirectRescueTier { bits, rows: current.len(), successes });
         }
         Ok(())
-    }
-
-    /// `batch` (binary64) lifted exactly into a tier's domain and reduced;
-    /// statuses, values rounded to binary64, and conditioning estimates.
-    #[allow(clippy::type_complexity)]
-    fn run_tier<R: NativeFloat>(
-        workspace: &mut DirectWorkspace<R>,
-        lift: impl Fn(f64) -> R,
-        batch: &KinematicsBatch<T>,
-        profile: &mut ExecutionProfile,
-        stats: &mut DirectExecutionStats,
-    ) -> Result<(Vec<LaneStatus>, Vec<Complex<f64>>, Vec<Option<f64>>), ReductionError>
-    where
-        Complex<R>: EvaluationDomain,
-    {
-        let values = batch
-            .values
-            .iter()
-            .map(|z| Complex::new(lift(z.re.to_f64()), lift(z.im.to_f64())))
-            .collect();
-        let sub = KinematicsBatch { rows: batch.rows, components: batch.components, values };
-        let rescued = workspace.reduce_batch(&sub)?;
-        stats.master_rows += workspace.last_master_rows();
-        Self::add_profile(profile, workspace.last_profile());
-        let values = rescued.values.iter().map(|z| Complex::new(z.re.to_f64(), z.im.to_f64())).collect();
-        Ok((rescued.statuses, values, workspace.last_conditions().to_vec()))
     }
 }
