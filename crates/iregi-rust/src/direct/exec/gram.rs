@@ -1577,6 +1577,23 @@ where
             }
             Ok(cur)
         };
+        // The alternative PV reduction where neither expansion converges
+        // (or for a hopeless nested triangle) only where det X, by which it
+        // divides once per two ranks, is determined to the expansions'
+        // tolerance: its relative rounding at the working precision, 2^-p v
+        // with v its cancellation (`cayley_cancellation`), at most
+        // `EXPANSION_TOLERANCE`. det X vanishes for IR-divergent boxes and
+        // triangles (massless propagators with lightlike legs), where the
+        // reduction is 0/0 at any precision. Refused otherwise (a larger boost
+        // follows, if any).
+        let alt_pv_checked = || -> Result<Coefficients<T>, String> {
+            let v = cayley_cancellation(&z, &f, &m02, nm).unwrap_or(f64::INFINITY);
+            let rounding = 2f64.powi(-(self.prototype.get_precision().min(i32::MAX as u32) as i32)) * v;
+            if !(rounding <= EXPANSION_TOLERANCE) {
+                return Err(format!("alternative PV: modified Cayley determinant cancels (relative rounding {rounding:e})"));
+            }
+            alt_pv()
+        };
         // A converged expansion whose last pass still changed it by `change`
         // (not machine precision) against the alternative PV reduction: if
         // the two differ by no more than twice `change`, the expansion's own
@@ -1624,7 +1641,7 @@ where
             }
             // A hopeless nested triangle: the alternative PV, as when its
             // expansion fails.
-            _ if self.gram_alt_direct => alt_pv()?,
+            _ if self.gram_alt_direct => alt_pv_checked()?,
             Some(map) if last_change <= EXPANSION_TOLERANCE => prefer(map, last_change),
             _ => 'gc: {
                 // Small (Zadj f)_j as well (Xtilde >> Zadj f): the expansion
@@ -1662,7 +1679,7 @@ where
                     if extra > 0 && last_change * ratio.powi(extra) <= EXPANSION_TOLERANCE {
                         return Err("small-Gram expansion did not converge; a larger boost follows".into());
                     }
-                    break 'gc alt_pv()?;
+                    break 'gc alt_pv_checked()?;
                 }
                 let inv_xt = cinv(&xt[gi][gj]);
                 let y0 = |j: usize| csub(&zero, &adjf[j]);
@@ -1868,7 +1885,7 @@ where
                             "small-Gram expansion did not converge (last relative change {last_change:e}; with small Cayley determinant {gc_change:e}); a larger boost follows"
                         ));
                     }
-                    _ => alt_pv().map_err(|error| format!(
+                    _ => alt_pv_checked().map_err(|error| format!(
                             "small-Gram expansion did not converge (last relative change {last_change:e}; with small Cayley determinant {gc_change:e}); {error}"
                         ))?,
                 }
