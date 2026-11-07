@@ -141,6 +141,15 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     /// failure so that the next boost is tried; otherwise it falls back to
     /// the alternative PV reduction.
     gram_extra_ranks: u16,
+    /// Auxiliary expansion executor at the largest boost (`gram_extra_ranks`
+    /// 0) whose expansions do not converge and whose alternative PV is
+    /// refused: the further ranks the observed convergence rate predicts
+    /// (`gram::predicted_ranks`), for the parent's one data-derived attempt.
+    gram_wanted_ranks: Option<u16>,
+    /// Auxiliary expansion executor of its parent's last attempt (its
+    /// largest boost, or the data-derived one): its own boxes and triangles
+    /// get the data-derived boost too.
+    gram_final: bool,
     /// Every box and triangle by the expansions or the alternative PV
     /// reduction, whatever its Gram conditioning (COLLIER chooses per box).
     gram_everywhere: bool,
@@ -373,6 +382,8 @@ where
             gram_tables: Vec::new(),
             gram_pool: gram::CoefficientPool::default(),
             gram_extra_ranks: 0,
+            gram_wanted_ranks: None,
+            gram_final: false,
             gram_everywhere: false,
             gram_estimated: false,
             estimate_flags: false,
