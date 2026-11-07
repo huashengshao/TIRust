@@ -199,6 +199,10 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     /// Precision (bits) of the inputs: the lightlike bubble rule is relative
     /// to it. The working precision unless set (`set_input_precision`).
     input_bits: u32,
+    /// `2^-(input_bits - LIGHTLIKE_MARGIN_BITS)` (computed once).
+    lightlike_tolerance: T,
+    /// Width of each propagator's field in the packed IBP keys.
+    ibp_bits: u32,
     shifts: Vec<[C<T>; 4]>,
     masses: Vec<C<T>>,
     /// `g_lambda` blocks, `lambda * stride + monomial`.
@@ -383,6 +387,8 @@ where
             scale_squared: plan.settings.scale_input == ScaleInput::MuSquared,
             lane_scale: zero.clone(),
             input_bits: prototype.get_precision(),
+            lightlike_tolerance: tolerance_at(&prototype, prototype.get_precision(), LIGHTLIKE_MARGIN_BITS),
+            ibp_bits: ibp_field_bits(plan.settings.propagators),
             shifts: vec![[zero.clone(), zero.clone(), zero.clone(), zero.clone()]; plan.settings.propagators],
             masses: vec![zero.clone(); plan.settings.propagators],
             g_buffer: vec![lzero(&zero); gather_degree * (usize::from(plan.settings.rank) / 2 + 1)],
@@ -504,6 +510,7 @@ where
 
     pub fn set_input_precision(&mut self, bits: u32) {
         self.input_bits = bits;
+        self.lightlike_tolerance = tolerance_at(&self.prototype, bits, LIGHTLIKE_MARGIN_BITS);
     }
 
     pub fn last_conditions(&self) -> &[Option<f64>] {
@@ -1107,7 +1114,7 @@ where
                         let mut executor = DirectExecutor::<DoubleFloat>::new(Arc::new(small), DoubleFloat::from(0.0), DirectMasters::Native)
                             .map_err(|e| e.to_string())?;
                         // It evaluates this lane's inputs, at their precision.
-                        executor.input_bits = self.input_bits;
+                        executor.set_input_precision(self.input_bits);
                         executor.set_stability_threshold(DoubleFloat::from(partial.threshold));
                         executor.coefficients_only = true;
                         entry.insert(executor)
@@ -1149,17 +1156,7 @@ where
     /// bits above the working precision's unit roundoff, the same at every
     /// precision relative to it (binary64: `2^-(53 - margin)`).
     fn precision_tolerance(&self, margin: i64) -> T {
-        self.tolerance_at(self.prototype.get_precision(), margin)
-    }
-
-    /// `2^-(bits - margin)` at working precision.
-    fn tolerance_at(&self, bits: u32, margin: i64) -> T {
-        let bits = i64::from(bits) - margin;
-        if bits >= 0 {
-            self.binary_tolerance(bits as u64)
-        } else {
-            self.prototype.from_usize(2).pow((-bits) as u64)
-        }
+        tolerance_at(&self.prototype, self.prototype.get_precision(), margin)
     }
 
     /// The constant-one identity `sum_i c_i D_i = 1` over `members`, if their
@@ -1402,7 +1399,7 @@ where
                         // its roundoff), 2^-93 in double-double, 2^-(p-13) at p
                         // MPFR bits; never a fixed binary64 bound at higher
                         // precision.
-                        let lightlike = cnorm2(p2).sqrt() <= scale * &self.tolerance_at(self.input_bits, LIGHTLIKE_MARGIN_BITS);
+                        let lightlike = cnorm2(p2).sqrt() <= scale * &self.lightlike_tolerance;
                         if subset.lightlike {
                             if !lightlike {
                                 return Err(GeometryFailure::Relation(format!(
@@ -2225,7 +2222,7 @@ where
             return Ok(value.clone());
         }
         let n = self.plan.settings.propagators;
-        let bits = ibp_field_bits(n);
+        let bits = self.ibp_bits;
         let power = |packed: u64, i: usize| ibp_power(packed, bits, i);
         let mask: SubsetMask = (0..n).filter(|&i| power(powers, i) > 0).fold(0, |m, i| m | (1 << i));
         if mask == 0 {
@@ -2289,8 +2286,12 @@ where
                 if mask & (1 << dotted) == 0 {
                     continue;
                 }
-                let bits = ibp_field_bits(plan.settings.propagators);
-                let unit: u64 = members(mask).into_iter().map(|i| ibp_unit(bits, i)).sum();
+                let bits = self.ibp_bits;
+                let (mut unit, mut rest) = (0u64, mask);
+                while rest != 0 {
+                    unit += ibp_unit(bits, rest.trailing_zeros() as usize);
+                    rest &= rest - 1;
+                }
                 for order in 1..k_len {
                     let value = self.ibp(unit + order as u64 * ibp_unit(bits, dotted))?;
                     self.values_jet[order - 1][index as usize] = value;
@@ -3498,6 +3499,17 @@ fn write_dd_master<T: NativeFloat>(output: &mut [C<T>], stored: &[C<symbolica::d
 fn read_dd_master<T: NativeFloat>(output: &[C<T>]) -> Option<[C<symbolica::domains::float::DoubleFloat>; 3]> {
     let read = |k: usize| (&output[k] as &dyn std::any::Any).downcast_ref::<C<symbolica::domains::float::DoubleFloat>>().cloned();
     Some([read(0)?, read(1)?, read(2)?])
+}
+
+/// `2^-(bits - margin)` in the domain of `prototype`.
+fn tolerance_at<T: NativeFloat>(prototype: &T, bits: u32, margin: i64) -> T {
+    let exponent = i64::from(bits) - margin;
+    let two = prototype.from_usize(2);
+    if exponent >= 0 {
+        prototype.one() / &two.pow(exponent as u64)
+    } else {
+        two.pow((-exponent) as u64)
+    }
 }
 
 /// Width of each propagator's power field in the packed IBP keys of an
