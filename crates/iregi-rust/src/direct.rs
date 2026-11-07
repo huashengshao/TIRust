@@ -366,6 +366,11 @@ where
     /// COLLIER-style a priori method choice: boxes and triangles whose
     /// Passarino-Veltman estimate 2^-52 w^r exceeds 2^-36 are computed by the
     /// small-Gram expansions or the alternative PV reduction (unchecked).
+    /// The expansions' convergence test bounds their truncation (the last
+    /// pass's relative change at most [`EXPANSION_TOLERANCE`]), not the
+    /// rounding of the higher-rank triangles they read: a served lane can be
+    /// off by more than that (up to 1.6e-6 on pyAmpliCol's binary64
+    /// g g > g g g g pentagons), and no per-lane estimate is reported.
     pub fn enable_estimated_method_choice(&mut self, boost: u16, aux_threshold: T) {
         self.executor.enable_estimated_method_choice(boost, aux_threshold);
     }

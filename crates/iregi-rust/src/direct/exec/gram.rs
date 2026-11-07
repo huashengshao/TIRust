@@ -28,7 +28,11 @@
 //! carry `G` corrections. The scalar `D0` is the master itself. When it
 //! does not converge, the expansion for small Gram and small modified Cayley
 //! determinants (sect. 3.5) is tried, then the alternative PV reduction
-//! through the modified Cayley matrix (sect. 3.2), which is exact.
+//! through the modified Cayley matrix (sect. 3.2), which is exact where the
+//! modified Cayley determinant does not cancel (it vanishes for IR-divergent
+//! boxes and triangles). Where it cancels, the expansions get the larger
+//! boost their observed convergence rate predicts (`predicted_passes`); the
+//! lane is refused otherwise.
 
 use std::{cell::RefCell, collections::HashMap, sync::Arc};
 
@@ -53,7 +57,12 @@ use crate::{KinematicsBatch, LaneStatus};
 pub(crate) struct GramRescue<T: NativeFloat> {
     executors: HashMap<(usize, u16, u16, bool), DirectExecutor<T>>,
     /// Boosts tried in order: a smaller one first (fewer high-rank triangles
-    /// for its gate to refuse), the largest one only where it fails.
+    /// for its gate to refuse), the largest one only where it fails. Where
+    /// the largest one's expansions converge too slowly for its passes and
+    /// the alternative PV is refused, the workspace's own boxes and
+    /// triangles (and those of the auxiliary executors of their last
+    /// attempts) get further attempts at the boost their observed
+    /// convergence predicts (`predicted_passes`), up to twice the largest.
     boosts: Vec<u16>,
     /// Alternative PV reduction only (no expansions), on the boxes and
     /// triangles whose a priori estimate (`alternative_estimate_of`) is at
@@ -722,13 +731,29 @@ pub(super) fn alternative_pv_estimate(w: f64, v: f64, rank: u16) -> f64 {
     2f64.powi(-53) * (w.max(1.0) * v.max(1.0)).powi((i32::from(rank) + 1) / 2)
 }
 
+/// Further passes an expansion needs from its observed convergence: its last
+/// pass changed it by `change` (relative) and the passes shrink by `ratio`
+/// (< 1), so `ln(EXPANSION_TOLERANCE / change) / ln(ratio)` more passes reach
+/// the tolerance. The rate is extrapolated over at most the `observed` passes
+/// it was measured on; `None` beyond them, or when the expansion does not
+/// converge.
+pub(super) fn predicted_passes(change: f64, ratio: f64, observed: u16) -> Option<u16> {
+    if !(change.is_finite() && change > EXPANSION_TOLERANCE && ratio > 0.0 && ratio < 1.0) {
+        return None;
+    }
+    let passes = ((EXPANSION_TOLERANCE / change).ln() / ratio.ln()).ceil();
+    (passes >= 1.0 && passes <= f64::from(observed)).then_some(passes as u16)
+}
+
 /// Cancellation in the modified Cayley determinant of a box or triangle,
 /// `det X = 2 m_0^2 Delta - sum_ab f_a Zadj_ab f_b`: the ratio of the sum of
 /// the terms' sizes to `|det X|` (`None` if it vanishes or is not finite).
-/// `det X` is formed with relative error `~ 2^-53` times this ratio, and the
-/// alternative PV reduction divides by it at every rank step, so its
-/// rounding grows like this ratio to the power `ceil(r/2)` as well
-/// (`gram_indicator`'s `w` does not see it).
+/// `det X` is formed with relative error `~ 2^-53` times this ratio (from its
+/// inputs' rounding, which every relabelled frame shares, and its own), and
+/// the alternative PV reduction divides by it at every rank step, so in
+/// COLLIER's worst case its rounding grows like this ratio to the power
+/// `ceil(r/2)` as well (`alternative_pv_estimate`; `gram_indicator`'s `w`
+/// does not see it).
 pub(super) fn cayley_cancellation<T: NativeFloat>(z: &[[C<T>; 3]; 3], f: &[C<T>; 3], m02: &C<T>, nm: usize) -> Option<f64> {
     let zero = czero(&z[0][0].re);
     let size = |x: &C<T>| cnorm2(x).to_f64().sqrt();
@@ -988,6 +1013,7 @@ where
                     self.alternative_estimate_of(id, rank).is_some_and(|estimate| estimate <= limit)
                 });
                 config.push(first.map_or(u64::MAX, f64::to_bits));
+                config.push(u64::from(self.gram_final));
                 let key = self.subset_key(2, &subset.members, rank, 0, &config);
                 if let Some(shared) = self.shared_get(key.as_ref(), GRAM_EXPANSION, &subset.members) {
                     self.shared_write(start, count, &shared?)?;
@@ -999,12 +1025,14 @@ where
                 let mut done = false;
                 // Boost 0 stands for the alternative-first executor (boost 1,
                 // alternative PV only).
-                let attempts: Vec<(u16, bool)> = first
+                let mut attempts: Vec<(u16, bool)> = first
                     .map(|_| (0, false))
                     .into_iter()
                     .chain(gram.boosts.iter().enumerate().map(|(i, &boost)| (boost, skip && i == 0)))
                     .collect();
-                for (boost, direct) in attempts {
+                let mut next = 0;
+                while let Some(&(boost, direct)) = attempts.get(next) {
+                next += 1;
                 let alternative_only = gram.alternative || boost == 0;
                 let executor = match gram.executors.entry((size, rank, boost, direct)) {
                     std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
@@ -1027,6 +1055,7 @@ where
                         executor.gram_top = Some(rank);
                         executor.gram_alt_only = alternative_only;
                         executor.gram_alt_direct = direct;
+                        executor.gram_final = !alternative_only && !direct && boost >= largest;
                         executor.gram_extra_ranks = if boost == 0 {
                             0
                         } else {
@@ -1045,11 +1074,30 @@ where
                 let values = self.subset_row(&subset.members, |z| z.clone());
                 // Nested expansions of the auxiliary box share too.
                 executor.set_shared_subsets(self.shared.clone());
+                executor.gram_wanted_ranks = None;
                 let result = executor
                     .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values })
                     .map_err(|e| e.to_string())?;
                 if result.statuses[0] != LaneStatus::Success {
                     failure = format!("{GRAM_EXPANSION} of {:?}: {:?}", subset.members, result.statuses[0]);
+                    // The largest boost failed with expansions converging too
+                    // slowly for its passes and the alternative PV refused:
+                    // an attempt at the boost the observed rate predicts, and
+                    // so on, up to the largest boost's passes again (the rate
+                    // is extrapolated no further than the range it was
+                    // measured over). The workspace's own boxes and triangles,
+                    // and those of an auxiliary executor of its parent's last
+                    // attempt: a lane served before is served as before.
+                    if (self.gram_top.is_none() || self.gram_final)
+                        && !gram.alternative
+                        && !direct
+                        && boost >= largest
+                        && next == attempts.len()
+                        && let Some(ranks) = executor.gram_wanted_ranks.take()
+                        && u32::from(boost) + u32::from(ranks) <= 2 * u32::from(largest)
+                    {
+                        attempts.push((boost + ranks, false));
+                    }
                     continue;
                 }
                 let coefficients = executor.top_coefficients().ok_or("small-Gram expansion: no coefficients")?;
@@ -1412,6 +1460,9 @@ where
         // the third order on (the first ratio is often much smaller).
         let mut ratio = 1.0f64;
         let mut best = 1.0f64;
+        // Last accepted order, and whether the expansion diverged.
+        let mut reached = 0u16;
+        let mut diverged = false;
         for order in 0..=passes {
             if self.gram_alt_only || self.gram_alt_direct {
                 // Alternative PV only: no expansion orders.
@@ -1459,6 +1510,7 @@ where
             }
             if !change.is_finite() || (order >= 2 && change > last_change) {
                 // Diverging: keep the previous orders.
+                diverged = true;
                 break;
             }
             if last_change.is_finite() && last_change > 0.0 {
@@ -1470,6 +1522,7 @@ where
             last_change = change;
             std::mem::replace(&mut total, next).recycle(pool);
             accepted = true;
+            reached = order;
             if change <= f64::EPSILON {
                 break;
             }
@@ -1484,6 +1537,13 @@ where
         for order in orders {
             order.recycle(pool);
         }
+        // At the largest boost: the further ranks with which the small-Gram
+        // expansion's observed rate reaches the tolerance (each rank one
+        // more pass; `predicted_passes`), for the caller's data-derived boost.
+        let gram_ranks = (self.gram_extra_ranks == 0 && !diverged)
+            .then(|| predicted_passes(last_change, ratio, reached))
+            .flatten()
+            .map(|more| (reached + more + target).saturating_sub(child_rank).max(1));
         let chosen = if accepted {
             Some(total)
         } else {
@@ -1577,6 +1637,33 @@ where
             }
             Ok(cur)
         };
+        // The alternative PV reduction where neither expansion converges
+        // (or for a hopeless nested triangle) only where det X, by which it
+        // divides once per two ranks, is determined to the expansions'
+        // tolerance: its relative rounding at the working precision, 2^-p v
+        // with v its cancellation (`cayley_cancellation`), at most
+        // `EXPANSION_TOLERANCE`. det X vanishes for IR-divergent boxes and
+        // triangles (massless propagators with lightlike legs), where the
+        // reduction is 0/0 at any precision. Refused otherwise (a larger boost
+        // follows, if any). A relative error e of det X enters the
+        // coefficients once, to first order: each rank's momentum
+        // coefficients divide by det X (error e), the next rank's metric ones
+        // multiply them by det X again (the error cancels). So 2^-p v, not
+        // `alternative_pv_estimate`'s worst case v^ceil(r/2) for the
+        // numerators' rounding, is the bound on this part, which no relabelled
+        // frame sees (det X does not depend on the labelling); the rest the
+        // callers' a posteriori check sees, as for the expansions. On the
+        // lanes measured with this fallback (pyAmpliCol's method-choice
+        // lanes, 2^-53 v up to 1.7e-8) its error stayed within 4 times 2^-53 v
+        // where measured.
+        let alt_pv_checked = || -> Result<Coefficients<T>, String> {
+            let v = cayley_cancellation(&z, &f, &m02, nm).unwrap_or(f64::INFINITY);
+            let rounding = 2f64.powi(-(self.prototype.get_precision().min(i32::MAX as u32) as i32)) * v;
+            if rounding.is_nan() || rounding > EXPANSION_TOLERANCE {
+                return Err(format!("alternative PV: modified Cayley determinant cancels (relative rounding {rounding:e})"));
+            }
+            alt_pv()
+        };
         // A converged expansion whose last pass still changed it by `change`
         // (not machine precision) against the alternative PV reduction: if
         // the two differ by no more than twice `change`, the expansion's own
@@ -1624,7 +1711,7 @@ where
             }
             // A hopeless nested triangle: the alternative PV, as when its
             // expansion fails.
-            _ if self.gram_alt_direct => alt_pv()?,
+            _ if self.gram_alt_direct => alt_pv_checked()?,
             Some(map) if last_change <= EXPANSION_TOLERANCE => prefer(map, last_change),
             _ => 'gc: {
                 // Small (Zadj f)_j as well (Xtilde >> Zadj f): the expansion
@@ -1662,7 +1749,13 @@ where
                     if extra > 0 && last_change * ratio.powi(extra) <= EXPANSION_TOLERANCE {
                         return Err("small-Gram expansion did not converge; a larger boost follows".into());
                     }
-                    break 'gc alt_pv()?;
+                    match alt_pv_checked() {
+                        Ok(coefficients) => break 'gc coefficients,
+                        Err(error) => {
+                            self.gram_wanted_ranks = gram_ranks;
+                            return Err(error);
+                        }
+                    }
                 }
                 let inv_xt = cinv(&xt[gi][gj]);
                 let y0 = |j: usize| csub(&zero, &adjf[j]);
@@ -1794,6 +1887,8 @@ where
                 let mut gc_accepted = false;
                 let mut gc_change = f64::INFINITY;
                 let mut gc_ratio = 1.0f64;
+                let mut gc_reached = 0u16;
+                let mut gc_diverged = false;
                 for order in 0..=gc_passes {
                     // Order `order` runs metric ranks through target + 2 + 2 (gc_passes - order).
                     let mut fresh: Coefficients<T> = Coefficients::pooled(pool, grading.end(target + 2 + 2 * (gc_passes - order)));
@@ -1834,6 +1929,7 @@ where
                         }
                     }
                     if !change.is_finite() || (order >= 2 && change > gc_change) {
+                        gc_diverged = true;
                         break;
                     }
                     if gc_change.is_finite() && gc_change > 0.0 {
@@ -1842,6 +1938,7 @@ where
                     gc_change = change;
                     std::mem::replace(&mut gc_total, next).recycle(pool);
                     gc_accepted = true;
+                    gc_reached = order;
                     if change <= f64::EPSILON {
                         break;
                     }
@@ -1868,9 +1965,21 @@ where
                             "small-Gram expansion did not converge (last relative change {last_change:e}; with small Cayley determinant {gc_change:e}); a larger boost follows"
                         ));
                     }
-                    _ => alt_pv().map_err(|error| format!(
-                            "small-Gram expansion did not converge (last relative change {last_change:e}; with small Cayley determinant {gc_change:e}); {error}"
-                        ))?,
+                    _ => match alt_pv_checked() {
+                        Ok(coefficients) => coefficients,
+                        Err(error) => {
+                            // As `gram_ranks`; the variant's passes cost two
+                            // ranks each.
+                            let gc_ranks = (self.gram_extra_ranks == 0 && !gc_diverged)
+                                .then(|| predicted_passes(gc_change, gc_ratio, gc_reached))
+                                .flatten()
+                                .map(|more| (target + 1 + 2 * (gc_reached + more)).saturating_sub(child_rank).max(1));
+                            self.gram_wanted_ranks = gram_ranks.into_iter().chain(gc_ranks).min();
+                            return Err(format!(
+                                "small-Gram expansion did not converge (last relative change {last_change:e}; with small Cayley determinant {gc_change:e}); {error}"
+                            ));
+                        }
+                    },
                 }
             }
         };
@@ -1895,6 +2004,18 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn predicted_passes_extrapolate_the_observed_rate_within_its_window() {
+        // 2^-20 at a rate of 1/4 per pass: 2^-30 after five more passes.
+        assert_eq!(predicted_passes(2f64.powi(-20), 0.25, 5), Some(5));
+        assert_eq!(predicted_passes(2f64.powi(-20), 0.25, 4), None);
+        // Converged already, not converging, or no rate.
+        assert_eq!(predicted_passes(EXPANSION_TOLERANCE, 0.25, 9), None);
+        assert_eq!(predicted_passes(1e-3, 1.0, 9), None);
+        assert_eq!(predicted_passes(f64::INFINITY, 0.5, 9), None);
+        assert_eq!(predicted_passes(1e-3, 0.0, 9), None);
+    }
 
     #[test]
     fn expansion_need_is_the_dependency_cone_of_the_results() {
