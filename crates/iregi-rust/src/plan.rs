@@ -421,6 +421,7 @@ impl ReductionPlan {
     certified_planar_mask: u8,
         certified_affine_chart: Option<CertifiedAffineChart>,
     ) -> Result<Self, ReductionError> {
+        crate::types::require_mu_scale(&settings)?;
         if certified_planar_mask >= 31 || (certified_planar_mask != 0 && certified_planar_chart.is_none()) {
             return Err(ReductionError::InvalidInput("certified planar mask must contain only five child bits, retain a child, and belong to a checked chart".into()));
         }
@@ -492,6 +493,15 @@ impl ReductionPlan {
                 "supplied scalar products with six or more propagators require validated four-dimensional Gram constraints in every Taylor component; coordinate inputs remain supported".into(),
             ));
         }
+        // The same holds for supplied invariants as independent symbols: the
+        // generic N6 plan took 18 minutes to prepare and refused a regular
+        // lane (estimated cancellation) that its Cartesian plan accepts. The
+        // direct engine serves supplied invariants at every N.
+        if settings.invariants == InvariantInput::SuppliedInvariants && n >= 6 {
+            return Err(ReductionError::Unsupported(
+                "supplied invariants with six or more propagators: the symbolic high-point identities need four-dimensionally consistent invariants; the direct engine (DirectReductionPlan, TensorReductionPlan, embedder mode) serves them".into(),
+            ));
+        }
         let requested_threshold = match &settings.input_policy {
             InputPolicy::Preserve => None,
             InputPolicy::LegacyOnShell { threshold } => Some(exact_threshold(threshold)?),
@@ -558,6 +568,22 @@ impl ReductionPlan {
                         distances[j][i] = distances[i][j].clone();
                         raw_distances[i][j] = distances[i][j].clone();
                         raw_distances[j][i] = distances[i][j].clone();
+                    }
+                }
+                Some(start..parameters.len())
+            }
+            InvariantInput::SuppliedInvariants => {
+                // The invariants themselves: every scalar master argument and
+                // Gram entry reads them exactly as supplied.
+                let start = parameters.len();
+                for i in 0..n {
+                    for j in i + 1..n {
+                        let value = variable(&format!("s{i}_{j}"));
+                        distances[i][j] = value.clone();
+                        distances[j][i] = value.clone();
+                        raw_distances[i][j] = value.clone();
+                        raw_distances[j][i] = value.clone();
+                        parameters.push(value);
                     }
                 }
                 Some(start..parameters.len())

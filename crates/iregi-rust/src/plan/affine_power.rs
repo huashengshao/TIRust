@@ -118,6 +118,11 @@ impl ReductionPlan {
                     })
                     .collect::<Vec<_>>()
             }
+            InvariantInput::SuppliedInvariants => {
+                return Err(ReductionError::Unsupported(
+                    "imported affine identities take Cartesian shifts or supplied scalar products".into(),
+                ));
+            }
             InvariantInput::SuppliedScalarProducts => {
                 let end = 4 * n + n * (n + 1) / 2;
                 if layout.scalar_products != Some(4 * n..end) || layout.masses != (end..end + n) {

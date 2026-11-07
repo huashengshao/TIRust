@@ -102,6 +102,7 @@ pub struct CertifiedTensorReductionPlan {
 
 impl CertifiedTensorReductionPlan {
     pub fn new(settings: ReductionSettings) -> Result<Self, ReductionError> {
+        crate::types::require_mu_scale(&settings)?;
         let inner = CertifiedScalarReductionPlan::new_tensor(settings)?;
         Ok(Self {
             layout: inner.tensor_input_layout(),

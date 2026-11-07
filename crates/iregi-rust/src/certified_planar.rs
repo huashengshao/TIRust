@@ -85,6 +85,7 @@ impl std::fmt::Debug for CertifiedPlanarReductionPlan {
 
 impl CertifiedPlanarReductionPlan {
     pub fn new(settings: ReductionSettings) -> Result<Self, ReductionError> {
+        crate::types::require_mu_scale(&settings)?;
         Self::prepare(settings, false)
     }
 

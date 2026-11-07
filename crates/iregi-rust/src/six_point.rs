@@ -56,6 +56,7 @@ impl SixPointReductionPlan {
 }
 
 pub(crate) fn validate_settings(settings: &ReductionSettings) -> Result<(), ReductionError> {
+    crate::types::require_mu_scale(settings)?;
     if settings.propagators != 6
         || settings.rank > 7
         || settings.powers != [1; 6]

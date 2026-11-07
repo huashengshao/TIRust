@@ -23,7 +23,8 @@ use super::{
 };
 use crate::{
     types::filled,
-    BatchResult, Convention, KinematicsBatch, LaneStatus, ReductionError, TensorWeights,
+    BatchResult, Convention, InputLayout, KinematicsBatch, LaneStatus, ReductionError,
+    ReductionSettings, ScaleInput, TensorWeights,
     types::ResultMetadata,
 };
 
@@ -182,6 +183,13 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     values: Vec<L4<T>>,
     geometry: Vec<C<T>>,
     distances: Vec<C<T>>,
+    /// Row layout of the plan's settings (shifts, supplied invariants,
+    /// masses, scale).
+    layout: InputLayout,
+    /// The scale argument is mu^2 (`ScaleInput::MuSquared`), not mu.
+    scale_squared: bool,
+    /// The current lane's scale argument as given (mu or mu^2).
+    lane_scale: C<T>,
     shifts: Vec<[C<T>; 4]>,
     masses: Vec<C<T>>,
     /// `g_lambda` blocks, `lambda * stride + monomial`.
@@ -362,6 +370,9 @@ where
             values: vec![lzero(&zero); plan.value_count],
             geometry: vec![zero.clone(); plan.geometry_count.max(1)],
             distances: vec![zero.clone(); plan.settings.propagators * plan.settings.propagators],
+            layout: InputLayout::of(&plan.settings),
+            scale_squared: plan.settings.scale_input == ScaleInput::MuSquared,
+            lane_scale: zero.clone(),
             shifts: vec![[zero.clone(), zero.clone(), zero.clone(), zero.clone()]; plan.settings.propagators],
             masses: vec![zero.clone(); plan.settings.propagators],
             g_buffer: vec![lzero(&zero); gather_degree * (usize::from(plan.settings.rank) / 2 + 1)],
@@ -499,25 +510,46 @@ where
 
     fn read_lane(&mut self, batch: &KinematicsBatch<T>, row: usize) -> Result<(), String> {
         let n = self.plan.settings.propagators;
-        let width = 5 * n + 1;
+        let width = self.layout.width();
         let values = &batch.values[row * width..(row + 1) * width];
         for (i, shift) in self.shifts.iter_mut().enumerate() {
             for a in 0..4 {
                 shift[a] = values[4 * i + a].clone();
             }
         }
+        let masses = self.layout.masses.start;
         for i in 0..n {
-            self.masses[i] = values[4 * n + i].clone();
+            self.masses[i] = values[masses + i].clone();
         }
         if values.iter().any(|value| !value.re.is_finite() || !value.im.is_finite()) {
             return Err("nonfinite kinematic input".into());
         }
-        let mu = &values[5 * n];
-        if !mu.im.is_zero() || mu.re <= mu.re.zero() {
-            return Err("mu must be positive and real".into());
+        let scale = &values[self.layout.scale];
+        if !scale.im.is_zero() || scale.re <= scale.re.zero() {
+            return Err(if self.scale_squared {
+                "mu^2 must be positive and real".into()
+            } else {
+                "mu must be positive and real".into()
+            });
         }
+        self.lane_scale = scale.clone();
         if self.masses.iter().any(|mass| mass.im > mass.im.zero()) {
             return Err("squared masses require nonpositive imaginary parts".into());
+        }
+        if let Some(supplied) = self.layout.scalar_products.clone() {
+            // Supplied invariants are authoritative: read exactly, never
+            // recomputed or snapped.
+            let mut index = supplied.start;
+            for i in 0..n {
+                self.distances[i * n + i] = self.zero.clone();
+                for j in i + 1..n {
+                    let value = values[index].clone();
+                    index += 1;
+                    self.distances[j * n + i] = value.clone();
+                    self.distances[i * n + j] = value;
+                }
+            }
+            return Ok(());
         }
         // Upper triangle only: d(j, i) equals d(i, j) bit for bit (the
         // difference changes sign, which neither its square nor the error
@@ -560,10 +592,47 @@ where
         Ok(())
     }
 
+    /// mu^2 of `row`: the supplied value, or the square of the supplied mu.
     fn mu_squared(&self, batch: &KinematicsBatch<T>, row: usize) -> C<T> {
+        let scale = &batch.values[row * self.layout.width() + self.layout.scale];
+        if self.scale_squared {
+            scale.clone()
+        } else {
+            cmul(scale, scale)
+        }
+    }
+
+    /// Settings of an auxiliary single-subset plan (partial rescue, small-Gram
+    /// expansion): `size` unit-power propagators at `rank`, with this plan's
+    /// input conventions (supplied invariants, scale).
+    pub(super) fn subset_settings(&self, size: usize, rank: u16) -> ReductionSettings {
+        let mut settings = ReductionSettings::new(size, rank);
+        settings.invariants = self.base_plan.settings.invariants;
+        settings.scale_input = self.base_plan.settings.scale_input;
+        settings
+    }
+
+    /// The current lane's row of the auxiliary plan of `members` (see
+    /// [`Self::subset_settings`]), its values mapped by `map`: their shifts,
+    /// supplied invariants, masses and the scale as given.
+    pub(super) fn subset_row<U: NativeFloat>(&self, members: &[usize], map: impl Fn(&C<T>) -> C<U>) -> Vec<C<U>> {
         let n = self.plan.settings.propagators;
-        let mu = &batch.values[row * (5 * n + 1) + 5 * n];
-        cmul(mu, mu)
+        let size = members.len();
+        let supplied = self.layout.scalar_products.is_some();
+        let mut values = Vec::with_capacity(5 * size + 1 + if supplied { size * size / 2 } else { 0 });
+        for &member in members {
+            values.extend(self.shifts[member].iter().map(&map));
+        }
+        if supplied {
+            for (a, &i) in members.iter().enumerate() {
+                for &j in &members[a + 1..] {
+                    values.push(map(&self.distances[i * n + j]));
+                }
+            }
+        }
+        values.extend(members.iter().map(|&member| map(&self.masses[member])));
+        values.push(map(&self.lane_scale));
+        values
     }
 
     #[inline(never)]
@@ -849,6 +918,15 @@ where
             }
             key.extend(bits(&self.masses[member]));
         }
+        if self.layout.scalar_products.is_some() {
+            // Supplied invariants are inputs of their own.
+            let n = self.plan.settings.propagators;
+            for (a, &i) in members.iter().enumerate() {
+                for &j in &members[a + 1..] {
+                    key.extend(bits(&self.distances[i * n + j]));
+                }
+            }
+        }
         key.extend(bits(mu));
     }
 
@@ -989,8 +1067,8 @@ where
 
     /// Evaluate every external subset of this lane in double-double and
     /// inject its rounded coefficients.
-    fn inject_external(&mut self, mu: f64) -> Result<(), String> {
-        use symbolica::domains::float::{DoubleFloat, RealLike};
+    fn inject_external(&mut self) -> Result<(), String> {
+        use symbolica::domains::float::DoubleFloat;
         let plan = self.plan.clone();
         let external = self.external.clone();
         let mut partial = self.partial.take().ok_or("no partial rescue")?;
@@ -1001,8 +1079,7 @@ where
                 let rank = self.injection_rank(size, subset.coefficient_rank.max(0) as u16);
                 let count = plan.coefficient_counts[id] as usize;
                 let start = subset.master.ok_or("partial rescue: no master")? as usize;
-                let mu_value = C::new(exact_f64(&self.prototype, mu), self.prototype.zero());
-                let key = self.subset_key(1, &subset.members, rank, 0, &[partial.threshold.to_bits()], &mu_value);
+                let key = self.subset_key(1, &subset.members, rank, 0, &[partial.threshold.to_bits()], &self.lane_scale);
                 if let Some(shared) = self.shared_get(key.as_ref()) {
                     self.shared_write(start, count, &shared?)?;
                     continue;
@@ -1011,7 +1088,7 @@ where
                 let executor = match partial.executors.entry((size, rank)) {
                     std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
                     std::collections::hash_map::Entry::Vacant(entry) => {
-                        let small = DirectPlanData::new(crate::ReductionSettings::new(size, rank))
+                        let small = DirectPlanData::new(self.subset_settings(size, rank))
                             .map_err(|e| e.to_string())?;
                         let mut executor = DirectExecutor::<DoubleFloat>::new(Arc::new(small), DoubleFloat::from(0.0), DirectMasters::Native)
                             .map_err(|e| e.to_string())?;
@@ -1020,18 +1097,9 @@ where
                         entry.insert(executor)
                     }
                 };
-                let mut values = Vec::with_capacity(5 * size + 1);
-                for &member in &subset.members {
-                    for a in 0..4 {
-                        let z = &self.shifts[member][a];
-                        values.push(Complex::new(DoubleFloat::from(z.re.to_f64()), DoubleFloat::from(z.im.to_f64())));
-                    }
-                }
-                for &member in &subset.members {
-                    let z = &self.masses[member];
-                    values.push(Complex::new(DoubleFloat::from(z.re.to_f64()), DoubleFloat::from(z.im.to_f64())));
-                }
-                values.push(Complex::new(DoubleFloat::from(mu), DoubleFloat::from(0.0)));
+                let values = self.subset_row(&subset.members, |z| {
+                    Complex::new(DoubleFloat::from(z.re.to_f64()), DoubleFloat::from(z.im.to_f64()))
+                });
                 // Its scalar masters shared with the amplitude's other
                 // double-double evaluations (limb-exact keys).
                 executor.set_shared_subsets(self.shared.clone());
@@ -3036,13 +3104,12 @@ where
         &mut self,
         batch: &KinematicsBatch<T>,
     ) -> Result<BatchResult<T>, ReductionError> {
-        let n = self.plan.settings.propagators;
         if batch.components != 1 {
             return Err(ReductionError::Unsupported(
                 "the direct engine evaluates ordinary numbers; use the generic workspace for Dual components".into(),
             ));
         }
-        let width = 5 * n + 1;
+        let width = self.layout.width();
         if batch.values.len() != batch.rows * width {
             return Err(ReductionError::InvalidInput(format!(
                 "expected {} values per row",
@@ -3188,9 +3255,7 @@ where
                 }
             }
             if !self.external.is_empty() {
-                let n = self.plan.settings.propagators;
-                let mu = batch.values[row * (5 * n + 1) + 5 * n].re.to_f64();
-                if let Err(error) = self.inject_external(mu) {
+                if let Err(error) = self.inject_external() {
                     self.lane_conditions[row] = self.failed_condition;
                     statuses.push(LaneStatus::Unstable(error));
                     continue;
@@ -3198,9 +3263,7 @@ where
             }
             if !self.gram_external.is_empty() {
                 self.lane_gram[row] = true;
-                let n = self.plan.settings.propagators;
-                let mu = batch.values[row * (5 * n + 1) + 5 * n].clone();
-                if let Err(error) = self.inject_gram(&mu) {
+                if let Err(error) = self.inject_gram() {
                     self.lane_conditions[row] = self.failed_condition;
                     statuses.push(LaneStatus::Unstable(error));
                     continue;

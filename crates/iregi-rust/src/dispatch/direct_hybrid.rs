@@ -88,16 +88,11 @@ pub(crate) fn direct_eligible(settings: &ReductionSettings) -> bool {
 
 impl DirectHybridPlan {
     pub(crate) fn new(settings: ReductionSettings) -> Result<Self, ReductionError> {
-        let n = settings.propagators;
+        let layout = InputLayout::of(&settings);
         let direct = DirectReductionPlan::new(settings)?;
         Ok(Self {
             direct,
-            layout: InputLayout {
-                shifts: 0..4 * n,
-                scalar_products: None,
-                masses: 4 * n..5 * n,
-                scale: 5 * n,
-            },
+            layout,
             fallback: OnceLock::new(),
         })
     }
@@ -203,10 +198,12 @@ fn uniform_powers(settings: &ReductionSettings) -> bool {
     settings.powers.iter().all(|&power| power == settings.powers[0])
 }
 
-/// The batch with every lane's propagators rotated by one (shifts and squared
-/// masses; the loop momentum is relabelled, the integral is unchanged).
-fn rotated<T: NativeFloat>(batch: &KinematicsBatch<T>, n: usize) -> KinematicsBatch<T> {
-    let width = 5 * n + 1;
+/// The batch with every lane's propagators rotated by one (shifts, supplied
+/// invariants and squared masses; the loop momentum is relabelled, the
+/// integral is unchanged).
+fn rotated<T: NativeFloat>(batch: &KinematicsBatch<T>, layout: &InputLayout) -> KinematicsBatch<T> {
+    let n = layout.masses.len();
+    let width = layout.width();
     let mut values = Vec::with_capacity(batch.values.len());
     for lane in 0..batch.rows {
         let row = &batch.values[lane * width..(lane + 1) * width];
@@ -214,12 +211,29 @@ fn rotated<T: NativeFloat>(batch: &KinematicsBatch<T>, n: usize) -> KinematicsBa
             let from = (k + 1) % n;
             values.extend_from_slice(&row[4 * from..4 * from + 4]);
         }
-        for k in 0..n {
-            values.push(row[4 * n + (k + 1) % n].clone());
+        if let Some(supplied) = &layout.scalar_products {
+            // Invariants s_ij, i < j, of the relabelled propagators.
+            for i in 0..n {
+                for j in i + 1..n {
+                    let (a, b) = ((i + 1) % n, (j + 1) % n);
+                    let (a, b) = (a.min(b), a.max(b));
+                    values.push(row[supplied.start + crate::InvariantInput::invariant_index(n, a, b)].clone());
+                }
+            }
         }
-        values.push(row[5 * n].clone());
+        for k in 0..n {
+            values.push(row[layout.masses.start + (k + 1) % n].clone());
+        }
+        values.push(row[layout.scale].clone());
     }
     KinematicsBatch { rows: batch.rows, components: batch.components, values }
+}
+
+/// mu of `lane` in binary64 (the weights of `lane_difference`), from the scale
+/// argument of the layout: mu, or the root of mu^2.
+fn lane_mu<T: NativeFloat>(batch: &KinematicsBatch<T>, layout: &InputLayout, squared: bool, lane: usize) -> f64 {
+    let value = batch.values[lane * layout.width() + layout.scale].re.to_f64();
+    if squared { value.sqrt() } else { value }
 }
 
 /// E/A between two lanes' arrays, moments weighted by mu^-degree.
@@ -529,6 +543,11 @@ where
 
     /// Largest accepted E/A between a binary64 lane and its rotated copy:
     /// the requested accuracy `2^(19 - bits)` (2^-34 by default).
+    /// The plan's scale argument is mu^2.
+    fn squared_scale(&self) -> bool {
+        self.plan.direct.settings().scale_input == crate::ScaleInput::MuSquared
+    }
+
     fn rotation_tolerance(&self) -> f64 {
         self.rotation_tolerance
     }
@@ -654,14 +673,14 @@ where
         if accepted.is_empty() {
             return Ok(());
         }
-        let n = self.plan.direct.settings().propagators;
         let mut check = result.clone();
-        let checks = self.rescue_tier(0, &rotated(batch, n), &accepted, &mut check, profile)?;
+        let layout = self.plan.layout.clone();
+        let squared = self.squared_scale();
+        let checks = self.rescue_tier(0, &rotated(batch, &layout), &accepted, &mut check, profile)?;
         let stride = result.basis.len() * 4;
-        let width = 5 * n + 1;
         for (&lane, (status, _)) in accepted.iter().zip(checks) {
             let difference = if status == LaneStatus::Success {
-                let mu = batch.values[lane * width + 5 * n].re.to_f64();
+                let mu = lane_mu(batch, &layout, squared, lane);
                 lane_difference(
                     &result.basis,
                     &result.values[lane * stride..(lane + 1) * stride],
@@ -762,6 +781,8 @@ where
         profile: &mut ExecutionProfile,
         stage: u8,
     ) -> Result<(), ReductionError> {
+        let layout = self.plan.layout.clone();
+        let squared = self.squared_scale();
         // 0: below the gate; 1: small-Gram expansions (alternative PV as
         // their last resort); 2: alternative PV alone; 3: every box and
         // triangle off PV where w > 2; 4: the a priori method choice. Stages
@@ -819,7 +840,7 @@ where
         let first = workspace.reduce_batch(&sub)?;
         self.last.master_rows += workspace.last_master_rows();
         let mut child = workspace.last_profile();
-        let second = workspace.reduce_batch(&rotated(&sub, n))?;
+        let second = workspace.reduce_batch(&rotated(&sub, &layout))?;
         self.last.master_rows += workspace.last_master_rows();
         let rotated_profile = workspace.last_profile();
         child.geometry += rotated_profile.geometry;
@@ -837,8 +858,7 @@ where
         }
         let required = tolerance * 2f64.powi(-CHECKED_MARGIN_BITS);
         let stride = result.basis.len() * 4 * result.components;
-        let width_lane = 5 * n + 1;
-        let mu = |k: usize| batch.values[lanes[k] * width_lane + 5 * n].re.to_f64();
+        let mu = |k: usize| lane_mu(batch, &layout, squared, lanes[k]);
         let mut differences: Vec<Option<f64>> = (0..lanes.len())
             .map(|k| {
                 (first.statuses[k] == LaneStatus::Success && second.statuses[k] == LaneStatus::Success).then(|| {
@@ -866,7 +886,7 @@ where
                 values.extend_from_slice(&sub.values[k * width..(k + 1) * width]);
             }
             let near_batch = KinematicsBatch { rows: near.len(), components: batch.components, values };
-            let third = workspace.reduce_batch(&rotated(&rotated(&near_batch, n), n))?;
+            let third = workspace.reduce_batch(&rotated(&rotated(&near_batch, &layout), &layout))?;
             self.last.master_rows += workspace.last_master_rows();
             let third_profile = workspace.last_profile();
             profile.arguments += third_profile.geometry;
@@ -948,6 +968,8 @@ where
         tolerance: f64,
         result: &mut BatchResult<T>,
     ) -> Result<(), ReductionError> {
+        let layout = self.plan.layout.clone();
+        let squared = self.squared_scale();
         let n = self.plan.direct.settings().propagators;
         let width = batch.values.len() / batch.rows.max(1);
         let mut values = Vec::with_capacity(lanes.len() * width);
@@ -958,7 +980,7 @@ where
         let mut orders = Vec::with_capacity(n);
         for k in 0..n {
             if k > 0 {
-                sub = rotated(&sub, n);
+                sub = rotated(&sub, &layout);
             }
             orders.push(self.direct.reduce_batch(&sub)?);
             self.last.master_rows += self.direct.last_master_rows();
@@ -966,9 +988,8 @@ where
         self.last.checked_rows += lanes.len();
         let required = tolerance * 2f64.powi(-CONSENSUS_MARGIN_BITS);
         let stride = result.basis.len() * 4 * result.components;
-        let width_lane = 5 * n + 1;
         for (j, &lane) in lanes.iter().enumerate() {
-            let mu = batch.values[lane * width_lane + 5 * n].re.to_f64();
+            let mu = lane_mu(batch, &layout, squared, lane);
             let ok: Vec<usize> = (0..n).filter(|&k| orders[k].statuses[j] == LaneStatus::Success).collect();
             let mut best: Option<(usize, f64, usize)> = None;
             for &a in &ok {
@@ -1126,7 +1147,9 @@ where
         direct_profile: &mut DirectProfile,
     ) -> Result<(), ReductionError> {
         let n = self.plan.direct.settings().propagators;
-        let check = self.direct.reduce_batch(&rotated(batch, n))?;
+        let layout = self.plan.layout.clone();
+        let squared = self.squared_scale();
+        let check = self.direct.reduce_batch(&rotated(batch, &layout))?;
         self.last.master_rows += self.direct.last_master_rows();
         let rotated_profile = self.direct.last_profile();
         direct_profile.geometry += rotated_profile.geometry;
@@ -1137,7 +1160,7 @@ where
         self.last.rotation_rows = batch.rows;
         let rotated_conditions = self.direct.last_conditions().to_vec();
         let stride = result.basis.len() * 4;
-        let width = 5 * n + 1;
+        let width = layout.width();
         // Lanes accepted within NEAR_MARGIN_BITS of the tolerance, with
         // their difference, for the third-order check.
         let mut near: Vec<(usize, f64)> = Vec::new();
@@ -1146,7 +1169,7 @@ where
                 continue;
             }
             let note = if check.statuses[lane] == LaneStatus::Success {
-                let mu = batch.values[lane * width + 5 * n].re.to_f64();
+                let mu = lane_mu(batch, &layout, squared, lane);
                 let difference = lane_difference(
                     &result.basis,
                     &result.values[lane * stride..(lane + 1) * stride],
@@ -1188,7 +1211,7 @@ where
                 values.extend_from_slice(&batch.values[lane * width..(lane + 1) * width]);
             }
             let sub = KinematicsBatch { rows: near.len(), components: batch.components, values };
-            let third = self.direct.reduce_batch(&rotated(&rotated(&sub, n), n))?;
+            let third = self.direct.reduce_batch(&rotated(&rotated(&sub, &layout), &layout))?;
             self.last.master_rows += self.direct.last_master_rows();
             let third_profile = self.direct.last_profile();
             direct_profile.geometry += third_profile.geometry;
@@ -1199,7 +1222,7 @@ where
             self.last.rotation_rows += near.len();
             for (k, &(lane, first)) in near.iter().enumerate() {
                 let note = if third.statuses[k] == LaneStatus::Success {
-                    let mu = batch.values[lane * width + 5 * n].re.to_f64();
+                    let mu = lane_mu(batch, &layout, squared, lane);
                     let difference = lane_difference(
                         &result.basis,
                         &result.values[lane * stride..(lane + 1) * stride],
@@ -1246,6 +1269,8 @@ where
         result: &mut BatchResult<T>,
         profile: &mut ExecutionProfile,
     ) -> Result<(), ReductionError> {
+        let layout = self.plan.layout.clone();
+        let squared = self.squared_scale();
         let n = self.plan.direct.settings().propagators;
         // Consensus of cyclic orders first (five and six points; on heptagons
         // it did not help, and the opening N7R7 batch paid 12% for it).
@@ -1506,12 +1531,12 @@ where
             let mut relabelled = sub;
             for order in 0..orders {
                 if order > 0 {
-                    relabelled = rotated(&relabelled, n);
+                    relabelled = rotated(&relabelled, &layout);
                 }
                 evaluations.push(workspace.reduce_batch(&relabelled)?);
             }
             for (k, &lane) in missing.iter().enumerate() {
-                let mu = batch.values[lane * width + 5 * n].re.to_f64();
+                let mu = lane_mu(batch, &layout, squared, lane);
                 let good: Vec<&[Complex<T>]> = evaluations
                     .iter()
                     .filter(|evaluation| evaluation.statuses[k] == LaneStatus::Success)
@@ -1568,7 +1593,7 @@ where
             else {
                 continue;
             };
-            let mu = batch.values[lane * width + 5 * n].re.to_f64();
+            let mu = lane_mu(batch, &layout, squared, lane);
             let (values, own) = &candidates[best];
             // The rotated copy can share the chosen array's error: the
             // nearest array of another binary64 stage bounds the estimate

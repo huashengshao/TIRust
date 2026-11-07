@@ -24,7 +24,7 @@ use crate::{
     CertificateExecutionStats, CertifiedTensorReductionPlan, CertifiedTensorWorkspace,
     ContractionPlan, ExecutionProfile, ExecutionStats, InputLayout, KinematicsBatch,
     MassTaylorExecutionStats, MassTaylorReductionPlan, MassTaylorWorkspace, ReductionError,
-    ReductionPlan, ReductionSettings, RescueScalar, RescueSettings, SevenPointExecutionStats,
+    ReductionPlan, ReductionSettings, RescueScalar, RescueSettings, ScaleInput, SevenPointExecutionStats,
     SevenPointReductionPlan, SevenPointWorkspace, SixPointExecutionStats, SixPointReductionPlan,
     SixPointWorkspace, TensorCertificateExecutionStats, TensorRescueWorkspace, Workspace,
     basis::Monomial,
@@ -116,6 +116,38 @@ pub(crate) fn affine_power_eligible(settings: &ReductionSettings) -> bool {
         && settings.input_policy == crate::InputPolicy::Preserve
 }
 
+/// `settings` with the scale argument read as mu: the symbolic and specialised
+/// engines take mu, and the facade's workspace forms mu = sqrt(mu^2) for them
+/// once in the working precision (the direct engine reads mu^2 itself).
+fn mu_settings(settings: &ReductionSettings) -> ReductionSettings {
+    let mut settings = settings.clone();
+    settings.scale_input = ScaleInput::Mu;
+    settings
+}
+
+/// `batch` with every row's scale argument mu^2 replaced by mu = sqrt(mu^2)
+/// (a positive real square root in the working precision). Rows whose mu^2 is
+/// not positive and real keep it, so the engine rejects them as invalid input.
+fn mu_from_squared<T: NativeFloat>(batch: &KinematicsBatch<T>) -> Result<KinematicsBatch<T>, ReductionError> {
+    if batch.components != 1 {
+        return Err(ReductionError::Unsupported(
+            "mu^2 input with Dual components is served by the direct engine only".into(),
+        ));
+    }
+    let mut converted = batch.clone();
+    if batch.rows == 0 {
+        return Ok(converted);
+    }
+    let width = batch.values.len() / batch.rows;
+    for row in 0..batch.rows {
+        let scale = &mut converted.values[(row + 1) * width - 1];
+        if scale.im.is_zero() && scale.re > scale.re.zero() {
+            scale.re = scale.re.sqrt();
+        }
+    }
+    Ok(converted)
+}
+
 fn clone_error(error: &ReductionError) -> ReductionError {
     match error {
         ReductionError::InvalidInput(text) => ReductionError::InvalidInput(text.clone()),
@@ -132,9 +164,11 @@ impl TensorReductionPlan {
     /// analytic-domain restriction belongs to this explicit strategy; default
     /// dispatch retains direct recurrences for dimensionally regulated dots.
     pub fn new_mass_taylor(settings: ReductionSettings) -> Result<Self, ReductionError> {
-        let plan = Arc::new(MassTaylorReductionPlan::new(settings)?);
+        let plan = Arc::new(MassTaylorReductionPlan::new(mu_settings(&settings))?);
+        let mut requested_settings = plan.settings().clone();
+        requested_settings.scale_input = settings.scale_input;
         Ok(Self {
-            requested_settings: plan.settings().clone(),
+            requested_settings,
             notes: plan.preparation_notes().to_vec(),
             ordinary: OrdinaryPlan::MassTaylor(plan),
             generic: Arc::new(OnceLock::new()),
@@ -162,6 +196,7 @@ impl TensorReductionPlan {
     /// The existing symbolic ordinary dispatch, never selecting the direct engine.
     pub fn new_without_direct(settings: ReductionSettings) -> Result<Self, ReductionError> {
         let requested_settings = settings.clone();
+        let settings = mu_settings(&settings);
         let ordinary = match ordinary_kind(&settings) {
             TensorEngineKind::MassTaylor => {
                 OrdinaryPlan::MassTaylor(Arc::new(MassTaylorReductionPlan::new(settings)?))
@@ -228,9 +263,11 @@ impl TensorReductionPlan {
     /// conversion are unavailable; this is never selected automatically by new.
     /// Generalized and Dual numeric qualification remains explicitly scoped.
     pub fn new_checked_cartesian(settings: ReductionSettings) -> Result<Self, ReductionError> {
-        let checked = Arc::new(CertifiedTensorReductionPlan::new(settings)?);
+        let checked = Arc::new(CertifiedTensorReductionPlan::new(mu_settings(&settings))?);
+        let mut requested_settings = checked.settings().clone();
+        requested_settings.scale_input = settings.scale_input;
         Ok(Self {
-            requested_settings: checked.settings().clone(),
+            requested_settings,
             ordinary: OrdinaryPlan::CertifiedTensor(checked),
             generic: Arc::new(OnceLock::new()),
             affine: Arc::new(OnceLock::new()),
@@ -342,7 +379,7 @@ impl TensorReductionPlan {
                 "checked Cartesian plans cannot bypass their certificates through an unchecked generic plan".into()));
         }
         self.generic
-            .get_or_init(|| ReductionPlan::new(self.requested_settings.clone()).map(Arc::new))
+            .get_or_init(|| ReductionPlan::new(mu_settings(&self.requested_settings)).map(Arc::new))
             .as_ref()
             .map(Arc::clone)
             .map_err(clone_error)
@@ -359,7 +396,7 @@ impl TensorReductionPlan {
         }
         self.affine
             .get_or_init(|| {
-                AffinePowerReductionPlan::new(self.requested_settings.clone()).map(Arc::new)
+                AffinePowerReductionPlan::new(mu_settings(&self.requested_settings)).map(Arc::new)
             })
             .as_ref()
             .map(Arc::clone)
@@ -379,6 +416,7 @@ impl TensorReductionPlan {
     where
         Complex<T>: EvaluationDomain,
     {
+        self.require_mu_scale()?;
         TensorRescueWorkspace::new(self, prototype, settings)
     }
 
@@ -391,7 +429,18 @@ impl TensorReductionPlan {
     where
         Complex<T>: EvaluationDomain,
     {
+        self.require_mu_scale()?;
         TensorRescueWorkspace::new_dual(self, prototype, settings, dual)
+    }
+
+    fn require_mu_scale(&self) -> Result<(), ReductionError> {
+        if self.requested_settings.scale_input == ScaleInput::Mu {
+            Ok(())
+        } else {
+            Err(ReductionError::Unsupported(
+                "precision rescue workspaces take mu, not mu^2; use a TensorWorkspace".into(),
+            ))
+        }
     }
 }
 
@@ -645,6 +694,9 @@ pub struct TensorWorkspace<T: NativeFloat> {
     notes: Vec<String>,
     /// COLLIER-style UV/IR scales and pole values applied to every result.
     regulators: crate::Regulators,
+    /// The plan's scale argument (mu or mu^2): the direct engine reads mu^2
+    /// itself, the other engines get mu = sqrt(mu^2) (`mu_from_squared`).
+    scale_input: ScaleInput,
 }
 
 impl<T: NativeFloat> TensorWorkspace<T>
@@ -672,6 +724,7 @@ where
                     requested_master_policy: options.master_policy,
                     notes: plan.preparation_notes().to_vec(),
                     regulators: crate::Regulators::default(),
+                scale_input: plan.settings().scale_input,
                 });
             }
             let fallback = direct.fallback()?;
@@ -684,6 +737,7 @@ where
                 requested_master_policy: options.master_policy,
                 notes: plan.preparation_notes().to_vec(),
                 regulators: crate::Regulators::default(),
+                scale_input: plan.settings().scale_input,
             });
         }
         if let OrdinaryPlan::CertifiedTensor(checked) = &plan.ordinary {
@@ -699,6 +753,7 @@ where
                 requested_master_policy: options.master_policy,
                 notes: plan.preparation_notes().to_vec(),
                 regulators: crate::Regulators::default(),
+                scale_input: plan.settings().scale_input,
             });
         }
         options
@@ -717,6 +772,7 @@ where
                 requested_master_policy: options.master_policy,
                 notes: mass.preparation_notes().to_vec(),
                 regulators: crate::Regulators::default(),
+                scale_input: plan.settings().scale_input,
             });
         }
         if matches!(&plan.ordinary, OrdinaryPlan::AffinePower(_)) {
@@ -762,6 +818,7 @@ where
             requested_master_policy: options.master_policy,
             notes: plan.preparation_notes().to_vec(),
             regulators: crate::Regulators::default(),
+            scale_input: plan.settings().scale_input,
         })
     }
 
@@ -787,6 +844,7 @@ where
                 requested_master_policy: options.master_policy,
                 notes: plan.preparation_notes().to_vec(),
                 regulators: crate::Regulators::default(),
+                scale_input: plan.settings().scale_input,
             });
         }
         if let OrdinaryPlan::CertifiedTensor(checked) = &plan.ordinary {
@@ -804,6 +862,7 @@ where
                 requested_master_policy: options.master_policy,
                 notes,
                 regulators: crate::Regulators::default(),
+                scale_input: plan.settings().scale_input,
             });
         }
         options
@@ -823,6 +882,7 @@ where
                 requested_master_policy: options.master_policy,
                 notes: mass.preparation_notes().to_vec(),
                 regulators: crate::Regulators::default(),
+                scale_input: plan.settings().scale_input,
             });
         }
         if affine_power_eligible(plan.settings()) {
@@ -841,6 +901,7 @@ where
                 requested_master_policy: options.master_policy,
                 notes,
                 regulators: crate::Regulators::default(),
+                scale_input: plan.settings().scale_input,
             });
         }
         let generic = plan.generic_plan()?;
@@ -858,6 +919,7 @@ where
             requested_master_policy: options.master_policy,
             notes,
             regulators: crate::Regulators::default(),
+            scale_input: plan.settings().scale_input,
         })
     }
 
@@ -883,6 +945,7 @@ where
             requested_master_policy: options.master_policy,
             notes,
             regulators: crate::Regulators::default(),
+            scale_input: plan.settings().scale_input,
         })
     }
 
@@ -905,6 +968,7 @@ where
             requested_master_policy: options.master_policy,
             notes,
             regulators: crate::Regulators::default(),
+            scale_input: plan.settings().scale_input,
         })
     }
 
@@ -1214,8 +1278,14 @@ where
         &mut self,
         batch: &KinematicsBatch<T>,
     ) -> Result<BatchResult<T>, ReductionError> {
+        if self.scale_input == ScaleInput::MuSquared && !matches!(self.engine, WorkspaceEngine::Direct(_)) {
+            let batch = mu_from_squared(batch)?;
+            let mut result = self.reduce_batch_unregulated(&batch)?;
+            self.regulators.apply(&batch, &mut result)?;
+            return Ok(result);
+        }
         let mut result = self.reduce_batch_unregulated(batch)?;
-        self.regulators.apply(batch, &mut result)?;
+        self.regulators.apply_with_scale(batch, &mut result, self.scale_input)?;
         Ok(result)
     }
 

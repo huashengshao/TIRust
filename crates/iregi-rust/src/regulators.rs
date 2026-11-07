@@ -99,6 +99,16 @@ impl Regulators {
         batch: &KinematicsBatch<T>,
         result: &mut BatchResult<T>,
     ) -> Result<(), ReductionError> {
+        self.apply_with_scale(batch, result, crate::ScaleInput::Mu)
+    }
+
+    /// [`Self::apply`] for rows whose last argument is `scale` (mu or mu^2).
+    pub fn apply_with_scale<T: NativeFloat>(
+        &self,
+        batch: &KinematicsBatch<T>,
+        result: &mut BatchResult<T>,
+        scale: crate::ScaleInput,
+    ) -> Result<(), ReductionError> {
         if self.is_identity() {
             return Ok(());
         }
@@ -124,8 +134,11 @@ impl Regulators {
             if result.statuses[row] != LaneStatus::Success && !result.is_best_effort(row) {
                 continue;
             }
-            let mu = batch.values[(row + 1) * width - 1].re.clone();
-            let mu2 = mu.clone() * &mu;
+            let argument = batch.values[(row + 1) * width - 1].re.clone();
+            let mu2 = match scale {
+                crate::ScaleInput::Mu => argument.clone() * &argument,
+                crate::ScaleInput::MuSquared => argument,
+            };
             let log = |scale: Option<f64>| match scale {
                 Some(s) => (exact(&prototype, s) / &mu2).log(),
                 None => zero.clone(),

@@ -135,6 +135,7 @@ impl AffinePowerReductionPlan {
         settings: ReductionSettings,
         budget: AffinePowerBudget,
     ) -> Result<Self, ReductionError> {
+        crate::types::require_mu_scale(&settings)?;
         Self::prepare_plan(settings, budget, false)
     }
     pub(crate) fn new_checked_supplied(settings: ReductionSettings) -> Result<Self, ReductionError> {

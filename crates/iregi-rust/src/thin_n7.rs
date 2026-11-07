@@ -23,6 +23,7 @@ pub(crate) struct ThinSevenReductionPlan {
 
 impl ThinSevenReductionPlan {
     pub fn new(settings: ReductionSettings) -> Result<Self, ReductionError> {
+        crate::types::require_mu_scale(&settings)?;
         let child_rank = settings.rank.saturating_sub(2);
         let profile = std::env::var_os("IREGI_PV_PREPARATION_PROFILE").is_some();
         let _parent = crate::pv::PreparationTimer::new(profile, format_args!("thin N7 parent plan"));

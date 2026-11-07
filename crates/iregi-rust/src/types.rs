@@ -39,6 +39,59 @@ pub enum InvariantInput {
     /// Supply G_ij = p_i·p_j as the packed upper triangle, including its diagonal.
     /// Cartesian shifts still determine the returned tensor components.
     SuppliedScalarProducts,
+    /// Supply the invariants s_ij = (p_i - p_j)^2 (the S-matrix of the shifts)
+    /// for i < j as the packed strict upper triangle, row-major: (0,1), (0,2),
+    /// ..., (0,n-1), (1,2), ... Every scalar quantity the reduction forms from
+    /// a pair of shifts (Gram and Cayley systems, scalar-master arguments,
+    /// lightlike tests) reads these values exactly as given, so an on-shell
+    /// invariant equal to a squared mass stays equal to it bit for bit;
+    /// Cartesian shifts still determine the tensor components and the vector
+    /// geometry of the moment recursions. Values are authoritative: they are
+    /// neither recomputed nor snapped (the caller supplies consistent
+    /// kinematics; a mismatch of order delta moves results at order delta).
+    SuppliedInvariants,
+}
+
+impl InvariantInput {
+    /// Number of supplied values per row for `n` propagators.
+    pub fn supplied_count(self, n: usize) -> usize {
+        match self {
+            Self::FromShifts => 0,
+            Self::SuppliedScalarProducts => n * (n + 1) / 2,
+            Self::SuppliedInvariants => n * n.saturating_sub(1) / 2,
+        }
+    }
+
+    /// Position of the supplied invariant `(i, j)`, `i < j < n`, in the packed
+    /// strict upper triangle of [`Self::SuppliedInvariants`].
+    pub fn invariant_index(n: usize, i: usize, j: usize) -> usize {
+        debug_assert!(i < j && j < n);
+        i * n - i * (i + 1) / 2 + (j - i - 1)
+    }
+}
+
+/// The symbolic and specialised engines read the scale argument as mu; mu^2
+/// input is served by the direct engine (and by the `TensorReductionPlan`
+/// facade, which forms mu for the other engines).
+pub(crate) fn require_mu_scale(settings: &ReductionSettings) -> Result<(), ReductionError> {
+    if settings.scale_input == ScaleInput::Mu {
+        Ok(())
+    } else {
+        Err(ReductionError::Unsupported(
+            "this engine reads the scale argument as mu; mu^2 input is served by the direct engine and the TensorReductionPlan facade".into(),
+        ))
+    }
+}
+
+/// What the last argument of an input row holds.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ScaleInput {
+    /// The renormalization scale mu (not mu^2); engines square it.
+    #[default]
+    Mu,
+    /// mu^2 itself, used exactly as given (no square of a rounded mu). It
+    /// must be real and positive.
+    MuSquared,
 }
 
 /// Whether derived real scalar products follow the historical on-shell policy.
@@ -69,9 +122,34 @@ impl InputPolicy {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InputLayout {
     pub shifts: std::ops::Range<usize>,
+    /// The supplied values of `settings.invariants`: packed scalar products
+    /// or packed invariants; `None` for `FromShifts`.
     pub scalar_products: Option<std::ops::Range<usize>>,
     pub masses: std::ops::Range<usize>,
+    /// mu, or mu^2 with `ScaleInput::MuSquared`.
     pub scale: usize,
+}
+
+impl InputLayout {
+    /// The ordinary row layout of `settings`: shifts, the supplied values of
+    /// `settings.invariants`, squared masses, then the scale.
+    pub fn of(settings: &ReductionSettings) -> Self {
+        let n = settings.propagators;
+        let supplied = settings.invariants.supplied_count(n);
+        let start = 4 * n;
+        Self {
+            shifts: 0..start,
+            scalar_products: (settings.invariants != InvariantInput::FromShifts)
+                .then_some(start..start + supplied),
+            masses: start + supplied..start + supplied + n,
+            scale: start + supplied + n,
+        }
+    }
+
+    /// Arguments per row (before the Taylor-component expansion).
+    pub fn width(&self) -> usize {
+        self.scale + 1
+    }
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -88,6 +166,9 @@ pub struct ReductionSettings {
     pub invariants: InvariantInput,
     #[serde(default)]
     pub input_policy: InputPolicy,
+    /// Whether the scale argument is mu or mu^2.
+    #[serde(default)]
+    pub scale_input: ScaleInput,
 }
 
 impl ReductionSettings {
@@ -102,6 +183,7 @@ impl ReductionSettings {
             tensor_weights: TensorWeights::Components,
             invariants: InvariantInput::FromShifts,
             input_policy: InputPolicy::Preserve,
+            scale_input: ScaleInput::Mu,
         }
     }
 }
@@ -129,8 +211,9 @@ pub enum LaneStatus {
 /// A batch of complex numerical input components.
 ///
 /// A row contains all shift components (propagator-major, time first), all
-/// optional packed scalar products (i=0..n, j=i..n), all squared masses,
-/// then the renormalization scale mu (not mu²). Each argument
+/// optional packed scalar products (i=0..n, j=i..n) or invariants (i<j), all
+/// squared masses, then the renormalization scale: mu (not mu²), or mu² with
+/// [`ScaleInput::MuSquared`]. Each argument
 /// has `components` consecutive Taylor components: one for ordinary numbers,
 /// or the exact component order of the prepared Symbolica Dual shape.
 #[derive(Clone, Debug)]

@@ -48,7 +48,7 @@ pub struct MassTaylorReductionPlan {
 }
 impl MassTaylorReductionPlan {
     pub fn new(settings:ReductionSettings)->Result<Self,ReductionError>{Self::with_budget(settings,MassTaylorBudget::default())}
-    pub fn with_budget(settings:ReductionSettings,budget:MassTaylorBudget)->Result<Self,ReductionError>{
+    pub fn with_budget(settings:ReductionSettings,budget:MassTaylorBudget)->Result<Self,ReductionError>{crate::types::require_mu_scale(&settings)?;
         validate_settings(&settings)?;
         let _=DottedLayout::new(&settings.powers,None,budget.layout())?;
         let mut unit=settings.clone();unit.powers.fill(1);

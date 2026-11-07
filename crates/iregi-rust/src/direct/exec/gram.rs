@@ -45,7 +45,7 @@ use crate::direct::{
     },
     plan::{DirectPlanData, SubsetKind},
 };
-use crate::{KinematicsBatch, LaneStatus, ReductionSettings};
+use crate::{KinematicsBatch, LaneStatus};
 
 /// Expansion executors of a binary64 executor, by subset size, coefficient
 /// rank, boost and whether the expansion is skipped (alternative PV only).
@@ -925,7 +925,7 @@ where
 
     /// Evaluate every expansion box of this lane by its auxiliary executor
     /// and inject its coefficients.
-    pub(super) fn inject_gram(&mut self, mu: &C<T>) -> Result<(), String> {
+    pub(super) fn inject_gram(&mut self) -> Result<(), String> {
         let plan = self.plan.clone();
         let boxes = self.gram_external.clone();
         let mut gram = self.gram.take().ok_or("no small-Gram expansion")?;
@@ -965,7 +965,7 @@ where
                     self.alternative_estimate_of(id, rank).is_some_and(|estimate| estimate <= limit)
                 });
                 config.push(first.map_or(u64::MAX, f64::to_bits));
-                let key = self.subset_key(2, &subset.members, rank, 0, &config, mu);
+                let key = self.subset_key(2, &subset.members, rank, 0, &config, &self.lane_scale);
                 if let Some(shared) = self.shared_get(key.as_ref()) {
                     self.shared_write(start, count, &shared?)?;
                     continue;
@@ -986,7 +986,7 @@ where
                 let executor = match gram.executors.entry((size, rank, boost, direct)) {
                     std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
                     std::collections::hash_map::Entry::Vacant(entry) => {
-                        let aux = DirectPlanData::with_top_child_boost(ReductionSettings::new(size, rank), boost.max(1))
+                        let aux = DirectPlanData::with_top_child_boost(self.subset_settings(size, rank), boost.max(1))
                             .map_err(|e| e.to_string())?;
                         let mut executor = DirectExecutor::<T>::new(
                             std::sync::Arc::new(aux),
@@ -1018,14 +1018,7 @@ where
                         entry.insert(executor)
                     }
                 };
-                let mut values = Vec::with_capacity(21);
-                for &member in &subset.members {
-                    values.extend(self.shifts[member].iter().cloned());
-                }
-                for &member in &subset.members {
-                    values.push(self.masses[member].clone());
-                }
-                values.push(mu.clone());
+                let values = self.subset_row(&subset.members, |z| z.clone());
                 // Nested expansions of the auxiliary box share too.
                 executor.set_shared_subsets(self.shared.clone());
                 let result = executor

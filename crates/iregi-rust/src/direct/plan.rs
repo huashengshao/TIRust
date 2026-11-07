@@ -565,9 +565,9 @@ impl DirectPlanData {
                 "direct engine implements the PV and Hybrid algorithms".into(),
             ));
         }
-        if settings.invariants != InvariantInput::FromShifts {
+        if settings.invariants == InvariantInput::SuppliedScalarProducts {
             return Err(ReductionError::Unsupported(
-                "direct engine derives invariants from Cartesian shifts".into(),
+                "direct engine takes invariants from Cartesian shifts or as supplied invariants (SuppliedInvariants), not as supplied scalar products".into(),
             ));
         }
         if settings.input_policy != InputPolicy::Preserve {
