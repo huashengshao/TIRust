@@ -80,7 +80,7 @@ fn tadpole_reference(basis: &[iregi_rust::basis::Monomial], a0: [Rational; 2], u
         }
         let mut denominator = Integer::from(2).pow(k);
         for j in 2..=k + 1 {
-            denominator = denominator * &Integer::from(j as i64);
+            denominator *= &Integer::from(j as i64);
         }
         let mut power = Rational::from(Integer::from(1));
         for _ in 0..k {

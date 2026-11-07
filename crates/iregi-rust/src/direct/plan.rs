@@ -201,7 +201,7 @@ impl MonomialTable {
                                     .fold(Integer::from(2).pow(u64::from(lambda)), |product, &x| product * &factorial(x));
                                 let constant = Rational::from((
                                     Integer::from(sign) * &factorials[index],
-                                    Integer::from(denominator),
+                                    denominator,
                                 ));
                                 terms.push((lookup[&src], lambda, constant));
                             }

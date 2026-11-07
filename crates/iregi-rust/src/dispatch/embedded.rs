@@ -333,13 +333,12 @@ where
             lanes.iter().map(|&lane| (lane, first(conditions[lane].unwrap_or(0.0)))).collect();
         self.last.fallback_rows += pending.len();
         let masters = masters_for(self.options.master_policy);
-        for tier in 0..TIER_BITS.len() {
+        for (tier, &bits) in TIER_BITS.iter().enumerate() {
             let current: Vec<usize> =
                 pending.iter().filter(|&&(_, start)| start <= tier).map(|&(lane, _)| lane).collect();
             if current.is_empty() {
                 continue;
             }
-            let bits = TIER_BITS[tier];
             let sub = Self::sub_batch(batch, &current);
             let (statuses, values, tier_conditions) = if tier == 0 {
                 if self.double.is_none() {
