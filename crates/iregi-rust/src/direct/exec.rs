@@ -269,6 +269,12 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     coefficients_only: bool,
 }
 
+/// The stages whose stored refusals name their subset (see
+/// [`DirectExecutor::shared_put`]), and the placeholder they name instead.
+pub(super) const PARTIAL_RESCUE: &str = "partial rescue";
+pub(super) const GRAM_EXPANSION: &str = "small-Gram expansion";
+const STORED_MEMBERS: &str = "(the subset)";
+
 /// Per-output-moment conversion flags.
 #[derive(Clone)]
 struct OutputFlags<T> {
@@ -964,8 +970,16 @@ where
         key.extend(bits(mu));
     }
 
-    fn shared_get(&self, key: Option<&Vec<u64>>) -> Option<SharedValue> {
-        self.shared.as_ref()?.get(key?)
+    /// The stored result for `key`, if any. A stored refusal of `stage`
+    /// ("partial rescue", "small-Gram expansion") names its subset by a
+    /// placeholder (see [`Self::shared_put`]): it is returned naming this
+    /// lane's `members`, as this lane would have named them.
+    fn shared_get(&self, key: Option<&Vec<u64>>, stage: &str, members: &[usize]) -> Option<SharedValue> {
+        let value = self.shared.as_ref()?.get(key?)?;
+        Some(value.map_err(|message| match message.strip_prefix(&format!("{stage} of {STORED_MEMBERS}: ")) {
+            Some(rest) => format!("{stage} of {members:?}: {rest}"),
+            None => message,
+        }))
     }
 
     /// Coefficient rank at which an injected `size`-propagator subset needed
@@ -974,9 +988,18 @@ where
         self.shared.as_ref().map_or(rank, |store| store.rank_for(size, rank))
     }
 
-    fn shared_put(&self, key: Option<Vec<u64>>, outcome: &Result<Vec<[f64; 8]>, String>) {
+    /// Store a computed result. Keys hold no propagator index (another
+    /// integral may meet the same subset under other indices), so a refusal
+    /// of `stage` that names this lane's `members` is stored naming a
+    /// placeholder instead: a stored entry stays a pure function of its key,
+    /// statuses included.
+    fn shared_put(&self, key: Option<Vec<u64>>, outcome: &Result<Vec<[f64; 8]>, String>, stage: &str, members: &[usize]) {
         if let (Some(store), Some(key)) = (self.shared.as_ref(), key) {
-            store.put(key, outcome.clone());
+            let outcome = outcome.clone().map_err(|message| match message.strip_prefix(&format!("{stage} of {members:?}: ")) {
+                Some(rest) => format!("{stage} of {STORED_MEMBERS}: {rest}"),
+                None => message,
+            });
+            store.put(key, outcome);
         }
     }
 
@@ -1114,7 +1137,7 @@ where
                 let count = plan.coefficient_counts[id] as usize;
                 let start = subset.master.ok_or("partial rescue: no master")? as usize;
                 let key = self.subset_key(1, &subset.members, rank, 0, &[partial.threshold.to_bits()]);
-                if let Some(shared) = self.shared_get(key.as_ref()) {
+                if let Some(shared) = self.shared_get(key.as_ref(), PARTIAL_RESCUE, &subset.members) {
                     self.shared_write(start, count, &shared?)?;
                     continue;
                 }
@@ -1143,7 +1166,7 @@ where
                     .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values })
                     .map_err(|e| e.to_string())?;
                 if result.statuses[0] != LaneStatus::Success {
-                    return Err(format!("partial rescue of {:?}: {:?}", subset.members, result.statuses[0]));
+                    return Err(format!("{PARTIAL_RESCUE} of {:?}: {:?}", subset.members, result.statuses[0]));
                 }
                 let coefficients = executor.top_coefficients().ok_or("partial rescue: no PV coefficients")?;
                 if coefficients.len() < count {
@@ -1151,7 +1174,7 @@ where
                 }
                 Ok(Self::shared_values(&coefficients))
                 })();
-                self.shared_put(key, &outcome);
+                self.shared_put(key, &outcome, PARTIAL_RESCUE, &subset.members);
                 self.shared_write(start, count, &outcome?)?;
             }
             Ok(())

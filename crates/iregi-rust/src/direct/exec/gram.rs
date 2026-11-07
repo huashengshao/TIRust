@@ -37,7 +37,7 @@ use crate::direct::plan::FastMap;
 use iregi_masters::NativeFloat;
 use symbolica::{domains::float::Complex, evaluate::EvaluationDomain};
 
-use super::{DirectExecutor, DirectMasters};
+use super::{DirectExecutor, DirectMasters, GRAM_EXPANSION};
 use crate::direct::{
     numeric::{
         C, L4, cadd, cinv, cmul, cnorm2, cscale, csub, czero, dimension_powers, div_dimension, div_dimension_by, lfma, lfma_slots,
@@ -989,7 +989,7 @@ where
                 });
                 config.push(first.map_or(u64::MAX, f64::to_bits));
                 let key = self.subset_key(2, &subset.members, rank, 0, &config);
-                if let Some(shared) = self.shared_get(key.as_ref()) {
+                if let Some(shared) = self.shared_get(key.as_ref(), GRAM_EXPANSION, &subset.members) {
                     self.shared_write(start, count, &shared?)?;
                     continue;
                 }
@@ -1049,7 +1049,7 @@ where
                     .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values })
                     .map_err(|e| e.to_string())?;
                 if result.statuses[0] != LaneStatus::Success {
-                    failure = format!("small-Gram expansion of {:?}: {:?}", subset.members, result.statuses[0]);
+                    failure = format!("{GRAM_EXPANSION} of {:?}: {:?}", subset.members, result.statuses[0]);
                     continue;
                 }
                 let coefficients = executor.top_coefficients().ok_or("small-Gram expansion: no coefficients")?;
@@ -1065,7 +1065,7 @@ where
                 }
                 full.ok_or_else(|| "small-Gram expansion: no coefficients".to_string())
                 })();
-                self.shared_put(key, &outcome);
+                self.shared_put(key, &outcome, GRAM_EXPANSION, &subset.members);
                 self.shared_write(start, count, &outcome?)?;
             }
             Ok(())
