@@ -26,7 +26,8 @@ use crate::{BatchResult, KinematicsBatch, ReductionError, ReductionSettings, bas
 
 /// Largest a priori estimate (COLLIER's w_pv2) at which the direct engine
 /// accepts the alternative PV reduction alone (2^-36); the natural `limit`
-/// of [`DirectWorkspace::set_alternative_first`].
+/// of [`DirectWorkspace::set_alternative_first`] (whose estimate also counts
+/// the modified Cayley determinant's cancellation).
 pub const ALTERNATIVE_PV_LIMIT: f64 = 1.0 / (1u64 << 36) as f64;
 
 /// Immutable structural plan of the direct engine. No sampled value is stored.
@@ -188,9 +189,12 @@ where
     /// With a small-Gram method choice (`enable_gram_expansion`,
     /// `enable_gram_expansion_everywhere`, `enable_estimated_method_choice`;
     /// before or after enabling it): a box or triangle it serves whose a
-    /// priori estimate of the alternative PV reduction (COLLIER's w_pv2,
-    /// 2^-53 max(1, w)^ceil((r + 1) / 2), w = max_j |(Zadj f)_j| / |Delta|,
-    /// as the alternative-only reduction refuses above 2^-36) is at most
+    /// priori estimate of the alternative PV reduction,
+    /// 2^-53 (max(1, w) max(1, v))^ceil((r + 1) / 2) with COLLIER's
+    /// w = max_j |(Zadj f)_j| / |Delta| (w_pv2, as the alternative-only
+    /// reduction refuses above 2^-36) and the cancellation v of the modified
+    /// Cayley determinant det X = 2 m_0^2 Delta - f Zadj f (sum of the terms'
+    /// sizes over |det X|; the reduction divides by det X), is at most
     /// `limit` gets that reduction first, from triangles of its own rank;
     /// the expansions follow only if it fails. `None` (the default): the
     /// expansions first, the alternative PV as their check and fallback.

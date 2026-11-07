@@ -717,6 +717,45 @@ pub(super) fn gram_indicator<T: NativeFloat>(z: &[[C<T>; 3]; 3], f: &[C<T>; 3], 
 /// `fac_gy` of its CalcCgn/CalcDgn, CalcCgy/CalcDgy):
 /// fac_g = |Delta| / max_j |(Zadj f)_j| * max(1, max |Xtilde| / (2 max_j |(Zadj f)_j|)),
 /// fac_gy = max(max_j |(Zadj f)_j|, |Delta|) / max |Xtilde| * max(1, max |f| / max |Z|).
+/// Cancellation in the modified Cayley determinant of a box or triangle,
+/// `det X = 2 m_0^2 Delta - sum_ab f_a Zadj_ab f_b`: the ratio of the sum of
+/// the terms' sizes to `|det X|` (`None` if it vanishes or is not finite).
+/// `det X` is formed with relative error `~ 2^-53` times this ratio, and the
+/// alternative PV reduction divides by it at every rank step, so its
+/// rounding grows like this ratio to the power `ceil(r/2)` as well
+/// (`gram_indicator`'s `w` does not see it).
+pub(super) fn cayley_cancellation<T: NativeFloat>(z: &[[C<T>; 3]; 3], f: &[C<T>; 3], m02: &C<T>, nm: usize) -> Option<f64> {
+    let zero = czero(&z[0][0].re);
+    let size = |x: &C<T>| cnorm2(x).to_f64().sqrt();
+    let adj = |i: usize, j: usize| -> C<T> {
+        if nm == 2 {
+            return match (i, j) {
+                (0, 0) => z[1][1].clone(),
+                (1, 1) => z[0][0].clone(),
+                _ => csub(&zero, &z[j][i]),
+            };
+        }
+        let (a, b, c, d) = ((j + 1) % 3, (j + 2) % 3, (i + 1) % 3, (i + 2) % 3);
+        csub(&cmul(&z[a][c], &z[b][d]), &cmul(&z[a][d], &z[b][c]))
+    };
+    let mut delta = zero.clone();
+    for j in 0..nm {
+        delta = cadd(&delta, &cmul(&z[0][j], &adj(j, 0)));
+    }
+    let two = z[0][0].re.from_usize(2);
+    let mut det_x = cmul(&cscale(m02, &two), &delta);
+    let mut terms = size(&det_x);
+    for a in 0..nm {
+        for b in 0..nm {
+            let term = cmul(&cmul(&f[a], &f[b]), &adj(a, b));
+            terms += size(&term);
+            det_x = csub(&det_x, &term);
+        }
+    }
+    let ratio = terms / size(&det_x);
+    ratio.is_finite().then_some(ratio)
+}
+
 pub(super) fn gram_factors<T: NativeFloat>(z: &[[C<T>; 3]; 3], f: &[C<T>; 3], m02: &C<T>, nm: usize) -> Option<(f64, f64)> {
     let zero = czero(&z[0][0].re);
     let size = |x: &C<T>| cnorm2(x).to_f64().sqrt();
@@ -853,9 +892,13 @@ where
         gram_factors(&z, &f, &self.masses[origin], nm)
     }
 
-    /// COLLIER's a priori estimate of the alternative PV reduction of PV
-    /// subset `id` at coefficient rank `rank` (CalcDred's w_pv2):
-    /// 2^-53 max(1, w)^ceil((rank + 1) / 2), w = max_j |(Zadj f)_j| / |Delta|.
+    /// A priori estimate of the alternative PV reduction of PV subset `id` at
+    /// coefficient rank `rank` for `set_alternative_first`: COLLIER's w_pv2
+    /// with the modified Cayley determinant's cancellation `v`
+    /// (`cayley_cancellation`), 2^-53 (max(1, w) max(1, v))^ceil((rank + 1) / 2),
+    /// w = max_j |(Zadj f)_j| / |Delta|. (w_pv2 alone admits near-forward
+    /// gg -> HH boxes whose alternative PV keeps only E/A ~1e-4 at rank 6
+    /// while the expansions refuse them; there v ~ 1e3.)
     fn alternative_estimate_of(&self, id: usize, rank: u16) -> Option<f64> {
         let subset = &self.plan.subsets[id];
         let nm = subset.members.len().checked_sub(1).filter(|nm| (2..=3).contains(nm))?;
@@ -878,7 +921,8 @@ where
             if i < nm { self.geometry[geometry.f as usize + i].clone() } else { zero.clone() }
         });
         let w = gram_indicator(&z, &f, nm)?;
-        Some(2f64.powi(-53) * w.max(1.0).powi((i32::from(rank) + 1) / 2))
+        let v = cayley_cancellation(&z, &f, &self.masses[origin], nm)?;
+        Some(2f64.powi(-53) * (w.max(1.0) * v.max(1.0)).powi((i32::from(rank) + 1) / 2))
     }
 
     /// Evaluate every expansion box of this lane by its auxiliary executor
