@@ -30,7 +30,7 @@
 //! determinants (sect. 3.5) is tried, then the alternative PV reduction
 //! through the modified Cayley matrix (sect. 3.2), which is exact.
 
-use std::collections::HashMap;
+use std::{cell::RefCell, collections::HashMap, sync::Arc};
 
 use crate::direct::plan::FastMap;
 
@@ -400,11 +400,190 @@ impl<T: NativeFloat> Coefficients<T> {
         self.values[index] = value;
         self.present[index] = true;
     }
+}
 
-    /// The coefficients of index below `end` (a rank prefix).
-    fn prefix(&self, end: usize) -> Self {
+/// Reused storage of [`Coefficients`] (one executor's scratch): the
+/// expansions build about a dozen coefficient sets per call, and fresh
+/// allocations of their size cost page faults and zero fills.
+pub(super) struct CoefficientPool<T> {
+    free: Vec<(Vec<L4<T>>, Vec<bool>)>,
+}
+
+impl<T> Default for CoefficientPool<T> {
+    fn default() -> Self {
+        Self { free: Vec::new() }
+    }
+}
+
+impl<T> Clone for CoefficientPool<T> {
+    /// Scratch only: a clone starts empty.
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
+impl<T: NativeFloat> Coefficients<T> {
+    /// [`Coefficients::with_capacity`] on reused storage (same contents:
+    /// nothing present).
+    fn pooled(pool: &RefCell<CoefficientPool<T>>, capacity: usize) -> Self {
+        match pool.borrow_mut().free.pop() {
+            Some((mut values, mut present)) => {
+                values.clear();
+                present.clear();
+                values.reserve(capacity);
+                present.reserve(capacity);
+                Self { values, present }
+            }
+            None => Self::with_capacity(capacity),
+        }
+    }
+
+    /// Return the storage to `pool`.
+    fn recycle(self, pool: &RefCell<CoefficientPool<T>>) {
+        pool.borrow_mut().free.push((self.values, self.present));
+    }
+
+    /// The coefficients of index below `end` (a rank prefix), on reused
+    /// storage.
+    fn prefix_pooled(&self, pool: &RefCell<CoefficientPool<T>>, end: usize) -> Self {
         let end = end.min(self.values.len());
-        Self { values: self.values[..end].to_vec(), present: self.present[..end].to_vec() }
+        let mut out = Self::pooled(pool, end);
+        out.values.extend_from_slice(&self.values[..end]);
+        out.present.extend_from_slice(&self.present[..end]);
+        out
+    }
+
+    /// A clone on reused storage.
+    fn clone_pooled(&self, pool: &RefCell<CoefficientPool<T>>) -> Self {
+        self.prefix_pooled(pool, self.values.len())
+    }
+}
+
+/// A source value index of [`TopLayout`] outside the triangle's layout.
+const MISSING: u32 = u32::MAX;
+/// A source value index of [`TopLayout`] that is not read.
+const UNUSED: u32 = u32::MAX - 1;
+
+/// What [`DirectExecutor::expand_top`] derives from the plan alone (the top
+/// subset's children and layouts), built once per plan variant instead of
+/// once per lane.
+pub(super) struct TopTables {
+    /// The tables, or the error `expand_top` reports for this plan.
+    layout: Result<TopLayout, &'static str>,
+}
+
+struct TopLayout {
+    /// The triangles' (lowest) rank.
+    child_rank: u16,
+    /// Per grading index `(nm, child_rank + 2)` through `child_rank`: the
+    /// value index of the pinch-zero triangle's coefficient that seeds the
+    /// shifted `C0` (keys with `kappa_0 = 0`; `MISSING` outside its layout,
+    /// `UNUSED` for the other keys).
+    spz_source: Vec<u32>,
+    /// Per grading index through `child_rank` and pinch `m`: the value index
+    /// of the triangle without member `m + 1` at `kappa` without component
+    /// `m` (keys with `kappa_m = 0`; `MISSING`, `UNUSED` as above).
+    shat_source: Vec<[u32; 3]>,
+    /// The top subset's layout in its map's order: value index, grading
+    /// index (`NONE` outside the grading) and rank of each key; `None`
+    /// without a layout.
+    output: Option<Vec<(u32, u32, u16)>>,
+    /// Metric keys of each degree through the grading's rank, by decreasing
+    /// `kappa_l`, for each `l` (the small-Cayley variant's order).
+    gc_kappas: Vec<Vec<Vec<[u16; 3]>>>,
+}
+
+impl TopTables {
+    pub(super) fn new(plan: &DirectPlanData) -> Self {
+        Self { layout: TopLayout::new(plan) }
+    }
+}
+
+impl TopLayout {
+    fn new(plan: &DirectPlanData) -> Result<Self, &'static str> {
+        let subset = plan.subsets.last().ok_or("small-Gram expansion: no subsets")?;
+        let members = &subset.members;
+        if !(3..=4).contains(&members.len()) {
+            return Err("small-Gram expansion: the top subset is not a PV triangle or box");
+        }
+        let nm = members.len() - 1;
+        let origin = members[0];
+        let lookup = |mask: u16| plan.coefficient_lookup.get(&mask);
+        let mask = subset.mask;
+        let children: Vec<&FastMap<(u16, Vec<u16>), u32>> = (0..nm)
+            .map(|i| lookup(mask & !(1u16 << members[i + 1])).ok_or("small-Gram expansion: missing pinch"))
+            .collect::<Result<_, _>>()?;
+        let zero_child = lookup(mask & !(1u16 << origin)).ok_or("small-Gram expansion: missing triangle")?;
+        let child_rank = children
+            .iter()
+            .chain(std::iter::once(&zero_child))
+            .map(|layout| layout.keys().map(|(lambda, kappa)| 2 * lambda + kappa.iter().sum::<u16>()).max().unwrap_or(0))
+            .min()
+            .unwrap_or(0);
+        let grading = cached_grading(nm, child_rank + 2);
+        let child_grading = cached_grading(nm - 1, child_rank);
+        let dense_layout = |layout: &FastMap<(u16, Vec<u16>), u32>| -> Vec<u32> {
+            let mut out = vec![u32::MAX; child_grading.end(child_rank)];
+            for (&(lambda, ref kappa), &index) in layout {
+                if kappa.len() > 3 {
+                    continue;
+                }
+                let key: [u16; 3] = std::array::from_fn(|i| kappa.get(i).copied().unwrap_or(0));
+                if let Some(position) = child_grading.index(lambda, &key) {
+                    out[position] = index;
+                }
+            }
+            out
+        };
+        let children: Vec<Vec<u32>> = children.into_iter().map(dense_layout).collect();
+        let zero_child = dense_layout(zero_child);
+        let value = |layout: &[u32], lambda: u16, kappa: [u16; 3]| -> u32 {
+            child_grading
+                .index(lambda, &kappa)
+                .and_then(|position| layout.get(position).copied())
+                .filter(|&index| index != u32::MAX)
+                .unwrap_or(MISSING)
+        };
+        let end = grading.end(child_rank);
+        let mut spz_source = vec![UNUSED; end];
+        let mut shat_source = vec![[UNUSED; 3]; end];
+        for index in 0..end {
+            let (lambda, kappa) = grading.key(index);
+            if kappa[0] == 0 {
+                spz_source[index] = value(&zero_child, lambda, [kappa[1], kappa[2], 0]);
+            }
+            for m in 0..nm {
+                if kappa[m] == 0 {
+                    let mut reduced = [0u16; 3];
+                    for (slot, i) in (0..nm).filter(|&i| i != m).enumerate() {
+                        reduced[slot] = kappa[i];
+                    }
+                    shat_source[index][m] = value(&children[m], lambda, reduced);
+                }
+            }
+        }
+        let output = lookup(mask).map(|layout| {
+            layout
+                .iter()
+                .map(|(&(lambda, ref kappa), &index)| {
+                    let key: Key = (lambda, std::array::from_fn(|i| kappa.get(i).copied().unwrap_or(0)));
+                    let at = grading.index(key.0, &key.1).map_or(NONE, |at| at as u32);
+                    (index, at, rank_of(&key))
+                })
+                .collect()
+        });
+        let gc_kappas = (0..nm)
+            .map(|l| {
+                (0..=grading.max_rank)
+                    .map(|d| {
+                        let mut kappas = compositions(d, nm);
+                        kappas.sort_by_key(|kappa| std::cmp::Reverse(kappa[l]));
+                        kappas
+                    })
+                    .collect()
+            })
+            .collect();
+        Ok(Self { child_rank, spz_source, shat_source, output, gc_kappas })
     }
 }
 
@@ -707,6 +886,24 @@ where
     /// Fill the top box's coefficients up to rank `target` from its
     /// triangles by the small-Gram expansion (auxiliary executors).
     pub(super) fn expand_top(&mut self, target: u16) -> Result<(), String> {
+        let tables = self.top_tables();
+        let pool = RefCell::new(std::mem::take(&mut self.gram_pool));
+        let outcome = self.expand_top_with(target, &tables, &pool);
+        self.gram_pool = pool.into_inner();
+        outcome
+    }
+
+    /// The [`TopTables`] of the current plan variant.
+    fn top_tables(&mut self) -> Arc<TopTables> {
+        if let Some((_, tables)) = self.gram_tables.iter().find(|(plan, _)| Arc::ptr_eq(plan, &self.plan)) {
+            return tables.clone();
+        }
+        let tables = Arc::new(TopTables::new(&self.plan));
+        self.gram_tables.push((self.plan.clone(), tables.clone()));
+        tables
+    }
+
+    fn expand_top_with(&mut self, target: u16, tables: &TopTables, pool: &RefCell<CoefficientPool<T>>) -> Result<(), String> {
         let plan = self.plan.clone();
         let id = plan.subsets.len() - 1;
         let subset = &plan.subsets[id];
@@ -787,50 +984,22 @@ where
             xtilde = cadd(&xtilde, &cmul(w, &cmul(&f[*a], &f[*b])));
         }
 
-        // Triangle values: the pinch of member `i + 1` and of the origin.
-        let lookup = |mask: u16| plan.coefficient_lookup.get(&mask);
-        let mask = subset.mask;
-        let children: Vec<&FastMap<(u16, Vec<u16>), u32>> = (0..nm)
-            .map(|i| lookup(mask & !(1u16 << members[i + 1])).ok_or("small-Gram expansion: missing pinch"))
-            .collect::<Result<_, _>>()?;
-        let zero_child = lookup(mask & !(1u16 << origin)).ok_or("small-Gram expansion: missing triangle")?;
-        let child_rank = children
-            .iter()
-            .chain(std::iter::once(&zero_child))
-            .map(|layout| layout.keys().map(|(lambda, kappa)| 2 * lambda + kappa.iter().sum::<u16>()).max().unwrap_or(0))
-            .min()
-            .unwrap_or(0);
+        // Triangle values: the pinch of member `i + 1` and of the origin,
+        // through the plan's tables.
+        let layout = tables.layout.as_ref().map_err(|error| error.to_string())?;
+        let child_rank = layout.child_rank;
         if child_rank < target {
             return Err("small-Gram expansion: triangles below the requested rank".into());
         }
         // Keys of the expansion (its steps reach one rank above the
-        // triangles) and the triangles' layouts by the same graded index
-        // (`u32::MAX`: not in the layout).
+        // triangles).
         let grading = cached_grading(nm, child_rank + 2);
-        let child_grading = cached_grading(nm - 1, child_rank);
-        let dense_layout = |layout: &FastMap<(u16, Vec<u16>), u32>| -> Vec<u32> {
-            let mut out = vec![u32::MAX; child_grading.end(child_rank)];
-            for (&(lambda, ref kappa), &index) in layout {
-                if kappa.len() > 3 {
-                    continue;
-                }
-                let key: [u16; 3] = std::array::from_fn(|i| kappa.get(i).copied().unwrap_or(0));
-                if let Some(position) = child_grading.index(lambda, &key) {
-                    out[position] = index;
-                }
-            }
-            out
-        };
-        let children: Vec<Vec<u32>> = children.into_iter().map(dense_layout).collect();
-        let zero_child = dense_layout(zero_child);
         let values = &self.values;
-        let value = |layout: &[u32], lambda: u16, kappa: [u16; 3]| -> Result<&L4<T>, String> {
-            child_grading
-                .index(lambda, &kappa)
-                .and_then(|position| layout.get(position).copied())
-                .filter(|&index| index != u32::MAX)
-                .map(|index| &values[index as usize])
-                .ok_or_else(|| "small-Gram expansion: triangle coefficient outside its layout".to_string())
+        let value = |index: u32| -> Result<&L4<T>, String> {
+            if index >= UNUSED {
+                return Err("small-Gram expansion: triangle coefficient outside its layout".to_string());
+            }
+            Ok(&values[index as usize])
         };
         // Shifted pinch-zero values C0(lambda, kappa) in the box basis
         // (Denner, Eq. (2.9); as the PV program's `spz` instructions):
@@ -838,37 +1007,35 @@ where
         // times the pinch's C0(lambda, [k1 + b, k2 + c]), computed by the
         // trinomial recursion spz(k) = -[spz(k - e0) + spz(k - e0 + e1)
         // + spz(k - e0 + e2)] from spz(0, k1, k2) = C0(lambda, [k1, k2]).
-        let mut spz: Coefficients<T> = Coefficients::with_capacity(grading.end(child_rank));
+        // The keys of a block come in increasing kappa_0 (as `compositions`
+        // lists them), so every term below is already in place; the terms
+        // are read through the grading's neighbour tables.
+        let mut spz: Coefficients<T> = Coefficients::pooled(pool, grading.end(child_rank));
         for r in 0..=child_rank {
             for lambda in 0..=r / 2 {
-                let mut kappas = compositions(r - 2 * lambda, nm);
-                kappas.sort_by_key(|kappa| kappa[0]);
-                for kappa in kappas {
+                for index in grading.block(r, lambda) {
+                    let kappa = grading.key(index).1;
                     let shifted = if kappa[0] == 0 {
-                        value(&zero_child, lambda, [kappa[1], kappa[2], 0])?.clone()
+                        value(layout.spz_source[index])?.clone()
                     } else {
-                        let mut lower = kappa;
-                        lower[0] -= 1;
+                        let lower = grading.minus(index as u32, 0);
                         let mut acc = lzero(&zero);
                         for i in 0..nm {
-                            let mut key = lower;
-                            if i > 0 {
-                                key[i] += 1;
-                            }
-                            let term = spz.get(&grading, (lambda, key)).ok_or("small-Gram expansion: shifted C0 missing")?;
+                            let at = if i > 0 { grading.plus(lower, i) } else { lower };
+                            let term = spz.at(at as usize).ok_or("small-Gram expansion: shifted C0 missing")?;
                             for slot in 0..4 {
                                 acc[slot] = csub(&acc[slot], &term[slot]);
                             }
                         }
                         acc
                     };
-                    spz.insert(&grading, (lambda, kappa), shifted, &zero)?;
+                    spz.insert_at(&grading, index, shifted, &zero);
                 }
             }
         }
         // Shat_n(lambda, kappa) = triangle without member n+1 (if kappa_n = 0)
         // minus the shifted pinch zero, for every key of `spz`.
-        let mut shat: Vec<Coefficients<T>> = (0..nm).map(|_| Coefficients::with_capacity(grading.end(child_rank))).collect();
+        let mut shat: Vec<Coefficients<T>> = (0..nm).map(|_| Coefficients::pooled(pool, grading.end(child_rank))).collect();
         for r in 0..=child_rank {
             for lambda in 0..=r / 2 {
                 for index in grading.block(r, lambda) {
@@ -877,11 +1044,7 @@ where
                     for m in 0..nm {
                         let mut out: L4<T> = std::array::from_fn(|slot| csub(&zero, &c0[slot]));
                         if kappa[m] == 0 {
-                            let mut reduced = [0u16; 3];
-                            for (slot, i) in (0..nm).filter(|&i| i != m).enumerate() {
-                                reduced[slot] = kappa[i];
-                            }
-                            let source = value(&children[m], lambda, reduced)?;
+                            let source = value(layout.shat_source[index][m])?;
                             for slot in 0..4 {
                                 out[slot] = cadd(&out[slot], &source[slot]);
                             }
@@ -1043,7 +1206,7 @@ where
         // Steps completed per order (step 1 is empty).
         let mut steps: Vec<u16> = Vec::with_capacity(usize::from(passes) + 1);
         // Sum of the accepted orders, ranks <= target.
-        let mut total: Coefficients<T> = Coefficients::with_capacity(0);
+        let mut total: Coefficients<T> = Coefficients::pooled(pool, 0);
         let mut accepted = false;
         let mut last_change = f64::INFINITY;
         // Observed change ratio per order (convergence rate), for deciding
@@ -1057,7 +1220,7 @@ where
                 break;
             }
             // Order `order` runs through step target + 1 + passes - order.
-            let mut fresh: Coefficients<T> = Coefficients::with_capacity(grading.end(target + 1 + passes - order));
+            let mut fresh: Coefficients<T> = Coefficients::pooled(pool, grading.end(target + 1 + passes - order));
             fresh.insert(&grading, (0, [0, 0, 0]), if order == 0 { d0.clone() } else { lzero(&zero) }, &zero)?;
             orders.push(fresh);
             steps.push(1);
@@ -1071,7 +1234,7 @@ where
             }
             let latest = &orders[usize::from(order)];
             if order == 0 {
-                total = latest.prefix(grading.end(target));
+                std::mem::replace(&mut total, latest.prefix_pooled(pool, grading.end(target))).recycle(pool);
                 if passes == 0 {
                     accepted = true;
                     last_change = 0.0;
@@ -1079,7 +1242,7 @@ where
                 continue;
             }
             // Largest relative change per rank, ranks <= target.
-            let mut next = total.clone();
+            let mut next = total.clone_pooled(pool);
             let mut change = 0.0f64;
             for r in 1..=target {
                 let (mut diff, mut size) = (0.0f64, 0.0f64);
@@ -1107,7 +1270,7 @@ where
                 }
             }
             last_change = change;
-            total = next;
+            std::mem::replace(&mut total, next).recycle(pool);
             accepted = true;
             if change <= f64::EPSILON {
                 break;
@@ -1120,8 +1283,15 @@ where
                 break;
             }
         }
-        drop(orders);
-        let chosen = accepted.then_some(total);
+        for order in orders {
+            order.recycle(pool);
+        }
+        let chosen = if accepted {
+            Some(total)
+        } else {
+            total.recycle(pool);
+            None
+        };
         // Alternative PV reduction (hep-ph/0509141 sect. 3.2, eqs. (PValtrec1),
         // (PValtrec2); COLLIER's CalcDpv2), the last resort when neither
         // expansion converges: the modified Cayley matrix X instead of Z, so
@@ -1163,7 +1333,7 @@ where
                         .collect()
                 })
                 .collect();
-            let mut cur: Coefficients<T> = Coefficients::with_capacity(grading.end(target + 1));
+            let mut cur: Coefficients<T> = Coefficients::pooled(pool, grading.end(target + 1));
             cur.insert(&grading, (0, [0, 0, 0]), d0.clone(), &zero)?;
             let mut rhs: Vec<L4<T>> = Vec::with_capacity(nm);
             for q in 0..target {
@@ -1334,13 +1504,7 @@ where
                     .collect();
                 let (gc_two, gc_neg_one) = (real(2), csub(&zero, &real(1)));
                 // Metric keys of each degree, by decreasing kappa_l.
-                let gc_kappas: Vec<Vec<[u16; 3]>> = (0..=grading.max_rank)
-                    .map(|d| {
-                        let mut kappas = compositions(d, nm);
-                        kappas.sort_by_key(|kappa| std::cmp::Reverse(kappa[l]));
-                        kappas
-                    })
-                    .collect();
+                let gc_kappas = &layout.gc_kappas[l];
                 let gc_metric = |cur: &mut Coefficients<T>, prev: Option<&Coefficients<T>>, r: u16| -> Result<(), String> {
                     for level in 1..=r / 2 {
                         let kappas = gc_kappas.get(usize::from(r - 2 * level)).ok_or("small-Gram/Cayley expansion: rank beyond the grading")?;
@@ -1418,13 +1582,13 @@ where
                 let mut gc_orders: Vec<Coefficients<T>> = Vec::with_capacity(usize::from(gc_passes) + 1);
                 // Metric and momentum ranks completed per order.
                 let mut gc_done: Vec<(u16, u16)> = Vec::with_capacity(usize::from(gc_passes) + 1);
-                let mut gc_total: Coefficients<T> = Coefficients::with_capacity(0);
+                let mut gc_total: Coefficients<T> = Coefficients::pooled(pool, 0);
                 let mut gc_accepted = false;
                 let mut gc_change = f64::INFINITY;
                 let mut gc_ratio = 1.0f64;
                 for order in 0..=gc_passes {
                     // Order `order` runs metric ranks through target + 2 + 2 (gc_passes - order).
-                    let mut fresh: Coefficients<T> = Coefficients::with_capacity(grading.end(target + 2 + 2 * (gc_passes - order)));
+                    let mut fresh: Coefficients<T> = Coefficients::pooled(pool, grading.end(target + 2 + 2 * (gc_passes - order)));
                     fresh.insert(&grading, (0, [0, 0, 0]), if order == 0 { d0.clone() } else { lzero(&zero) }, &zero)?;
                     gc_orders.push(fresh);
                     gc_done.push((1, 0));
@@ -1441,10 +1605,10 @@ where
                     }
                     let latest = &gc_orders[usize::from(order)];
                     if order == 0 {
-                        gc_total = latest.prefix(grading.end(target));
+                        std::mem::replace(&mut gc_total, latest.prefix_pooled(pool, grading.end(target))).recycle(pool);
                         continue;
                     }
-                    let mut next = gc_total.clone();
+                    let mut next = gc_total.clone_pooled(pool);
                     let mut change = 0.0f64;
                     for r in 1..=target {
                         let (mut diff, mut size) = (0.0f64, 0.0f64);
@@ -1468,14 +1632,21 @@ where
                         gc_ratio = (change / gc_change).min(1.0);
                     }
                     gc_change = change;
-                    gc_total = next;
+                    std::mem::replace(&mut gc_total, next).recycle(pool);
                     gc_accepted = true;
                     if change <= f64::EPSILON {
                         break;
                     }
                 }
-                drop(gc_orders);
-                let gc_chosen = gc_accepted.then_some(gc_total);
+                for order in gc_orders {
+                    order.recycle(pool);
+                }
+                let gc_chosen = if gc_accepted {
+                    Some(gc_total)
+                } else {
+                    gc_total.recycle(pool);
+                    None
+                };
                 // A larger boost adds `extra` passes of the small-Gram
                 // expansion and `extra / 2` of the small-Cayley variant.
                 let extra = i32::from(self.gram_extra_ranks);
@@ -1496,15 +1667,19 @@ where
             }
         };
         // Write the coefficients of rank <= target in the layout order.
-        let layout = lookup(mask).ok_or("small-Gram expansion: no box layout")?;
-        for (&(lambda, ref kappa), &index) in layout {
-            let key: Key = (lambda, std::array::from_fn(|i| kappa.get(i).copied().unwrap_or(0)));
-            self.values[index as usize] = if rank_of(&key) <= target {
-                chosen.get(&grading, key).cloned().ok_or("small-Gram expansion: coefficient missing")?
+        let output = layout.output.as_ref().ok_or("small-Gram expansion: no box layout")?;
+        for &(index, at, rank) in output {
+            self.values[index as usize] = if rank <= target {
+                chosen.at(at as usize).cloned().ok_or("small-Gram expansion: coefficient missing")?
             } else {
                 lzero(&zero)
             };
         }
+        for coefficients in shat {
+            coefficients.recycle(pool);
+        }
+        spz.recycle(pool);
+        chosen.recycle(pool);
         Ok(())
     }
 }
