@@ -165,6 +165,41 @@ fn tadpole_deviation<T: iregi_masters::NativeFloat>(result: &iregi_rust::BatchRe
     worst
 }
 
+/// Largest relative deviation from the closed form of a single nonzero
+/// entry (UV and finite slots) among the moments of rank above `above`: the
+/// entries beyond the former rank cap, each against its own value (the
+/// array-wide E/A above is dominated by the low ranks). `None` if every such
+/// entry vanishes (odd ranks: checked to be exactly zero above).
+fn tadpole_entry_deviation<T: iregi_masters::NativeFloat>(result: &iregi_rust::BatchResult<T>, above: u16) -> Option<f64> {
+    let lane = result.lane(0).unwrap();
+    let exact = |x: &T| iregi_masters::NativeFloat::exact_rational(x).unwrap();
+    let a0 = [exact(&lane[3].re), exact(&lane[3].im)];
+    let uv = [exact(&lane[0].re), exact(&lane[0].im)];
+    let reference = tadpole_reference(&result.basis, a0, uv, &Rational::from((Integer::from(9), Integer::from(4))));
+    let bits = 600;
+    let to = |x: &Rational| Float::with_val(bits, 0).from_rational(x);
+    let mut worst = 0.0f64;
+    let mut entries = 0usize;
+    for (m, monomial) in result.basis.iter().enumerate() {
+        if monomial.rank() <= usize::from(above) {
+            continue;
+        }
+        for slot in [0usize, 3] {
+            let want = &reference[4 * m + slot];
+            let size = (to(&want[0]) * &to(&want[0]) + to(&want[1]) * &to(&want[1])).sqrt();
+            if size.is_zero() {
+                continue;
+            }
+            let got = &lane[4 * m + slot];
+            let dr = to(&exact(&got.re)) - &to(&want[0]);
+            let di = to(&exact(&got.im)) - &to(&want[1]);
+            worst = worst.max(((dr.clone() * &dr + di.clone() * &di).sqrt() / &size).to_f64());
+            entries += 1;
+        }
+    }
+    (entries > 0).then_some(worst)
+}
+
 #[test]
 fn tadpole_beyond_rank_32_matches_its_closed_form() {
     // The closed form at a validated rank first (the oracle's conventions).
@@ -172,14 +207,29 @@ fn tadpole_beyond_rank_32_matches_its_closed_form() {
     assert!(low <= 1e-70, "{low:e}");
     for rank in [33u16, 36] {
         let start = std::time::Instant::now();
-        let mpfr = tadpole_deviation(&tadpole(Float::new(256), rank));
-        let double = tadpole_deviation(&tadpole(DoubleFloat::from(0.0), rank));
-        let binary64 = tadpole_deviation(&tadpole(0.0f64, rank));
+        let (mpfr_result, double_result, binary64_result) =
+            (tadpole(Float::new(256), rank), tadpole(DoubleFloat::from(0.0), rank), tadpole(0.0f64, rank));
+        let mpfr = tadpole_deviation(&mpfr_result);
+        let double = tadpole_deviation(&double_result);
+        let binary64 = tadpole_deviation(&binary64_result);
         println!(
             "tadpole rank {rank}: E/A against the closed form: binary64 {binary64:e}, double-double {double:e}, 256 bits {mpfr:e} ({:.2?})",
             start.elapsed()
         );
         assert!(mpfr <= 1e-70 && double <= 1e-28 && binary64 <= 1e-13, "{binary64:e} {double:e} {mpfr:e}");
+        // Every nonzero entry above rank 32 (ranks 34 and 36 of the rank-36
+        // array; the rank-33 entries are odd and exactly zero) against its own
+        // closed form.
+        let entry = [
+            tadpole_entry_deviation(&binary64_result, 32),
+            tadpole_entry_deviation(&double_result, 32),
+            tadpole_entry_deviation(&mpfr_result, 32),
+        ];
+        println!("tadpole rank {rank}: largest relative entry deviation above rank 32 (binary64, double-double, 256 bits): {entry:?}");
+        assert_eq!(entry.iter().all(Option::is_some), rank >= 34, "{entry:?}");
+        if let [Some(b64), Some(dd), Some(mp)] = entry {
+            assert!(b64 <= 1e-13 && dd <= 1e-28 && mp <= 1e-70, "{entry:?}");
+        }
     }
 }
 
