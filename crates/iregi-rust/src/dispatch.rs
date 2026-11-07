@@ -27,7 +27,7 @@ use crate::{
     ReductionPlan, ReductionSettings, RescueScalar, RescueSettings, ScaleInput, SevenPointExecutionStats,
     SevenPointReductionPlan, SevenPointWorkspace, SixPointExecutionStats, SixPointReductionPlan,
     SixPointWorkspace, TensorCertificateExecutionStats, TensorRescueWorkspace, Workspace,
-    basis::Monomial,
+    DirectReductionPlan, basis::Monomial,
 };
 
 mod six_hybrid;
@@ -38,6 +38,10 @@ use legacy_noop::{LegacyNoOpPlan, LegacyNoOpWorkspace, highpoint_legacy_domain};
 
 mod direct_hybrid;
 pub use direct_hybrid::{DirectExecutionStats, DirectRescueTier};
+
+mod embedded;
+pub use embedded::{EmbedderOptions, LaneRoute};
+use embedded::EmbeddedWorkspace;
 use direct_hybrid::{DirectHybridPlan, DirectHybridWorkspace, direct_eligible};
 
 /// The actual reduction implementation, distinct from its requested algorithm.
@@ -511,6 +515,8 @@ impl TensorWorkspaceOptions {
 #[derive(Clone)]
 enum WorkspaceEngine<T: NativeFloat> {
     Direct(Box<DirectHybridWorkspace<T>>),
+    /// Embedder mode: the direct engine alone, at any precision.
+    Embedded(Box<EmbeddedWorkspace<T>>),
     Generic(Workspace<T>),
     SixPoint(SixPointWorkspace<T>),
     SixPointHybrid(SixHybridWorkspace<T>),
@@ -822,6 +828,56 @@ where
         })
     }
 
+    /// Embedder-mode workspace (see [`EmbedderOptions`]): every lane on the
+    /// direct engine at `prototype`'s precision (binary64, double-double or
+    /// MPFR), conditioning gates, then only the configured method choice,
+    /// partial rescue and precision tiers; no loop-rotation test, no
+    /// rescue-first routing and never the symbolic engine. Settings outside
+    /// the direct engine's domain are refused.
+    pub fn new_embedded(
+        plan: &TensorReductionPlan,
+        prototype: T,
+        options: EmbedderOptions,
+    ) -> Result<Self, ReductionError> {
+        let OrdinaryPlan::Direct(direct) = &plan.ordinary else {
+            let reason = DirectReductionPlan::new(plan.settings().clone())
+                .err()
+                .map_or_else(|| "not a direct plan".to_string(), |error| error.to_string());
+            return Err(ReductionError::Unsupported(format!(
+                "embedder mode runs the direct engine only: {reason}"
+            )));
+        };
+        options
+            .master_policy
+            .validate_available()
+            .map_err(|e| ReductionError::Preparation(e.to_string()))?;
+        let workspace = EmbeddedWorkspace::new(direct.direct.clone(), prototype, options)?;
+        Ok(Self {
+            engine: WorkspaceEngine::Embedded(Box::new(workspace)),
+            requested_master_policy: options.master_policy,
+            notes: vec!["Facade selection: embedder mode (direct engine at the workspace precision; gates, then the configured method choice, partial rescue and precision tiers; no rotation test, no symbolic fallback).".into()],
+            regulators: crate::Regulators::default(),
+            scale_input: plan.settings().scale_input,
+        })
+    }
+
+    /// The embedder options of an embedder-mode workspace.
+    pub fn embedder_options(&self) -> Option<EmbedderOptions> {
+        match &self.engine {
+            WorkspaceEngine::Embedded(workspace) => Some(workspace.options()),
+            _ => None,
+        }
+    }
+
+    /// Embedder mode: how the most recent call computed each lane (`None` for
+    /// other workspaces).
+    pub fn last_lane_routes(&self) -> Option<&[LaneRoute]> {
+        match &self.engine {
+            WorkspaceEngine::Embedded(workspace) => Some(workspace.last_routes()),
+            _ => None,
+        }
+    }
+
     pub fn new_dual<D: DualNumberStructure>(
         plan: &TensorReductionPlan,
         prototype: T,
@@ -974,7 +1030,7 @@ where
 
     pub fn engine_kind(&self) -> TensorEngineKind {
         match &self.engine {
-            WorkspaceEngine::Direct(_) => TensorEngineKind::Direct,
+            WorkspaceEngine::Direct(_) | WorkspaceEngine::Embedded(_) => TensorEngineKind::Direct,
             WorkspaceEngine::Generic(_) => TensorEngineKind::Generic,
             WorkspaceEngine::MassTaylor(_) => TensorEngineKind::MassTaylor,
             WorkspaceEngine::SixPoint(_) => TensorEngineKind::SixPoint,
@@ -999,6 +1055,9 @@ where
     pub fn set_accuracy_precision(&mut self, bits: u32) -> Result<(), ReductionError> {
         match &mut self.engine {
             WorkspaceEngine::Direct(workspace) => workspace.set_accuracy_precision(bits),
+            WorkspaceEngine::Embedded(_) => Err(ReductionError::Unsupported(
+                "embedder mode takes its gates from EmbedderOptions".into(),
+            )),
             WorkspaceEngine::Generic(workspace) => workspace.set_accuracy_precision(bits),
             WorkspaceEngine::SixPoint(workspace) => workspace.set_accuracy_precision(bits),
             WorkspaceEngine::SixPointHybrid(workspace) => workspace.set_accuracy_precision(bits),
@@ -1038,6 +1097,10 @@ where
     pub fn set_profiling(&mut self, enabled: bool) -> Result<(), ReductionError> {
         match &mut self.engine {
             WorkspaceEngine::Direct(workspace) => workspace.set_profiling(enabled),
+            WorkspaceEngine::Embedded(workspace) => {
+                workspace.set_profiling(enabled);
+                Ok(())
+            }
             WorkspaceEngine::Generic(workspace) => {
                 workspace.set_profiling(enabled);
                 Ok(())
@@ -1073,7 +1136,7 @@ where
 
     pub fn component_count(&self) -> usize {
         match &self.engine {
-            WorkspaceEngine::Direct(_) => 1,
+            WorkspaceEngine::Direct(_) | WorkspaceEngine::Embedded(_) => 1,
             WorkspaceEngine::Generic(workspace) => workspace.component_count(),
             WorkspaceEngine::SixPoint(workspace) => workspace.component_count(),
             WorkspaceEngine::SixPointHybrid(workspace) => workspace.component_count(),
@@ -1095,6 +1158,7 @@ where
             WorkspaceEngine::MassTaylor(workspace) => workspace.dual_shape(),
             WorkspaceEngine::LegacyNoOp(workspace) => workspace.dual_shape(),
             WorkspaceEngine::Direct(_)
+            | WorkspaceEngine::Embedded(_)
             | WorkspaceEngine::SixPoint(_)
             | WorkspaceEngine::SixPointHybrid(_)
             | WorkspaceEngine::SevenPoint(_) => None,
@@ -1104,6 +1168,7 @@ where
     pub fn binary_precision(&self) -> u32 {
         match &self.engine {
             WorkspaceEngine::Direct(workspace) => workspace.binary_precision(),
+            WorkspaceEngine::Embedded(workspace) => workspace.binary_precision(),
             WorkspaceEngine::Generic(workspace) => workspace.binary_precision(),
             WorkspaceEngine::SixPoint(workspace) => workspace.binary_precision(),
             WorkspaceEngine::SixPointHybrid(workspace) => workspace.binary_precision(),
@@ -1120,6 +1185,7 @@ where
     pub fn last_diagnostics(&self) -> &[Vec<String>] {
         match &self.engine {
             WorkspaceEngine::Direct(workspace) => workspace.last_diagnostics(),
+            WorkspaceEngine::Embedded(workspace) => workspace.last_diagnostics(),
             WorkspaceEngine::Generic(workspace) => workspace.last_diagnostics(),
             WorkspaceEngine::SixPoint(workspace) => workspace.last_diagnostics(),
             WorkspaceEngine::SixPointHybrid(workspace) => workspace.last_diagnostics(),
@@ -1134,6 +1200,9 @@ where
     pub fn engine_execution(&self) -> TensorEngineExecution {
         match &self.engine {
             WorkspaceEngine::Direct(workspace) => {
+                TensorEngineExecution::Direct(workspace.last_execution().clone())
+            }
+            WorkspaceEngine::Embedded(workspace) => {
                 TensorEngineExecution::Direct(workspace.last_execution().clone())
             }
             WorkspaceEngine::Generic(workspace) => TensorEngineExecution::Generic {
@@ -1208,6 +1277,7 @@ where
     pub fn last_profile(&self) -> Option<ExecutionProfile> {
         match &self.engine {
             WorkspaceEngine::Direct(workspace) => workspace.last_profile(),
+            WorkspaceEngine::Embedded(workspace) => workspace.last_profile(),
             WorkspaceEngine::Generic(workspace) => workspace.last_profile(),
             WorkspaceEngine::SixPoint(workspace) => workspace.last_profile(),
             WorkspaceEngine::SixPointHybrid(workspace) => workspace.last_profile(),
@@ -1278,7 +1348,9 @@ where
         &mut self,
         batch: &KinematicsBatch<T>,
     ) -> Result<BatchResult<T>, ReductionError> {
-        if self.scale_input == ScaleInput::MuSquared && !matches!(self.engine, WorkspaceEngine::Direct(_)) {
+        if self.scale_input == ScaleInput::MuSquared
+            && !matches!(self.engine, WorkspaceEngine::Direct(_) | WorkspaceEngine::Embedded(_))
+        {
             let batch = mu_from_squared(batch)?;
             let mut result = self.reduce_batch_unregulated(&batch)?;
             self.regulators.apply(&batch, &mut result)?;
@@ -1295,6 +1367,7 @@ where
     ) -> Result<BatchResult<T>, ReductionError> {
         match &mut self.engine {
             WorkspaceEngine::Direct(workspace) => workspace.reduce_batch(batch),
+            WorkspaceEngine::Embedded(workspace) => workspace.reduce_batch(batch),
             WorkspaceEngine::Generic(workspace) => workspace.reduce_batch(batch),
             WorkspaceEngine::SixPoint(workspace) => workspace.reduce_batch(batch),
             WorkspaceEngine::SixPointHybrid(workspace) => workspace.reduce_batch(batch),

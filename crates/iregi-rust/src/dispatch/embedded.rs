@@ -1,0 +1,435 @@
+//! Embedder mode of the facade: the direct engine at the workspace's own
+//! precision, with no hidden check, no hidden escalation and never the
+//! symbolic engine.
+//!
+//! A host that runs its own stability checks (a re-evaluation in another
+//! frame, a comparison with another backend) needs the reduction to do exactly
+//! what it was asked: [`TensorWorkspace::new_embedded`] builds such a
+//! workspace for every number type the direct engine serves (binary64,
+//! double-double, MPFR). Every lane first runs through the direct engine's
+//! conditioning gates. Then, in this order and only as configured
+//! ([`EmbedderOptions`]):
+//!
+//! 1. *method choice* (on by default): lanes the gates refuse are evaluated
+//!    again with COLLIER's a priori per-box choice (boxes and triangles whose
+//!    Passarino-Veltman estimate exceeds the request, or that their gate
+//!    refuses, by the small-Gram expansions or the alternative PV reduction).
+//!    Unchecked here: the lanes are flagged ([`TensorWorkspace::last_lane_routes`])
+//!    for the host's own check;
+//! 2. *partial rescue* (binary64 only, off by default): boxes and triangles a
+//!    gate refuses inside a binary64 lane are computed in double-double;
+//! 3. *precision tiers* (binary64 only, off by default): lanes still refused
+//!    on conditioning are evaluated again by the direct engine at 106, 256 and
+//!    512 bits (conditioning gates only, no rotation test) and rounded once.
+//!
+//! There is no loop-rotation test, no rescue-first routing of refused lanes
+//! and no symbolic fallback: a lane nothing accepted stays `Unstable` with the
+//! reason in [`TensorWorkspace::last_diagnostics`], a scalar-master failure
+//! stays `MasterFailure`. The facade's ordinary binary64 workspace (with its
+//! rotation test, retries, rescue and fallback) is unchanged.
+
+use iregi_masters::{MasterExecutionPolicy, NativeFloat};
+use symbolica::{
+    domains::float::{Complex, DoubleFloat, Float},
+    evaluate::EvaluationDomain,
+};
+
+use super::direct_hybrid::{DirectExecutionStats, DirectRescueTier};
+use crate::{
+    BatchResult, DirectMasters, DirectReductionPlan, DirectWorkspace, ExecutionProfile, KinematicsBatch,
+    LaneStatus, ReductionError, types::filled,
+};
+
+/// Configuration of an embedder-mode workspace ([`TensorWorkspace::new_embedded`]).
+///
+/// [`TensorWorkspace::new_embedded`]: super::TensorWorkspace::new_embedded
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EmbedderOptions {
+    /// Gate-refused lanes get COLLIER's a priori method choice (unchecked,
+    /// flagged per lane). Default `true`.
+    pub method_choice: bool,
+    /// Binary64 workspaces: boxes and triangles refused inside a lane are
+    /// computed in double-double. Default `false`.
+    pub partial_rescue: bool,
+    /// Binary64 workspaces: lanes still refused on conditioning are evaluated
+    /// again by the direct engine at 106, 256 and 512 bits. Default `false`.
+    pub precision_tiers: bool,
+    /// Minimal accepted relative determinant of the first pass (raised to the
+    /// recursion depth); `None` keeps the direct engine's default (1e-12).
+    pub gate: Option<f64>,
+    /// Gate of the method-choice pass; `None`: 1e-15, the gate the binary64
+    /// facade's choice runs with (its rows are checked by the host).
+    pub method_choice_gate: Option<f64>,
+    /// Scalar-master implementation (see [`MasterExecutionPolicy`]).
+    pub master_policy: MasterExecutionPolicy,
+}
+
+impl Default for EmbedderOptions {
+    fn default() -> Self {
+        Self {
+            method_choice: true,
+            partial_rescue: false,
+            precision_tiers: false,
+            gate: None,
+            method_choice_gate: None,
+            master_policy: MasterExecutionPolicy::Default,
+        }
+    }
+}
+
+/// How the most recent call of an embedder-mode workspace computed a lane.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LaneRoute {
+    /// The first pass: the direct engine with its gates (and, if enabled,
+    /// double-double boxes and triangles inside the lane).
+    Direct,
+    /// The a priori method choice (unchecked: the host checks it).
+    MethodChoice,
+    /// The direct engine at this many bits (precision tiers), rounded once.
+    Tier(u32),
+    /// No value: refused, invalid input or a master failure (see the status).
+    Refused,
+}
+
+/// Extra triangle ranks of the small-Gram expansions (as the facade's choice).
+const GRAM_BOOST: u16 = 12;
+/// Gate of the method-choice pass (as the facade's choice).
+const METHOD_CHOICE_GATE: f64 = 1e-15;
+/// Working precisions of the precision tiers.
+const TIER_BITS: [u32; 3] = [106, 256, 512];
+/// A tier accepts conditioning down to `2^-(bits - TIER_HEADROOM)`: its
+/// rounding error amplified by at most `2^-40` relative, below binary64's
+/// accuracy (no a posteriori check in this mode).
+const TIER_HEADROOM: u32 = 40;
+/// Bits added to the binary64 conditioning estimate when choosing a lane's
+/// first tier.
+const TIER_MARGIN: u32 = 8;
+
+fn tier_threshold(bits: u32) -> f64 {
+    2f64.powi(-((bits - TIER_HEADROOM) as i32))
+}
+
+/// The binary64 value `x` exactly in `prototype`'s domain.
+fn from_binary64<T: NativeFloat>(prototype: &T, x: f64) -> T {
+    match (&x as &dyn std::any::Any).downcast_ref::<T>() {
+        Some(value) => value.clone(),
+        None => Float::with_val(53, x)
+            .try_to_rational()
+            .map_or_else(|| prototype.zero(), |exact| prototype.from_rational(&exact)),
+    }
+}
+
+fn masters_for(policy: MasterExecutionPolicy) -> DirectMasters {
+    match policy {
+        MasterExecutionPolicy::Default | MasterExecutionPolicy::NativeF64Abc => DirectMasters::Native,
+        MasterExecutionPolicy::Symbolica => DirectMasters::Policy(MasterExecutionPolicy::Symbolica),
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct EmbeddedWorkspace<T: NativeFloat> {
+    plan: DirectReductionPlan,
+    options: EmbedderOptions,
+    prototype: T,
+    direct: DirectWorkspace<T>,
+    choice: Option<Box<DirectWorkspace<T>>>,
+    double: Option<Box<DirectWorkspace<DoubleFloat>>>,
+    mpfr: [Option<Box<DirectWorkspace<Float>>>; 2],
+    routes: Vec<LaneRoute>,
+    diagnostics: Vec<Vec<String>>,
+    last: DirectExecutionStats,
+    profiling: bool,
+    last_profile: Option<ExecutionProfile>,
+}
+
+impl<T: NativeFloat> EmbeddedWorkspace<T>
+where
+    Complex<T>: EvaluationDomain,
+{
+    pub(crate) fn new(plan: DirectReductionPlan, prototype: T, options: EmbedderOptions) -> Result<Self, ReductionError> {
+        let binary64 = Self::is_binary64(&prototype);
+        if !binary64 && (options.partial_rescue || options.precision_tiers) {
+            return Err(ReductionError::Unsupported(
+                "partial rescue and precision tiers serve binary64 workspaces; a double-double or MPFR workspace runs at its own precision".into(),
+            ));
+        }
+        let mut direct = plan.workspace_with_masters(prototype.clone(), masters_for(options.master_policy))?;
+        if let Some(gate) = options.gate {
+            direct.set_stability_threshold(from_binary64(&prototype, gate));
+        }
+        if options.partial_rescue {
+            direct.enable_partial_rescue(tier_threshold(TIER_BITS[0]));
+        }
+        Ok(Self {
+            plan,
+            options,
+            prototype,
+            direct,
+            choice: None,
+            double: None,
+            mpfr: [None, None],
+            routes: Vec::new(),
+            diagnostics: Vec::new(),
+            last: DirectExecutionStats::default(),
+            profiling: false,
+            last_profile: None,
+        })
+    }
+
+    fn is_binary64(prototype: &T) -> bool {
+        T::FIXED_BITS == Some(53) && prototype.get_precision() == 53
+    }
+
+    pub(crate) fn options(&self) -> EmbedderOptions {
+        self.options
+    }
+
+    pub(crate) fn binary_precision(&self) -> u32 {
+        self.prototype.get_precision()
+    }
+
+    pub(crate) fn last_diagnostics(&self) -> &[Vec<String>] {
+        &self.diagnostics
+    }
+
+    pub(crate) fn last_routes(&self) -> &[LaneRoute] {
+        &self.routes
+    }
+
+    pub(crate) fn last_execution(&self) -> &DirectExecutionStats {
+        &self.last
+    }
+
+    pub(crate) fn last_profile(&self) -> Option<ExecutionProfile> {
+        self.last_profile
+    }
+
+    pub(crate) fn set_profiling(&mut self, enabled: bool) {
+        self.profiling = enabled;
+        self.direct.set_profiling(enabled);
+        if let Some(choice) = self.choice.as_mut() {
+            choice.set_profiling(enabled);
+        }
+    }
+
+    fn add_profile(profile: &mut ExecutionProfile, child: crate::DirectProfile) {
+        profile.arguments += child.geometry;
+        profile.scalar_masters += child.masters;
+        profile.reduction += child.recurrence + child.gather + child.output;
+    }
+
+    pub(crate) fn reduce_batch(&mut self, batch: &KinematicsBatch<T>) -> Result<BatchResult<T>, ReductionError> {
+        let started = self.profiling.then(std::time::Instant::now);
+        let mut profile = ExecutionProfile::default();
+        let mut result = self.direct.reduce_batch(batch)?;
+        result.estimated_errors = filled(batch.rows, None);
+        result.best_effort = filled(batch.rows, false);
+        Self::add_profile(&mut profile, self.direct.last_profile());
+        self.last = DirectExecutionStats {
+            input_rows: batch.rows,
+            master_rows: self.direct.last_master_rows(),
+            ..DirectExecutionStats::default()
+        };
+        self.routes.clear();
+        self.routes.extend(result.statuses.iter().map(|status| {
+            if *status == LaneStatus::Success { LaneRoute::Direct } else { LaneRoute::Refused }
+        }));
+        self.diagnostics.clear();
+        self.diagnostics.resize(batch.rows, Vec::new());
+        self.last.direct_successes = self.routes.iter().filter(|&&route| route == LaneRoute::Direct).count();
+        // Lanes refused on conditioning (a master failure or invalid input is
+        // final), with their binary64 conditioning estimate.
+        let mut conditions: Vec<Option<f64>> = self.direct.last_conditions().to_vec();
+        let mut refused: Vec<usize> = (0..batch.rows)
+            .filter(|&lane| matches!(result.statuses[lane], LaneStatus::Unstable(_)) && conditions[lane].is_some())
+            .collect();
+        for lane in 0..batch.rows {
+            if let LaneStatus::Unstable(note) | LaneStatus::MasterFailure(note) = &result.statuses[lane] {
+                self.diagnostics[lane].push(format!("direct engine: {note}"));
+            }
+        }
+        if self.options.method_choice && !refused.is_empty() {
+            self.method_choice(batch, &refused, &mut result, &mut conditions, &mut profile)?;
+            refused.retain(|&lane| result.statuses[lane] != LaneStatus::Success && conditions[lane].is_some());
+        }
+        if self.options.precision_tiers && !refused.is_empty() {
+            self.precision_tiers(batch, &refused, &conditions, &mut result, &mut profile)?;
+        }
+        if let Some(started) = started {
+            profile.total = started.elapsed();
+            self.last_profile = Some(profile);
+        } else {
+            self.last_profile = None;
+        }
+        Ok(result)
+    }
+
+    fn sub_batch(batch: &KinematicsBatch<T>, lanes: &[usize]) -> KinematicsBatch<T> {
+        let width = batch.values.len() / batch.rows.max(1);
+        let mut values = Vec::with_capacity(lanes.len() * width);
+        for &lane in lanes {
+            values.extend_from_slice(&batch.values[lane * width..(lane + 1) * width]);
+        }
+        KinematicsBatch { rows: lanes.len(), components: batch.components, values }
+    }
+
+    fn method_choice(
+        &mut self,
+        batch: &KinematicsBatch<T>,
+        lanes: &[usize],
+        result: &mut BatchResult<T>,
+        conditions: &mut [Option<f64>],
+        profile: &mut ExecutionProfile,
+    ) -> Result<(), ReductionError> {
+        if self.choice.is_none() {
+            let mut workspace = self
+                .plan
+                .workspace_with_masters(self.prototype.clone(), masters_for(self.options.master_policy))?;
+            let gate = from_binary64(&self.prototype, self.options.method_choice_gate.unwrap_or(METHOD_CHOICE_GATE));
+            workspace.set_stability_threshold(gate.clone());
+            workspace.enable_estimated_method_choice(GRAM_BOOST, gate);
+            if self.options.partial_rescue {
+                workspace.enable_partial_rescue(tier_threshold(TIER_BITS[0]));
+            }
+            workspace.set_profiling(self.profiling);
+            self.choice = Some(Box::new(workspace));
+        }
+        let workspace = self.choice.as_mut().unwrap();
+        let chosen = workspace.reduce_batch(&Self::sub_batch(batch, lanes))?;
+        self.last.master_rows += workspace.last_master_rows();
+        Self::add_profile(profile, workspace.last_profile());
+        self.last.expansion_rows += lanes.len();
+        let stride = result.basis.len() * 4 * result.components;
+        let choice_conditions = workspace.last_conditions();
+        for (k, &lane) in lanes.iter().enumerate() {
+            result.fallback_used[lane] = true;
+            if chosen.statuses[k] == LaneStatus::Success {
+                result.values[lane * stride..(lane + 1) * stride]
+                    .clone_from_slice(&chosen.values[k * stride..(k + 1) * stride]);
+                result.statuses[lane] = LaneStatus::Success;
+                self.routes[lane] = LaneRoute::MethodChoice;
+                self.last.expansion_successes += 1;
+                self.diagnostics[lane].push("a priori method choice: accepted (unchecked)".into());
+            } else {
+                self.diagnostics[lane].push(format!("a priori method choice: {:?}", chosen.statuses[k]));
+                if !matches!(chosen.statuses[k], LaneStatus::Unstable(_)) {
+                    conditions[lane] = None;
+                } else if let Some(condition) = choice_conditions.get(k).copied().flatten() {
+                    // The smaller (worse) estimate decides the first tier.
+                    conditions[lane] = Some(conditions[lane].map_or(condition, |c| c.min(condition)));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn precision_tiers(
+        &mut self,
+        batch: &KinematicsBatch<T>,
+        lanes: &[usize],
+        conditions: &[Option<f64>],
+        result: &mut BatchResult<T>,
+        profile: &mut ExecutionProfile,
+    ) -> Result<(), ReductionError> {
+        // The first tier admitting the binary64 estimate with margin (an
+        // exactly singular binary64 pivot carries a zero estimate: 256 bits).
+        let first = |condition: f64| {
+            if condition > 0.0 {
+                TIER_BITS
+                    .iter()
+                    .position(|&bits| condition >= tier_threshold(bits) * 2f64.powi(TIER_MARGIN as i32))
+                    .unwrap_or(TIER_BITS.len() - 1)
+            } else {
+                1
+            }
+        };
+        let mut pending: Vec<(usize, usize)> =
+            lanes.iter().map(|&lane| (lane, first(conditions[lane].unwrap_or(0.0)))).collect();
+        self.last.fallback_rows += pending.len();
+        let masters = masters_for(self.options.master_policy);
+        for tier in 0..TIER_BITS.len() {
+            let current: Vec<usize> =
+                pending.iter().filter(|&&(_, start)| start <= tier).map(|&(lane, _)| lane).collect();
+            if current.is_empty() {
+                continue;
+            }
+            let bits = TIER_BITS[tier];
+            let sub = Self::sub_batch(batch, &current);
+            let (statuses, values, tier_conditions) = if tier == 0 {
+                if self.double.is_none() {
+                    let mut workspace = self.plan.workspace_with_masters::<DoubleFloat>(DoubleFloat::from(0.0), masters)?;
+                    workspace.set_stability_threshold(DoubleFloat::from(tier_threshold(bits)));
+                    workspace.set_input_precision(53);
+                    workspace.set_profiling(self.profiling);
+                    self.double = Some(Box::new(workspace));
+                }
+                Self::run_tier::<DoubleFloat>(self.double.as_mut().unwrap(), DoubleFloat::from, &sub, profile, &mut self.last)?
+            } else {
+                let slot = &mut self.mpfr[tier - 1];
+                if slot.is_none() {
+                    let mut workspace = self.plan.workspace_with_masters::<Float>(Float::new(bits), masters)?;
+                    workspace.set_stability_threshold(Float::with_val(bits, tier_threshold(bits)));
+                    workspace.set_input_precision(53);
+                    workspace.set_profiling(self.profiling);
+                    *slot = Some(Box::new(workspace));
+                }
+                Self::run_tier::<Float>(slot.as_mut().unwrap(), |x| Float::with_val(bits, x), &sub, profile, &mut self.last)?
+            };
+            let stride = result.basis.len() * 4 * result.components;
+            let mut successes = 0;
+            for (k, &lane) in current.iter().enumerate() {
+                if statuses[k] == LaneStatus::Success {
+                    for (out, value) in result.values[lane * stride..(lane + 1) * stride]
+                        .iter_mut()
+                        .zip(&values[k * stride..(k + 1) * stride])
+                    {
+                        *out = Complex::new(
+                            from_binary64(&self.prototype, value.re),
+                            from_binary64(&self.prototype, value.im),
+                        );
+                    }
+                    result.statuses[lane] = LaneStatus::Success;
+                    result.fallback_used[lane] = true;
+                    self.routes[lane] = LaneRoute::Tier(bits);
+                    self.diagnostics[lane].push(format!("direct engine at {bits} bits: accepted"));
+                    successes += 1;
+                    pending.retain(|&(other, _)| other != lane);
+                } else {
+                    self.diagnostics[lane].push(format!("direct engine at {bits} bits: {:?}", statuses[k]));
+                    if tier_conditions[k].is_none() || tier + 1 == TIER_BITS.len() {
+                        pending.retain(|&(other, _)| other != lane);
+                    }
+                }
+            }
+            self.last.fallback_successes += successes;
+            self.last.precision_rescue.push(DirectRescueTier { bits, rows: current.len(), successes });
+        }
+        Ok(())
+    }
+
+    /// `batch` (binary64) lifted exactly into a tier's domain and reduced;
+    /// statuses, values rounded to binary64, and conditioning estimates.
+    #[allow(clippy::type_complexity)]
+    fn run_tier<R: NativeFloat>(
+        workspace: &mut DirectWorkspace<R>,
+        lift: impl Fn(f64) -> R,
+        batch: &KinematicsBatch<T>,
+        profile: &mut ExecutionProfile,
+        stats: &mut DirectExecutionStats,
+    ) -> Result<(Vec<LaneStatus>, Vec<Complex<f64>>, Vec<Option<f64>>), ReductionError>
+    where
+        Complex<R>: EvaluationDomain,
+    {
+        let values = batch
+            .values
+            .iter()
+            .map(|z| Complex::new(lift(z.re.to_f64()), lift(z.im.to_f64())))
+            .collect();
+        let sub = KinematicsBatch { rows: batch.rows, components: batch.components, values };
+        let rescued = workspace.reduce_batch(&sub)?;
+        stats.master_rows += workspace.last_master_rows();
+        Self::add_profile(profile, workspace.last_profile());
+        let values = rescued.values.iter().map(|z| Complex::new(z.re.to_f64(), z.im.to_f64())).collect();
+        Ok((rescued.statuses, values, workspace.last_conditions().to_vec()))
+    }
+}
