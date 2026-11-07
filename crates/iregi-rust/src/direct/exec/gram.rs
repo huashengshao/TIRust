@@ -28,7 +28,9 @@
 //! carry `G` corrections. The scalar `D0` is the master itself. When it
 //! does not converge, the expansion for small Gram and small modified Cayley
 //! determinants (sect. 3.5) is tried, then the alternative PV reduction
-//! through the modified Cayley matrix (sect. 3.2), which is exact.
+//! through the modified Cayley matrix (sect. 3.2), which is exact where the
+//! modified Cayley determinant does not cancel (it vanishes for IR-divergent
+//! boxes and triangles; such lanes are refused).
 
 use std::{cell::RefCell, collections::HashMap, sync::Arc};
 
