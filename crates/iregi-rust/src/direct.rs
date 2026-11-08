@@ -409,7 +409,10 @@ where
 
     /// Share per-subset results with other workspaces holding the same store
     /// (`None`: no sharing). Binary64 workspaces share sub-integrals, rescues,
-    /// expansions and moments; double-double ones only their scalar masters.
+    /// expansions and moments; double-double ones their scalar masters, and
+    /// where the store allows it (an amplitude's store, see
+    /// `shared::SubsetStore::set_dd_subsets`) their sub-integrals, Gram-free
+    /// pentagons and moments too.
     pub(crate) fn set_shared_subsets(&mut self, store: Option<std::sync::Arc<shared::SubsetStore>>) {
         self.executor.set_shared_subsets(store);
     }
@@ -455,5 +458,107 @@ where
     /// priori estimate (with `enable_estimate_flags`).
     pub fn last_estimate_lanes(&self) -> &[bool] {
         self.executor.last_estimate_lanes()
+    }
+}
+
+#[cfg(test)]
+mod dd_sharing_tests {
+    use std::sync::Arc;
+
+    use symbolica::domains::float::{Complex, DoubleFloat};
+
+    use super::{DirectReductionPlan, shared::SubsetStore};
+    use crate::{KinematicsBatch, ReductionSettings, TensorStore};
+
+    /// Two generic massive pentagon lanes (well conditioned in every
+    /// subset); the first three propagators are common to both.
+    fn pentagon_lanes() -> KinematicsBatch<DoubleFloat> {
+        const SHIFTS: [[[f64; 4]; 5]; 2] = [
+            [
+                [0.0, 0.0, 0.0, 0.0],
+                [0.7, 0.2, -0.1, 0.3],
+                [1.3, -0.4, 0.25, 0.1],
+                [0.9, 0.35, 0.6, -0.45],
+                [0.45, -0.3, -0.55, 0.2],
+            ],
+            [
+                [0.0, 0.0, 0.0, 0.0],
+                [0.7, 0.2, -0.1, 0.3],
+                [1.3, -0.4, 0.25, 0.1],
+                [1.1, -0.25, 0.4, 0.6],
+                [0.3, 0.5, -0.35, -0.15],
+            ],
+        ];
+        let dd = |x: f64| Complex::new(DoubleFloat::from(x), DoubleFloat::from(0.0));
+        let mut values = Vec::new();
+        for lane in &SHIFTS {
+            for shift in lane {
+                values.extend(shift.iter().map(|&x| dd(x)));
+            }
+            values.extend((0..5).map(|_| dd(0.6)));
+            values.push(dd(1.0));
+        }
+        KinematicsBatch { rows: SHIFTS.len(), components: 1, values }
+    }
+
+    /// A double-double workspace at the engine's default gate.
+    fn workspace(plan: &DirectReductionPlan) -> super::DirectWorkspace<DoubleFloat> {
+        plan.workspace(DoubleFloat::from(0.0)).unwrap()
+    }
+
+    /// Every lane's array, limb for limb.
+    fn limbs(result: &crate::BatchResult<DoubleFloat>) -> Vec<Vec<[u64; 4]>> {
+        (0..result.rows())
+            .map(|lane| {
+                result.lane(lane).map_or_else(|_| Vec::new(), |values| {
+                    values
+                        .iter()
+                        .map(|z| {
+                            let (re, im) = (z.re.into_inner(), z.im.into_inner());
+                            [re.hi().to_bits(), re.lo().to_bits(), im.hi().to_bits(), im.lo().to_bits()]
+                        })
+                        .collect()
+                })
+            })
+            .collect()
+    }
+
+    #[test]
+    fn double_double_subsets_from_a_store_are_limb_for_limb_what_the_executor_computes() {
+        let plan = DirectReductionPlan::new(ReductionSettings::new(5, 5)).unwrap();
+        let batch = pentagon_lanes();
+        let alone = workspace(&plan).reduce_batch(&batch).unwrap();
+        let store = Arc::new(SubsetStore::default());
+        store.set_enabled(true);
+        store.set_dd_subsets(true);
+        let mut workspace = workspace(&plan);
+        workspace.set_shared_subsets(Some(store.clone()));
+        // The first call computes and stores (its two lanes share their first
+        // three propagators, so some triangles meet already), the second takes
+        // every stored sub-integral and pentagon from the store.
+        let first = workspace.reduce_batch(&batch).unwrap();
+        let (hits, misses) = store.dd_subset_counts();
+        assert!(misses > 0, "({hits}, {misses})");
+        let second = workspace.reduce_batch(&batch).unwrap();
+        let (hits_after, misses_after) = store.dd_subset_counts();
+        assert_eq!(misses_after, misses, "the second call computed again");
+        assert_eq!(hits_after - hits, hits + misses, "the second call missed a lookup");
+        assert_eq!(limbs(&first), limbs(&alone));
+        assert_eq!(limbs(&second), limbs(&alone));
+        assert!(limbs(&alone).iter().all(|lane| !lane.is_empty()), "a lane was refused");
+    }
+
+    #[test]
+    fn a_tensor_store_shares_only_double_double_masters() {
+        // Outside an amplitude workspace double-double executors keep their
+        // sub-integrals, pentagons and moments to themselves.
+        let plan = DirectReductionPlan::new(ReductionSettings::new(5, 5)).unwrap();
+        let store = TensorStore::new();
+        let mut workspace = workspace(&plan);
+        workspace.set_tensor_store(Some(&store));
+        workspace.reduce_batch(&pentagon_lanes()).unwrap();
+        workspace.reduce_batch(&pentagon_lanes()).unwrap();
+        assert_eq!(store.shared().dd_subset_counts(), (0, 0));
+        assert!(store.statistics().dd_masters_reused > 0, "{:?}", store.statistics());
     }
 }

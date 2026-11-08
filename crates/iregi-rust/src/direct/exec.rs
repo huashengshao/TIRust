@@ -165,7 +165,9 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     /// Per-subset results shared with other executors (binary64 only; see
     /// `super::shared`).
     shared: Option<Arc<SubsetStore>>,
-    /// The same store for a double-double executor: its scalar masters only.
+    /// The same store for a double-double executor: its scalar masters, and
+    /// where the store allows it (`SubsetStore::shares_dd_subsets`) its PV
+    /// sub-integrals, Gram-free pentagons and moments.
     dd_masters: Option<Arc<SubsetStore>>,
     /// The current lane's geometry found such a box or triangle.
     estimate_tripped: bool,
@@ -1135,9 +1137,9 @@ where
         let words = if T::FIXED_BITS == Some(106) { 4 } else { 2 };
         let slots = Self::gather_slots::<FULL>();
         let used = gather.coefficient.iter().filter(|&&index| index != u32::MAX).count();
-        let mut key = Vec::with_capacity(5 + 4 * words * (momenta + 1) + words * slots.len() * used);
-        // The gather scale is (-2)^h, exact in every precision.
-        key.extend([5, u64::from(FULL), rank as u64, momenta as u64, self.gather_scale.to_f64().to_bits()]);
+        let mut key = Vec::with_capacity(6 + 4 * words * (momenta + 1) + words * slots.len() * used);
+        key.extend([5, u64::from(FULL), rank as u64, momenta as u64]);
+        key.extend(real_key_words(&self.gather_scale));
         let p = pv.p as usize;
         for z in self.geometry[p..p + 4 * momenta].iter().chain(&self.geometry[pv.origin as usize..pv.origin as usize + 4]) {
             push_key_bits(&mut key, z);
@@ -1154,7 +1156,7 @@ where
                 }
             }
         }
-        debug_assert_eq!(key.len(), 5 + 4 * words * (momenta + 1) + words * slots.len() * used);
+        debug_assert_eq!(key.len(), 6 + 4 * words * (momenta + 1) + words * slots.len() * used);
         key
     }
 
@@ -2644,9 +2646,10 @@ where
         if let (Some(store), Some(mu2)) = (store.as_ref(), self.lane_mu2.clone()) {
             if self.gram_top.is_none() {
                 let gram = self.gram.as_ref();
+                let [threshold, threshold_low] = real_key_words(&self.stability_threshold);
                 let mut config = [
                     u64::from(FULL),
-                    self.stability_threshold.to_f64().to_bits(),
+                    threshold,
                     self.partial.as_ref().map_or(u64::MAX, |partial| partial.threshold.to_bits()),
                     gram.map_or(u64::MAX, |gram| gram.signature()),
                     u64::from(self.gram_everywhere),
@@ -2655,6 +2658,7 @@ where
                     u64::from(self.gram_alt_direct),
                     u64::from(self.gram_extra_ranks),
                     0,
+                    threshold_low,
                 ];
                 let mut key = Vec::with_capacity(96);
                 for (id, subset) in plan.subsets.iter().enumerate() {
@@ -3115,8 +3119,9 @@ where
     fn gather_with<const FULL: bool>(&mut self, plan_arc: &Arc<DirectPlanData>, plan: &DirectPlanData) {
         let table = &plan.monomials;
         let stride = table.block(usize::from(plan.settings.rank)).end;
-        // 0. Moments shared with the other integrals of an amplitude (binary64
-        //    only, sizes and ranks the store shares): stored moments are
+        // 0. Moments shared with the other integrals of an amplitude (binary64,
+        //    and double-double where the store allows it; sizes and ranks the
+        //    store shares): stored moments are
         //    written now and their gathers skipped; the others are stored
         //    once gathered. The key holds every input, so a stored entry is
         //    exactly what the gather computes.
@@ -3689,6 +3694,22 @@ fn push_key_bits<T: NativeFloat>(key: &mut Vec<u64>, z: &C<T>) {
     key.extend([z.re.to_f64().to_bits(), z.im.to_f64().to_bits()]);
 }
 
+/// A real setting of the executor (a gate, the gather scale) in a store
+/// key: the bits of its binary64 value and, in double-double, of its low
+/// limb (zero otherwise). A double-double gate need not be a binary64 number
+/// (a direct workspace's default 1e-12 is the exact rational), so both limbs
+/// are keyed.
+pub(crate) fn real_key_words<T: NativeFloat>(x: &T) -> [u64; 2] {
+    let low = if T::FIXED_BITS == Some(106) {
+        (x as &dyn std::any::Any)
+            .downcast_ref::<symbolica::domains::float::DoubleFloat>()
+            .map_or(0, |x| x.into_inner().lo().to_bits())
+    } else {
+        0
+    };
+    [x.to_f64().to_bits(), low]
+}
+
 /// `z` as a double-double value (`None`: `T` is not double-double).
 fn to_dd<T: NativeFloat>(z: &C<T>) -> Option<C<symbolica::domains::float::DoubleFloat>> {
     (z as &dyn std::any::Any).downcast_ref::<C<symbolica::domains::float::DoubleFloat>>().cloned()
@@ -3883,6 +3904,29 @@ mod tests {
         let (handwritten, generated) = (evaluate(&mut handwritten), evaluate(&mut generated));
         assert_ne!(handwritten, generated, "the point does not tell the two kernels apart at {bits} bits");
         assert_eq!(engine, handwritten, "{bits} bits");
+    }
+
+    #[test]
+    fn double_double_key_bits_hold_both_limbs() {
+        // Two double-double values equal in the high limb, different in the
+        // low one: different keys (four words each); binary64 values take two.
+        let a = C::new(DoubleFloat::from(1.0), DoubleFloat::from(-3.0));
+        let b = C::new(DoubleFloat::from(1.0) + DoubleFloat::from(2f64.powi(-80)), DoubleFloat::from(-3.0));
+        assert_eq!(a.re.into_inner().hi(), b.re.into_inner().hi());
+        assert_ne!(a.re.into_inner().lo(), b.re.into_inner().lo());
+        let (mut ka, mut kb) = (Vec::new(), Vec::new());
+        push_key_bits(&mut ka, &a);
+        push_key_bits(&mut kb, &b);
+        assert_eq!((ka.len(), kb.len()), (4, 4));
+        assert_ne!(ka, kb);
+        let mut binary64 = Vec::new();
+        push_key_bits(&mut binary64, &C::new(1.0f64, -3.0));
+        assert_eq!(binary64, vec![1.0f64.to_bits(), (-3.0f64).to_bits()]);
+        // Real settings: both limbs in double-double, a zero low word otherwise.
+        assert_eq!(real_key_words(&DoubleFloat::from(1e-15)), [1e-15f64.to_bits(), 0.0f64.to_bits()]);
+        assert_eq!(real_key_words(&1e-15f64), [1e-15f64.to_bits(), 0]);
+        let gate = DoubleFloat::from(1e-12) + DoubleFloat::from(2f64.powi(-100));
+        assert_ne!(real_key_words(&gate), real_key_words(&DoubleFloat::from(1e-12)));
     }
 
     #[test]

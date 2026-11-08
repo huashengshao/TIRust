@@ -106,7 +106,9 @@ impl<T: NativeFloat> GramRescue<T> {
         }
         eat(u64::from(self.alternative));
         eat(self.alternative_first.map_or(u64::MAX, f64::to_bits));
-        eat(self.aux_threshold.as_ref().map_or(u64::MAX, |t| t.to_f64().to_bits()));
+        let [threshold, threshold_low] = self.aux_threshold.as_ref().map_or([u64::MAX; 2], super::real_key_words);
+        eat(threshold);
+        eat(threshold_low);
         hash
     }
 

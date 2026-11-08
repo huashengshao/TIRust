@@ -52,7 +52,9 @@ impl Default for AmplitudeOptions {
 }
 
 /// Per-subset results of the last call: reused from the store and computed.
+/// New counters may be added (`#[non_exhaustive]`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct SubsetSharingStats {
     /// Coefficient results (scalar masters, PV sub-integrals, rescues,
     /// expansions).
