@@ -1020,7 +1020,9 @@ where
 
     /// Share per-subset results (partial rescue, expansions) through `store`
     /// (binary64 executors; `None`: compute every one here). A double-double
-    /// executor shares only its scalar masters, keyed limb for limb.
+    /// executor shares its scalar masters, keyed limb for limb, and where the
+    /// store allows it ([`SubsetStore::set_dd_subsets`]) its PV sub-integrals,
+    /// Gram-free pentagons and moments.
     pub(crate) fn set_shared_subsets(&mut self, store: Option<Arc<SubsetStore>>) {
         self.dd_masters = store.clone().filter(|_| T::FIXED_BITS == Some(106));
         self.shared = store.filter(|_| T::FIXED_BITS == Some(53));
@@ -1046,23 +1048,22 @@ where
         key.clear();
         key.extend([tag, members.len() as u64, u64::from(rank), count as u64, config.len() as u64]);
         key.extend_from_slice(config);
-        let bits = |z: &C<T>| [z.re.to_f64().to_bits(), z.im.to_f64().to_bits()];
         for &member in members {
             for a in 0..4 {
-                key.extend(bits(&self.shifts[member][a]));
+                push_key_bits(key, &self.shifts[member][a]);
             }
-            key.extend(bits(&self.masses[member]));
+            push_key_bits(key, &self.masses[member]);
         }
         if self.layout.scalar_products.is_some() {
             // Supplied invariants are inputs of their own.
             let n = self.plan.settings.propagators;
             for (a, &i) in members.iter().enumerate() {
                 for &j in &members[a + 1..] {
-                    key.extend(bits(&self.distances[i * n + j]));
+                    push_key_bits(key, &self.distances[i * n + j]);
                 }
             }
         }
-        key.extend(bits(mu));
+        push_key_bits(key, mu);
     }
 
     /// The stored result for `key`, if any. A stored refusal of `stage`
@@ -1130,14 +1131,16 @@ where
         let pv = subset.pv.unwrap();
         let rank = usize::from(gather.moment_rank);
         let momenta = subset.members.len() - 1;
-        let bits = |z: &C<T>| [z.re.to_f64().to_bits(), z.im.to_f64().to_bits()];
+        // Words per complex value: `re, im`, or both limbs of each.
+        let words = if T::FIXED_BITS == Some(106) { 4 } else { 2 };
         let slots = Self::gather_slots::<FULL>();
         let used = gather.coefficient.iter().filter(|&&index| index != u32::MAX).count();
-        let mut key = Vec::with_capacity(5 + 8 * (momenta + 1) + 2 * slots.len() * used);
+        let mut key = Vec::with_capacity(5 + 4 * words * (momenta + 1) + words * slots.len() * used);
+        // The gather scale is (-2)^h, exact in every precision.
         key.extend([5, u64::from(FULL), rank as u64, momenta as u64, self.gather_scale.to_f64().to_bits()]);
         let p = pv.p as usize;
         for z in self.geometry[p..p + 4 * momenta].iter().chain(&self.geometry[pv.origin as usize..pv.origin as usize + 4]) {
-            key.extend(bits(z));
+            push_key_bits(&mut key, z);
         }
         let kappas = gather.kappas.len();
         for lambda in 0..=rank / 2 {
@@ -1146,12 +1149,12 @@ where
                 if usize::from(kappa.degree) <= top {
                     let value = &self.values[gather.coefficient[lambda * kappas + k] as usize];
                     for &slot in slots {
-                        key.extend(bits(&value[slot]));
+                        push_key_bits(&mut key, &value[slot]);
                     }
                 }
             }
         }
-        debug_assert_eq!(key.len(), 5 + 8 * (momenta + 1) + 2 * slots.len() * used);
+        debug_assert_eq!(key.len(), 5 + 4 * words * (momenta + 1) + words * slots.len() * used);
         key
     }
 
@@ -2625,9 +2628,19 @@ where
         // beneath it, which decide their gates, injections and closed forms;
         // a lightlike flag holds exactly on the lanes whose kinematics make
         // the bubble lightlike, so plan variants share too).
+        // Double-double executors of an amplitude share the same results in
+        // double-double where the store allows it (limb-exact keys and values;
+        // see `super::shared`), from shorter programs: their arithmetic costs
+        // about ten times binary64's.
         let mut skip = skip;
         let mut computed: Vec<(usize, usize, Vec<u64>)> = Vec::new();
-        let store = self.shared.clone().filter(|store| store.shares_subsets() && !program_is_moments);
+        let dd = T::FIXED_BITS == Some(106);
+        let store = if dd {
+            self.dd_masters.clone().filter(|store| store.shares_dd_subsets() && !program_is_moments)
+        } else {
+            self.shared.clone().filter(|store| store.shares_subsets() && !program_is_moments)
+        };
+        let min_terms = if dd { SHARED_MIN_TERMS_DD } else { SHARED_MIN_TERMS };
         if let (Some(store), Some(mu2)) = (store.as_ref(), self.lane_mu2.clone()) {
             if self.gram_top.is_none() {
                 let gram = self.gram.as_ref();
@@ -2650,7 +2663,7 @@ where
                         continue;
                     }
                     // A short program costs less than a lookup.
-                    if plan.coefficient_terms[id] < SHARED_MIN_TERMS {
+                    if plan.coefficient_terms[id] < min_terms {
                         continue;
                     }
                     if skip.iter().any(|&(x, y)| x == a && y == b) {
@@ -2662,8 +2675,13 @@ where
                     config[9] = plan.subset_signatures[id];
                     self.fill_subset_key(&mut key, 3, &subset.members, rank, count, &config, &mu2);
                     let (values, prototype) = (&mut self.values[start..], &self.prototype);
-                    let hit = store.get_with(&key, |stored| stored.as_ref().is_ok_and(|v| write_shared(values, prototype, count, v)));
-                    if hit == Some(true) {
+                    let hit = if dd {
+                        store.dd_values_with(&key, |stored| write_dd_values(values, count, stored))
+                    } else {
+                        store.get_with(&key, |stored| stored.as_ref().is_ok_and(|v| write_shared(values, prototype, count, v)))
+                            == Some(true)
+                    };
+                    if hit {
                         skip.push((a, b));
                     } else {
                         computed.push((start, count, key.clone()));
@@ -2679,8 +2697,13 @@ where
                     config[9] = plan.subset_signatures[id];
                     self.fill_subset_key(&mut key, 6, &subset.members, rank, count, &config, &mu2);
                     let (values, prototype) = (&mut self.values[start..], &self.prototype);
-                    let hit = store.get_with(&key, |stored| stored.as_ref().is_ok_and(|v| write_shared(values, prototype, count, v)));
-                    if hit == Some(true) {
+                    let hit = if dd {
+                        store.dd_values_with(&key, |stored| write_dd_values(values, count, stored))
+                    } else {
+                        store.get_with(&key, |stored| stored.as_ref().is_ok_and(|v| write_shared(values, prototype, count, v)))
+                            == Some(true)
+                    };
+                    if hit {
                         skip.push(block.instructions);
                     } else {
                         computed.push((start, count, key.clone()));
@@ -2734,7 +2757,13 @@ where
         }
         if let Some(store) = store {
             for (start, count, key) in computed {
-                store.put(key, Ok(Self::shared_values(&self.values[start..start + count])));
+                if dd {
+                    if let Some(values) = read_dd_values(&self.values[start..start + count]) {
+                        store.put_dd_values(key, values);
+                    }
+                } else {
+                    store.put(key, Ok(Self::shared_values(&self.values[start..start + count])));
+                }
             }
         }
     }
@@ -3096,7 +3125,14 @@ where
             Store(Vec<u64>),
             Compute,
         }
-        let store = self.shared.clone().filter(|store| store.shares_subsets());
+        // Double-double executors of an amplitude: the same in double-double
+        // where the store allows it (see `super::shared`).
+        let dd = T::FIXED_BITS == Some(106);
+        let store = if dd {
+            self.dd_masters.clone().filter(|store| store.shares_dd_subsets())
+        } else {
+            self.shared.clone().filter(|store| store.shares_subsets())
+        };
         let slots = Self::gather_slots::<FULL>();
         let mut moments: Vec<Moments> = Vec::new();
         if let Some(store) = store.as_ref() {
@@ -3118,7 +3154,27 @@ where
                 let base = gather.moment_base as usize;
                 let len = table.block(usize::from(gather.moment_rank)).end;
                 let (values, prototype) = (&mut self.values, &self.prototype);
-                let hit = store.moments_with(&key, |stored| {
+                let hit = if dd {
+                    store.dd_moments_with(&key, |stored| {
+                        if stored.len() != slots.len() * len {
+                            return false;
+                        }
+                        for (e, v) in stored.chunks_exact(slots.len()).enumerate() {
+                            let moment = &mut values[base + e];
+                            if !FULL {
+                                moment[1] = left.clone();
+                                moment[2] = left.clone();
+                            }
+                            for (k, &slot) in slots.iter().enumerate() {
+                                if !set_from_dd(&mut moment[slot], &v[k]) {
+                                    return false;
+                                }
+                            }
+                        }
+                        true
+                    })
+                } else {
+                    store.moments_with(&key, |stored| {
                     if stored.len() != 2 * slots.len() * len {
                         return false;
                     }
@@ -3133,7 +3189,8 @@ where
                         }
                     }
                     true
-                });
+                    })
+                };
                 if hit {
                     moments.push(Moments::Stored);
                 } else {
@@ -3280,13 +3337,23 @@ where
             }
             if let (Some(store), Some(key)) = (store.as_ref(), key) {
                 let len = table.block(rank).end;
-                let mut stored = Vec::with_capacity(2 * slots.len() * len);
-                for moment in &self.values[moment_base..moment_base + len] {
-                    for &slot in slots {
-                        stored.extend([moment[slot].re.to_f64(), moment[slot].im.to_f64()]);
+                if dd {
+                    let stored: Option<Vec<_>> = self.values[moment_base..moment_base + len]
+                        .iter()
+                        .flat_map(|moment| slots.iter().map(move |&slot| to_dd(&moment[slot])))
+                        .collect();
+                    if let Some(stored) = stored {
+                        store.put_dd_moments(key, stored);
                     }
+                } else {
+                    let mut stored = Vec::with_capacity(2 * slots.len() * len);
+                    for moment in &self.values[moment_base..moment_base + len] {
+                        for &slot in slots {
+                            stored.extend([moment[slot].re.to_f64(), moment[slot].im.to_f64()]);
+                        }
+                    }
+                    store.put_moments(key, stored);
                 }
-                store.put_moments(key, stored);
             }
         }
     }
@@ -3591,6 +3658,11 @@ where
 /// terms at rank 4, 543 at rank 5) and pentagons (3441) are shared.
 const SHARED_MIN_TERMS: u32 = 256;
 
+/// The same for double-double executors (amplitude stores only, see
+/// `super::shared`): their arithmetic costs about ten times binary64's, so
+/// shorter programs are worth a lookup.
+const SHARED_MIN_TERMS_DD: u32 = 32;
+
 /// Write the leading `count` shared binary64 values into `out` (exact in
 /// the executor's domain); false if fewer were stored.
 fn write_shared<T: NativeFloat>(out: &mut [L4<T>], prototype: &T, count: usize, values: &[[f64; 8]]) -> bool {
@@ -3601,6 +3673,62 @@ fn write_shared<T: NativeFloat>(out: &mut [L4<T>], prototype: &T, count: usize, 
         *slot_values = std::array::from_fn(|slot| C::new(exact_f64(prototype, v[2 * slot]), exact_f64(prototype, v[2 * slot + 1])));
     }
     true
+}
+
+/// `z` into a store key: the bits of `re` and `im` in binary64, of both
+/// limbs of each in double-double (keys of different values never meet).
+#[inline(always)]
+fn push_key_bits<T: NativeFloat>(key: &mut Vec<u64>, z: &C<T>) {
+    if T::FIXED_BITS == Some(106) {
+        if let Some(z) = (z as &dyn std::any::Any).downcast_ref::<C<symbolica::domains::float::DoubleFloat>>() {
+            let (re, im) = (z.re.into_inner(), z.im.into_inner());
+            key.extend([re.hi().to_bits(), re.lo().to_bits(), im.hi().to_bits(), im.lo().to_bits()]);
+            return;
+        }
+    }
+    key.extend([z.re.to_f64().to_bits(), z.im.to_f64().to_bits()]);
+}
+
+/// `z` as a double-double value (`None`: `T` is not double-double).
+fn to_dd<T: NativeFloat>(z: &C<T>) -> Option<C<symbolica::domains::float::DoubleFloat>> {
+    (z as &dyn std::any::Any).downcast_ref::<C<symbolica::domains::float::DoubleFloat>>().cloned()
+}
+
+/// Write the double-double value `z` into `slot` (`false`: `T` is not
+/// double-double).
+fn set_from_dd<T: NativeFloat>(slot: &mut C<T>, z: &C<symbolica::domains::float::DoubleFloat>) -> bool {
+    match (slot as &mut dyn std::any::Any).downcast_mut::<C<symbolica::domains::float::DoubleFloat>>() {
+        Some(slot) => {
+            *slot = z.clone();
+            true
+        }
+        None => false,
+    }
+}
+
+/// The leading `count` stored double-double coefficients into `out` (`false`:
+/// fewer stored, or `T` is not double-double).
+fn write_dd_values<T: NativeFloat>(out: &mut [L4<T>], count: usize, stored: &[[C<symbolica::domains::float::DoubleFloat>; 4]]) -> bool {
+    if stored.len() < count || out.len() < count {
+        return false;
+    }
+    for (slots, value) in out[..count].iter_mut().zip(stored) {
+        for (slot, z) in slots.iter_mut().zip(value) {
+            if !set_from_dd(slot, z) {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// Coefficients as double-double values to store (`None`: `T` is not
+/// double-double).
+fn read_dd_values<T: NativeFloat>(values: &[L4<T>]) -> Option<Vec<[C<symbolica::domains::float::DoubleFloat>; 4]>> {
+    values
+        .iter()
+        .map(|slots| Some([to_dd(&slots[0])?, to_dd(&slots[1])?, to_dd(&slots[2])?, to_dd(&slots[3])?]))
+        .collect()
 }
 
 /// Key of a double-double scalar master: family, arity and the limbs of

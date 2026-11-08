@@ -68,12 +68,17 @@ fn shared_subsets_give_bit_identical_results_and_are_reused() {
     // The partial rescues and the double-double tier evaluate the same box
     // and triangle masters repeatedly: some are reused.
     assert!(stats.dd_masters_reused > 0 && stats.dd_masters_computed > 0, "no double-double master reused: {stats:?}");
+    // A lane the double-double tier reruns in the hexagon is rerun in some of
+    // its pentagons and boxes as well: their double-double sub-integrals,
+    // pentagons and moments are reused.
+    assert!(stats.dd_subsets_reused > 0 && stats.dd_subsets_computed > 0, "no double-double sub-integral reused: {stats:?}");
     eprintln!("{stats:?}");
 
     amplitude.set_subset_sharing(false);
     let separate = amplitude.reduce_batches(&batches).unwrap();
     let off = amplitude.last_sharing();
     assert_eq!((off.dd_masters_reused, off.dd_masters_computed), (0, 0), "double-double masters counted with sharing off");
+    assert_eq!((off.dd_subsets_reused, off.dd_subsets_computed), (0, 0), "double-double sub-integrals counted with sharing off");
     assert_eq!(off, Default::default());
     for (k, (a, b)) in shared.iter().zip(&separate).enumerate() {
         assert_eq!(fingerprint(a), fingerprint(b), "integral {:?} differs with sharing", members[k]);
