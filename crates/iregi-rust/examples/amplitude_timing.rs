@@ -11,6 +11,11 @@
 //!         FINAL  -> FINAL {bitwise comparison of sharing off and on, ...}
 //!         QUIT
 //! One call evaluates every integral on every lane (`reduce_batches`).
+//! `TIRUST_ROTATION_TEST=disabled` builds the workspaces with
+//! `RotationTest::Disabled` (gate-accepted lanes unchecked).
+//! `TIRUST_AMPLITUDE_ENGINE=embedded` evaluates the integrals in embedder
+//! mode instead (`TensorWorkspace::new_embedded`, default options), sharing
+//! a `TensorStore` cleared before every call (share 1) or none (share 0).
 use std::{
     error::Error,
     hint::black_box,
@@ -18,7 +23,10 @@ use std::{
     time::Instant,
 };
 
-use iregi_rust::{AmplitudeWorkspace, BatchResult, KinematicsBatch, LaneStatus, ReductionSettings, TensorReductionPlan};
+use iregi_rust::{
+    AmplitudeOptions, AmplitudeWorkspace, BatchResult, EmbedderOptions, KinematicsBatch, LaneStatus, ReductionSettings,
+    RotationTest, TensorReductionPlan, TensorStore, TensorWorkspace, TensorWorkspaceOptions,
+};
 use serde_json::{Value, json};
 use symbolica::domains::float::Complex;
 
@@ -52,6 +60,55 @@ fn fingerprint(results: &[BatchResult<f64>]) -> u64 {
     hash
 }
 
+/// The amplitude's workspaces: the facade's amplitude workspace, or
+/// embedder-mode workspaces with a shared `TensorStore`.
+enum Evaluator {
+    Facade(AmplitudeWorkspace<f64>),
+    Embedded { workspaces: Vec<TensorWorkspace<f64>>, store: TensorStore, share: bool },
+}
+
+impl Evaluator {
+    fn set_sharing(&mut self, enabled: bool) {
+        match self {
+            Self::Facade(amplitude) => amplitude.set_subset_sharing(enabled),
+            Self::Embedded { workspaces, store, share } => {
+                *share = enabled;
+                for workspace in workspaces.iter_mut() {
+                    workspace.set_tensor_store(enabled.then_some(&*store));
+                }
+            }
+        }
+    }
+
+    fn reduce(&mut self, batches: &[KinematicsBatch<f64>]) -> Fallible<Vec<BatchResult<f64>>> {
+        match self {
+            Self::Facade(amplitude) => Ok(amplitude.reduce_batches(batches)?),
+            Self::Embedded { workspaces, store, .. } => {
+                store.clear();
+                Ok(workspaces.iter_mut().zip(batches).map(|(workspace, batch)| workspace.reduce_batch(batch)).collect::<Result<Vec<_>, _>>()?)
+            }
+        }
+    }
+
+    /// `[reused, computed, moments_reused, moments_computed]` of the last call.
+    fn stats(&self) -> [u64; 4] {
+        match self {
+            Self::Facade(amplitude) => {
+                let stats = amplitude.last_sharing();
+                [stats.reused, stats.computed, stats.moments_reused, stats.moments_computed]
+            }
+            Self::Embedded { store, share, .. } => {
+                if !*share {
+                    return [0; 4];
+                }
+                let stats = store.statistics();
+                [stats.subsets_reused + stats.masters_reused, stats.subsets_computed + stats.masters_computed,
+                    stats.moments_reused, stats.moments_computed]
+            }
+        }
+    }
+}
+
 fn main() -> Fallible<()> {
     let args: Vec<String> = std::env::args().collect();
     let spec: Value = serde_json::from_str(&std::fs::read_to_string(&args[1])?)?;
@@ -75,7 +132,23 @@ fn main() -> Fallible<()> {
         batches.push(KinematicsBatch { rows: lanes.len(), components: 1, values });
         members_of.push(members);
     }
-    let mut amplitude = AmplitudeWorkspace::new(&plans, 0.0f64)?;
+    let rotation_test = match std::env::var("TIRUST_ROTATION_TEST").as_deref() {
+        Ok("disabled") => RotationTest::Disabled,
+        _ => RotationTest::Enabled,
+    };
+    let options = AmplitudeOptions {
+        workspace: TensorWorkspaceOptions { rotation_test, ..Default::default() },
+        ..Default::default()
+    };
+    let mut amplitude = if std::env::var("TIRUST_AMPLITUDE_ENGINE").as_deref() == Ok("embedded") {
+        let workspaces = plans
+            .iter()
+            .map(|plan| TensorWorkspace::new_embedded(plan, 0.0f64, EmbedderOptions::default()))
+            .collect::<Result<Vec<_>, _>>()?;
+        Evaluator::Embedded { workspaces, store: TensorStore::new(), share: false }
+    } else {
+        Evaluator::Facade(AmplitudeWorkspace::new_with_options(&plans, 0.0f64, options)?)
+    };
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
     let mut out = stdout.lock();
@@ -89,26 +162,26 @@ fn main() -> Fallible<()> {
             ["QUIT"] => break,
             ["BENCH", share, warmup, iterations] => {
                 let (share, warmup, iterations) = (*share == "1", warmup.parse::<usize>()?, iterations.parse::<usize>()?);
-                amplitude.set_subset_sharing(share);
+                amplitude.set_sharing(share);
                 for _ in 0..warmup {
-                    black_box(amplitude.reduce_batches(black_box(&batches))?);
+                    black_box(amplitude.reduce(black_box(&batches))?);
                 }
                 let started = Instant::now();
                 for _ in 0..iterations {
-                    black_box(amplitude.reduce_batches(black_box(&batches))?);
+                    black_box(amplitude.reduce(black_box(&batches))?);
                 }
                 let ns = started.elapsed().as_nanos() as f64 / iterations as f64;
-                let stats = amplitude.last_sharing();
+                let [reused, computed, moments_reused, moments_computed] = amplitude.stats();
                 writeln!(out, "RESULT {}", json!({"ns_per_call": ns, "share": share, "iterations": iterations,
-                    "reused": stats.reused, "computed": stats.computed,
-                    "moments_reused": stats.moments_reused, "moments_computed": stats.moments_computed}))?;
+                    "reused": reused, "computed": computed,
+                    "moments_reused": moments_reused, "moments_computed": moments_computed}))?;
             }
             ["FINAL"] => {
-                amplitude.set_subset_sharing(false);
-                let off = amplitude.reduce_batches(&batches)?;
-                amplitude.set_subset_sharing(true);
-                let on = amplitude.reduce_batches(&batches)?;
-                let stats = amplitude.last_sharing();
+                amplitude.set_sharing(false);
+                let off = amplitude.reduce(&batches)?;
+                amplitude.set_sharing(true);
+                let on = amplitude.reduce(&batches)?;
+                let [reused, computed, moments_reused, moments_computed] = amplitude.stats();
                 let differing = off.iter().zip(&on)
                     .filter(|(a, b)| fingerprint(std::slice::from_ref(*a)) != fingerprint(std::slice::from_ref(*b)))
                     .count();
@@ -120,8 +193,8 @@ fn main() -> Fallible<()> {
                     "fingerprint_off": format!("{:016x}", fingerprint(&off)),
                     "fingerprint_on": format!("{:016x}", fingerprint(&on)),
                     "successful_integral_lanes": success, "best_effort_integral_lanes": best_effort,
-                    "reused": stats.reused, "computed": stats.computed,
-                    "moments_reused": stats.moments_reused, "moments_computed": stats.moments_computed,
+                    "reused": reused, "computed": computed,
+                    "moments_reused": moments_reused, "moments_computed": moments_computed,
                 }))?;
             }
             _ => return Err(format!("invalid request: {line}").into()),

@@ -17,10 +17,14 @@
 //!   77 significant digits.
 //!
 //! usage: stability_driver POINTS_JSON OUTPUT_JSONL [INTEGRAL_ID]
+//!
+//! `TIRUST_ROTATION_TEST=disabled` runs the facade evaluations (`default`,
+//! `binary64`, `binary64_r20`) with `RotationTest::Disabled` (gate-accepted
+//! lanes unchecked, marked in the diagnostics).
 use std::io::Write;
 
 use iregi_rust::{
-    BatchResult, DirectReductionPlan, KinematicsBatch, PrecisionRescue, ReductionSettings,
+    BatchResult, DirectReductionPlan, KinematicsBatch, PrecisionRescue, ReductionSettings, RotationTest,
     TensorReductionPlan, TensorWorkspace, TensorWorkspaceOptions,
 };
 use serde_json::{Value, json};
@@ -89,6 +93,14 @@ fn number(value: &Value) -> f64 {
     }
 }
 
+/// `RotationTest::Disabled` when `TIRUST_ROTATION_TEST=disabled`.
+fn rotation_test_from_env() -> RotationTest {
+    match std::env::var("TIRUST_ROTATION_TEST").as_deref() {
+        Ok("disabled") => RotationTest::Disabled,
+        _ => RotationTest::Enabled,
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
     let points: Value = serde_json::from_str(&std::fs::read_to_string(&args[1])?)?;
@@ -121,11 +133,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let settings = ReductionSettings::new(n, rank);
 
         let plan = TensorReductionPlan::new(settings.clone())?;
-        let mut facade = TensorWorkspace::new(&plan, 0.0f64)?;
+        let rotation_test = rotation_test_from_env();
+        let options = TensorWorkspaceOptions { rotation_test, ..Default::default() };
+        let mut facade = TensorWorkspace::new_with_options(&plan, 0.0f64, options)?;
         let default = facade.reduce_batch(&batch)?;
         let diagnostics = facade.last_diagnostics().to_vec();
 
-        let options = TensorWorkspaceOptions { precision_rescue: PrecisionRescue::Disabled, ..Default::default() };
+        let options = TensorWorkspaceOptions { precision_rescue: PrecisionRescue::Disabled, rotation_test, ..Default::default() };
         let mut only = TensorWorkspace::new_with_options(&plan, 0.0f64, options)?;
         let binary64 = only.reduce_batch(&batch)?;
         let binary64_diagnostics = only.last_diagnostics().to_vec();

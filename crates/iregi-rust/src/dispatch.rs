@@ -462,6 +462,9 @@ pub struct TensorWorkspaceOptions {
     /// Whether lanes refused by the binary64 direct engine's checks may be
     /// rerun at higher precision (see [`PrecisionRescue`]).
     pub precision_rescue: PrecisionRescue,
+    /// Whether the binary64 direct engine's first pass checks the lanes its
+    /// gates accept by the loop-rotation test (see [`RotationTest`]).
+    pub rotation_test: RotationTest,
 }
 
 /// Precision rescue of a binary64 workspace.
@@ -481,6 +484,57 @@ pub enum PrecisionRescue {
     /// are returned as [`crate::LaneStatus::Unstable`] with the reason in the
     /// diagnostics; lanes the direct engine does not support structurally
     /// still go to the binary64 symbolic engine.
+    Disabled,
+}
+
+/// Loop-rotation test of a binary64 workspace's first pass.
+///
+/// The binary64 direct engine checks every lane its conditioning gates accept
+/// a posteriori: the lane is evaluated again with its propagators rotated by
+/// one, and kept only when the two arrays agree within the request (near
+/// misses against a third cyclic order too). The difference is the lane's
+/// `estimated_errors` entry, and a disagreement sends the lane to the
+/// retries and the precision rescue. The test only runs in binary64
+/// workspaces of the direct engine, for four or more propagators of equal
+/// powers; everywhere else (fewer propagators, other powers, other number
+/// types, other engines, embedder mode) this option changes nothing.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RotationTest {
+    /// Every lane the first pass's gates accept is checked by the rotation
+    /// test (certified per integral).
+    #[default]
+    Enabled,
+    /// The first pass's gate-accepted lanes are returned without the rotation
+    /// comparison and its third order: [`crate::LaneStatus::Success`] with
+    /// `estimated_errors = None`, one diagnostic line per lane, counted in
+    /// [`DirectExecutionStats::rotation_unchecked`]
+    /// (`rotation_rows` and `rotation_failures` stay 0). These lanes include
+    /// those whose refused boxes or triangles the partial rescue computed in
+    /// double-double (checked only by its double-double acceptance).
+    ///
+    /// **Results are then no longer certified per integral.** On difficult
+    /// kinematics the gates alone accept lanes beyond the request: on the
+    /// stability-20261030 points 86 of 10,000 rank-4 and 49 of 10,000 rank-6
+    /// boxes, up to E/A 9.6e-9, which the rotation test refuses. Use it only when the caller checks
+    /// its results itself (an amplitude-level check, for example): that check
+    /// is then the guarantee.
+    ///
+    /// Everything that decides on a lane the gates refuse keeps its own
+    /// checks: the consensus of cyclic orders, the method choice and the
+    /// checked retries (each kept by its rotation agreement), the precision
+    /// rescue with the double-double tier's rotation check, the symbolic
+    /// fallback and the best-effort arrays. The first pass keeps the gate it
+    /// runs with the test (1e-15), so gate-refused lanes take the same route
+    /// and get the same values with the test enabled or disabled.
+    ///
+    /// Compared with embedder mode ([`TensorWorkspace::new_embedded`], with a
+    /// [`crate::TensorStore`] or not), which runs no rotation test either:
+    /// embedder mode runs the direct engine alone at the engine's own gate
+    /// (1e-12), with no hidden retry, rescue or fallback unless configured,
+    /// and returns what nothing accepted as refused. This facade setting
+    /// keeps the facade's 1e-15 gate and every retry, rescue and fallback for
+    /// the lanes the gates refuse; it only stops checking the lanes they
+    /// accept.
     Disabled,
 }
 
@@ -1368,6 +1422,26 @@ where
         match &self.engine {
             WorkspaceEngine::Direct(workspace) => workspace.precision_rescue_setting(),
             _ => PrecisionRescue::Disabled,
+        }
+    }
+
+    /// Enable or disable the loop-rotation test of later calls (see
+    /// [`RotationTest`]). Workspaces that never run the test accept either
+    /// value and are unaffected.
+    pub fn set_rotation_test(&mut self, test: RotationTest) {
+        if let WorkspaceEngine::Direct(workspace) = &mut self.engine {
+            workspace.set_rotation_test(test);
+        }
+    }
+
+    /// The setting of the binary64 facade's direct engine (`Enabled`, the
+    /// default, for other engines and embedder mode, which never run the
+    /// test; so do direct workspaces of fewer than four propagators, unequal
+    /// powers or other number types, whatever the setting).
+    pub fn rotation_test(&self) -> RotationTest {
+        match &self.engine {
+            WorkspaceEngine::Direct(workspace) => workspace.rotation_test_setting(),
+            _ => RotationTest::Enabled,
         }
     }
 

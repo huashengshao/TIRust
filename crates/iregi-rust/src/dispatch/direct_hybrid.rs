@@ -63,7 +63,7 @@ use symbolica::{
 };
 
 use super::{
-    PrecisionRescue, TensorEngineExecution, TensorReductionPlan, TensorWorkspace,
+    PrecisionRescue, RotationTest, TensorEngineExecution, TensorReductionPlan, TensorWorkspace,
     TensorWorkspaceOptions,
 };
 use crate::{
@@ -180,6 +180,11 @@ const HARDER_AGREEMENT: f64 = 1.0 / (1u64 << 48) as f64;
 /// 2.7e-14, pentagon p99 5.9e-12 -> 3.9e-12, nothing certified beyond.
 const CONSENSUS_PARTNERS: usize = 3;
 const CONSENSUS_MARGIN_BITS: i32 = 4;
+
+/// Diagnostic line of a lane kept without the rotation test
+/// ([`RotationTest::Disabled`]).
+pub(crate) const UNCHECKED_NOTE: &str =
+    "direct engine: accepted by the conditioning gates alone (loop-rotation test disabled: no error estimate)";
 
 /// Whether the binary64 pass runs the loop-rotation test. Boxes too: on
 /// stability-20261030 the conditioning gate alone certified 86 of 10000
@@ -347,6 +352,10 @@ pub struct DirectExecutionStats {
     /// those whose rotated copy disagreed or was refused.
     pub rotation_rows: usize,
     pub rotation_failures: usize,
+    /// Lanes returned without a rotation estimate because the rotation test
+    /// is disabled ([`RotationTest::Disabled`]): accepted by the binary64
+    /// first pass's conditioning gates alone.
+    pub rotation_unchecked: usize,
     /// Lanes refused by the a priori binary64 gate and evaluated again in
     /// binary64 below it, and those kept by the rotation check.
     pub checked_rows: usize,
@@ -534,6 +543,14 @@ where
 
     pub(crate) fn precision_rescue_setting(&self) -> PrecisionRescue {
         self.precision_rescue
+    }
+
+    pub(crate) fn set_rotation_test(&mut self, test: RotationTest) {
+        self.options.rotation_test = test;
+    }
+
+    pub(crate) fn rotation_test_setting(&self) -> RotationTest {
+        self.options.rotation_test
     }
 
     /// Largest accepted E/A between a binary64 lane and its rotated copy:
@@ -1065,7 +1082,10 @@ where
                 }
             }
         }
-        if tested {
+        // With the test disabled, the first pass's gate-accepted lanes are
+        // kept as they are (marked below); nothing else changes.
+        let unchecked = tested && self.options.rotation_test == RotationTest::Disabled;
+        if tested && !unchecked {
             self.rotation_test(
                 batch,
                 tolerance,
@@ -1079,6 +1099,14 @@ where
         }
         self.diagnostics.clear();
         self.diagnostics.resize(batch.rows, Vec::new());
+        if unchecked {
+            for lane in 0..batch.rows {
+                if result.statuses[lane] == LaneStatus::Success {
+                    self.diagnostics[lane].push(UNCHECKED_NOTE.to_string());
+                    self.last.rotation_unchecked += 1;
+                }
+            }
+        }
         self.last.direct_successes = result
             .statuses
             .iter()
