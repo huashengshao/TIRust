@@ -304,7 +304,12 @@ impl KernelProvider {
             iregi_masters::ScalarIntegral::D0,
         ]
         .into_iter()
-        .map(|family| oneloop::NativeEvaluator::with_binary_precision(family, 53).unwrap())
+        .map(|family| {
+            let mut kernel = oneloop::NativeEvaluator::with_binary_precision(family, 53).unwrap();
+            // As the direct engine's own C0 (huashengshao/TIRust#22).
+            kernel.set_handwritten_negative_kallen_c0(family == iregi_masters::ScalarIntegral::C0);
+            kernel
+        })
         .collect();
         Self { kernels: Mutex::new(kernels), calls: AtomicU64::new(0), scale_boxes, decline }
     }

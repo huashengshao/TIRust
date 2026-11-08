@@ -32,7 +32,10 @@ use crate::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum DirectMasters {
     /// oneloopmaster's direct Rust kernels (hand-written binary64 C0/D0 sectors),
-    /// evaluated per lane inside the lane loop.
+    /// evaluated per lane inside the lane loop. C0 opts into the hand-written
+    /// 't Hooft--Veltman kernel for three massive propagators with a negative
+    /// Källén function (oneloop's default there is the generated code, about
+    /// 2x slower per C0; huashengshao/TIRust#22).
     #[default]
     Native,
     /// `MasterEvaluator` with an explicit policy, batched across lanes.
@@ -343,13 +346,15 @@ where
             }
             match masters {
                 DirectMasters::Native => {
-                    native[family_index] = Some(
-                        oneloop::NativeEvaluator::with_binary_precision(
-                            family,
-                            prototype.get_precision(),
-                        )
-                        .map_err(ReductionError::Preparation)?,
-                    );
+                    let mut evaluator = oneloop::NativeEvaluator::with_binary_precision(
+                        family,
+                        prototype.get_precision(),
+                    )
+                    .map_err(ReductionError::Preparation)?;
+                    if family == ScalarIntegral::C0 {
+                        evaluator.set_handwritten_negative_kallen_c0(true);
+                    }
+                    native[family_index] = Some(evaluator);
                 }
                 DirectMasters::Policy(policy) => {
                     evaluators[family_index] = Some(
@@ -3710,5 +3715,52 @@ fn multinomial_in<T: NativeFloat>(prototype: &T, e: [u16; 4]) -> T {
     match u64::try_from(value.clone()) {
         Ok(small) => prototype.from_usize(small as usize),
         Err(_) => prototype.from_rational(&symbolica::domains::rational::Rational::from(value)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use symbolica::domains::float::DoubleFloat;
+
+    use super::*;
+    use crate::DirectReductionPlan;
+
+    /// C0 arguments (p1², p2², p3², m1², m2², m3², mu²): three massive
+    /// propagators, Källén function of the invariants (1, 2, 2.5) = -7.75.
+    const NEGATIVE_KALLEN_C0: [f64; 7] = [1.0, 2.0, 2.5, 0.7, 1.3, 2.1, 1.0];
+
+    /// The default direct workspace's C0 evaluator against oneloop's two
+    /// kernels for this sector: bit for bit the hand-written one, and not
+    /// the generated code (oneloop's default; huashengshao/TIRust#22).
+    fn assert_native_c0_is_handwritten<T: NativeFloat>(prototype: T)
+    where
+        Complex<T>: EvaluationDomain,
+    {
+        let input: Vec<C<T>> = NEGATIVE_KALLEN_C0
+            .iter()
+            .map(|&x| C::new(exact_f64(&prototype, x), prototype.zero()))
+            .collect();
+        let evaluate = |evaluator: &mut oneloop::NativeEvaluator<T>| {
+            let mut output = vec![czero(&prototype); 3];
+            evaluator.evaluate(&input, &mut output).unwrap();
+            output
+        };
+        let plan = DirectReductionPlan::new(ReductionSettings::new(3, 0)).unwrap();
+        let mut workspace = plan.workspace(prototype.clone()).unwrap();
+        let engine = evaluate(workspace.executor.native[2].as_mut().expect("a C0 evaluator"));
+        let bits = prototype.get_precision();
+        let mut handwritten = oneloop::NativeEvaluator::<T>::with_binary_precision(ScalarIntegral::C0, bits).unwrap();
+        handwritten.set_handwritten_negative_kallen_c0(true);
+        let mut generated = oneloop::NativeEvaluator::<T>::with_binary_precision(ScalarIntegral::C0, bits).unwrap();
+        let (handwritten, generated) = (evaluate(&mut handwritten), evaluate(&mut generated));
+        assert_ne!(handwritten, generated, "the point does not tell the two kernels apart at {bits} bits");
+        assert_eq!(engine, handwritten, "{bits} bits");
+    }
+
+    #[test]
+    fn native_c0_takes_the_handwritten_negative_kallen_kernel() {
+        // Binary64 and the double-double rescue tier.
+        assert_native_c0_is_handwritten(0.0f64);
+        assert_native_c0_is_handwritten(DoubleFloat::from(0.0));
     }
 }
