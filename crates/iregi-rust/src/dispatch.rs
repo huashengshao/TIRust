@@ -513,9 +513,13 @@ pub enum RotationTest {
     /// double-double (checked only by its double-double acceptance).
     ///
     /// **Results are then no longer certified per integral.** On difficult
-    /// kinematics the gates alone accept lanes beyond the request: on the
-    /// stability-20261030 points 86 of 10,000 rank-4 and 49 of 10,000 rank-6
-    /// boxes, up to E/A 9.6e-9, which the rotation test refuses. Use it only when the caller checks
+    /// kinematics the gates alone accept lanes beyond the request. On the
+    /// stability-20261030 points, against 256 bits, beyond the default request
+    /// 2^-34: 105 of 10,000 rank-4 boxes (8 beyond 1e-7, the largest E/A
+    /// 7.0e-6), 214 of 10,000 rank-6 boxes (largest 1.6e-7), 19 of 5,000
+    /// pentagons (1.2e-9), 9 of 2,000 hexagons (7.0e-10) and 8 of 495
+    /// heptagons (3.7e-9); with the test, the same points stay within 6.7e-11.
+    /// Use it only when the caller checks
     /// its results itself (an amplitude-level check, for example): that check
     /// is then the guarantee.
     ///
