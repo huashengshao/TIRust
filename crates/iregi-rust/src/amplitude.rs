@@ -67,6 +67,10 @@ pub struct SubsetSharingStats {
     /// propagator order).
     pub dd_masters_reused: u64,
     pub dd_masters_computed: u64,
+    /// PV sub-integrals, Gram-free pentagons and gathered moments of the
+    /// double-double tiers (exact inputs, limb for limb).
+    pub dd_subsets_reused: u64,
+    pub dd_subsets_computed: u64,
 }
 
 /// One workspace per integral of an amplitude, evaluated together.
@@ -99,6 +103,10 @@ where
         // Every injected box or triangle at the amplitude's highest rank for
         // its size, with sharing on and off alike (see `direct::shared`).
         let store = Arc::new(SubsetStore::default());
+        // The double-double tiers share their sub-integrals, pentagons and
+        // moments too: a refused lane of a large integral is usually refused
+        // in some of its pinches as well.
+        store.set_dd_subsets(true);
         for plan in plans {
             for (size, rank) in TensorWorkspace::<T>::direct_subset_ranks(plan) {
                 store.raise_floor(size, rank);
@@ -169,6 +177,7 @@ where
         let (reused, computed) = self.store.counts();
         let (moments_reused, moments_computed) = self.store.moment_counts();
         let (dd_masters_reused, dd_masters_computed) = self.store.dd_master_counts();
+        let (dd_subsets_reused, dd_subsets_computed) = self.store.dd_subset_counts();
         self.last = SubsetSharingStats {
             reused,
             computed,
@@ -176,6 +185,8 @@ where
             moments_computed,
             dd_masters_reused,
             dd_masters_computed,
+            dd_subsets_reused,
+            dd_subsets_computed,
         };
         self.store.clear();
         results
