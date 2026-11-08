@@ -42,11 +42,21 @@
 //! allocates nothing. Hits and misses count with the coefficient results.
 //!
 //! Double-double executors (partial rescues, the double-double tier and its
-//! rotation check) share only their scalar masters, in a map of their own:
+//! rotation check) share their scalar masters in a map of their own:
 //! oneloopmaster's native box, triangle, bubble and tadpole values keyed by
 //! the family, the arity and both limbs of every argument, bit for bit. The
 //! arguments are taken in the executor's own propagator order, so a stored
 //! master is exactly what that executor's kernel call returns.
+//!
+//! Where the owner allows it ([`SubsetStore::set_dd_subsets`]: an amplitude
+//! workspace), double-double executors also share their PV sub-integrals,
+//! Gram-free pentagons and gathered moments, under the binary64 keys with
+//! both limbs of every input value and in maps of their own, in
+//! double-double. An amplitude's double-double tiers rerun the same lanes of
+//! many integrals (a refused heptagon lane is usually refused in some of its
+//! hexagons, pentagons and boxes too), and their sub-integrals coincide as
+//! the binary64 ones do. A stored entry is again exactly what the executor
+//! would compute itself.
 use symbolica::domains::float::{Complex, DoubleFloat};
 use std::{
     collections::HashMap,
@@ -62,6 +72,9 @@ use crate::store::MasterProvider;
 /// Binary64 coefficient values (`[re, im]` of the four Laurent slots) of one
 /// subset, or the refusal message of its computation.
 pub(crate) type SharedValue = Result<Vec<[f64; 8]>, String>;
+
+/// Double-double coefficient values (the four Laurent slots) of one subset.
+pub(crate) type DdValue = Vec<[Complex<DoubleFloat>; 4]>;
 
 /// Binary64 scalar masters of one family: `re, im` bits of each argument
 /// (`W / 2` of them, mu^2 last) to `re, im` of `[finite, single, double]`.
@@ -151,6 +164,15 @@ pub(crate) struct SubsetStore {
     /// the partial rescues, rotation checks and double-double tiers of an
     /// amplitude evaluate the same box and triangle masters many times.
     dd_masters: Mutex<HashMap<Vec<u64>, [Complex<DoubleFloat>; 3], BuildHasherDefault<KeyHasher>>>,
+    /// Double-double PV sub-integrals and Gram-free pentagons, and gathered
+    /// moments, shared only when `dd_subsets` is set (counted on their own).
+    dd_subsets_map: Mutex<HashMap<Vec<u64>, DdValue, BuildHasherDefault<KeyHasher>>>,
+    dd_moments: Mutex<HashMap<Vec<u64>, Vec<Complex<DoubleFloat>>, BuildHasherDefault<KeyHasher>>>,
+    /// Double-double executors share sub-integrals and moments too.
+    dd_subsets: std::sync::atomic::AtomicBool,
+    /// Double-double sub-integral, pentagon and moment hits and misses.
+    dd_subset_hits: AtomicU64,
+    dd_subset_misses: AtomicU64,
     /// Sharing on (`false`: the floors still apply, nothing is shared).
     enabled: std::sync::atomic::AtomicBool,
     /// Share the scalar masters only (no sub-integrals, rescues, expansions
@@ -271,6 +293,17 @@ impl SubsetStore {
     /// on, not masters only).
     pub(crate) fn shares_subsets(&self) -> bool {
         self.enabled() && !self.masters_only.load(Ordering::Relaxed)
+    }
+
+    /// Let double-double executors share their sub-integrals, Gram-free
+    /// pentagons and moments as well (off by default).
+    pub(crate) fn set_dd_subsets(&self, enabled: bool) {
+        self.dd_subsets.store(enabled, Ordering::Relaxed);
+    }
+
+    /// Double-double sub-integrals and moments are shared.
+    pub(crate) fn shares_dd_subsets(&self) -> bool {
+        self.shares_subsets() && self.dd_subsets.load(Ordering::Relaxed)
     }
 
     /// Raise the floor of `size`-propagator subsets to `rank`.
@@ -428,6 +461,50 @@ impl SubsetStore {
         self.dd_masters.lock().unwrap_or_else(|e| e.into_inner()).insert(key, value);
     }
 
+    /// Pass the stored double-double coefficients for `key` to `write`; a
+    /// hit when they exist and `write` accepts them.
+    pub(crate) fn dd_values_with(&self, key: &[u64], write: impl FnOnce(&[[Complex<DoubleFloat>; 4]]) -> bool) -> bool {
+        let hit = match self.dd_subsets_map.lock().unwrap_or_else(|e| e.into_inner()).get(key) {
+            Some(values) => write(values),
+            None => false,
+        };
+        if hit {
+            self.dd_subset_hits.fetch_add(1, Ordering::Relaxed);
+        }
+        hit
+    }
+
+    /// Store freshly computed double-double coefficients (a miss).
+    pub(crate) fn put_dd_values(&self, key: Vec<u64>, values: DdValue) {
+        self.dd_subset_misses.fetch_add(1, Ordering::Relaxed);
+        if !self.admit(8 * key.len() as u64 + 128 * values.len() as u64) {
+            return;
+        }
+        self.dd_subsets_map.lock().unwrap_or_else(|e| e.into_inner()).insert(key, values);
+    }
+
+    /// Pass the stored double-double moments for `key` to `write`; a hit
+    /// when they exist and `write` accepts them.
+    pub(crate) fn dd_moments_with(&self, key: &[u64], write: impl FnOnce(&[Complex<DoubleFloat>]) -> bool) -> bool {
+        let hit = match self.dd_moments.lock().unwrap_or_else(|e| e.into_inner()).get(key) {
+            Some(moments) => write(moments),
+            None => false,
+        };
+        if hit {
+            self.dd_subset_hits.fetch_add(1, Ordering::Relaxed);
+        }
+        hit
+    }
+
+    /// Store freshly gathered double-double moments (a miss).
+    pub(crate) fn put_dd_moments(&self, key: Vec<u64>, moments: Vec<Complex<DoubleFloat>>) {
+        self.dd_subset_misses.fetch_add(1, Ordering::Relaxed);
+        if !self.admit(8 * key.len() as u64 + 32 * moments.len() as u64) {
+            return;
+        }
+        self.dd_moments.lock().unwrap_or_else(|e| e.into_inner()).insert(key, moments);
+    }
+
     /// Forget every result and reset the counters.
     pub(crate) fn clear(&self) {
         self.map.lock().unwrap_or_else(|e| e.into_inner()).clear();
@@ -437,6 +514,8 @@ impl SubsetStore {
         self.boxes.lock().unwrap_or_else(|e| e.into_inner()).clear();
         self.moments.lock().unwrap_or_else(|e| e.into_inner()).clear();
         self.dd_masters.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        self.dd_subsets_map.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        self.dd_moments.lock().unwrap_or_else(|e| e.into_inner()).clear();
         for counter in [
             &self.hits,
             &self.misses,
@@ -444,6 +523,8 @@ impl SubsetStore {
             &self.moment_misses,
             &self.dd_master_hits,
             &self.dd_master_misses,
+            &self.dd_subset_hits,
+            &self.dd_subset_misses,
             &self.master_hits,
             &self.master_misses,
             &self.provider_masters,
@@ -467,6 +548,12 @@ impl SubsetStore {
     /// `(hits, misses)` of double-double scalar masters since the last clear.
     pub(crate) fn dd_master_counts(&self) -> (u64, u64) {
         (self.dd_master_hits.load(Ordering::Relaxed), self.dd_master_misses.load(Ordering::Relaxed))
+    }
+
+    /// `(hits, misses)` of double-double sub-integrals, pentagons and moments
+    /// since the last clear.
+    pub(crate) fn dd_subset_counts(&self) -> (u64, u64) {
+        (self.dd_subset_hits.load(Ordering::Relaxed), self.dd_subset_misses.load(Ordering::Relaxed))
     }
 
     /// `(hits, misses, provider-served)` of binary64 scalar masters since the
@@ -496,6 +583,8 @@ impl SubsetStore {
             + len(self.boxes.lock().unwrap_or_else(|e| e.into_inner()).len())
             + len(self.moments.lock().unwrap_or_else(|e| e.into_inner()).len())
             + len(self.dd_masters.lock().unwrap_or_else(|e| e.into_inner()).len())
+            + len(self.dd_subsets_map.lock().unwrap_or_else(|e| e.into_inner()).len())
+            + len(self.dd_moments.lock().unwrap_or_else(|e| e.into_inner()).len())
     }
 }
 
@@ -525,6 +614,39 @@ mod tests {
         store.clear();
         assert_eq!(store.master(0, &key), None);
         assert_eq!(store.counts(), (0, 0));
+    }
+
+    #[test]
+    fn double_double_subsets_are_kept_under_their_exact_key_and_counted_apart() {
+        let store = SubsetStore::default();
+        let dd = |x: f64| Complex::new(DoubleFloat::from(x), DoubleFloat::from(-x));
+        let value = vec![[dd(1.0), dd(2.0), dd(3.0), dd(4.0)]];
+        let key = vec![3u64, 4, 5];
+        // Only switched on together with sharing (an amplitude store).
+        assert!(!store.shares_dd_subsets());
+        store.set_enabled(true);
+        store.set_dd_subsets(true);
+        assert!(store.shares_dd_subsets());
+        assert!(!store.dd_values_with(&key, |_| true));
+        store.put_dd_values(key.clone(), value.clone());
+        let mut seen = None;
+        assert!(store.dd_values_with(&key, |stored| {
+            seen = Some(stored.to_vec());
+            true
+        }));
+        assert_eq!(seen, Some(value));
+        // A rejected write is no hit; another key finds nothing.
+        assert!(!store.dd_values_with(&key, |_| false));
+        assert!(!store.dd_values_with(&[3, 4, 6], |_| true));
+        store.put_dd_moments(vec![5, 1], vec![dd(0.5)]);
+        assert!(store.dd_moments_with(&[5, 1], |stored| stored == [dd(0.5)]));
+        // Counted apart from the binary64 results and moments.
+        assert_eq!(store.dd_subset_counts(), (2, 2));
+        assert_eq!((store.counts(), store.moment_counts()), ((0, 0), (0, 0)));
+        assert_eq!(store.entries(), 2);
+        store.clear();
+        assert_eq!((store.dd_subset_counts(), store.entries()), ((0, 0), 0));
+        assert!(!store.dd_values_with(&key, |_| true));
     }
 
     #[test]
