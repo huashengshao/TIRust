@@ -52,7 +52,7 @@ pub use amplitude::{AmplitudeOptions, AmplitudeWorkspace, SubsetSharingStats};
 pub use contraction::{ContractionPlan, ContractionResult, ContractionWorkspace, NumeratorBatch};
 pub use direct::{DirectCapabilities, DirectMasters, DirectProfile, DirectReductionPlan, DirectWorkspace};
 pub use dispatch::{
-    DirectExecutionStats, DirectRescueTier, EmbedderOptions, LaneRoute, PrecisionRescue,
+    DirectExecutionStats, DirectRescueTier, EmbedderOptions, LaneRoute, PrecisionRescue, RotationTest,
     TensorEngineExecution, TensorEngineKind, TensorReductionPlan, TensorWorkspace,
     TensorWorkspaceOptions,
 };
