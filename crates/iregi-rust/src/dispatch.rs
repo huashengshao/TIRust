@@ -497,7 +497,8 @@ pub enum PrecisionRescue {
 /// retries and the precision rescue. The test only runs in binary64
 /// workspaces of the direct engine, for four or more propagators of equal
 /// powers; everywhere else (fewer propagators, other powers, other number
-/// types, other engines, embedder mode) this option changes nothing.
+/// types, other engines, embedder mode) this option changes nothing, and
+/// [`TensorWorkspace::rotation_test`] reports `Disabled`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum RotationTest {
     /// Every lane the first pass's gates accept is checked by the rotation
@@ -514,7 +515,8 @@ pub enum RotationTest {
     ///
     /// **Results are then no longer certified per integral.** On difficult
     /// kinematics the gates alone accept lanes beyond the request. On the
-    /// stability-20261030 points, against 256 bits, beyond the default request
+    /// stability-20261030 points (stability capture 044, release
+    /// `tirust-bench-20261109`), against 256 bits, beyond the default request
     /// 2^-34: 105 of 10,000 rank-4 boxes (8 beyond 1e-7, the largest E/A
     /// 7.0e-6), 214 of 10,000 rank-6 boxes (largest 1.6e-7), 19 of 5,000
     /// pentagons (1.2e-9), 9 of 2,000 hexagons (7.0e-10) and 8 of 495
@@ -535,10 +537,15 @@ pub enum RotationTest {
     /// [`crate::TensorStore`] or not), which runs no rotation test either:
     /// embedder mode runs the direct engine alone at the engine's own gate
     /// (1e-12), with no hidden retry, rescue or fallback unless configured,
-    /// and returns what nothing accepted as refused. This facade setting
-    /// keeps the facade's 1e-15 gate and every retry, rescue and fallback for
-    /// the lanes the gates refuse; it only stops checking the lanes they
-    /// accept.
+    /// and returns what nothing accepted as refused. Its default options
+    /// ([`crate::EmbedderOptions::default`]) have `method_choice = true`:
+    /// the lanes its gate refuses come back from COLLIER's a priori method
+    /// choice, unchecked too, flagged per lane
+    /// ([`TensorWorkspace::last_lane_routes`]: [`crate::LaneRoute::MethodChoice`])
+    /// for the host to check. This facade setting keeps the facade's 1e-15
+    /// gate and every retry, rescue and fallback for the lanes the gates
+    /// refuse, each kept by its own check; it only stops checking the lanes
+    /// they accept.
     Disabled,
 }
 
@@ -1420,8 +1427,11 @@ where
         }
     }
 
-    /// The effective setting: `Disabled` for workspaces that never change
-    /// precision.
+    /// The effective setting, as [`Self::rotation_test`] reports its own:
+    /// the setting of the binary64 facade's direct engine, and `Disabled`
+    /// for every other workspace, where this setting changes nothing (other
+    /// engines, other number types, and embedder mode, whose double-double
+    /// boxes and precision tiers are [`crate::EmbedderOptions`] fields).
     pub fn precision_rescue(&self) -> PrecisionRescue {
         match &self.engine {
             WorkspaceEngine::Direct(workspace) => workspace.precision_rescue_setting(),
@@ -1431,21 +1441,24 @@ where
 
     /// Enable or disable the loop-rotation test of later calls (see
     /// [`RotationTest`]). Workspaces that never run the test accept either
-    /// value and are unaffected.
+    /// value, are unaffected and report `Disabled`.
     pub fn set_rotation_test(&mut self, test: RotationTest) {
         if let WorkspaceEngine::Direct(workspace) = &mut self.engine {
             workspace.set_rotation_test(test);
         }
     }
 
-    /// The setting of the binary64 facade's direct engine (`Enabled`, the
-    /// default, for other engines and embedder mode, which never run the
-    /// test; so do direct workspaces of fewer than four propagators, unequal
-    /// powers or other number types, whatever the setting).
+    /// The effective setting, as [`Self::precision_rescue`] reports its own:
+    /// `Enabled` only where later calls run the test (the binary64 facade's
+    /// direct engine, four or more propagators of equal powers, the test
+    /// enabled), and `Disabled` everywhere else, whatever was set: fewer
+    /// propagators, unequal powers, other number types, other engines and
+    /// embedder mode run no rotation test, and mark or count no lane as
+    /// unchecked either.
     pub fn rotation_test(&self) -> RotationTest {
         match &self.engine {
             WorkspaceEngine::Direct(workspace) => workspace.rotation_test_setting(),
-            _ => RotationTest::Enabled,
+            _ => RotationTest::Disabled,
         }
     }
 
