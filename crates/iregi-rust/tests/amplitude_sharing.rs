@@ -130,6 +130,10 @@ fn shared_moments_with_ir_poles_are_bit_identical() {
     let stats = amplitude.last_sharing();
     eprintln!("{stats:?}");
     assert!(stats.moments_reused > 0, "no moments reused: {stats:?}");
+    // Massless pinches send many lanes to the double-double tier: its
+    // sub-integrals, pentagons and moments are reused (and must stay
+    // bit-identical below).
+    assert!(stats.dd_subsets_reused > 0 && stats.dd_subsets_computed > 0, "no double-double sub-integral reused: {stats:?}");
     let poles = shared.iter().any(|result| {
         (0..result.rows()).any(|lane| {
             result.lane(lane).is_ok_and(|v| v.chunks(4).any(|s| [s[1], s[2]].iter().any(|z| z.re != 0.0 || z.im != 0.0)))

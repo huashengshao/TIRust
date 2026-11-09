@@ -504,8 +504,9 @@ where
     }
 
     /// Share per-subset results through `store` in every binary64 workspace,
-    /// present and future, and the double-double scalar masters of the
-    /// double-double tier (`None`: no sharing).
+    /// present and future, and the double-double tier's scalar masters (and,
+    /// in an amplitude's store, its sub-integrals, Gram-free pentagons and
+    /// moments; `None`: no sharing).
     pub(crate) fn set_shared_subsets(&mut self, store: Option<Arc<SubsetStore>>) {
         self.shared = store;
         self.direct.set_shared_subsets(self.shared.clone());
@@ -637,7 +638,8 @@ where
             }
             let workspace = self.rescue.double.as_mut().unwrap();
             // Double-double masters shared with the amplitude's partial
-            // rescues and other tiers (limb-exact keys; nothing else).
+            // rescues and other tiers, and in an amplitude's store this tier's
+            // sub-integrals, Gram-free pentagons and moments (limb-exact keys).
             workspace.set_shared_subsets(self.shared.clone());
             run_tier::<T, DoubleFloat>(workspace, DoubleFloat::from, batch, lanes, &self.prototype, result, profile, &mut self.last)
         } else {

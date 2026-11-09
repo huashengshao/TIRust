@@ -130,7 +130,8 @@ rank-one lifecycle case. Each family's validated domain is documented separately
   reduces a parent family and its pinches in separate calls (one per (N, R)
   bucket) shares binary64 scalar masters, PV sub-integrals, Gram-free
   pentagons, partial rescues, small-Gram expansions and gathered moments, and
-  double-double masters. Entries are pure functions of exact keys: results are
+  double-double masters (double-double sub-integrals, pentagons and moments
+  only inside an `AmplitudeWorkspace`). Entries are pure functions of exact keys: results are
   bit-identical with and without the store, in any call order and thread
   count (unless `TensorStore::align_ranks` raised the rank floor, which moves
   injected boxes and triangles at their truncation level, or a masters
@@ -337,7 +338,12 @@ integral, `reduce_batches`) and computes each such per-subset result once per
 call, under an exact key (method settings, rank, the subset's propagators bit
 for bit), so results are bit-identical with and without sharing.
 `AmplitudeOptions::share_subsets` (default `true`) or `set_subset_sharing`
-turns it off; `last_sharing()` counts reused and computed results. A top-loop
+turns it off; `last_sharing()` counts reused and computed results. The
+double-double tiers share their scalar masters and, in an amplitude
+workspace, their PV sub-integrals, Gram-free pentagons and moments too (both
+limbs of every input in the key; `dd_subsets_reused` / `dd_subsets_computed`):
+a lane refused in a large integral is usually refused in some of its pinches
+as well. A top-loop
 gg -> gggg hexagon with its 56 pinches on 32 physical points:
 1.7-2.2x faster per call
 (`crates/iregi-rust/examples/amplitude_sharing.rs`,
