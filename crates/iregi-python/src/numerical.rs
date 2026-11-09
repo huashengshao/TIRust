@@ -1271,6 +1271,7 @@ fn engine_execution(execution: &TensorEngineExecution, py: Python<'_>) -> PyResu
             output.set_item("symbolic_rows", direct.symbolic_rows)?;
             output.set_item("rotation_rows", direct.rotation_rows)?;
             output.set_item("rotation_failures", direct.rotation_failures)?;
+            output.set_item("rotation_unchecked", direct.rotation_unchecked)?;
             output.set_item("checked_rows", direct.checked_rows)?;
             output.set_item("checked_successes", direct.checked_successes)?;
             output.set_item("expansion_rows", direct.expansion_rows)?;
