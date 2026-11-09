@@ -10,6 +10,22 @@
 //! default) capture 026's, measured again in 027 and 028; with
 //! `RotationTest::Disabled` those of 027 and 028 (release
 //! `tirust-bench-20261109`).
+//!
+//! Platform: the hashes cover every bit, so they depend on the C library's
+//! `log`, `exp`, `atan2` and other libm functions behind the scalar masters.
+//! They were captured on x86_64 Linux with glibc 2.42's libm and Rust
+//! 1.97.1; the captures' release builds (`+fma`, `native-f64-abc`) and this
+//! suite's debug build give the same hashes there. Another libm (macOS,
+//! musl) or architecture (aarch64) may round a last bit differently, so a
+//! first mismatch there is not by itself a regression. To regenerate the
+//! hashes on such a platform, check first that the other tests pass. Then run
+//! `examples/amplitude_timing.rs` on each fixture with `FINAL` on stdin, once
+//! as is and once with `TIRUST_ROTATION_TEST=disabled`, for example from
+//! `crates/iregi-rust`:
+//! `echo FINAL | cargo run --example amplitude_timing --
+//! tests/fixtures/amplitude-pentagon-r5.json`. Its `fingerprint_on` and
+//! `fingerprint_off` (sharing on and off) must agree, and that value goes
+//! here.
 use iregi_rust::{
     AmplitudeOptions, AmplitudeWorkspace, BatchResult, KinematicsBatch, ReductionSettings, RotationTest,
     TensorReductionPlan, TensorWorkspaceOptions,

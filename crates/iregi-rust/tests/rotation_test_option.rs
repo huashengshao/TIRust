@@ -3,12 +3,13 @@
 //! loop-rotation comparison (its gate-accepted lanes come back unchecked,
 //! without an estimate, marked and counted), every lane the gates refuse is
 //! served exactly as with the test (also in multi-lane batches mixing them
-//! with lanes the test refuses), and the option changes nothing where the
-//! test never runs, where `rotation_test()` reports `Disabled`.
+//! with lanes the test refuses, with the precision rescue and with binary64
+//! alone), and the option changes nothing where the test never runs, where
+//! `rotation_test()` reports `Disabled`.
 use iregi_rust::{
     AmplitudeOptions, AmplitudeWorkspace, BatchResult, DirectExecutionStats, EmbedderOptions, KinematicsBatch,
-    LaneStatus, ReductionSettings, RotationTest, TensorEngineExecution, TensorReductionPlan, TensorWorkspace,
-    TensorWorkspaceOptions,
+    LaneStatus, PrecisionRescue, ReductionSettings, RotationTest, TensorEngineExecution, TensorReductionPlan,
+    TensorWorkspace, TensorWorkspaceOptions,
 };
 use symbolica::domains::float::{Complex, DoubleFloat};
 
@@ -131,17 +132,27 @@ struct Lanes {
     unchecked: usize,
     refused_today: usize,
     gate_refused: usize,
+    /// Rows of the checked binary64 retries with the test disabled (below
+    /// the gate, the expansions, the alternative PV, the method choice).
+    retry_rows: usize,
 }
 
-/// `Disabled` against `Enabled` on one batch, lane by lane: lanes marked
-/// unchecked were accepted by the gates alone (kept as the first pass
-/// computed them, without an estimate); every other lane takes the same
-/// route, bit for bit.
-fn compare_disabled(label: &str, plan: &TensorReductionPlan, batch: &KinematicsBatch<f64>) -> Lanes {
-    let enabled = run_plan(plan, batch, Some(options(RotationTest::Enabled)));
-    let disabled = run_plan(plan, batch, Some(options(RotationTest::Disabled)));
+/// `Disabled` against `Enabled` on one batch, lane by lane, both with
+/// `rescue`: lanes marked unchecked were accepted by the gates alone (kept as
+/// the first pass computed them, without an estimate); every other lane
+/// takes the same route, bit for bit.
+fn compare_disabled(
+    label: &str,
+    plan: &TensorReductionPlan,
+    batch: &KinematicsBatch<f64>,
+    rescue: PrecisionRescue,
+) -> Lanes {
+    let with_rescue = |test| TensorWorkspaceOptions { precision_rescue: rescue, ..options(test) };
+    let enabled = run_plan(plan, batch, Some(with_rescue(RotationTest::Enabled)));
+    let disabled = run_plan(plan, batch, Some(with_rescue(RotationTest::Disabled)));
     assert_eq!((disabled.stats.rotation_rows, disabled.stats.rotation_failures), (0, 0), "{label}");
-    let mut lanes = Lanes::default();
+    let mut lanes =
+        Lanes { retry_rows: disabled.stats.checked_rows + disabled.stats.expansion_rows, ..Lanes::default() };
     for lane in 0..batch.rows {
         let notes = &disabled.diagnostics[lane];
         if notes.iter().any(|note| note.contains(UNCHECKED)) {
@@ -192,27 +203,48 @@ fn disabled_skips_only_the_first_pass_rotation_comparison() {
         total.unchecked += lanes.unchecked;
         total.refused_today += lanes.refused_today;
         total.gate_refused += lanes.gate_refused;
+        total.retry_rows += lanes.retry_rows;
     };
     // The hexagon's pinches, one integral per batch: no lane the gates refuse.
     for mass2 in [MT2, 0.0] {
         for members in integrals() {
             let plan = TensorReductionPlan::new(ReductionSettings::new(members.len(), members.len() as u16)).unwrap();
-            add(&compare_disabled(&format!("{members:?} m2 {mass2}"), &plan, &batch(&members, mass2)));
+            let label = format!("{members:?} m2 {mass2}");
+            add(&compare_disabled(&label, &plan, &batch(&members, mass2), PrecisionRescue::Automatic));
         }
     }
     // Multi-lane batches mixing lanes the gates refuse with lanes the
-    // rotation test refuses today and lanes it accepts.
-    // Boxes, invariants from the shifts and supplied: today 3 gate-refused, 11
-    // and 8 refused by the test, of 126 lanes. Pentagons: the gates accept
-    // every fixture pentagon, but the batch holds 20 lanes the test refuses.
-    for (n, supplied, mixes) in [(4, false, true), (4, true, true), (5, false, false)] {
-        let (plan, batch) = mixed_batch(n, supplied);
-        let label = format!("mixed N={n}, invariants supplied {supplied}");
-        let lanes = compare_disabled(&label, &plan, &batch);
-        eprintln!("{label}: {} lanes, {lanes:?}", batch.rows);
-        assert!(lanes.refused_today > 0 && lanes.unchecked > lanes.refused_today, "{label}: {lanes:?}");
-        assert!(!mixes || lanes.gate_refused > 0, "{label} has no gate-refused lane: {lanes:?}");
-        add(&lanes);
+    // rotation test refuses today and lanes it accepts, with the precision
+    // rescue (the default) and with binary64 alone. The rescue takes refused
+    // box, pentagon and hexagon lanes without the checked binary64 retries
+    // (below the gate, the expansions, the method choice), so only binary64
+    // alone (`PrecisionRescue::Disabled`) puts the gate-refused lanes through
+    // them: there they must run, and serve those lanes as with the test.
+    // Today, of 126 box lanes (invariants from the shifts, supplied), 3 are
+    // gate-refused and 11, 8 refused by the test, in both modes (binary64
+    // alone: 9 retry rows each). With the rescue the gates accept every
+    // fixture pentagon, but the batch holds 20 lanes the test refuses; with
+    // binary64 alone, which refuses lanes with a refused box outright, the
+    // gates refuse 26 of its 67 lanes (88 retry rows) and the test none.
+    for rescue in [PrecisionRescue::Automatic, PrecisionRescue::Disabled] {
+        // (N, invariants supplied, lanes the test refuses, gate-refused lanes)
+        let pentagons = match rescue {
+            PrecisionRescue::Automatic => (5, false, true, false),
+            PrecisionRescue::Disabled => (5, false, false, true),
+        };
+        for (n, supplied, tested, gated) in [(4, false, true, true), (4, true, true, true), pentagons] {
+            let (plan, batch) = mixed_batch(n, supplied);
+            let label = format!("mixed N={n}, invariants supplied {supplied}, {rescue:?}");
+            let lanes = compare_disabled(&label, &plan, &batch, rescue);
+            eprintln!("{label}: {} lanes, {lanes:?}", batch.rows);
+            assert!(lanes.unchecked > lanes.refused_today, "{label}: {lanes:?}");
+            assert!(!tested || lanes.refused_today > 0, "{label} has no lane the test refuses: {lanes:?}");
+            assert!(!gated || lanes.gate_refused > 0, "{label} has no gate-refused lane: {lanes:?}");
+            if rescue == PrecisionRescue::Disabled {
+                assert_eq!(lanes.gate_refused > 0, lanes.retry_rows > 0, "{label}: {lanes:?}");
+            }
+            add(&lanes);
+        }
     }
     eprintln!("{total:?}");
     assert!(total.unchecked > 0 && total.refused_today > 0 && total.gate_refused > 0, "{total:?}");
