@@ -523,29 +523,111 @@ mod dd_sharing_tests {
             .collect()
     }
 
+    /// A store as an amplitude's: sharing on, double-double sub-integrals,
+    /// pentagons and moments too, and the moments of the gathers `shapes`
+    /// (`(size, rank)`).
+    fn amplitude_store(shapes: &[(usize, u16)]) -> Arc<SubsetStore> {
+        let store = Arc::new(SubsetStore::default());
+        store.set_enabled(true);
+        store.set_dd_subsets(true);
+        for &(size, rank) in shapes {
+            store.share_moments(size, rank);
+        }
+        store
+    }
+
     #[test]
     fn double_double_subsets_from_a_store_are_limb_for_limb_what_the_executor_computes() {
         let plan = DirectReductionPlan::new(ReductionSettings::new(5, 5)).unwrap();
         let batch = pentagon_lanes();
         let alone = workspace(&plan).reduce_batch(&batch).unwrap();
-        let store = Arc::new(SubsetStore::default());
-        store.set_enabled(true);
-        store.set_dd_subsets(true);
-        let mut workspace = workspace(&plan);
-        workspace.set_shared_subsets(Some(store.clone()));
-        // The first call computes and stores (its two lanes share their first
-        // three propagators, so some triangles meet already), the second takes
-        // every stored sub-integral and pentagon from the store.
-        let first = workspace.reduce_batch(&batch).unwrap();
-        let (hits, misses) = store.dd_subset_counts();
-        assert!(misses > 0, "({hits}, {misses})");
-        let second = workspace.reduce_batch(&batch).unwrap();
-        let (hits_after, misses_after) = store.dd_subset_counts();
-        assert_eq!(misses_after, misses, "the second call computed again");
-        assert_eq!(hits_after - hits, hits + misses, "the second call missed a lookup");
-        assert_eq!(limbs(&first), limbs(&alone));
-        assert_eq!(limbs(&second), limbs(&alone));
         assert!(limbs(&alone).iter().all(|lane| !lane.is_empty()), "a lane was refused");
+        // The moments an amplitude shares (`AmplitudeWorkspace`,
+        // `TensorStore::register`): those its integrals gather inside a
+        // larger one, here a rank-six hexagon's pentagons (gathered at rank
+        // five, as this plan gathers its own). Their keys hold the gather
+        // scale and the coefficients, limb for limb.
+        let hexagon = DirectReductionPlan::new(ReductionSettings::new(6, 6)).unwrap();
+        let shapes = hexagon.nested_gathers();
+        assert!(shapes.contains(&(5, 5)), "{shapes:?}");
+        let mut lookups = Vec::new();
+        for shapes in [&[][..], &shapes[..]] {
+            let store = amplitude_store(shapes);
+            let mut workspace = workspace(&plan);
+            workspace.set_shared_subsets(Some(store.clone()));
+            // The first call computes and stores (its two lanes share their
+            // first three propagators, so some triangles meet already), the
+            // second takes every stored sub-integral, pentagon and moment
+            // from the store.
+            let first = workspace.reduce_batch(&batch).unwrap();
+            let (hits, misses) = store.dd_subset_counts();
+            assert!(misses > 0, "{shapes:?}: ({hits}, {misses})");
+            let second = workspace.reduce_batch(&batch).unwrap();
+            let (hits_after, misses_after) = store.dd_subset_counts();
+            assert_eq!(misses_after, misses, "{shapes:?}: the second call computed again");
+            assert_eq!(hits_after - hits, hits + misses, "{shapes:?}: the second call missed a lookup");
+            assert_eq!(limbs(&first), limbs(&alone), "{shapes:?}");
+            assert_eq!(limbs(&second), limbs(&alone), "{shapes:?}");
+            lookups.push(hits + misses);
+        }
+        // The moments add lookups of their own, all of which the second call
+        // reused.
+        assert!(lookups[1] > lookups[0], "no double-double moment shared: {lookups:?}");
+    }
+
+    #[test]
+    fn double_double_settings_differing_in_the_low_limb_share_nothing() {
+        // The real settings in the sub-integral and pentagon keys are keyed
+        // by both limbs (`exec::real_key_words`): two workspaces whose gate,
+        // or whose Gram expansions' auxiliary gate, agrees in the high limb
+        // and differs in the low one compute everything themselves.
+        let plan = DirectReductionPlan::new(ReductionSettings::new(5, 5)).unwrap();
+        let batch = pentagon_lanes();
+        let gate = DoubleFloat::from(1e-12);
+        let nudged = gate.clone() + DoubleFloat::from(2f64.powi(-100));
+        assert_eq!(gate.into_inner().hi(), nudged.into_inner().hi());
+        assert_ne!(gate.into_inner().lo(), nudged.into_inner().lo());
+        let gated = |threshold: &DoubleFloat| {
+            let mut workspace = workspace(&plan);
+            workspace.set_stability_threshold(threshold.clone());
+            workspace
+        };
+        // The a priori method choice keeps these well-conditioned boxes and
+        // triangles on PV: the auxiliary gate enters through the Gram
+        // signature of the key only.
+        let auxiliary = |threshold: &DoubleFloat| {
+            let mut workspace = workspace(&plan);
+            workspace.set_stability_threshold(gate.clone());
+            workspace.enable_estimated_method_choice(12, threshold.clone());
+            workspace
+        };
+        type Make<'a> = &'a dyn Fn(&DoubleFloat) -> super::DirectWorkspace<DoubleFloat>;
+        for (setting, make) in [("gate", &gated as Make), ("auxiliary gate", &auxiliary as Make)] {
+            // One call of a workspace with each setting in turn, on one store
+            // (no moments: their keys hold the coefficients, not the
+            // settings): `(hits, misses)` of each call.
+            let in_turn = |a: &DoubleFloat, b: &DoubleFloat| {
+                let store = amplitude_store(&[]);
+                [a, b].map(|threshold| {
+                    let (hits, misses) = store.dd_subset_counts();
+                    let mut workspace = make(threshold);
+                    workspace.set_shared_subsets(Some(store.clone()));
+                    workspace.reduce_batch(&batch).unwrap();
+                    let (hits_after, misses_after) = store.dd_subset_counts();
+                    (hits_after - hits, misses_after - misses)
+                })
+            };
+            // Equal settings: the second workspace reuses every entry.
+            let [first, second] = in_turn(&gate, &gate);
+            assert!(first.1 > 0, "{setting}: nothing computed {first:?}");
+            assert_eq!(second, (first.0 + first.1, 0), "{setting}: equal settings");
+            // Low limbs differ: neither workspace reuses the other's entries
+            // (the second meets only its own, as the first did).
+            for (a, b) in [(&gate, &nudged), (&nudged, &gate)] {
+                let [first, second] = in_turn(a, b);
+                assert_eq!(second, first, "{setting}: a low-limb change reused an entry");
+            }
+        }
     }
 
     #[test]
