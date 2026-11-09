@@ -2,8 +2,9 @@
 //! `Enabled` bit for bit; `Disabled` skips only the binary64 first pass's
 //! loop-rotation comparison (its gate-accepted lanes come back unchecked,
 //! without an estimate, marked and counted), every lane the gates refuse is
-//! served exactly as with the test, and the option changes nothing where the
-//! test never runs.
+//! served exactly as with the test (also in multi-lane batches mixing them
+//! with lanes the test refuses), and the option changes nothing where the
+//! test never runs, where `rotation_test()` reports `Disabled`.
 use iregi_rust::{
     AmplitudeOptions, AmplitudeWorkspace, BatchResult, DirectExecutionStats, EmbedderOptions, KinematicsBatch,
     LaneStatus, ReductionSettings, RotationTest, TensorEngineExecution, TensorReductionPlan, TensorWorkspace,
@@ -66,12 +67,106 @@ struct Run {
 
 fn run(members: &[usize], mass2: f64, workspace_options: Option<TensorWorkspaceOptions>) -> Run {
     let plan = TensorReductionPlan::new(ReductionSettings::new(members.len(), members.len() as u16)).unwrap();
+    run_plan(&plan, &batch(members, mass2), workspace_options)
+}
+
+fn run_plan(plan: &TensorReductionPlan, batch: &KinematicsBatch<f64>, workspace_options: Option<TensorWorkspaceOptions>) -> Run {
     let mut workspace = match workspace_options {
-        Some(options) => TensorWorkspace::new_with_options(&plan, 0.0f64, options).unwrap(),
-        None => TensorWorkspace::new(&plan, 0.0f64).unwrap(),
+        Some(options) => TensorWorkspace::new_with_options(plan, 0.0f64, options).unwrap(),
+        None => TensorWorkspace::new(plan, 0.0f64).unwrap(),
     };
-    let result = workspace.reduce_batch(&batch(members, mass2)).unwrap();
+    let result = workspace.reduce_batch(batch).unwrap();
     Run { result, diagnostics: workspace.last_diagnostics().to_vec(), stats: stats(&workspace) }
+}
+
+/// One multi-lane batch of `n` propagators at rank `n` (pyAmpliCol's
+/// settings, invariants from the shifts or supplied): the method-choice
+/// fixture's lanes of that size (lightlike legs; the first pass's gates
+/// refuse some of its boxes) interleaved with the hexagon's pinches of that
+/// size at both masses, among which are lanes the rotation test refuses
+/// today.
+fn mixed_batch(n: usize, supplied: bool) -> (TensorReductionPlan, KinematicsBatch<f64>) {
+    let fixture: Vec<_> =
+        common::lanes(include_str!("fixtures/method_choice_lanes.json")).into_iter().filter(|lane| lane.n == n).collect();
+    assert!(fixture.iter().all(|lane| lane.rank == n as u16));
+    let mut pinches = Vec::new();
+    for mass2 in [MT2, 0.0] {
+        for members in integrals().into_iter().filter(|m| m.len() == n) {
+            for point in &POINTS {
+                let mut row: Vec<Complex<f64>> =
+                    members.iter().flat_map(|&i| point[i].map(|x| Complex::new(x, 0.0))).collect();
+                if supplied {
+                    // (V_i - V_j)^2, i < j, row-major, in binary64.
+                    for (a, &i) in members.iter().enumerate() {
+                        for &j in &members[a + 1..] {
+                            let d: [f64; 4] = std::array::from_fn(|c| point[i][c] - point[j][c]);
+                            row.push(Complex::new(d[0] * d[0] - d[1] * d[1] - d[2] * d[2] - d[3] * d[3], 0.0));
+                        }
+                    }
+                }
+                row.extend(members.iter().map(|_| Complex::new(mass2, 0.0)));
+                row.push(Complex::new(MU, 0.0));
+                pinches.push(row);
+            }
+        }
+    }
+    let mut values = Vec::new();
+    for k in 0..pinches.len().max(fixture.len()) {
+        if let Some(row) = pinches.get(k) {
+            values.extend_from_slice(row);
+        }
+        if let Some(lane) = fixture.get(k) {
+            values.extend(common::row(lane, supplied));
+        }
+    }
+    let rows = pinches.len() + fixture.len();
+    assert_eq!(values.len(), rows * common::row(&fixture[0], supplied).len());
+    let plan = TensorReductionPlan::new(common::settings(&fixture[0], supplied)).unwrap();
+    (plan, KinematicsBatch { rows, components: 1, values })
+}
+
+/// Counts of [`compare_disabled`].
+#[derive(Default, Debug)]
+struct Lanes {
+    unchecked: usize,
+    refused_today: usize,
+    gate_refused: usize,
+}
+
+/// `Disabled` against `Enabled` on one batch, lane by lane: lanes marked
+/// unchecked were accepted by the gates alone (kept as the first pass
+/// computed them, without an estimate); every other lane takes the same
+/// route, bit for bit.
+fn compare_disabled(label: &str, plan: &TensorReductionPlan, batch: &KinematicsBatch<f64>) -> Lanes {
+    let enabled = run_plan(plan, batch, Some(options(RotationTest::Enabled)));
+    let disabled = run_plan(plan, batch, Some(options(RotationTest::Disabled)));
+    assert_eq!((disabled.stats.rotation_rows, disabled.stats.rotation_failures), (0, 0), "{label}");
+    let mut lanes = Lanes::default();
+    for lane in 0..batch.rows {
+        let notes = &disabled.diagnostics[lane];
+        if notes.iter().any(|note| note.contains(UNCHECKED)) {
+            lanes.unchecked += 1;
+            assert_eq!(notes.len(), 1, "{label} lane {lane}: {notes:?}");
+            assert_eq!(disabled.result.statuses[lane], LaneStatus::Success);
+            assert_eq!(disabled.result.estimated_errors[lane], None);
+            // With the test, a lane it accepts has no diagnostics; one it
+            // refuses is served by a later stage (cyclic orders, the
+            // precision rescue), which says so.
+            if enabled.diagnostics[lane].is_empty() {
+                // The rotation test accepted it: the same array.
+                assert_eq!(lane_bits(&enabled.result, lane).0, lane_bits(&disabled.result, lane).0, "{label} lane {lane}");
+            } else {
+                lanes.refused_today += 1;
+            }
+        } else {
+            // Refused by the gates: the same route, bit for bit.
+            lanes.gate_refused += 1;
+            assert_eq!(lane_bits(&enabled.result, lane), lane_bits(&disabled.result, lane), "{label} lane {lane}");
+            assert_eq!(enabled.diagnostics[lane], disabled.diagnostics[lane], "{label} lane {lane}");
+        }
+    }
+    assert_eq!(disabled.stats.rotation_unchecked, lanes.unchecked, "{label}");
+    lanes
 }
 
 #[test]
@@ -92,44 +187,35 @@ fn the_default_is_the_explicit_enabled_setting_bit_for_bit() {
 
 #[test]
 fn disabled_skips_only_the_first_pass_rotation_comparison() {
-    let (mut unchecked, mut refused_today, mut gate_refused) = (0, 0, 0);
+    let mut total = Lanes::default();
+    let mut add = |lanes: &Lanes| {
+        total.unchecked += lanes.unchecked;
+        total.refused_today += lanes.refused_today;
+        total.gate_refused += lanes.gate_refused;
+    };
+    // The hexagon's pinches, one integral per batch: no lane the gates refuse.
     for mass2 in [MT2, 0.0] {
         for members in integrals() {
-            let enabled = run(&members, mass2, Some(options(RotationTest::Enabled)));
-            let disabled = run(&members, mass2, Some(options(RotationTest::Disabled)));
-            assert_eq!((disabled.stats.rotation_rows, disabled.stats.rotation_failures), (0, 0), "{members:?}");
-            let mut marked = 0;
-            for lane in 0..POINTS.len() {
-                let notes = &disabled.diagnostics[lane];
-                if notes.iter().any(|note| note.contains(UNCHECKED)) {
-                    // Accepted by the gates alone: kept as the first pass
-                    // computed it, without an estimate.
-                    marked += 1;
-                    assert_eq!(notes.len(), 1, "{members:?} lane {lane}: {notes:?}");
-                    assert_eq!(disabled.result.statuses[lane], LaneStatus::Success);
-                    assert_eq!(disabled.result.estimated_errors[lane], None);
-                    // With the test, a lane it accepts has no diagnostics; one it
-                    // refuses is served by a later stage (cyclic orders, the
-                    // precision rescue), which says so.
-                    if enabled.diagnostics[lane].is_empty() {
-                        // The rotation test accepted it: the same array.
-                        assert_eq!(lane_bits(&enabled.result, lane).0, lane_bits(&disabled.result, lane).0);
-                    } else {
-                        refused_today += 1;
-                    }
-                } else {
-                    // Refused by the gates: the same route, bit for bit.
-                    gate_refused += 1;
-                    assert_eq!(lane_bits(&enabled.result, lane), lane_bits(&disabled.result, lane), "{members:?} lane {lane}");
-                    assert_eq!(enabled.diagnostics[lane], disabled.diagnostics[lane], "{members:?} lane {lane}");
-                }
-            }
-            assert_eq!(disabled.stats.rotation_unchecked, marked, "{members:?}");
-            unchecked += marked;
+            let plan = TensorReductionPlan::new(ReductionSettings::new(members.len(), members.len() as u16)).unwrap();
+            add(&compare_disabled(&format!("{members:?} m2 {mass2}"), &plan, &batch(&members, mass2)));
         }
     }
-    eprintln!("unchecked {unchecked}, of which refused by the test today {refused_today}; gate-refused {gate_refused}");
-    assert!(unchecked > 0 && refused_today > 0, "no lane the rotation test refuses today: {unchecked} {refused_today}");
+    // Multi-lane batches mixing lanes the gates refuse with lanes the
+    // rotation test refuses today and lanes it accepts.
+    // Boxes, invariants from the shifts and supplied: today 3 gate-refused, 11
+    // and 8 refused by the test, of 126 lanes. Pentagons: the gates accept
+    // every fixture pentagon, but the batch holds 20 lanes the test refuses.
+    for (n, supplied, mixes) in [(4, false, true), (4, true, true), (5, false, false)] {
+        let (plan, batch) = mixed_batch(n, supplied);
+        let label = format!("mixed N={n}, invariants supplied {supplied}");
+        let lanes = compare_disabled(&label, &plan, &batch);
+        eprintln!("{label}: {} lanes, {lanes:?}", batch.rows);
+        assert!(lanes.refused_today > 0 && lanes.unchecked > lanes.refused_today, "{label}: {lanes:?}");
+        assert!(!mixes || lanes.gate_refused > 0, "{label} has no gate-refused lane: {lanes:?}");
+        add(&lanes);
+    }
+    eprintln!("{total:?}");
+    assert!(total.unchecked > 0 && total.refused_today > 0 && total.gate_refused > 0, "{total:?}");
 }
 
 /// Lanes the first pass's gates refuse take the same route with the test
@@ -177,6 +263,34 @@ fn the_setting_is_reported_and_can_be_changed() {
     workspace.reduce_batch(&batch(&members, MT2)).unwrap();
     assert_eq!(stats(&workspace).rotation_unchecked, 0);
     assert!(stats(&workspace).rotation_rows >= POINTS.len());
+}
+
+/// Like `precision_rescue()`, `rotation_test()` reports the effective
+/// setting: `Disabled` wherever later calls run no rotation test, whatever
+/// was set.
+#[test]
+fn the_getter_reports_the_effective_setting() {
+    let facade = |settings: ReductionSettings| {
+        TensorWorkspace::new(&TensorReductionPlan::new(settings).unwrap(), 0.0f64).unwrap()
+    };
+    let mut dotted = ReductionSettings::new(4, 3);
+    dotted.powers = vec![2, 1, 1, 1];
+    for (label, mut workspace) in [("triangle", facade(ReductionSettings::new(3, 3))), ("dotted box", facade(dotted))] {
+        for test in [RotationTest::Enabled, RotationTest::Disabled] {
+            workspace.set_rotation_test(test);
+            assert_eq!(workspace.rotation_test(), RotationTest::Disabled, "{label} set to {test:?}");
+        }
+    }
+    // Workspaces of other engines, as `precision_rescue()` reports them.
+    let plan = TensorReductionPlan::new(ReductionSettings::new(4, 1)).unwrap();
+    let mut double_double = TensorWorkspace::new(&plan, DoubleFloat::from(0.0)).unwrap();
+    double_double.set_rotation_test(RotationTest::Enabled);
+    assert_eq!(double_double.rotation_test(), RotationTest::Disabled);
+    assert_eq!(double_double.precision_rescue(), iregi_rust::PrecisionRescue::Disabled);
+    let mut embedded = TensorWorkspace::new_embedded(&plan, 0.0f64, EmbedderOptions::default()).unwrap();
+    embedded.set_rotation_test(RotationTest::Enabled);
+    assert_eq!(embedded.rotation_test(), RotationTest::Disabled);
+    assert_eq!(embedded.precision_rescue(), iregi_rust::PrecisionRescue::Disabled);
 }
 
 #[test]
@@ -228,7 +342,7 @@ fn disabled_changes_nothing_where_the_test_never_runs() {
     for test in [RotationTest::Enabled, RotationTest::Disabled] {
         let mut workspace = TensorWorkspace::new_embedded(&plan, 0.0f64, EmbedderOptions::default()).unwrap();
         workspace.set_rotation_test(test);
-        assert_eq!(workspace.rotation_test(), RotationTest::Enabled);
+        assert_eq!(workspace.rotation_test(), RotationTest::Disabled);
         let result = workspace.reduce_batch(&batch(&members, MT2)).unwrap();
         let lanes: Vec<_> = (0..POINTS.len()).map(|lane| lane_bits(&result, lane)).collect();
         outputs.push((lanes, workspace.last_diagnostics().to_vec()));

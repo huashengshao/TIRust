@@ -324,7 +324,14 @@ also given for lanes that passed the rotation test). CLI: `estimated_error` and
 `best_effort_moments` per sample; Python: `estimated_errors`, `best_effort` and
 `lane(row, best_effort=True)`. A looser
 accuracy request (`set_accuracy_precision(bits)`, tolerance 2^(19-bits)) lets
-the binary64-only path keep more lanes. `TensorReductionPlan::new_without_direct`
+the binary64-only path keep more lanes. For callers that check their results
+themselves (at amplitude level, say), `TensorWorkspaceOptions::rotation_test =
+RotationTest::Disabled` (or `set_rotation_test`) skips the first pass's
+loop-rotation test: the lanes the gates accept come back `Success` without an
+estimate, marked in `last_diagnostics()` and counted in `rotation_unchecked`,
+no longer certified per integral (up to E/A 7.0e-6 for rank-4 boxes in
+stability capture 044), while the lanes the gates refuse are served as before.
+`TensorReductionPlan::new_without_direct`
 selects the symbolic dispatch explicitly. `DoubleFloat`, `Float` and Dual
 workspaces use the symbolic engine at their own precision. The lower-level
 `DirectReductionPlan` / `DirectWorkspace` API is also public.

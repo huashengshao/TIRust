@@ -129,8 +129,11 @@ const ROTATION_TOLERANCE: f64 = 1.0 / (1u64 << 34) as f64;
 /// uniform powers). The test checks every accepted lane a posteriori, so the
 /// a priori gate only removes hopeless lanes: on physical gg->Hgg pentagons
 /// and gg->gggg hexagons (stability-20261030) the default `1e-12` refused
-/// lanes of which most were good to 1e-10, while `1e-15` keeps the
-/// accepted tail at <= 1e-9 before the rotation test.
+/// lanes of which most were good to 1e-10. The gate alone bounds nothing:
+/// in stability capture 044 (`RotationTest::Disabled`, against 256 bits) the
+/// lanes it accepts reach E/A 7.0e-6 for rank-4 boxes, 1.6e-7 for rank-6
+/// boxes, 1.2e-9 for pentagons, 7.0e-10 for hexagons and 3.7e-9 for
+/// heptagons; after the rotation test the same points stay within 6.7e-11.
 pub(super) const ROTATION_GATE: f64 = 1e-15;
 
 /// Gate of the checked binary64 retry. On the stability-20261030 points
@@ -186,10 +189,11 @@ const CONSENSUS_MARGIN_BITS: i32 = 4;
 pub(crate) const UNCHECKED_NOTE: &str =
     "direct engine: accepted by the conditioning gates alone (loop-rotation test disabled: no error estimate)";
 
-/// Whether the binary64 pass runs the loop-rotation test. Boxes too: on
-/// stability-20261030 the conditioning gate alone certified 86 of 10000
-/// rank-4 and 49 of 10000 rank-6 boxes beyond the tolerance (up to E/A
-/// 9.6e-9); the rotation test refuses 85 and 49 of them.
+/// Whether the binary64 pass runs the loop-rotation test. Boxes too: in
+/// stability capture 044 the conditioning gate alone accepted 105 of 10000
+/// rank-4 and 214 of 10000 rank-6 boxes beyond the tolerance 2^-34 (up to
+/// E/A 7.0e-6 and 1.6e-7); the rotation test refuses 117 and 231 of the
+/// lanes the gate accepts there, and the same points stay within 6.7e-11.
 fn rotation_tested(settings: &ReductionSettings) -> bool {
     settings.propagators >= 4 && uniform_powers(settings)
 }
@@ -550,8 +554,14 @@ where
         self.options.rotation_test = test;
     }
 
+    /// The effective setting: `Disabled` where the first pass never runs the
+    /// test (fewer than four propagators or unequal powers).
     pub(crate) fn rotation_test_setting(&self) -> RotationTest {
-        self.options.rotation_test
+        if rotation_tested(self.plan.direct.settings()) {
+            self.options.rotation_test
+        } else {
+            RotationTest::Disabled
+        }
     }
 
     /// Largest accepted E/A between a binary64 lane and its rotated copy:

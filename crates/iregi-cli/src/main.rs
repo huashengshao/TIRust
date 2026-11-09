@@ -382,6 +382,7 @@ fn engine_execution_json(detail: TensorEngineExecution) -> Value {
                 "bits":tier.bits,"rows":tier.rows,"successes":tier.successes})).collect::<Vec<_>>(),
             "symbolic_rows":stats.symbolic_rows,
             "rotation_rows":stats.rotation_rows,"rotation_failures":stats.rotation_failures,
+            "rotation_unchecked":stats.rotation_unchecked,
             "checked_rows":stats.checked_rows,"checked_successes":stats.checked_successes,
             "expansion_rows":stats.expansion_rows,"expansion_successes":stats.expansion_successes,
             "fallback_preparation_error":stats.fallback_preparation_error,

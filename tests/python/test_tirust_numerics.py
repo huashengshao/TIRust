@@ -50,6 +50,8 @@ def test_batch_metadata_lane_failure_and_empty(dtype, bits, accuracy):
         assert detail["input_rows"] == 3
         assert detail["direct_successes"] == 2
         assert detail["fallback_rows"] == detail["symbolic_rows"] == 0
+        # The Python workspace keeps the default loop-rotation test.
+        assert detail["rotation_unchecked"] == 0
         assert "fallback" not in detail
         assert result.stats["argument_rows"] == result.stats["master_family_batches"] == 0
     else:
