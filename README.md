@@ -131,12 +131,12 @@ rank-one lifecycle case. Each family's validated domain is documented separately
   bucket) shares binary64 scalar masters, PV sub-integrals, Gram-free
   pentagons, partial rescues, small-Gram expansions and gathered moments, and
   double-double masters (double-double sub-integrals, pentagons and moments
-  only inside an `AmplitudeWorkspace`). Entries are pure functions of exact keys: results are
-  bit-identical with and without the store, in any call order and thread
-  count (unless `TensorStore::align_ranks` raised the rank floor, which moves
-  injected boxes and triangles at their truncation level, or a masters
-  provider returns other values than TIRust's kernels). Master keys hold
-  invariants, masses and mu^2 only (translation-invariant: with
+  only inside an `AmplitudeWorkspace`). Entries are pure functions of exact
+  keys: results are bit-identical with and without the store, in any call
+  order and thread count (unless `TensorStore::align_ranks` raised the rank
+  floor, which moves injected boxes and triangles at their truncation level,
+  or a masters provider returns other values than TIRust's kernels). Master
+  keys hold invariants, masses and mu^2 only (translation-invariant: with
   `SuppliedInvariants` a box meets its copy in another frame);
   sub-integral and moment keys hold the shifts, so parent and pinches meet in
   an aligned loop-momentum frame supplied by the caller (common propagators
@@ -350,9 +350,8 @@ double-double tiers share their scalar masters and, in an amplitude
 workspace, their PV sub-integrals, Gram-free pentagons and moments too (both
 limbs of every input in the key; `dd_subsets_reused` / `dd_subsets_computed`):
 a lane refused in a large integral is usually refused in some of its pinches
-as well. A top-loop
-gg -> gggg hexagon with its 56 pinches on 32 physical points:
-1.7-2.2x faster per call
+as well. A top-loop gg -> gggg hexagon with its 56 pinches on 32 physical
+points: 1.7-2.2x faster per call
 (`crates/iregi-rust/examples/amplitude_sharing.rs`,
 `crates/iregi-rust/tests/amplitude_sharing.rs`).
 
