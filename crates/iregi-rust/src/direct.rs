@@ -472,7 +472,7 @@ mod dd_sharing_tests {
 
     /// Two generic massive pentagon lanes (well conditioned in every
     /// subset); the first three propagators are common to both.
-    fn pentagon_lanes() -> KinematicsBatch<DoubleFloat> {
+    pub(super) fn pentagon_lanes() -> KinematicsBatch<DoubleFloat> {
         const SHIFTS: [[[f64; 4]; 5]; 2] = [
             [
                 [0.0, 0.0, 0.0, 0.0],

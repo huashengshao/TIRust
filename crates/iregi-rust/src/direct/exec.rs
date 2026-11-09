@@ -3930,6 +3930,36 @@ mod tests {
     }
 
     #[test]
+    fn double_double_moment_keys_hold_both_limbs_of_the_coefficients() {
+        // A gather's moment key holds the coefficients it sums: coefficients
+        // that differ in a low limb only give another key (a key of their
+        // high limbs would hand the gather the moments of other
+        // coefficients). Nudging an input cannot show this end to end: it
+        // also moves the high limbs of rounding-level coefficients.
+        let plan = DirectReductionPlan::new(ReductionSettings::new(5, 5)).unwrap();
+        let mut workspace = plan.workspace(DoubleFloat::from(0.0)).unwrap();
+        workspace.reduce_batch(&crate::direct::dd_sharing_tests::pentagon_lanes()).unwrap();
+        let executor = &mut workspace.executor;
+        let data = executor.plan.clone();
+        let gather = data.gathers.iter().find(|gather| data.subsets[gather.subset].members.len() == 5).expect("a pentagon gather");
+        let key = executor.moment_key::<true>(gather);
+        assert_eq!(executor.moment_key::<true>(gather), key);
+        // The first coefficient the key reads (lambda 0, the first kappa),
+        // its finite slot's real part.
+        assert!(gather.kappas[0].degree <= gather.moment_rank);
+        let index = gather.coefficient[0];
+        assert_ne!(index, u32::MAX);
+        let value = &mut executor.values[index as usize][3].re;
+        let hi = value.into_inner().hi();
+        assert_ne!(hi, 0.0);
+        let nudged = value.clone() + DoubleFloat::from(hi * 2f64.powi(-80));
+        assert_eq!(nudged.into_inner().hi(), hi);
+        assert_ne!(nudged.into_inner().lo(), value.into_inner().lo());
+        *value = nudged;
+        assert_ne!(executor.moment_key::<true>(gather), key, "the moment key ignores a coefficient's low limb");
+    }
+
+    #[test]
     fn native_c0_takes_the_handwritten_negative_kallen_kernel() {
         // Binary64 and the double-double rescue tier.
         assert_native_c0_is_handwritten(0.0f64);

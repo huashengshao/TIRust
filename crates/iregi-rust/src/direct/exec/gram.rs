@@ -1010,7 +1010,8 @@ where
                 let mut config: Vec<u64> = gram.boosts.iter().map(|&b| u64::from(b)).collect();
                 config.push(u64::from(gram.alternative));
                 config.push(u64::from(skip));
-                // Both gates' binary64 bits are exact: `subset_key` keys only binary64 executors (`set_shared_subsets`).
+                // Both gates' binary64 bits are exact: `subset_key` keys only
+                // binary64 executors (`set_shared_subsets`).
                 config.push(gram.aux_threshold.as_ref().map_or(u64::MAX, |t| t.to_f64().to_bits()));
                 config.push(self.stability_threshold.to_f64().to_bits());
                 // The alternative PV first where its a priori estimate is

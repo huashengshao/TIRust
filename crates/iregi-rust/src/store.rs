@@ -204,11 +204,13 @@ pub struct TensorStoreStatistics {
     /// Double-double scalar masters reused and computed.
     pub dd_masters_reused: u64,
     pub dd_masters_computed: u64,
-    /// Stored entries and their estimated size in bytes. Since 3bb83e5 a
-    /// binary64 sub-integral, pentagon or moment entry counts 8 bytes more
-    /// (one more key word: the low limb of a real setting, zero in binary64),
-    /// so a given byte budget admits slightly fewer such entries.
+    /// Stored entries.
     pub entries: u64,
+    /// Estimated size of the stored entries in bytes. Since double-double
+    /// sharing, a binary64 sub-integral, pentagon or moment entry counts 8
+    /// bytes more (one more key word: the low limb of a real setting, zero
+    /// in binary64), so a given byte budget admits slightly fewer such
+    /// entries.
     pub bytes: u64,
     /// Results computed but not inserted because of the byte budget.
     pub not_stored: u64,
