@@ -1432,6 +1432,13 @@ where
     /// for every other workspace, where this setting changes nothing (other
     /// engines, other number types, and embedder mode, whose double-double
     /// boxes and precision tiers are [`crate::EmbedderOptions`] fields).
+    ///
+    /// The getter reports the effect; the configuration is
+    /// [`TensorWorkspaceOptions::precision_rescue`] (or
+    /// [`Self::set_precision_rescue`]). Configure other workspaces from the
+    /// options, not from this getter: its `Disabled` from, say, a
+    /// double-double workspace would turn the rescue of a binary64 workspace
+    /// off.
     pub fn precision_rescue(&self) -> PrecisionRescue {
         match &self.engine {
             WorkspaceEngine::Direct(workspace) => workspace.precision_rescue_setting(),
@@ -1455,6 +1462,13 @@ where
     /// propagators, unequal powers, other number types, other engines and
     /// embedder mode run no rotation test, and mark or count no lane as
     /// unchecked either.
+    ///
+    /// The getter reports the effect; the configuration is
+    /// [`TensorWorkspaceOptions::rotation_test`] (or
+    /// [`Self::set_rotation_test`]). Configure other workspaces from the
+    /// options, not from this getter: its `Disabled` from a triangle,
+    /// double-double or embedder-mode workspace would turn the test of a
+    /// binary64 box workspace off.
     pub fn rotation_test(&self) -> RotationTest {
         match &self.engine {
             WorkspaceEngine::Direct(workspace) => workspace.rotation_test_setting(),
