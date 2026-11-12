@@ -1570,6 +1570,16 @@ where
                 }
             };
             let local = relation.members.iter().position(|&m| m == relation.raised).unwrap();
+            // A variant reused from another lane (a rotated copy, another
+            // labelling) may raise a member that is massive here; then the
+            // lane picks its own variant.
+            let raised_mass = &self.masses[relation.raised];
+            if !(raised_mass.re.is_zero() && raised_mass.im.is_zero()) {
+                return Err(GeometryFailure::Relation(format!(
+                    "propagator {} of the relation of {:?} is not massless on this lane",
+                    relation.raised, relation.members
+                )));
+            }
             if cnorm2(&c[local]).is_zero() {
                 return Err(GeometryFailure::Relation(format!(
                     "propagator {} has no weight in the relation of {:?}",

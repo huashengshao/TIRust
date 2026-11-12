@@ -60,12 +60,22 @@ fn e_over_a(values: &[Complex<f64>], reference: &Value, ranks: &[usize], n: usiz
 }
 
 fn evaluate(case: &Value, mu: f64) -> (Result<Vec<Complex<f64>>, LaneStatus>, Vec<usize>) {
+    evaluate_with_diagnostics(case, mu).0
+}
+
+/// The lane's array and basis ranks, and its facade diagnostics (empty when
+/// the binary64 first pass accepts the lane, rotation test included).
+fn evaluate_with_diagnostics(
+    case: &Value,
+    mu: f64,
+) -> ((Result<Vec<Complex<f64>>, LaneStatus>, Vec<usize>), Vec<String>) {
     let settings = ReductionSettings::new(case["n"].as_u64().unwrap() as usize, case["rank"].as_u64().unwrap() as u16);
     let plan = TensorReductionPlan::new(settings).unwrap();
     let mut workspace = TensorWorkspace::new(&plan, 0.0f64).unwrap();
     let result = workspace.reduce_batch(&batch(case, mu)).unwrap();
     let ranks = result.basis.iter().map(|m| m.rank()).collect();
-    (result.lane(0).map(<[_]>::to_vec).map_err(Clone::clone), ranks)
+    let diagnostics = workspace.last_diagnostics().first().cloned().unwrap_or_default();
+    ((result.lane(0).map(<[_]>::to_vec).map_err(Clone::clone), ranks), diagnostics)
 }
 
 #[test]
@@ -92,11 +102,15 @@ fn coulomb_exchange_integrals_match_iregi_and_the_v0_c0() {
     let mut checked = 0;
     for case in fixture["cases"].as_array().unwrap().iter().filter(|c| c["kind"] == "coulomb") {
         let label = format!("{} {} #{}", case["process"], case["topology"], case["index"]);
-        let (values, ranks) = evaluate(case, mu);
+        let ((values, ranks), diagnostics) = evaluate_with_diagnostics(case, mu);
         let values = values.unwrap_or_else(|status| panic!("{label}: {status:?}"));
         let n = case["n"].as_u64().unwrap() as usize;
         let ea = e_over_a(&values, &case["iregi_reference"], &ranks, n, mu);
         assert!(ea <= 1e-9, "{label}: E/A {ea:e} against original IREGI");
+        // The binary64 pass accepts the lane, loop-rotation test included: a
+        // rotated copy must find its own Coulomb variant (the raised member
+        // is the gluon in every labelling), not fall back to a rescue.
+        assert!(diagnostics.is_empty(), "{label}: binary64 pass refused: {diagnostics:?}");
         if n == 3 {
             // IREGI native: i pi^2 times OneLOop's normalization, the finite
             // part shifted by -(gamma_E + ln pi) times the single pole.

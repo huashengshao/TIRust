@@ -190,19 +190,20 @@ TIRust's to 5e-15.
 
 ## Results (12 November 2026, branch onia)
 
-TIRust was built from this branch with this suite's driver. Original IREGI is
-the binary64 build of the benchmark campaigns. 21,585 of the 21,600 lanes
+TIRust was built from this branch, with main's huashengshao/TIRust#31 merged
+(triangles get the loop-rotation test), using this suite's drivers. Original
+IREGI is the binary64 build of the benchmark campaigns. 21,585 of the 21,600 lanes
 have an independent reference. "> 1" counts lanes with E/A above 1 (an array
 wrong at O(1) or worse), and "none" counts lanes where IREGI returns no array.
 
 | process | N | lanes | with reference | TIRust <= 1e-10 | TIRust max | IREGI IBP <= 1e-10 | IREGI IBP > 1 | IREGI none | IREGI IBP max |
 |---|---|---|---|---|---|---|---|---|---|
 | gg_QQ | 4 | 400 | 400 | 400 | 2.0e-13 | 400 | 0 | 0 | 3.6e-13 |
-| gg_QQ | 3 | 800 | 800 | 800 | 3.4e-15 | 766 | 0 | 0 | 1.8e-8 |
+| gg_QQ | 3 | 800 | 800 | 800 | 3.4e-15 | 766 | 0 | 0 | 1.8e-08 |
 | gg_QQ | 2 | 800 | 800 | 800 | 1.0e-15 | 800 | 0 | 0 | 7.0e-16 |
-| gg_QQg | 5 | 2,400 | 2,385 | 2,384 | 9.4e-10 | 282 | 1,632 | 444 | 8.4e72 |
-| gg_QQg | 4 | 7,200 | 7,200 | 7,200 | 5.8e-11 | 5,477 | 836 | 0 | 3.9e54 |
-| gg_QQg | 3 | 6,400 | 6,400 | 6,383 | 2.0e-8 | 6,166 | 0 | 0 | 2.4e-5 |
+| gg_QQg | 5 | 2,400 | 2,385 | 2,384 | 9.4e-10 | 282 | 1,632 | 444 | 8.4e+72 |
+| gg_QQg | 4 | 7,200 | 7,200 | 7,200 | 5.8e-11 | 5,477 | 836 | 0 | 3.9e+54 |
+| gg_QQg | 3 | 6,400 | 6,400 | 6,400 | 5.3e-11 | 6,166 | 0 | 0 | 2.4e-05 |
 | gg_QQg | 2 | 3,600 | 3,600 | 3,600 | 1.4e-15 | 3,600 | 0 | 0 | 1.0e-15 |
 
 The references:
@@ -218,28 +219,34 @@ The references:
 The full per-topology table is `summary.md` of a run (`summarize.py`).
 
 **TIRust**
-- The binary64 default stays within 1e-10 on 21,567 of the 21,585 lanes with
-  a reference, and within 2e-8 on all of them.
+- The binary64 default stays within 1e-10 on 21,584 of the 21,585 lanes with
+  a reference. The remaining lane is a pentagon (`N5-LHHHL-Q|g2|g3|Q|g1`,
+  point 87) at 9.4e-10, with an estimated error of 2.9e-12.
 - **Coulomb exchange.** All 1,600 lanes, in 2 topologies of gg_QQ and 7 of
-  gg_QQg, now succeed in binary64 and at 256 bits.
+  gg_QQg, now succeed in binary64, in the first pass (rotation test
+  included), and at 256 bits.
   - On the 1,585 lanes with a reference, the largest E/A is 4.6e-15 for
     triangles, 1.6e-13 for boxes and 4.7e-11 for pentagons.
   - 15 Coulomb pentagon lanes have no independent reference: in their exact
     identity, one doubled box is not confirmed by binary64 IREGI to 1e-9.
-  - The other 20,000 lanes keep exactly the E/A they had before Coulomb
-    support (commit 75b24ef).
-- **Triangles near a small Gram determinant.** These are the remaining
-  beyond-request lanes: 17 lanes between 1e-10 and 2.0e-8, in two triangle
-  topologies of gg_QQg, `N3-HLL-Q+g2|g3|Q+g1` and `N3-LHH-Q+g2|g3|Q+g1`.
-  - The triangles have one lightlike leg and two nearly equal virtualities.
-  - Lanes with G/s^2 below about 1.4e-4 are refused by the binary64 gate and
-    rescued, reaching E/A of 1e-22.
-  - The lanes just above the gate, at G/s^2 of about 7e-4 to 8e-4, are
-    accepted in binary64 and lose about 8 digits at rank 3.
-  - Triangles get no loop-rotation test (it starts at four propagators), so
-    these lanes carry no flag.
-- One pentagon lane (`N5-LHHHL-Q|g2|g3|Q|g1`, point 87) reaches 9.4e-10, with
-  an estimated error of 2.9e-12.
+  - Without Coulomb support (commit 75b24ef), these lanes were refused,
+    typed. Before #31, every other lane gave exactly the same result with
+    and without Coulomb support.
+- **Small-Gram triangles.** Before #31 (commits 75b24ef to c65727b),
+  17 gg_QQg triangle lanes reached between 1e-10 and 2.0e-8, in
+  `N3-HLL-Q+g2|g3|Q+g1` and `N3-LHH-Q+g2|g3|Q+g1`.
+  - These triangles have one lightlike leg and two nearly equal
+    virtualities. Lanes with G/s^2 of about 7e-4 to 8e-4 were accepted by
+    the binary64 gate and lost about 8 digits at rank 3, with no rotation
+    test for N = 3.
+  - With #31 they are rescued, and all triangles are within 5.3e-11.
+- **Coulomb variant reused across lanes.** #31's rotation test of the
+  triangles exposed a bug in the Coulomb variant: a variant reused from
+  another lane (here, the rotated copy) raised the propagator at the old
+  index, a heavy quark. Every Coulomb triangle then went to the 256-bit
+  rescue: correct, but at 1.5 ms per lane. The lane now checks that the
+  raised member is massless, and `tests/onia.rs` asserts that the binary64
+  pass accepts the Coulomb lanes. Without the fix that test fails.
 
 **Original IREGI** (`mre/IREGI_ONIA_MRE.md` has the reproducers)
 - **gg_QQ.** IBP mode is right everywhere, within 1.8e-8.
@@ -309,16 +316,15 @@ translations of the integrals above, 4,400 and 62,400 member lanes.
   single pole (UV + IR), double pole], and its error is
   max |A − A_ref| / max |A_ref|.
 
-**Results.**
+**Results** (with #31 merged):
 - **Bit-identical sharing.** The sharing on/off check holds for all 2,800
   family points.
 - **TIRust** returns every member on every point, the Coulomb ones included.
   - Its family amplitudes are within 1e-10 of the reference on all 400
-    gg_QQ points and on 2,377 of the 2,385 gg_QQg points with a reference.
-    All are within 3.8e-10.
-  - The 8 points beyond 1e-10 contain a small-Gram triangle member
-    (E/A 1.5e-8 to 3.6e-8, see above), which huashengshao/TIRust#31
-    addresses.
+    gg_QQ points and all 2,385 gg_QQg points with a reference. The largest
+    error is 4.4e-12.
+  - Before #31, 8 gg_QQg points reached up to 3.8e-10; each contained a
+    small-Gram triangle member.
   - 15 gg_QQg family points have no reference: the 15 Coulomb pentagon lanes
     above.
 - **Original IREGI** (IBP mode):
@@ -337,22 +343,22 @@ slowest TIRust families are those whose members need the precision rescue.
 
 | process | family (parent) | points | with reference | TIRust <= 1e-10 | TIRust max | IREGI IBP <= 1e-10 | IREGI IBP > 1 | IREGI none | TIRust shared | TIRust separate | IREGI IBP | ratio |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| gg_QQ | `N4-HHLH-g2|Q|Q|g1` | 100 | 100 | 100 | 3.4e-15 | 70 | 0 | 0 | 75 us | 78 us | 6.9 ms | 0.011 |
-| gg_QQ | `N4-HLLH-Q|g2|Q|g1` | 100 | 100 | 100 | 3.6e-14 | 100 | 0 | 0 | 78 us | 85 us | 7.3 ms | 0.011 |
-| gg_QQ | `N4-LHHL-Q|g2|Q|g1` | 100 | 100 | 100 | 8.3e-15 | 100 | 0 | 0 | 74 us | 79 us | 7.1 ms | 0.011 |
-| gg_QQ | `N4-LLHL-g2|Q|Q|g1` | 100 | 100 | 100 | 4.6e-15 | 100 | 0 | 0 | 65 us | 72 us | 6.6 ms | 0.010 |
-| gg_QQg | `N5-HHHLH-g2|g3|Q|Q|g1` | 200 | 189 | 189 | 2.0e-14 | 0 | 21 | 165 | 974 us | 1.1 ms | 31.3 ms | 0.031 |
-| gg_QQg | `N5-HHLHH-g2|Q|Q|g3|g1` | 200 | 196 | 196 | 1.4e-13 | 1 | 104 | 79 | 898 us | 1.1 ms | 38.8 ms | 0.023 |
-| gg_QQg | `N5-HHLLH-g2|Q|g3|Q|g1` | 200 | 200 | 200 | 1.7e-11 | 14 | 178 | 0 | 1.8 ms | 2.1 ms | 42.7 ms | 0.042 |
-| gg_QQg | `N5-HLHHH-Q|Q|g2|g3|g1` | 200 | 200 | 199 | 2.1e-10 | 0 | 0 | 200 | 847 us | 953 us | - | - |
-| gg_QQg | `N5-HLLHH-Q|g2|Q|g3|g1` | 200 | 200 | 199 | 1.0e-10 | 36 | 164 | 0 | 4.5 ms | 4.8 ms | 41.3 ms | 0.109 |
-| gg_QQg | `N5-HLLLH-Q|g2|g3|Q|g1` | 200 | 200 | 198 | 1.9e-10 | 37 | 163 | 0 | 9.8 ms | 13.4 ms | 40.0 ms | 0.246 |
-| gg_QQg | `N5-LHHHL-Q|g2|g3|Q|g1` | 200 | 200 | 199 | 3.8e-10 | 28 | 172 | 0 | 14.1 ms | 14.2 ms | 42.1 ms | 0.334 |
-| gg_QQg | `N5-LHHLL-Q|g2|Q|g3|g1` | 200 | 200 | 198 | 1.8e-10 | 32 | 168 | 0 | 2.4 ms | 3.1 ms | 41.1 ms | 0.058 |
-| gg_QQg | `N5-LHLLL-Q|Q|g2|g3|g1` | 200 | 200 | 199 | 1.5e-10 | 57 | 143 | 0 | 691 us | 806 us | 37.7 ms | 0.018 |
-| gg_QQg | `N5-LLHHL-g2|Q|g3|Q|g1` | 200 | 200 | 200 | 5.2e-11 | 17 | 183 | 0 | 1.5 ms | 2.0 ms | 38.6 ms | 0.038 |
-| gg_QQg | `N5-LLHLL-g2|Q|Q|g3|g1` | 200 | 200 | 200 | 3.2e-13 | 27 | 173 | 0 | 537 us | 728 us | 37.1 ms | 0.014 |
-| gg_QQg | `N5-LLLHL-g2|g3|Q|Q|g1` | 200 | 200 | 200 | 8.4e-14 | 21 | 179 | 0 | 753 us | 793 us | 38.9 ms | 0.019 |
+| gg_QQ | `N4-HHLH-g2\|Q\|Q\|g1` | 100 | 100 | 100 | 3.4e-15 | 70 | 0 | 0 | 91 us | 100 us | 8.4 ms | 0.011 |
+| gg_QQ | `N4-HLLH-Q\|g2\|Q\|g1` | 100 | 100 | 100 | 3.6e-14 | 100 | 0 | 0 | 162 us | 157 us | 8.4 ms | 0.019 |
+| gg_QQ | `N4-LHHL-Q\|g2\|Q\|g1` | 100 | 100 | 100 | 8.3e-15 | 100 | 0 | 0 | 152 us | 164 us | 8.1 ms | 0.019 |
+| gg_QQ | `N4-LLHL-g2\|Q\|Q\|g1` | 100 | 100 | 100 | 4.6e-15 | 100 | 0 | 0 | 102 us | 107 us | 7.5 ms | 0.014 |
+| gg_QQg | `N5-HHHLH-g2\|g3\|Q\|Q\|g1` | 200 | 189 | 189 | 2.0e-14 | 0 | 21 | 165 | 1.2 ms | 1.3 ms | 26.5 ms | 0.043 |
+| gg_QQg | `N5-HHLHH-g2\|Q\|Q\|g3\|g1` | 200 | 196 | 196 | 1.4e-13 | 1 | 104 | 79 | 768 us | 889 us | 37.7 ms | 0.020 |
+| gg_QQg | `N5-HHLLH-g2\|Q\|g3\|Q\|g1` | 200 | 200 | 200 | 1.1e-12 | 14 | 178 | 0 | 1.7 ms | 2.0 ms | 43.6 ms | 0.038 |
+| gg_QQg | `N5-HLHHH-Q\|Q\|g2\|g3\|g1` | 200 | 200 | 200 | 2.4e-12 | 0 | 0 | 200 | 828 us | 869 us | - | - |
+| gg_QQg | `N5-HLLHH-Q\|g2\|Q\|g3\|g1` | 200 | 200 | 200 | 1.8e-12 | 36 | 164 | 0 | 3.6 ms | 3.3 ms | 46.0 ms | 0.078 |
+| gg_QQg | `N5-HLLLH-Q\|g2\|g3\|Q\|g1` | 200 | 200 | 200 | 1.4e-12 | 37 | 163 | 0 | 12.2 ms | 10.8 ms | 43.9 ms | 0.277 |
+| gg_QQg | `N5-LHHHL-Q\|g2\|g3\|Q\|g1` | 200 | 200 | 200 | 2.0e-12 | 28 | 172 | 0 | 12.8 ms | 12.7 ms | 44.0 ms | 0.290 |
+| gg_QQg | `N5-LHHLL-Q\|g2\|Q\|g3\|g1` | 200 | 200 | 200 | 2.7e-12 | 32 | 168 | 0 | 2.9 ms | 3.1 ms | 40.4 ms | 0.073 |
+| gg_QQg | `N5-LHLLL-Q\|Q\|g2\|g3\|g1` | 200 | 200 | 200 | 4.4e-12 | 57 | 143 | 0 | 666 us | 679 us | 36.3 ms | 0.018 |
+| gg_QQg | `N5-LLHHL-g2\|Q\|g3\|Q\|g1` | 200 | 200 | 200 | 1.3e-12 | 17 | 183 | 0 | 1.5 ms | 1.5 ms | 39.0 ms | 0.037 |
+| gg_QQg | `N5-LLHLL-g2\|Q\|Q\|g3\|g1` | 200 | 200 | 200 | 3.2e-13 | 27 | 173 | 0 | 787 us | 833 us | 39.1 ms | 0.020 |
+| gg_QQg | `N5-LLLHL-g2\|g3\|Q\|Q\|g1` | 200 | 200 | 200 | 8.4e-14 | 21 | 179 | 0 | 1.2 ms | 1.1 ms | 41.5 ms | 0.028 |
 
 ## Regression test
 
