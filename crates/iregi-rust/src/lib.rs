@@ -31,6 +31,7 @@ pub use mass_taylor::{
 mod certified_affine;
 pub mod ibp;
 mod invariant_certificate;
+mod license;
 pub mod plan;
 pub mod pv;
 pub mod regulators;

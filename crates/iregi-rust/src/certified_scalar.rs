@@ -71,6 +71,7 @@ impl std::fmt::Debug for CertifiedScalarReductionPlan {
 
 impl CertifiedScalarReductionPlan {
     pub fn new(mut settings: ReductionSettings) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         if settings.rank != 0 {
             return Err(ReductionError::InvalidInput(
                 "certified scalar reduction requires rank zero".into(),
@@ -294,6 +295,7 @@ where
     Complex<T>: EvaluationDomain,
 {
     pub fn new(plan: &CertifiedScalarReductionPlan, prototype: T) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         Self::prepare(plan, prototype, None)
     }
 
@@ -302,6 +304,7 @@ where
         prototype: T,
         dual: D,
     ) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         iregi_masters::validate_dual_structure(&dual).map_err(preparation)?;
         let shape = dual
             .get_shape()
@@ -355,6 +358,7 @@ where
         initial_bits: u32,
         maximum_bits: u32,
     ) -> Result<(), ReductionError> {
+        let _oem_license = crate::license::unlock();
         self.certificate.set_precision_budget(initial_bits, maximum_bits)?;
         if let Some(compatibility) = &mut self.compatibility {
             compatibility.set_precision_budget(initial_bits, maximum_bits)?;
@@ -363,6 +367,7 @@ where
     }
 
     pub fn set_accuracy_precision(&mut self, bits: u32) -> Result<(), ReductionError> {
+        let _oem_license = crate::license::unlock();
         if bits == 0 || bits > self.prototype.get_precision() {
             return Err(ReductionError::InvalidInput(
                 "accuracy precision must be positive and no greater than working precision".into(),
@@ -376,6 +381,7 @@ where
     }
 
     pub fn set_profiling(&mut self, enabled: bool) {
+        let _oem_license = crate::license::unlock();
         self.profiling = enabled;
         for workspace in self.charts.values_mut() {
             workspace.set_profiling(enabled);
@@ -403,6 +409,7 @@ where
         &mut self,
         input: &ScalarKinematicsBatch<T>,
     ) -> Result<BatchResult<T>, ReductionError> {
+        let _oem_license = crate::license::unlock();
         self.reduce_values(input.rows, input.components, &input.values)
     }
 

@@ -181,6 +181,7 @@ where
         prototype: T,
         settings: RescueSettings,
     ) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         Self::prepare::<HyperDual<Complex<Rational>>>(plan, prototype, settings, None)
     }
 
@@ -190,6 +191,7 @@ where
         settings: RescueSettings,
         dual: D,
     ) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         Self::prepare(plan, prototype, settings, Some(&dual))
     }
 
@@ -299,6 +301,7 @@ where
         &mut self,
         batch: &KinematicsBatch<T>,
     ) -> Result<BatchResult<T>, ReductionError> {
+        let _oem_license = crate::license::unlock();
         self.stats = RescueStats::default();
         self.diagnostics.clear();
         self.primary_statuses.clear();
@@ -398,6 +401,7 @@ where
         input: &[D],
         rows: usize,
     ) -> Result<BatchResult<T>, ReductionError> {
+        let _oem_license = crate::license::unlock();
         let shape = self.dual_shape().ok_or_else(|| {
             ReductionError::InvalidInput(
                 "use PrecisionRescueWorkspace::new_dual before passing Dual values".into(),

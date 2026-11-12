@@ -29,6 +29,7 @@ impl ScalarReductionPlan {
     /// Preserve powers, dimension shift, algorithm, normalization and input
     /// policy. Rank must be zero; invariants are supplied as `G_ij = p_i·p_j`.
     pub fn new(mut settings: ReductionSettings) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         if settings.rank != 0 {
             return Err(ReductionError::InvalidInput(
                 "a scalar reduction plan requires rank zero".into(),
@@ -82,6 +83,7 @@ where
     Complex<T>: EvaluationDomain,
 {
     pub fn new(plan: &ScalarReductionPlan, prototype: T) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         let tensor = Workspace::new(&plan.tensor, prototype.clone())?;
         Ok(Self::with_workspace(plan, prototype, tensor))
     }
@@ -91,6 +93,7 @@ where
         prototype: T,
         dual: D,
     ) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         let tensor = Workspace::new_dual(&plan.tensor, prototype.clone(), dual)?;
         Ok(Self::with_workspace(plan, prototype, tensor))
     }
@@ -114,6 +117,7 @@ where
         &mut self,
         input: &ScalarKinematicsBatch<T>,
     ) -> Result<BatchResult<T>, ReductionError> {
+        let _oem_license = crate::license::unlock();
         if input.components != self.tensor.component_count() {
             return Err(ReductionError::InvalidInput(
                 "scalar input Taylor layout does not match workspace".into(),
@@ -150,6 +154,7 @@ where
     }
 
     pub fn set_accuracy_precision(&mut self, bits: u32) -> Result<(), ReductionError> {
+        let _oem_license = crate::license::unlock();
         self.tensor.set_accuracy_precision(bits)
     }
 
@@ -160,6 +165,7 @@ where
         self.tensor.last_diagnostics()
     }
     pub fn set_profiling(&mut self, enabled: bool) {
+        let _oem_license = crate::license::unlock();
         self.tensor.set_profiling(enabled);
     }
     pub fn last_profile(&self) -> Option<ExecutionProfile> {

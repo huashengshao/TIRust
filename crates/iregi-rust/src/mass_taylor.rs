@@ -47,8 +47,8 @@ pub struct MassTaylorReductionPlan {
     checked_regular_unit:bool,
 }
 impl MassTaylorReductionPlan {
-    pub fn new(settings:ReductionSettings)->Result<Self,ReductionError>{Self::with_budget(settings,MassTaylorBudget::default())}
-    pub fn with_budget(settings:ReductionSettings,budget:MassTaylorBudget)->Result<Self,ReductionError>{crate::types::require_mu_scale(&settings)?;
+    pub fn new(settings:ReductionSettings)->Result<Self,ReductionError>{let _oem_license = crate::license::unlock();Self::with_budget(settings,MassTaylorBudget::default())}
+    pub fn with_budget(settings:ReductionSettings,budget:MassTaylorBudget)->Result<Self,ReductionError>{let _oem_license = crate::license::unlock();crate::types::require_mu_scale(&settings)?;
         validate_settings(&settings)?;
         let _=DottedLayout::new(&settings.powers,None,budget.layout())?;
         let mut unit=settings.clone();unit.powers.fill(1);
@@ -105,6 +105,7 @@ impl MassTaylorReductionPlan {
     pub fn unit_plan(&self)->&ReductionPlan{&self.unit}
     pub fn preparation_notes(&self)->&[String]{&self.notes}
     pub fn contraction_plan(&self,terms:&[Monomial])->Result<ContractionPlan,ReductionError>{
+        let _oem_license = crate::license::unlock();
         ContractionPlan::from_basis(self.basis(),self.settings.convention,self.settings.tensor_weights,terms)
     }
 }
@@ -178,15 +179,18 @@ pub struct MassTaylorWorkspace<T:NativeFloat> {
     checked_regular:Option<CheckedRegularUnitGuard>,
 }
 impl<T:NativeFloat> MassTaylorWorkspace<T>where Complex<T>:EvaluationDomain {
-    pub fn new(plan:&MassTaylorReductionPlan,prototype:T)->Result<Self,ReductionError>{Self::new_with_master_policy(plan,prototype,MasterExecutionPolicy::Default)}
+    pub fn new(plan:&MassTaylorReductionPlan,prototype:T)->Result<Self,ReductionError>{let _oem_license = crate::license::unlock();Self::new_with_master_policy(plan,prototype,MasterExecutionPolicy::Default)}
     pub fn new_with_master_policy(plan:&MassTaylorReductionPlan,prototype:T,masters:MasterExecutionPolicy)->Result<Self,ReductionError>{
+        let _oem_license = crate::license::unlock();
         Self::prepare(plan,prototype,DottedLayout::new(&plan.settings.powers,None,plan.budget.layout())?,masters)
     }
     pub fn new_dual<D:DualNumberStructure>(plan:&MassTaylorReductionPlan,prototype:T,user:D)->Result<Self,ReductionError>{
+        let _oem_license = crate::license::unlock();
         Self::new_dual_with_master_policy(plan,prototype,user,MasterExecutionPolicy::Default)
     }
     pub fn new_dual_with_master_policy<D:DualNumberStructure>(plan:&MassTaylorReductionPlan,prototype:T,user:D,masters:MasterExecutionPolicy)
         ->Result<Self,ReductionError>{
+        let _oem_license = crate::license::unlock();
         let shape:Vec<Vec<usize>>=user.get_shape().into_iter().map(<[usize]>::to_vec).collect();
         let layout=DottedLayout::new(&plan.settings.powers,Some(&shape),plan.budget.layout())?;
         iregi_masters::validate_dual_structure(&user).map_err(|e|invalid(e.to_string()))?;
@@ -212,9 +216,10 @@ impl<T:NativeFloat> MassTaylorWorkspace<T>where Complex<T>:EvaluationDomain {
     pub fn algorithm_used(&self)->Algorithm{self.unit_algorithm_used()}
     pub fn preparation_notes(&self)->&[String]{self.plan.preparation_notes()}
     pub fn set_accuracy_precision(&mut self,bits:u32)->Result<(),ReductionError>{
+        let _oem_license = crate::license::unlock();
         self.unit.set_accuracy_precision(bits)?;self.projection.set_accuracy_precision(bits)?;self.accuracy_bits=bits;Ok(())
     }
-    pub fn set_profiling(&mut self,on:bool){self.profiling=on;self.unit.set_profiling(on);self.projection.set_profiling(on);}
+    pub fn set_profiling(&mut self,on:bool){let _oem_license = crate::license::unlock();self.profiling=on;self.unit.set_profiling(on);self.projection.set_profiling(on);}
     pub fn last_profile(&self)->Option<ExecutionProfile>{self.profiling.then_some(self.profile)}
     pub fn last_execution(&self)->&MassTaylorExecutionStats{&self.stats}
     pub fn execution_summary(&self)->Result<ExecutionStats,ReductionError>{self.stats.summary()}
@@ -224,7 +229,7 @@ impl<T:NativeFloat> MassTaylorWorkspace<T>where Complex<T>:EvaluationDomain {
     fn reset(&mut self,rows:usize){self.stats=MassTaylorExecutionStats{input_rows:rows,user_components:self.layout.user_components(),
         internal_components:self.layout.joint_components(),unit_algorithm_used:self.plan.unit_algorithm_used(),requested_algorithm:self.plan.settings.algorithm,..Default::default()};
         self.diagnostics.clear();self.profile=Default::default();}
-    pub fn reduce_batch(&mut self,batch:&KinematicsBatch<T>)->Result<BatchResult<T>,ReductionError>{Ok(self.reduce_batch_with_quadrature_context(batch)?.into_parts().0)}
+    pub fn reduce_batch(&mut self,batch:&KinematicsBatch<T>)->Result<BatchResult<T>,ReductionError>{let _oem_license = crate::license::unlock();Ok(self.reduce_batch_with_quadrature_context(batch)?.into_parts().0)}
     pub(crate) fn reduce_batch_with_quadrature_context(&mut self,batch:&KinematicsBatch<T>)->Result<CoupledQuadratureBatch<T>,ReductionError>{
         self.reset(batch.rows);let started=self.profiling.then(Instant::now);
         let evaluated=self.reduce_impl(batch);if let Some(started)=started{self.profile.total=started.elapsed();}evaluated
@@ -406,6 +411,7 @@ impl<T:NativeFloat> MassTaylorWorkspace<T>where Complex<T>:EvaluationDomain {
         CoupledQuadratureBatch::new(result,context)
     }
     pub fn reduce_typed_dual_batch<D:DualNumber<Complex<T>>>(&mut self,values:&[D],rows:usize)->Result<BatchResult<T>,ReductionError>{
+        let _oem_license = crate::license::unlock();
         self.reset(rows);let shape=self.layout.user_shape().ok_or_else(||invalid("MassTaylor::new_dual required for typed input"))?;
         let expected:Vec<_>=shape.iter().map(Vec::as_slice).collect();
         if values.len()!=mul(rows,self.plan.parameter_count())?{return Err(invalid("mass-Taylor typed input length differs"));}

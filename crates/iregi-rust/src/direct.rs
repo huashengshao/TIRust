@@ -129,6 +129,7 @@ impl DirectReductionPlan {
     }
 
     pub fn new(settings: ReductionSettings) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         Ok(Self {
             data: Arc::new(DirectPlanData::new(settings)?),
         })
@@ -188,6 +189,7 @@ impl DirectReductionPlan {
     where
         Complex<T>: EvaluationDomain,
     {
+        let _oem_license = crate::license::unlock();
         self.workspace_with_masters(prototype, DirectMasters::Native)
     }
 
@@ -200,6 +202,7 @@ impl DirectReductionPlan {
     where
         Complex<T>: EvaluationDomain,
     {
+        let _oem_license = crate::license::unlock();
         self.workspace_with_masters(prototype, DirectMasters::Policy(policy))
     }
 
@@ -211,6 +214,7 @@ impl DirectReductionPlan {
     where
         Complex<T>: EvaluationDomain,
     {
+        let _oem_license = crate::license::unlock();
         Ok(DirectWorkspace {
             executor: DirectExecutor::new(self.data.clone(), prototype, masters)?,
         })
@@ -231,6 +235,7 @@ where
         &mut self,
         batch: &KinematicsBatch<T>,
     ) -> Result<BatchResult<T>, ReductionError> {
+        let _oem_license = crate::license::unlock();
         self.executor.reduce_batch(batch)
     }
 
@@ -280,6 +285,7 @@ where
         batch: &KinematicsBatch<T>,
         rotation: usize,
     ) -> Result<(BatchResult<T>, BatchResult<T>), ReductionError> {
+        let _oem_license = crate::license::unlock();
         let plan = DirectReductionPlan { data: self.executor.base_plan().clone() };
         let rotated = plan.rotated_batch(batch, rotation)?;
         let private = self.executor.shared_subsets().is_none().then(|| {
@@ -344,6 +350,7 @@ where
     /// their Gram gate are computed in double-double with acceptance down to
     /// `threshold` and injected; the rest of the lane stays binary64.
     pub fn enable_partial_rescue(&mut self, threshold: f64) {
+        let _oem_license = crate::license::unlock();
         self.executor.enable_partial_rescue(threshold);
     }
 
@@ -358,6 +365,7 @@ where
     /// The expansion is not checked here: callers verify the lanes (the
     /// public facade by the loop-rotation test).
     pub fn enable_gram_expansion(&mut self, boost: u16) {
+        let _oem_license = crate::license::unlock();
         self.executor.enable_gram_expansion(boost);
     }
 
@@ -365,6 +373,7 @@ where
     /// small-Gram expansions, else the alternative PV reduction; their own
     /// triangles gated at `aux_threshold`. Unchecked, like the expansion.
     pub fn enable_gram_expansion_everywhere(&mut self, boost: u16, aux_threshold: T) {
+        let _oem_license = crate::license::unlock();
         self.executor.enable_gram_expansion_everywhere(boost, aux_threshold);
     }
 
@@ -377,6 +386,7 @@ where
     /// off by more than that (up to 1.6e-6 on pyAmpliCol's binary64
     /// g g > g g g g pentagons), and no per-lane estimate is reported.
     pub fn enable_estimated_method_choice(&mut self, boost: u16, aux_threshold: T) {
+        let _oem_license = crate::license::unlock();
         self.executor.enable_estimated_method_choice(boost, aux_threshold);
     }
 
@@ -424,6 +434,7 @@ where
     /// most [`ALTERNATIVE_PV_LIMIT`]; lanes with a box or triangle above it
     /// are refused. Unchecked otherwise, like the expansion.
     pub fn enable_alternative_pv(&mut self) {
+        let _oem_license = crate::license::unlock();
         self.executor.enable_alternative_pv();
     }
 

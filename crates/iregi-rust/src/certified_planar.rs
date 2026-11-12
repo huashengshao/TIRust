@@ -85,6 +85,7 @@ impl std::fmt::Debug for CertifiedPlanarReductionPlan {
 
 impl CertifiedPlanarReductionPlan {
     pub fn new(settings: ReductionSettings) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         crate::types::require_mu_scale(&settings)?;
         Self::prepare(settings, false)
     }
@@ -281,6 +282,7 @@ where
     Complex<T>: EvaluationDomain,
 {
     pub fn new(plan: &CertifiedPlanarReductionPlan, prototype: T) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         Self::new_with_policy(plan, prototype, WorkspacePolicy::ORDINARY)
     }
 
@@ -289,6 +291,7 @@ where
         prototype: T,
         dual: D,
     ) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         Self::new_dual_with_policy(plan, prototype, dual, WorkspacePolicy::ORDINARY)
     }
 
@@ -379,6 +382,7 @@ where
         initial_bits: u32,
         maximum_bits: u32,
     ) -> Result<(), ReductionError> {
+        let _oem_license = crate::license::unlock();
         self.certificate
             .set_precision_budget(initial_bits, maximum_bits)?;
         if let Some(compatibility) = &mut self.compatibility {
@@ -387,6 +391,7 @@ where
         Ok(())
     }
     pub fn set_accuracy_precision(&mut self, bits: u32) -> Result<(), ReductionError> {
+        let _oem_license = crate::license::unlock();
         if bits == 0 || bits > self.prototype.get_precision() {
             return Err(ReductionError::InvalidInput(
                 "accuracy precision must be positive and no greater than working precision".into(),
@@ -399,6 +404,7 @@ where
         Ok(())
     }
     pub fn set_profiling(&mut self, enabled: bool) {
+        let _oem_license = crate::license::unlock();
         self.profiling = enabled;
         for workspace in self.charts.values_mut() {
             workspace.set_profiling(enabled);
@@ -427,6 +433,7 @@ where
         &mut self,
         input: &KinematicsBatch<T>,
     ) -> Result<BatchResult<T>, ReductionError> {
+        let _oem_license = crate::license::unlock();
         self.profile = ExecutionProfile::default();
         let started = self.profiling.then(Instant::now);
         let result = self.reduce_batch_impl(input);

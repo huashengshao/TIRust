@@ -123,6 +123,7 @@ type StructuralPlanCache =
 
 impl ReductionPlan {
     pub fn new(settings: ReductionSettings) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         Self::build(settings, None, None, 0, None, None, 0)
     }
 

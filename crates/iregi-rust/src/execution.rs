@@ -1116,6 +1116,7 @@ where
     Complex<T>: EvaluationDomain,
 {
     pub fn new(plan: &ReductionPlan, prototype: T) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         Self::new_with_master_policy(plan, prototype, MasterExecutionPolicy::Default)
     }
 
@@ -1129,6 +1130,7 @@ where
         prototype: T,
         master_policy: MasterExecutionPolicy,
     ) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         Self::new_with_policies(plan, prototype, WorkspacePolicy::ORDINARY, master_policy)
     }
 
@@ -1156,6 +1158,7 @@ where
         prototype: T,
         dual: D,
     ) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         Self::new_dual_with_master_policy(plan, prototype, dual, MasterExecutionPolicy::Default)
     }
 
@@ -1168,6 +1171,7 @@ where
         dual: D,
         master_policy: MasterExecutionPolicy,
     ) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         Self::new_dual_with_policies(plan, prototype, dual, WorkspacePolicy::ORDINARY, master_policy)
     }
 
@@ -1422,6 +1426,7 @@ where
     /// precision remains unchanged; a higher-precision rescue can target the
     /// accuracy originally requested by its caller.
     pub fn set_accuracy_precision(&mut self, bits: u32) -> Result<(), ReductionError> {
+        let _oem_license = crate::license::unlock();
         if bits == 0 || bits > self.prototype.get_precision() {
             return Err(ReductionError::InvalidInput(
                 "accuracy precision must be positive and no greater than working precision".into(),
@@ -1470,6 +1475,7 @@ where
 
     /// Enable or disable timing for this workspace and its analytic/fallback plans.
     pub fn set_profiling(&mut self, enabled: bool) {
+        let _oem_license = crate::license::unlock();
         self.profiling = enabled;
         if let Some(state) = &mut self.planar_fallback {
             state.set_profiling(enabled);
@@ -1503,6 +1509,7 @@ where
         &mut self,
         batch: &KinematicsBatch<T>,
     ) -> Result<BatchResult<T>, ReductionError> {
+        let _oem_license = crate::license::unlock();
         // Reset before even malformed whole-buffer preflight can return.
         self.last_quadrature_context.clear();
         self.planar_certificate_stats = CertificateExecutionStats::default();
@@ -2576,6 +2583,7 @@ where
         rows: usize,
         components: impl for<'a> Fn(&'a D) -> &'a [Complex<T>],
     ) -> Result<BatchResult<T>, ReductionError> {
+        let _oem_license = crate::license::unlock();
         self.last_quadrature_context.clear();
         // Typed-input validation can return before reduce_batch resets the
         // observable state. Attribute every early error to this requested call.
@@ -2617,6 +2625,7 @@ where
         input: &[HyperDual<Complex<T>>],
         rows: usize,
     ) -> Result<BatchResult<T>, ReductionError> {
+        let _oem_license = crate::license::unlock();
         self.reduce_dual_batch(input, rows, |value| &value.values)
     }
 
@@ -2626,6 +2635,7 @@ where
         input: &[D],
         rows: usize,
     ) -> Result<BatchResult<T>, ReductionError> {
+        let _oem_license = crate::license::unlock();
         self.reduce_dual_batch(input, rows, DualNumber::values)
     }
 }
@@ -2638,6 +2648,7 @@ pub fn reduce_batch<T: NativeFloat>(
 where
     Complex<T>: EvaluationDomain,
 {
+    let _oem_license = crate::license::unlock();
     workspace.reduce_batch(batch)
 }
 

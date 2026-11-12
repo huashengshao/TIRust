@@ -330,12 +330,9 @@ fn warmed_sequential_controls_cover_the_concurrency_corpus() {
 }
 
 #[test]
-#[ignore = "requires Symbolica license allowing at least two threads"]
 fn independent_warmed_numeric_workspaces_match_sequential_results() {
-    assert!(
-        LicenseManager::max_threads(2) >= 2,
-        "concurrent numeric evaluation is unqualified: installed Symbolica license permits fewer than two threads"
-    );
+    // TIRust authorizes each public core operation through its scoped OEM key;
+    // the surrounding host need not have a globally unlocked Symbolica license.
     let workers = prepared_workers();
     let barrier = Barrier::new(2);
     std::thread::scope(|scope| {

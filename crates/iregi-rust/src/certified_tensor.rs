@@ -102,6 +102,7 @@ pub struct CertifiedTensorReductionPlan {
 
 impl CertifiedTensorReductionPlan {
     pub fn new(settings: ReductionSettings) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         crate::types::require_mu_scale(&settings)?;
         let inner = CertifiedScalarReductionPlan::new_tensor(settings)?;
         Ok(Self {
@@ -126,6 +127,7 @@ impl CertifiedTensorReductionPlan {
         &self,
         monomials: &[Monomial],
     ) -> Result<ContractionPlan, ReductionError> {
+        let _oem_license = crate::license::unlock();
         self.inner.contraction_plan(monomials)
     }
 }
@@ -152,6 +154,7 @@ where
     Complex<T>: EvaluationDomain,
 {
     pub fn new(plan: &CertifiedTensorReductionPlan, prototype: T) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         Ok(Self {
             inner: CertifiedScalarWorkspace::new(&plan.inner, prototype)?,
         })
@@ -161,6 +164,7 @@ where
         prototype: T,
         dual: D,
     ) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         Ok(Self {
             inner: CertifiedScalarWorkspace::new_dual(&plan.inner, prototype, dual)?,
         })
@@ -176,13 +180,16 @@ where
         initial: u32,
         maximum: u32,
     ) -> Result<(), ReductionError> {
+        let _oem_license = crate::license::unlock();
         self.inner
             .set_certificate_precision_budget(initial, maximum)
     }
     pub fn set_accuracy_precision(&mut self, bits: u32) -> Result<(), ReductionError> {
+        let _oem_license = crate::license::unlock();
         self.inner.set_accuracy_precision(bits)
     }
     pub fn set_profiling(&mut self, enabled: bool) {
+        let _oem_license = crate::license::unlock();
         self.inner.set_profiling(enabled);
     }
     pub fn last_execution(&self) -> ExecutionStats {
@@ -215,6 +222,7 @@ where
         &mut self,
         input: &KinematicsBatch<T>,
     ) -> Result<BatchResult<T>, ReductionError> {
+        let _oem_license = crate::license::unlock();
         self.inner.reduce_tensor_batch(input)
     }
 }

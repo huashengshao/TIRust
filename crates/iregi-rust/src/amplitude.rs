@@ -90,6 +90,7 @@ where
     /// Workspaces for `plans` (one per integral) with default options
     /// (sharing on).
     pub fn new(plans: &[TensorReductionPlan], prototype: T) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         Self::new_with_options(plans, prototype, AmplitudeOptions::default())
     }
 
@@ -98,6 +99,7 @@ where
         prototype: T,
         options: AmplitudeOptions,
     ) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         let workspaces = plans
             .iter()
             .map(|plan| TensorWorkspace::new_with_options(plan, prototype.clone(), options.workspace))
@@ -162,6 +164,7 @@ where
     /// integral, in the order of the plans; usually the same phase-space
     /// points, each batch holding the integral's own propagators).
     pub fn reduce_batches(&mut self, batches: &[KinematicsBatch<T>]) -> Result<Vec<BatchResult<T>>, ReductionError> {
+        let _oem_license = crate::license::unlock();
         if batches.len() != self.workspaces.len() {
             return Err(ReductionError::InvalidInput(format!(
                 "{} batches for {} integrals",

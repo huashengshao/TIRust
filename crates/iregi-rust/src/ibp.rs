@@ -146,6 +146,7 @@ pub struct ScalarCompiler {
 impl ScalarCompiler {
     /// Construct from `R_ij = (p_i-p_j)^2 - m_i^2 - m_j^2`.
     pub fn new(r: Vec<Vec<Atom>>) -> Result<Self, String> {
+        let _oem_license = crate::license::unlock();
         if r.is_empty() || r.iter().any(|row| row.len() != r.len()) {
             return Err("IBP requires a nonempty square Cayley R matrix".into());
         }
@@ -176,6 +177,7 @@ impl ScalarCompiler {
     /// Compile shared Symbolica node handles instead of repeated inline trees.
     /// Register [`Self::aliases`] with the evaluator and use direct translation.
     pub fn with_aliases(r: Vec<Vec<Atom>>) -> Result<Self, String> {
+        let _oem_license = crate::license::unlock();
         let mut compiler = Self::new(r)?;
         compiler.enable_aliases()?;
         Ok(compiler)
@@ -184,6 +186,7 @@ impl ScalarCompiler {
     /// Enable DAG handles on a freshly constructed ordinary or constrained
     /// compiler. This must be called before compiling any request.
     pub fn enable_aliases(&mut self) -> Result<(), String> {
+        let _oem_license = crate::license::unlock();
         if !self.cache.is_empty() {
             return Err("enable scalar aliases before compiling any requests".into());
         }
@@ -205,6 +208,7 @@ impl ScalarCompiler {
     /// domain and propagate quadrature failures; this is not a box-only
     /// approximation or a claim about singular/massless endpoints.
     pub fn enable_six_dimensional_pentagon(&mut self) -> Result<(), String> {
+        let _oem_license = crate::license::unlock();
         if !self.cache.is_empty() {
             return Err("enable the D6 pentagon backend before compiling requests".into());
         }
@@ -217,6 +221,7 @@ impl ScalarCompiler {
     /// an independently supplied scalar-product matrix need not satisfy this.
     /// Relations are structural and cached by active propagator indices.
     pub fn set_routing(&mut self, shifts: Vec<[Atom; 4]>) -> Result<(), String> {
+        let _oem_license = crate::license::unlock();
         self.set_certified_linear_coordinates(shifts)
     }
 
@@ -267,6 +272,7 @@ impl ScalarCompiler {
     /// evaluator/backend parameter layouts remain unchanged. Enable this
     /// before any request; formal recurrence tests may leave it disabled.
     pub fn enable_physical_poles(&mut self) -> Result<(), String> {
+        let _oem_license = crate::license::unlock();
         if !self.cache.is_empty() {
             return Err("enable physical pole identities before compiling any requests".into());
         }
@@ -282,6 +288,7 @@ impl ScalarCompiler {
     /// avoids a Cayley-R denominator at thresholds and pseudothresholds.
     /// A lazy Symbolica branch retains the existing route when det(S)=0.
     pub fn enable_gram_regular_bubbles(&mut self) -> Result<(), String> {
+        let _oem_license = crate::license::unlock();
         if !self.cache.is_empty() {
             return Err("enable Gram-regular bubbles before compiling requests".into());
         }
@@ -303,6 +310,7 @@ impl ScalarCompiler {
         zero_mass_mask: &[bool],
         zero_distance_edges: &[(usize, usize)],
     ) -> Result<Self, String> {
+        let _oem_license = crate::license::unlock();
         let n = r.len();
         if n == 0 || r.iter().any(|row| row.len() != n) || zero_mass_mask.len() != n {
             return Err(
@@ -362,6 +370,7 @@ impl ScalarCompiler {
         r: Vec<Vec<Atom>>,
         offshell_edge: (usize, usize),
     ) -> Result<Self, String> {
+        let _oem_license = crate::license::unlock();
         if r.len() != 3
             || r.iter().any(|row| row.len() != 3)
             || offshell_edge.0 >= 3
@@ -384,6 +393,7 @@ impl ScalarCompiler {
     /// squared distances must vanish as complete numeric/Dual values.
     /// Nonzero transverse derivatives are outside this nonanalytic profile.
     pub fn scaleless(propagators: usize) -> Result<Self, String> {
+        let _oem_license = crate::license::unlock();
         Self::new(vec![vec![Atom::new(); propagators]; propagators])
     }
 
@@ -406,6 +416,7 @@ impl ScalarCompiler {
         derivative_order: u16,
         equal_masses: bool,
     ) -> Result<Self, String> {
+        let _oem_license = crate::license::unlock();
         if r.len() != 2 || r.iter().any(|row| row.len() != 2) {
             return Err("lightlike-bubble jets require exactly two propagators".into());
         }
@@ -445,6 +456,7 @@ impl ScalarCompiler {
 
     /// Compile a request, preserving the native separate UV and IR slots.
     pub fn compile(&mut self, request: ScalarRequest) -> Result<[Atom; 4], String> {
+        let _oem_license = crate::license::unlock();
         if request.powers.len() != self.r.len() {
             return Err(format!(
                 "IBP power count {} differs from propagator count {}",
