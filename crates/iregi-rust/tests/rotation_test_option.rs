@@ -19,11 +19,11 @@ use common::hexagon::{MT2, MU, POINTS};
 /// The diagnostic line of an unchecked lane (`RotationTest::Disabled`).
 const UNCHECKED: &str = "accepted by the conditioning gates alone (loop-rotation test disabled";
 
-/// The hexagon and its pinches with at least four propagators (6 pentagons,
-/// 15 boxes), each at rank = number of propagators.
+/// The hexagon and its pinches with at least three propagators (6 pentagons,
+/// 15 boxes, 20 triangles), each at rank = number of propagators.
 fn integrals() -> Vec<Vec<usize>> {
     (1u32..1 << 6)
-        .filter(|m| m.count_ones() >= 4)
+        .filter(|m| m.count_ones() >= 3)
         .map(|m| (0..6).filter(|i| m & (1 << i) != 0).collect())
         .collect()
 }
@@ -307,11 +307,19 @@ fn the_getter_reports_the_effective_setting() {
     };
     let mut dotted = ReductionSettings::new(4, 3);
     dotted.powers = vec![2, 1, 1, 1];
-    for (label, mut workspace) in [("triangle", facade(ReductionSettings::new(3, 3))), ("dotted box", facade(dotted))] {
+    for (label, mut workspace) in [("bubble", facade(ReductionSettings::new(2, 2))), ("dotted box", facade(dotted))] {
         for test in [RotationTest::Enabled, RotationTest::Disabled] {
             workspace.set_rotation_test(test);
             assert_eq!(workspace.rotation_test(), RotationTest::Disabled, "{label} set to {test:?}");
         }
+    }
+    // Triangles run the test (S-wave quarkonium triangles: see
+    // `binary64_triangles_are_checked_by_the_rotation_test` in
+    // tests/direct_engine.rs), so they report what was set.
+    let mut triangle = facade(ReductionSettings::new(3, 3));
+    for test in [RotationTest::Enabled, RotationTest::Disabled] {
+        triangle.set_rotation_test(test);
+        assert_eq!(triangle.rotation_test(), test, "triangle set to {test:?}");
     }
     // Workspaces of other engines, as `precision_rescue()` reports them.
     let plan = TensorReductionPlan::new(ReductionSettings::new(4, 1)).unwrap();
@@ -327,8 +335,8 @@ fn the_getter_reports_the_effective_setting() {
 
 #[test]
 fn disabled_changes_nothing_where_the_test_never_runs() {
-    // Fewer than four propagators: no rotation test either way.
-    for members in [vec![0, 1, 2], vec![2, 4]] {
+    // Bubbles (fewer than three propagators): no rotation test either way.
+    for members in [vec![0, 1], vec![2, 4]] {
         let enabled = run(&members, MT2, Some(options(RotationTest::Enabled)));
         let disabled = run(&members, MT2, Some(options(RotationTest::Disabled)));
         for lane in 0..POINTS.len() {
