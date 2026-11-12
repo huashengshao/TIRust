@@ -45,6 +45,7 @@ pub struct ContractionPlan {
 
 impl ContractionPlan {
     pub fn new(reduction: &ReductionPlan, monomials: &[Monomial]) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         Self::from_basis(
             reduction.basis(),
             reduction.settings().convention,
@@ -179,6 +180,7 @@ where
     Complex<T>: EvaluationDomain,
 {
     pub fn new(plan: &ContractionPlan, prototype: T) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         Self::prepare::<HyperDual<Complex<Rational>>>(plan, prototype, None)
     }
 
@@ -187,6 +189,7 @@ where
         prototype: T,
         dual: D,
     ) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         Self::prepare(plan, prototype, Some(&dual))
     }
 
@@ -270,6 +273,7 @@ where
         moments: &BatchResult<T>,
         coefficients: &[D],
     ) -> Result<ContractionResult<T>, ReductionError> {
+        let _oem_license = crate::license::unlock();
         self.check_dual_coefficients(moments.rows(), coefficients)?;
         let values = coefficients
             .iter()
@@ -292,6 +296,7 @@ where
         moments: &BatchResult<T>,
         coefficients: &[D],
     ) -> Result<ContractionResult<T>, ReductionError> {
+        let _oem_license = crate::license::unlock();
         self.check_dual_coefficients(moments.rows(), coefficients)?;
         let values = coefficients
             .iter()
@@ -346,6 +351,7 @@ where
         moments: &BatchResult<T>,
         numerator: &NumeratorBatch<T>,
     ) -> Result<ContractionResult<T>, ReductionError> {
+        let _oem_license = crate::license::unlock();
         self.evaluated_rows = 0;
         if moments.basis != self.plan.basis {
             return Err(ReductionError::InvalidInput(

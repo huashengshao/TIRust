@@ -34,6 +34,7 @@ pub struct SevenPointReductionPlan {
 
 impl SevenPointReductionPlan {
     pub fn new(settings: ReductionSettings) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         validate_settings(&settings)?;
         Ok(Self { inner: ThinSevenReductionPlan::new(settings)? })
     }
@@ -47,6 +48,7 @@ impl SevenPointReductionPlan {
     /// Prepare an existing Symbolica numerator contraction against the native
     /// moments without exposing the private imported-child parameters.
     pub fn contraction_plan(&self, monomials: &[Monomial]) -> Result<ContractionPlan, ReductionError> {
+        let _oem_license = crate::license::unlock();
         self.inner.contraction_plan(monomials)
     }
 }
@@ -87,10 +89,12 @@ where
     Complex<T>: EvaluationDomain,
 {
     pub fn new(plan: &SevenPointReductionPlan, prototype: T) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         Ok(Self { inner: ThinSevenWorkspace::new(&plan.inner, prototype)? })
     }
 
     pub fn set_accuracy_precision(&mut self, bits: u32) -> Result<(), ReductionError> {
+        let _oem_license = crate::license::unlock();
         self.inner.set_accuracy_precision(bits)
     }
     pub fn component_count(&self) -> usize { self.inner.component_count() }
@@ -101,6 +105,7 @@ where
     /// Return all four native Laurent slots. Failed lanes remain inaccessible
     /// through `BatchResult::lane`, including after successful previous calls.
     pub fn reduce_batch(&mut self, batch: &KinematicsBatch<T>) -> Result<BatchResult<T>, ReductionError> {
+        let _oem_license = crate::license::unlock();
         self.inner.reduce_batch(batch)
     }
 }

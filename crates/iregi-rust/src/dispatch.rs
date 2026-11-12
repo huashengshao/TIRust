@@ -168,6 +168,7 @@ impl TensorReductionPlan {
     /// analytic-domain restriction belongs to this explicit strategy; default
     /// dispatch retains direct recurrences for dimensionally regulated dots.
     pub fn new_mass_taylor(settings: ReductionSettings) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         let plan = Arc::new(MassTaylorReductionPlan::new(mu_settings(&settings))?);
         let mut requested_settings = plan.settings().clone();
         requested_settings.scale_input = settings.scale_input;
@@ -184,6 +185,7 @@ impl TensorReductionPlan {
     /// PV/Hybrid requests select the direct numerical engine for binary64
     /// workspaces; its symbolic fallback plan is prepared only on demand.
     pub fn new(settings: ReductionSettings) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         if direct_eligible(&settings) {
             let plan = Arc::new(DirectHybridPlan::new(settings.clone())?);
             return Ok(Self {
@@ -199,6 +201,7 @@ impl TensorReductionPlan {
 
     /// The existing symbolic ordinary dispatch, never selecting the direct engine.
     pub fn new_without_direct(settings: ReductionSettings) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         let requested_settings = settings.clone();
         let settings = mu_settings(&settings);
         let ordinary = match ordinary_kind(&settings) {
@@ -267,6 +270,7 @@ impl TensorReductionPlan {
     /// conversion are unavailable; this is never selected automatically by new.
     /// Generalized and Dual numeric qualification remains explicitly scoped.
     pub fn new_checked_cartesian(settings: ReductionSettings) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         let checked = Arc::new(CertifiedTensorReductionPlan::new(mu_settings(&settings))?);
         let mut requested_settings = checked.settings().clone();
         requested_settings.scale_input = settings.scale_input;
@@ -353,6 +357,7 @@ impl TensorReductionPlan {
         &self,
         monomials: &[Monomial],
     ) -> Result<ContractionPlan, ReductionError> {
+        let _oem_license = crate::license::unlock();
         match &self.ordinary {
             OrdinaryPlan::Direct(plan) => plan.fallback()?.contraction_plan(monomials),
             OrdinaryPlan::Generic(plan) => ContractionPlan::new(plan, monomials),
@@ -368,6 +373,7 @@ impl TensorReductionPlan {
 
     /// This plan, or for a direct plan its lazily prepared symbolic fallback.
     pub fn without_direct(&self) -> Result<Arc<TensorReductionPlan>, ReductionError> {
+        let _oem_license = crate::license::unlock();
         match &self.ordinary {
             OrdinaryPlan::Direct(plan) => plan.fallback(),
             _ => Ok(Arc::new(self.clone())),
@@ -378,6 +384,7 @@ impl TensorReductionPlan {
     /// For LegacyNoOp this explicitly requests the original Legacy settings;
     /// it never bypasses the no-op certificate by requesting a Preserve graph.
     pub fn generic_plan(&self) -> Result<Arc<ReductionPlan>, ReductionError> {
+        let _oem_license = crate::license::unlock();
         if matches!(&self.ordinary, OrdinaryPlan::CertifiedTensor(_)) {
             return Err(ReductionError::Unsupported(
                 "checked Cartesian plans cannot bypass their certificates through an unchecked generic plan".into()));
@@ -420,6 +427,7 @@ impl TensorReductionPlan {
     where
         Complex<T>: EvaluationDomain,
     {
+        let _oem_license = crate::license::unlock();
         self.require_mu_scale()?;
         TensorRescueWorkspace::new(self, prototype, settings)
     }
@@ -433,6 +441,7 @@ impl TensorReductionPlan {
     where
         Complex<T>: EvaluationDomain,
     {
+        let _oem_license = crate::license::unlock();
         self.require_mu_scale()?;
         TensorRescueWorkspace::new_dual(self, prototype, settings, dual)
     }
@@ -782,6 +791,7 @@ where
     Complex<T>: EvaluationDomain,
 {
     pub fn new(plan: &TensorReductionPlan, prototype: T) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         Self::new_with_options(plan, prototype, TensorWorkspaceOptions::default())
     }
 
@@ -790,6 +800,7 @@ where
         prototype: T,
         options: TensorWorkspaceOptions,
     ) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         if let OrdinaryPlan::Direct(direct) = &plan.ordinary {
             if DirectHybridWorkspace::eligible(&prototype) {
                 options
@@ -911,6 +922,7 @@ where
         prototype: T,
         options: EmbedderOptions,
     ) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         let OrdinaryPlan::Direct(direct) = &plan.ordinary else {
             let reason = DirectReductionPlan::new(plan.settings().clone())
                 .err()
@@ -955,6 +967,7 @@ where
         prototype: T,
         dual: D,
     ) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         Self::new_dual_with_options(plan, prototype, dual, TensorWorkspaceOptions::default())
     }
 
@@ -964,6 +977,7 @@ where
         dual: D,
         options: TensorWorkspaceOptions,
     ) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         if let OrdinaryPlan::LegacyNoOp(legacy) = &plan.ordinary {
             let workspace =
                 LegacyNoOpWorkspace::new_dual(legacy.clone(), prototype, dual, options)?;
@@ -1125,6 +1139,7 @@ where
     }
 
     pub fn set_accuracy_precision(&mut self, bits: u32) -> Result<(), ReductionError> {
+        let _oem_license = crate::license::unlock();
         match &mut self.engine {
             WorkspaceEngine::Direct(workspace) => workspace.set_accuracy_precision(bits),
             WorkspaceEngine::Embedded(_) => Err(ReductionError::Unsupported(
@@ -1150,6 +1165,7 @@ where
         initial: u32,
         maximum: u32,
     ) -> Result<(), ReductionError> {
+        let _oem_license = crate::license::unlock();
         match &mut self.engine {
             WorkspaceEngine::CertifiedTensor { workspace, .. } => {
                 workspace.set_certificate_precision_budget(initial, maximum)
@@ -1167,6 +1183,7 @@ where
     /// construction preserves a selected six-point thin engine. Seven-point
     /// thin workspaces still require profiling at construction.
     pub fn set_profiling(&mut self, enabled: bool) -> Result<(), ReductionError> {
+        let _oem_license = crate::license::unlock();
         match &mut self.engine {
             WorkspaceEngine::Direct(workspace) => workspace.set_profiling(enabled),
             WorkspaceEngine::Embedded(workspace) => {
@@ -1376,6 +1393,7 @@ where
     /// [`PrecisionRescue`]). Workspaces that never change precision accept
     /// either value and are unaffected.
     pub fn set_precision_rescue(&mut self, rescue: PrecisionRescue) {
+        let _oem_license = crate::license::unlock();
         if let WorkspaceEngine::Direct(workspace) = &mut self.engine {
             workspace.set_precision_rescue(rescue);
         }
@@ -1457,6 +1475,7 @@ where
     /// [`RotationTest`]). Workspaces that never run the test accept either
     /// value, are unaffected and report `Disabled`.
     pub fn set_rotation_test(&mut self, test: RotationTest) {
+        let _oem_license = crate::license::unlock();
         if let WorkspaceEngine::Direct(workspace) = &mut self.engine {
             workspace.set_rotation_test(test);
         }
@@ -1487,6 +1506,7 @@ where
         &mut self,
         batch: &KinematicsBatch<T>,
     ) -> Result<BatchResult<T>, ReductionError> {
+        let _oem_license = crate::license::unlock();
         if self.scale_input == ScaleInput::MuSquared
             && !matches!(self.engine, WorkspaceEngine::Direct(_) | WorkspaceEngine::Embedded(_))
         {

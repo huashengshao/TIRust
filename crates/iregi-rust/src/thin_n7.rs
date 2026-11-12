@@ -23,6 +23,7 @@ pub(crate) struct ThinSevenReductionPlan {
 
 impl ThinSevenReductionPlan {
     pub fn new(settings: ReductionSettings) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         crate::types::require_mu_scale(&settings)?;
         let child_rank = settings.rank.saturating_sub(2);
         let profile = std::env::var_os("IREGI_PV_PREPARATION_PROFILE").is_some();
@@ -92,6 +93,7 @@ where
     Complex<T>: EvaluationDomain,
 {
     pub fn new(plan: &ThinSevenReductionPlan, prototype: T) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         let child = Workspace::new_with_policies(&plan.child, prototype.clone(), WorkspacePolicy::SIX_POINT_CHILD, MasterExecutionPolicy::Symbolica)?;
         let parent = Workspace::new_with_policies(&plan.parent, prototype.clone(), WorkspacePolicy::RETAIN_ENVELOPES, MasterExecutionPolicy::Symbolica)?;
         Ok(Self {
@@ -114,6 +116,7 @@ where
         prototype: T,
         dual: D,
     ) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         iregi_masters::validate_dual_structure(&dual)
             .map_err(|error| ReductionError::Preparation(error.to_string()))?;
         let shape: Vec<Vec<usize>> = dual
@@ -151,6 +154,7 @@ where
     }
 
     pub fn set_accuracy_precision(&mut self, bits: u32) -> Result<(), ReductionError> {
+        let _oem_license = crate::license::unlock();
         if bits == 0 || bits > self.prototype.get_precision() {
             return Err(ReductionError::InvalidInput(
                 "invalid thin N7 accuracy precision".into(),
@@ -178,6 +182,7 @@ where
         &mut self,
         batch: &KinematicsBatch<T>,
     ) -> Result<BatchResult<T>, ReductionError> {
+        let _oem_license = crate::license::unlock();
         self.stats = SevenPointExecutionStats {
             parent_input_rows: batch.rows,
             ..Default::default()

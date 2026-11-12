@@ -17,6 +17,7 @@ mod policy_composition_tests;
 pub(crate) struct ThinSixReductionPlan { parent:ReductionPlan, child:Option<ReductionPlan> }
 impl ThinSixReductionPlan {
     pub fn new(settings:ReductionSettings)->Result<Self,ReductionError> {
+        let _oem_license = crate::license::unlock();
         let parent=ReductionPlan::new_thin_six(settings,0)?;
         Self::from_parent(parent)
     }
@@ -93,6 +94,7 @@ pub(crate) struct ThinSixWorkspace<T:NativeFloat> {
 }
 impl<T:NativeFloat> ThinSixWorkspace<T> where Complex<T>:EvaluationDomain {
     pub fn new(plan:&ThinSixReductionPlan,prototype:T)->Result<Self,ReductionError> {
+        let _oem_license = crate::license::unlock();
         let child=ChildWorkspace::new(plan,prototype.clone(),None)?;
         let parent=Workspace::new_with_policies(&plan.parent,prototype.clone(),WorkspacePolicy::RETAIN_ENVELOPES,MasterExecutionPolicy::Symbolica)?;
         Ok(Self{accuracy_bits:prototype.get_precision(),prototype,components:1,
@@ -104,6 +106,7 @@ impl<T:NativeFloat> ThinSixWorkspace<T> where Complex<T>:EvaluationDomain {
         })
     }
     pub fn new_dual<D:DualNumberStructure>(plan:&ThinSixReductionPlan,prototype:T,dual:D)->Result<Self,ReductionError> {
+        let _oem_license = crate::license::unlock();
         iregi_masters::validate_dual_structure(&dual).map_err(|error|ReductionError::Preparation(error.to_string()))?;
         let shape:Vec<Vec<usize>>=dual.get_shape().into_iter().map(<[usize]>::to_vec).collect();
         let order=shape.iter().try_fold(0u16,|max,row|row.iter().try_fold(0usize,|sum,&n|sum.checked_add(n))
@@ -121,6 +124,7 @@ impl<T:NativeFloat> ThinSixWorkspace<T> where Complex<T>:EvaluationDomain {
         })
     }
     pub fn set_accuracy_precision(&mut self,bits:u32)->Result<(),ReductionError> {
+        let _oem_license = crate::license::unlock();
         if bits==0 || bits>self.prototype.get_precision() { return Err(ReductionError::InvalidInput("invalid thin N6 accuracy precision".into())); }
         self.child.set_accuracy_precision(bits)?; self.parent.set_accuracy_precision(bits)?;
         self.accuracy_bits=bits; Ok(())
@@ -134,6 +138,7 @@ impl<T:NativeFloat> ThinSixWorkspace<T> where Complex<T>:EvaluationDomain {
     pub(crate) fn component_count(&self)->usize { self.components }
     pub(crate) fn binary_precision(&self)->u32 { self.prototype.get_precision() }
     pub fn reduce_batch(&mut self,batch:&KinematicsBatch<T>)->Result<BatchResult<T>,ReductionError> {
+        let _oem_license = crate::license::unlock();
         self.profile=ExecutionProfile::default();
         let start=self.profiling.then(std::time::Instant::now);
         let result=self.reduce_batch_impl(batch);

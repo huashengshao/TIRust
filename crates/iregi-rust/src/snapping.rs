@@ -76,6 +76,7 @@ pub struct LegacySnapping {
 
 impl LegacySnapping {
     pub fn new(masses: &[Atom], threshold: &str) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         let threshold = exact_threshold(threshold)?;
         let mut result = Self {
             threshold,
@@ -130,6 +131,7 @@ impl LegacySnapping {
     /// Prepare one real scalar-product call, preserving its full selected jet.
     /// Identical raw expressions share the same prepared query.
     pub fn snap_scalar_product(&mut self, raw: Atom, label: impl Into<String>) -> Atom {
+        let _oem_license = crate::license::unlock();
         if let Some(value) = self.queries.get(&raw) {
             return value.clone();
         }

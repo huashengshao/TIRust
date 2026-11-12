@@ -129,12 +129,14 @@ impl std::fmt::Debug for AffinePowerReductionPlan {
 }
 impl AffinePowerReductionPlan {
     pub fn new(settings: ReductionSettings) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         Self::with_budget(settings, AffinePowerBudget::default())
     }
     pub fn with_budget(
         settings: ReductionSettings,
         budget: AffinePowerBudget,
     ) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         crate::types::require_mu_scale(&settings)?;
         Self::prepare_plan(settings, budget, false)
     }
@@ -447,6 +449,7 @@ where
     Complex<T>: EvaluationDomain,
 {
     pub fn new(plan: &AffinePowerReductionPlan, prototype: T) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         Self::prepare(plan, prototype, None, MasterExecutionPolicy::Default)
     }
     pub fn new_with_master_policy(
@@ -454,6 +457,7 @@ where
         prototype: T,
         masters: MasterExecutionPolicy,
     ) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         Self::prepare(plan, prototype, None, masters)
     }
     pub fn new_dual<D: DualNumberStructure>(
@@ -461,6 +465,7 @@ where
         prototype: T,
         dual: D,
     ) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         Self::new_dual_with_master_policy(plan, prototype, dual, MasterExecutionPolicy::Default)
     }
     pub fn new_dual_with_master_policy<D: DualNumberStructure>(
@@ -469,6 +474,7 @@ where
         dual: D,
         masters: MasterExecutionPolicy,
     ) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         iregi_masters::validate_dual_structure(&dual).map_err(|e| invalid(e.to_string()))?;
         let shape = dual
             .get_shape()
@@ -520,6 +526,7 @@ where
         })
     }
     pub fn set_accuracy_precision(&mut self, bits: u32) -> Result<(), ReductionError> {
+        let _oem_license = crate::license::unlock();
         if bits == 0 || bits > self.prototype.get_precision() {
             return Err(invalid(
                 "accuracy precision must be within working precision",
@@ -541,6 +548,7 @@ where
         Ok(())
     }
     pub fn set_profiling(&mut self, enabled: bool) {
+        let _oem_license = crate::license::unlock();
         self.profiling = enabled;
         for c in self.children.values_mut().chain(self.checked_zero_mass_child.iter_mut()) {
             match c {
@@ -602,12 +610,14 @@ where
         &mut self,
         input: &KinematicsBatch<T>,
     ) -> Result<BatchResult<T>, ReductionError> {
+        let _oem_license = crate::license::unlock();
         Ok(self.reduce_coupled_batch(input)?.into_result())
     }
     pub fn reduce_coupled_batch(
         &mut self,
         input: &KinematicsBatch<T>,
     ) -> Result<AffinePowerResult<T>, ReductionError> {
+        let _oem_license = crate::license::unlock();
         self.reset(input.rows);
         let started = self.profiling.then(Instant::now);
         let result = self.reduce_impl(input);
@@ -631,6 +641,7 @@ where
         input: &[D],
         rows: usize,
     ) -> Result<BatchResult<T>, ReductionError> {
+        let _oem_license = crate::license::unlock();
         self.reset(rows);
         if input.len() != mul(rows, self.plan.parameter_count())? {
             return Err(invalid(

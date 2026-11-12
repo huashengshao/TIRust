@@ -337,6 +337,7 @@ where
         prototype: T,
         masters: DirectMasters,
     ) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         let zero = czero(&prototype);
         let one = C::new(prototype.one(), prototype.zero());
         let constants: Arc<Vec<T>> = Arc::new(
@@ -575,6 +576,7 @@ where
     /// kernels and the store's rank floors, nothing shared), otherwise as
     /// [`Self::reduce_batch`].
     pub(crate) fn reduce_check_batch(&mut self, batch: &KinematicsBatch<T>) -> Result<BatchResult<T>, ReductionError> {
+        let _oem_license = crate::license::unlock();
         let Some(view) = self.shared.as_ref().and_then(|store| store.check_view()) else {
             return self.reduce_batch(batch);
         };
@@ -968,6 +970,7 @@ where
     /// Enable the partial rescue (binary64 executors only) with the given
     /// double-double acceptance threshold.
     pub(crate) fn enable_partial_rescue(&mut self, threshold: f64) {
+        let _oem_license = crate::license::unlock();
         if T::FIXED_BITS == Some(53) {
             self.partial = Some(Box::new(PartialRescue { executors: HashMap::new(), threshold }));
         }
@@ -981,6 +984,7 @@ where
     /// expansion from triangles `boost` ranks higher (binary64 lanes keep
     /// their precision; the caller checks the result a posteriori).
     pub(crate) fn enable_gram_expansion(&mut self, boost: u16) {
+        let _oem_license = crate::license::unlock();
         self.gram = Some(Box::new(gram::GramRescue::new(boost)));
         self.set_alternative_first(self.gram_alternative_first);
     }
@@ -989,6 +993,7 @@ where
     /// else the alternative PV reduction; their own triangles gated at
     /// `aux_threshold`.
     pub(crate) fn enable_gram_expansion_everywhere(&mut self, boost: u16, aux_threshold: T) {
+        let _oem_license = crate::license::unlock();
         self.gram = Some(Box::new(gram::GramRescue::everywhere(boost, aux_threshold)));
         self.set_alternative_first(self.gram_alternative_first);
         self.gram_everywhere = true;
@@ -996,6 +1001,7 @@ where
 
     /// COLLIER-style a priori method choice in this executor's own pass.
     pub(crate) fn enable_estimated_method_choice(&mut self, boost: u16, aux_threshold: T) {
+        let _oem_license = crate::license::unlock();
         self.gram = Some(Box::new(gram::GramRescue::everywhere(boost, aux_threshold)));
         self.set_alternative_first(self.gram_alternative_first);
         self.gram_estimated = true;
@@ -1016,6 +1022,7 @@ where
 
     /// Refused boxes and triangles by the alternative PV reduction alone.
     pub(crate) fn enable_alternative_pv(&mut self) {
+        let _oem_license = crate::license::unlock();
         self.gram = Some(Box::new(gram::GramRescue::alternative()));
     }
 
@@ -3556,6 +3563,7 @@ where
         &mut self,
         batch: &KinematicsBatch<T>,
     ) -> Result<BatchResult<T>, ReductionError> {
+        let _oem_license = crate::license::unlock();
         if batch.components != 1 {
             return Err(ReductionError::Unsupported(
                 "the direct engine evaluates ordinary numbers; use the generic workspace for Dual components".into(),

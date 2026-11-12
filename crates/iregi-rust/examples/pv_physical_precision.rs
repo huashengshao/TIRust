@@ -1,12 +1,7 @@
 //! Independent precision probe for the canonical physical pentagon.
 //! Decimal inputs enter through Symbolica Float at 1024 bits, then its exact
 //! binary-rational conversion; no input is rounded through binary64.
-#[path = "../src/basis.rs"]
-mod basis;
-#[path = "../src/ibp.rs"]
-mod ibp;
-#[path = "../src/pv.rs"]
-mod pv;
+use iregi_rust::{basis, pv};
 use oneloop::{NativeEvaluator, ScalarIntegral};
 use std::{collections::HashMap, path::PathBuf, time::Instant};
 use symbolica::{

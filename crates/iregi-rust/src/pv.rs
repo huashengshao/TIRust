@@ -104,6 +104,7 @@ pub struct PvCompiler {
 impl PvCompiler {
     /// Inline compiler, useful for independent inspection of exact expressions.
     pub fn new(shifts: Vec<[Atom; 4]>, mass_squared: Vec<Atom>) -> Result<Self, String> {
+        let _oem_license = crate::license::unlock();
         Self::from_coordinates(shifts, mass_squared, false)
     }
 
@@ -111,6 +112,7 @@ impl PvCompiler {
     /// Pass `aliases()` to Symbolica's evaluator builder `add_aliases` and use
     /// `direct_translation(true)` when lowering the returned moment handles.
     pub fn with_aliases(shifts: Vec<[Atom; 4]>, mass_squared: Vec<Atom>) -> Result<Self, String> {
+        let _oem_license = crate::license::unlock();
         Self::from_coordinates(shifts, mass_squared, true)
     }
 
@@ -145,6 +147,7 @@ impl PvCompiler {
         mut distances: Vec<Vec<Atom>>,
         alias_enabled: bool,
     ) -> Result<Self, String> {
+        let _oem_license = crate::license::unlock();
         let n = shifts.len();
         if n == 0
             || n != mass_squared.len()
@@ -237,6 +240,7 @@ impl PvCompiler {
     /// branches. Call before requesting any moments. Ordinary numeric types
     /// use zero; a Dual plan must use its full algebra's maximal total degree.
     pub fn set_analytic_jet_order(&mut self, order: u16) -> Result<(), String> {
+        let _oem_license = crate::license::unlock();
         if !self.coefficients.is_empty() || !self.moments.is_empty() {
             return Err("set the PV analytic jet order before compiling moments".into());
         }
@@ -248,6 +252,7 @@ impl PvCompiler {
     /// Enable only when invariants are derived from those same coordinates;
     /// arbitrary authoritative scalar products do not satisfy this contract.
     pub fn set_coordinate_identities(&mut self, enabled: bool) -> Result<(), String> {
+        let _oem_license = crate::license::unlock();
         if !self.moments.is_empty() || !self.coefficients.is_empty() {
             return Err("set coordinate identity policy before compiling moments".into());
         }
@@ -308,6 +313,7 @@ impl PvCompiler {
         &mut self,
         transform: impl FnMut(Atom) -> Atom + 'static,
     ) -> Result<(), String> {
+        let _oem_license = crate::license::unlock();
         if !self.coefficients.is_empty() || !self.moments.is_empty() || !self.geometry.is_empty() {
             return Err("set the PV Gram transform before compiling moments".into());
         }
@@ -409,6 +415,7 @@ impl PvCompiler {
 
     /// Compile one raw Cartesian monomial; there is no multinomial weight.
     pub fn compile_moment(&mut self, exponents: [u16; 4]) -> Result<[Atom; 4], String> {
+        let _oem_license = crate::license::unlock();
         let active: Vec<_> = (0..self.shifts.len()).collect();
         let value = self.moment(&active, exponents)?;
         if self.alias_enabled {

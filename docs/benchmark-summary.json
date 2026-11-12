@@ -3704,5 +3704,105 @@
     }
    ]
   }
- ]
+ ],
+ "implementation_milestones": [
+  {
+    "date": "2026-11-12",
+    "topic": "Scoped Symbolica OEM library activation",
+    "implementation": "Private core registration and operation-scoped guards; downstream scalar-master calls inherit the active scope.",
+    "documentation": "docs/symbolica-oem.md",
+    "validation_status": "Passed separate merged-main preflight, full core/master and full default-members suites with Rust 1.97.1; all 466 tracked files and HEAD remained unchanged during validation.",
+    "verification_commands": [
+      "cargo +1.97.1 test -p iregi-rust --test direct_engine --test rotation_test_option --test amplitude_fingerprints --test oem_library --test concurrent_workspaces -- --test-threads=1",
+      "cargo +1.97.1 test -p iregi-rust -p iregi-masters -- --test-threads=1",
+      "cargo +1.97.1 test -- --test-threads=1",
+      "bash scripts/build-benchmark-report.sh --check"
+    ],
+    "measurement_scope": {
+      "existing_capture_fields_unchanged": true,
+      "existing_build_records_and_hashes_unchanged": true,
+      "existing_measurement_fields_unchanged": true,
+      "new_performance_campaign": "not run",
+      "new_full_amplitude_campaign": "not run",
+      "historical_results_qualify_signed_revision": false
+    },
+    "validation_results": {
+      "preflight": {
+        "passed": 37,
+        "failed": 0,
+        "ignored": 0,
+        "terminal_sha256": "33647147b57c07269735a51c95c59d26b8160a7b7f333f44c54773a6c70a5838",
+        "log_sha256": "3554553274056fc7a2e4fd073c3cc1c1e593520387bf0f19dd8a1efe6e102895",
+        "complete_targets": [
+          "direct_engine",
+          "rotation_test_option",
+          "amplitude_fingerprints",
+          "oem_library",
+          "concurrent_workspaces"
+        ]
+      },
+      "core_and_masters": {
+        "passed": 662,
+        "failed": 0,
+        "ignored": 31,
+        "terminal_sha256": "8ec149e1e06e9a15b60b870fc88f69003d42ee0e5099422c311bdd34b23f588b",
+        "log_sha256": "4fab288e04eca85025b2ba9b8bbc43277bf49666df7bd36e5637b0b7c180c9f1"
+      },
+      "default_members": {
+        "passed": 708,
+        "failed": 0,
+        "ignored": 31,
+        "terminal_sha256": "4cff96f47ecfa1a2fbffede1ea09c6ab72ca9b28e6d6faac24ec1161b2b36165",
+        "log_sha256": "3acf8d473c0b0abf5e5283ea07c04ed609534b1d4f352ceed2135c27821289d8"
+      },
+      "core_examples": {
+        "compiled_targets": 45,
+        "method": "Both cargo test builds compiled all core examples; no redundant separate check command."
+      },
+      "personal_symbolica_license_present": false,
+      "source_binding": {
+        "validated_revision": "54263c08a1400612eebbd3a0018bf38e26fca9c5",
+        "tracked_files": 466,
+        "tracked_hashes_unchanged": true,
+        "source_snapshot_sha256": "7aa099cd30ee511c7010860ffff6dd0e7925f32b0775c8153e74580401325229"
+      },
+      "execution_scope": "Functional validation only. Separate private adaptive-bridge functional checks were authorized during the default suite; no performance timing capture overlapped."
+    },
+    "validated_revision": "54263c08a1400612eebbd3a0018bf38e26fca9c5",
+    "upstream_integration": {
+      "upstream_parent": "bc94b496e94d7b7686fc28adbfe9b42a68200d02",
+      "validation_status": "Passed separate merged-main validation: preflight 37, full core/master 662 and full default-members 708 tests passed; zero failures and 31 existing ignored cases in each full suite.",
+      "validated_revision": "54263c08a1400612eebbd3a0018bf38e26fca9c5"
+    },
+    "signed_predecessor_qualification": {
+      "validated_revision": "10ce34ed8ad5b6f5f989a0e220eb3a244a71d1a1",
+      "validation_results": {
+        "core_and_masters": {
+          "passed": 661,
+          "failed": 0,
+          "ignored": 31
+        },
+        "default_members": {
+          "passed": 707,
+          "failed": 0,
+          "ignored": 31
+        },
+        "core_examples": {
+          "compiled_targets": 45,
+          "method": "Both cargo test builds compiled all core examples; no redundant separate check command."
+        },
+        "personal_symbolica_license_present": false,
+        "setup_correction": "An initial standalone masters run aborted because the explicit test lock directory had mode 0755. The SDK diagnostic confirmed the permissions error; mode 0700 restored normal checks and both complete suites passed. Production code and licensing enforcement were unchanged."
+      },
+      "validation_status": "Passed with Rust 1.97.1; source and dependency revisions remained frozen during validation.",
+      "verification_commands": [
+        "cargo +1.97.1 test -p iregi-rust --test oem_library -- --test-threads=1",
+        "cargo +1.97.1 test -p iregi-rust --test concurrent_workspaces independent_warmed_numeric_workspaces_match_sequential_results -- --test-threads=1 --exact",
+        "cargo +1.97.1 test -p iregi-rust -p iregi-masters -- --test-threads=1",
+        "cargo +1.97.1 test -- --test-threads=1",
+        "bash scripts/build-benchmark-report.sh --check"
+      ]
+    }
+  }
+]
 }

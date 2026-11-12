@@ -1,10 +1,7 @@
 //! Investigate the preserved five-point rank-six binary64 discrepancy.
 //! Uses exact Symbolica coefficients and native scalar masters at 128/256 bits.
 
-#[path = "../src/ibp.rs"]
-mod ibp;
-#[path = "../src/pv.rs"]
-mod pv;
+use iregi_rust::{pv};
 use oneloop::{NativeEvaluator, ScalarIntegral};
 use std::collections::HashMap;
 use symbolica::{

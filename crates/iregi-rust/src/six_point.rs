@@ -38,6 +38,7 @@ pub struct SixPointReductionPlan {
 
 impl SixPointReductionPlan {
     pub fn new(settings: ReductionSettings) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         validate_settings(&settings)?;
         Ok(Self { inner: ThinSixReductionPlan::new(settings)? })
     }
@@ -51,6 +52,7 @@ impl SixPointReductionPlan {
     /// Prepare the existing Symbolica numerator contraction against this plan's
     /// raw native moments without exposing its private imported parameters.
     pub fn contraction_plan(&self, monomials: &[Monomial]) -> Result<ContractionPlan, ReductionError> {
+        let _oem_license = crate::license::unlock();
         self.inner.contraction_plan(monomials)
     }
 }
@@ -91,15 +93,18 @@ where
     Complex<T>: EvaluationDomain,
 {
     pub fn new(plan: &SixPointReductionPlan, prototype: T) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         Ok(Self { inner: ThinSixWorkspace::new(&plan.inner, prototype)? })
     }
 
     pub fn set_accuracy_precision(&mut self, bits: u32) -> Result<(), ReductionError> {
+        let _oem_license = crate::license::unlock();
         self.inner.set_accuracy_precision(bits)
     }
     /// Enable timing of the existing thin child and parent execution stages.
     /// This does not change the selected reduction engine or accuracy policy.
     pub fn set_profiling(&mut self, enabled: bool) {
+        let _oem_license = crate::license::unlock();
         self.inner.set_profiling(enabled);
     }
     pub fn last_profile(&self) -> Option<crate::ExecutionProfile> {
@@ -114,6 +119,7 @@ where
     /// lanes remain inaccessible through `BatchResult::lane`, including when a
     /// neighboring lane or a previous call succeeded.
     pub fn reduce_batch(&mut self, batch: &KinematicsBatch<T>) -> Result<BatchResult<T>, ReductionError> {
+        let _oem_license = crate::license::unlock();
         self.inner.reduce_batch(batch)
     }
 }

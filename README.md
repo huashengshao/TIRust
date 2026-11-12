@@ -536,10 +536,11 @@ and `scripts/build-reference.sh`) are in the private backup named in [validation
 extension, gammaloop `9102f885`) builds with `cargo check --workspace` (see
 [docs/environment.md](docs/environment.md)).
 
-Tests using Symbolica must respect the installed license's process and thread
-limits. The cold concurrent plan-preparation test is ignored because it requires
-a multithread-enabled Symbolica license; preparing a variant first allows the
-separate concurrent cache-lookup test to use only Rust synchronization.
+TIRust core operations activate a [scoped Symbolica library license](docs/symbolica-oem.md),
+including their downstream scalar masters. Direct Symbolica work outside that
+scope retains its own process/thread licensing requirements. The focused OEM
+integration test checks fresh processes without a personal key and verifies
+that unrelated host operations remain restricted after every library call.
 The [licensed concurrency qualification](validation/README.md) (private backup: `validation/concurrent-workspaces/README.md`)
 records the explicit cold test and 360 compared calls from independent concurrent
 workspaces. It contains no license key.
@@ -556,4 +557,6 @@ third-party content listed in [LICENSE](LICENSE) (feynkit-integrals, linnest,
 the bundled fonts and licence texts, the mirrored GammaLoop type stubs, copied
 fixtures and reference captures)
 keeps its own licence and notices. Dependencies fetched by Cargo, Symbolica in
-particular, carry their own licences.
+particular, carry their own licences. The embedded Symbolica library key is
+issued for `iregi_rust`; its scope and renewal behavior are described in
+[the OEM activation notes](docs/symbolica-oem.md).

@@ -73,6 +73,7 @@ where
         prototype: T,
         settings: RescueSettings,
     ) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         let accuracy_bits = validate_rescue_settings(prototype.get_precision(), settings)?;
         // Precision rescue compares working precisions on one engine: use
         // the symbolic plan even where binary64 defaults to direct recurrences.
@@ -139,6 +140,7 @@ where
         settings: RescueSettings,
         dual: D,
     ) -> Result<Self, ReductionError> {
+        let _oem_license = crate::license::unlock();
         validate_rescue_settings(prototype.get_precision(), settings)?;
         if crate::dispatch::affine_power_eligible(plan.settings())
             || plan.engine_kind() == TensorEngineKind::MassTaylor
@@ -242,6 +244,7 @@ where
         &mut self,
         batch: &KinematicsBatch<T>,
     ) -> Result<BatchResult<T>, ReductionError> {
+        let _oem_license = crate::license::unlock();
         match &mut self.engine {
             RescueEngine::Generic(workspace) => workspace.reduce_batch(batch),
             RescueEngine::Tensor(workspace) => workspace.reduce_batch(batch),
@@ -253,6 +256,7 @@ where
         input: &[D],
         rows: usize,
     ) -> Result<BatchResult<T>, ReductionError> {
+        let _oem_license = crate::license::unlock();
         match &mut self.engine {
             RescueEngine::Generic(workspace) => {
                 // The facade reports this call even when typed-shape validation
