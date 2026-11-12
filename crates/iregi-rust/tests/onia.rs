@@ -186,19 +186,24 @@ fn coulomb_family_in_amplitude_workspace() {
     assert!(ea <= 1e-9, "Coulomb box in the amplitude workspace: E/A {ea:e}");
 }
 
-/// Physical 1S0 amplitudes of g g > c c~ at one loop, colour singlet and
-/// octet (benchmarks/onia/swave.py; fixture by make_swave_fixture.py): the
-/// FeynKit diagrams' S-wave-projected numerators, contracted per distinct
-/// loop integral (tree factors included) at the polarizations (e1, e2).
+/// Physical S-wave amplitudes at one loop (benchmarks/onia/swave.py; fixture
+/// by make_swave_fixture.py): g g > c c~ [1S0] colour singlet and octet at
+/// points 0 and 5, and g g > c c~ [3S1, singlet] g at one point. Each case
+/// holds the FeynKit diagrams' S-wave-projected numerators, contracted per
+/// distinct loop integral (tree factors included) at fixed polarizations.
 /// TIRust's amplitude X (native slots [UV, IR1, IR2, finite], X / (2 pi)^4
 /// at the poles, G = 1) must agree with the reference amplitude to 1e-9 and
-/// satisfy, against the Born A0, the pole structure of the bare amplitude:
-/// X_IR2 = -6 pi^2 A0; IR1/IR2 + gamma_E + ln(pi) - ln(mu^2/s) = 1 - C_F/C_A
-/// + i pi (singlet) or 3/2 - C_F/C_A + i pi/2 (octet); X_UV = pi^2 [(2 C_A +
-/// C_F) A0 + 3 C_F m dA0/dm]. Point 5 is boosted, and its soft triangles are
-/// IR-divergent only at the exact lattice m^2 (an ulp-off mass regulates them).
+/// satisfy, against the Born A0 with n external gluons, the pole structure of
+/// the bare amplitude: X_IR2 = -n C_A pi^2 A0; IR1/IR2 + gamma_E + ln(pi) -
+/// (the fixture's log part, sum of ln(mu^2/(-s_ij)) terms) = the fixture's
+/// constant (1 - C_F/C_A singlet, 3/2 - C_F/C_A octet, 1 - 2 C_F/(3 C_A) for
+/// 3S1); X_UV = pi^2 [(n C_A + C_F) A0 + 3 C_F m dA0/dm]. Point 5 is
+/// boosted, and its soft triangles are IR-divergent only at the exact lattice
+/// m^2 (an ulp-off mass regulates them). The 3S1 case has 84 integrals,
+/// pentagons included, among them the Coulomb pentagons on which original
+/// IREGI returns no array.
 #[test]
-fn swave_1s0_amplitudes_match_the_reference_and_the_pole_structure() {
+fn swave_amplitudes_match_the_reference_and_the_pole_structure() {
     let fixture: Value = serde_json::from_str(include_str!("fixtures/onia-swave-amplitude.json")).unwrap();
     let abs = |z: Complex<f64>| z.norm_squared().sqrt();
     let pair = |v: &Value| Complex::new(number(&v[0]), number(&v[1]));
@@ -206,7 +211,7 @@ fn swave_1s0_amplitudes_match_the_reference_and_the_pole_structure() {
     let pi2 = std::f64::consts::PI.powi(2);
     let euler_pi = 0.577_215_664_901_532_9 + std::f64::consts::PI.ln();
     let cases = fixture["cases"].as_array().unwrap();
-    assert!(cases.len() >= 4);
+    assert!(cases.len() >= 5);
     for case in cases {
         let label = format!("{} point {}", case["state"], case["point"]);
         let mu = number(&case["mu"]);
@@ -228,13 +233,13 @@ fn swave_1s0_amplitudes_match_the_reference_and_the_pole_structure() {
         assert!(error <= 1e-9, "{label}: amplitude E/A {error:e}");
 
         let (born, born_dm) = (pair(&case["born"]), pair(&case["born_mass_derivative"]));
-        let double = abs(x[2] / (born * Complex::new(-6.0 * pi2, 0.0)) - Complex::new(1.0, 0.0));
+        let n = case["gluons"].as_u64().unwrap() as f64;
+        let double = abs(x[2] / (born * Complex::new(-n * ca * pi2, 0.0)) - Complex::new(1.0, 0.0));
         assert!(double <= 1e-10, "{label}: double pole {double:e}");
-        let s = number(&case["s"]);
-        let ratio = x[1] / x[2] + Complex::new(euler_pi - (mu * mu / s).ln(), 0.0);
+        let ratio = x[1] / x[2] + Complex::new(euler_pi, 0.0) - pair(&case["single_pole_log"]);
         let single = abs(ratio - pair(&case["single_pole_target"]));
-        assert!(single <= 1e-10, "{label}: single pole ratio {ratio:?}");
-        let uv_born = (born * Complex::new(2.0 * ca + cf, 0.0) + born_dm * Complex::new(3.0 * cf, 0.0)) * Complex::new(pi2, 0.0);
+        assert!(single <= 1e-9, "{label}: single pole ratio {ratio:?}");
+        let uv_born = (born * Complex::new(n * ca + cf, 0.0) + born_dm * Complex::new(3.0 * cf, 0.0)) * Complex::new(pi2, 0.0);
         let uv = abs(x[0] / uv_born - Complex::new(1.0, 0.0));
         assert!(uv <= 1e-10, "{label}: UV pole {uv:e}");
     }

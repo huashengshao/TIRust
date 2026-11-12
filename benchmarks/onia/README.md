@@ -142,7 +142,15 @@ for state in singlet octet; do
   cargo run -p iregi-prepare --example onia_swave -- fixtures/models/sm.json target/onia/diagrams-gg_QQ target/onia/points.json target/onia/swave-num-$state.json 100 $state
   python3 benchmarks/onia/swave.py target/onia/swave-num-$state.json target/onia/points.json target/onia/swave-$state.json --workers 16
 done
-python3 benchmarks/onia/make_swave_fixture.py target/onia/points.json target/onia/swave-num-singlet.json target/onia/swave-singlet.json target/onia/swave-num-octet.json target/onia/swave-octet.json crates/iregi-rust/tests/fixtures/onia-swave-amplitude.json 0 5
+cargo run --release -p iregi-prepare --example onia_diagrams -- fixtures/models/sm.json target/onia/diagrams-gg_QQg gg_QQg
+cargo run --release -p iregi-prepare --example onia_swave -- fixtures/models/sm.json target/onia/diagrams-gg_QQg target/onia/points.json target/onia/swave-num-3s1.json 20 3S1-singlet
+python3 benchmarks/onia/swave.py target/onia/swave-num-3s1.json target/onia/points.json target/onia/swave-3s1.json --workers 16
+python3 benchmarks/onia/make_swave_fixture.py crates/iregi-rust/tests/fixtures/onia-swave-amplitude.json \
+  --case target/onia/swave-num-singlet.json target/onia/swave-singlet.json 0 01 \
+  --case target/onia/swave-num-singlet.json target/onia/swave-singlet.json 5 01 \
+  --case target/onia/swave-num-octet.json target/onia/swave-octet.json 0 01 \
+  --case target/onia/swave-num-octet.json target/onia/swave-octet.json 5 01 \
+  --case target/onia/swave-num-3s1.json target/onia/swave-3s1.json 2 1000
 ```
 
 The build has these prerequisites:
@@ -481,6 +489,87 @@ swave.py therefore snaps the masses to the exact lattice value. An amplitude
 code that squares a rounded mass will hit the same cliff. TIRust has no
 on-shell tolerance.
 
+## Physical S-wave amplitudes: g g > c c~ [3S1, singlet] g
+
+This section evaluates the J/ψ + g channel the same way: one-loop QCD, bare
+and R1 only.
+
+**Diagrams and projection.**
+- FeynKit gives 16 tree and 470 one-loop diagrams (`onia_diagrams.rs ...
+  gg_QQg`).
+- The projector is Π₁ = (p̸_c~ − m) ε̸*_ψ (p̸_c + m) / √(8m³). The J/ψ
+  polarization is bound as ϵbar on the c leg's edge, with three real vectors
+  orthonormal and orthogonal to P.
+- The colour projector is δ_ij/√3 · d^abc/√(40/3) for the three gluons; the
+  f^abc part vanishes by C parity. d^abc comes from FeynKit's generators as
+  2[Tr(T^aT^bT^c) + Tr(T^bT^aT^c)].
+- The outgoing gluon's polarization is ϵbar on its edge.
+- 147 one-loop diagrams survive the projection, 18 of them rank-4 pentagons.
+
+**Preparation at numeric kinematics.** The fully symbolic numerator of a
+pentagon expands to millions of terms in the momentum and polarization
+components. onia_swave therefore takes iregi-prepare's unexpanded scalar
+(`prepare_scalar_dot_with_tree_propagators`). For every point and
+polarization it substitutes the numbers (128-bit floats) and only then
+extracts the loop polynomial.
+- Symbolically, one pentagon had not finished after 40 minutes (13 minutes
+  with the pairwise conversion below). Numerically, all 470 diagrams on 3
+  points, with 33 polarization sets each, take 5 minutes.
+- On g g > c c~ this path reproduces the symbolic one to 3e-37.
+
+**Checks.** The checks are those of the 1S0 section, with three gluons:
+- X_IR2 = −9π² A0;
+- the single-pole ratio equals (1/3) Σ_{i<j} ln(μ²/(−s_ij)) + 1 − 2C_F/(3C_A),
+  from Catani with T_i·T_j = −C_A/2 for each gluon pair, minus the external
+  field factors;
+- X_UV = π²[(3C_A + C_F) A0 + 3C_F m ∂A0/∂m];
+- the Born A0 sums the 3! orderings of the gluons on the c line; diagrams
+  with a triple-gluon vertex vanish against d^abc.
+
+The Ward identity is now non-trivial (ε_i → k_i/k_i⁰, the other gluons
+physical):
+- the IR poles vanish;
+- the UV pole equals π² 3C_F m ∂A0/∂m on these polarizations, since the
+  internal mass counterterm alone is not gauge invariant;
+- the finite part does not vanish (R2 is left out).
+
+**Results** (the first 20 gg_QQg lattice points):
+- Each point has 84 distinct integrals, 24 physical polarization sets
+  (2³ gluon × 3 J/ψ) and 9 Ward sets.
+- Pole deviations are scored against the point's scale: each slot's largest
+  deviation over the physical sets, divided by the largest prediction for that
+  slot. A per-set ratio inflates where a set's Born is small.
+
+| amplitude | points | vs reference | UV pole | IR1 pole | IR2 pole |
+|---|---|---|---|---|---|
+| reference | 6 | – | 2.0e-14 | 3.4e-14 | 2.6e-14 |
+| TIRust | 20 | 2.2e-12 (6 points) | 5.5e-14 | 4.1e-11 | 9.6e-14 |
+| original IREGI | 1 (point 10) | 8.5e-6 | 5.3e-14 | 1.6e-14 | 4.3e-15 |
+
+- **References.** Only 6 points (2, 3, 10, 12, 14, 18) have a reference
+  integral array. On the others, the exact identity produces dotted
+  sub-integrals that nothing confirms: boxes with a doubled propagator, from
+  the Coulomb pentagons. Quad IREGI returns no array for them, and COLLIER
+  takes no dotted integrals. TIRust's amplitude still meets every pole
+  prediction on all 20 points.
+- **Original IREGI.**
+  - At 19 of the 20 points, it flags the 6 Coulomb pentagons as unstable and
+    returns no array. These are rank-4 pentagons with masses HHHHL: a gluon
+    across the pair and the three external gluons on the c line. IREGI
+    therefore has no 3S1 amplitude at those points.
+  - On the integrals it does return, its partial amplitude is off by 8e43
+    to 3e54. These are the degenerate pentagons that it flags as stable.
+    TIRust agrees with the reference on the same subsets to 3.4e-11.
+  - At point 10 it returns every array. Its amplitude there is within 8.5e-6
+    of the reference: the poles are right, and the error is in the finite
+    part.
+- **Ward identity** (9 sets per point, deviations relative to the point's
+  amplitude scale):
+  - the IR poles vanish, to 3.5e-12 for TIRust and 5e-14 for the reference;
+  - the UV pole equals the internal mass-counterterm structure
+    π² 3C_F m ∂A0/∂m to 1.6e-14 (all three amplitudes);
+  - the finite part stays at up to 7% of the scale, as expected without R2.
+
 ## Regression test
 
 `crates/iregi-rust/tests/onia.rs` runs from `tests/fixtures/onia-swave.json`
@@ -497,12 +586,16 @@ The Coulomb triangle's scalar moment must also equal the v = 0 value
 C0 = −(m²)^(−1−ε) Γ(1+ε) / (2ε(1 + 2ε)), to 1e-12.
 
 The S-wave amplitude test runs from `tests/fixtures/onia-swave-amplitude.json`
-(`make_swave_fixture.py`). It covers the 1S0 singlet and octet at points 0
-(at rest) and 5 (boosted), at the polarizations (e1, e2): each case's distinct
-loop integrals, with contracted coefficients. For each case:
-- TIRust's amplitude must agree with the reference to 1e-9;
-- its double, single and UV poles must match the Born predictions above to
-  1e-10.
+(`make_swave_fixture.py`, 188 KB). Its cases are:
+- the 1S0 singlet and octet at points 0 (at rest) and 5 (boosted), at the
+  polarizations (e1, e2);
+- g g > c c~ [3S1, singlet] g at point 2, labels 1000: 84 integrals,
+  pentagons included, among them the Coulomb pentagons on which IREGI returns
+  no array.
+
+Each case holds its distinct loop integrals with contracted coefficients.
+TIRust's amplitude must agree with the reference to 1e-9. Its poles must
+match the Born predictions: double and UV poles to 1e-10, single to 1e-9.
 
 ## Files
 
@@ -517,7 +610,7 @@ loop integrals, with contracted coefficients. For each case:
 | `make_fixture.py` | the regression test's fixture |
 | `families.py` | integral families (parent and pinches, in the parent's routing) |
 | `amplitude.py` | families as amplitudes: TIRust `AmplitudeWorkspace` against IREGI, contracted amplitudes, timing |
-| `swave.py` | physical 1S0 amplitudes of g g > c c~: contraction, Born, pole and Ward checks |
+| `swave.py` | physical S-wave amplitudes (1S0 of g g > c c~, 3S1 of g g > c c~ g): contraction, Born, pole and Ward checks |
 | `make_swave_fixture.py` | the S-wave amplitude test's fixture |
 | `crates/iregi-prepare/examples/onia_diagrams.rs` | FeynKit diagram generation (DOT files) |
 | `crates/iregi-prepare/examples/onia_swave.rs` | S-wave projection and numerator coefficients per point and polarization |

@@ -40,6 +40,7 @@ i (pslash + m)/(p^2 - m^2), the same projector):
 usage: swave.py NUMERATORS_JSON POINTS_JSON OUTPUT_JSON [--workers N]
 """
 import argparse
+import itertools
 import json
 import math
 import sys
@@ -85,30 +86,50 @@ _check = mat(mat(GAMMA[0], GAMMA[1]), mat(GAMMA[2], GAMMA[3]))
 assert all(abs(1j * _check[i][j] - GAMMA5[i][j]) < 1e-15 for i in range(4) for j in range(4))
 
 
-def born(point_entry, l1, l2, state, mass_derivative=False):
-    """Tree amplitude A0 (G = 1) and m dA0/dm (internal masses), projected.
+COLOUR = {"singlet": 4 / math.sqrt(24), "octet": math.sqrt(3 / 20) * 10 / 3, "3S1-singlet": (10 / 3) / math.sqrt(40)}
 
-    t and u channel c exchange; the s channel vanishes for 1S0 (Tr[gamma^mu
-    Pi0] = 0) and, for the singlet, by colour. Colour: singlet Tr(T^a T^a) /
-    sqrt(24) = 4/sqrt(24); octet sqrt(3/20) x 10/3 (both channels).
+
+def born(point_entry, labels, state, mass_derivative=False):
+    """Tree amplitude A0 (G = 1), or m dA0/dm (internal masses only), projected.
+
+    All gluons on the open c line, summed over their orders: from c to c~,
+    ubar V(e_s1) S(p_c - k_s1) V(e_s2) ... V(e_sn) v, with V(e) = i eslash,
+    S(q) = i (qslash + m)/(q^2 - m^2), k the incoming gluon momenta (an
+    outgoing gluon: minus its momentum). Every order has the same colour
+    factor (COLOUR): singlet Tr(T^a T^a)/sqrt(24); octet sqrt(3/20) x 10/3;
+    3S1 singlet sum Tr(T^a T^b T^c) d^abc/(sqrt(3) sqrt(40/3)) = (10/3)/sqrt(40).
+    Diagrams with a triple-gluon vertex vanish: 1S0 by Tr[gamma^mu Pi0] = 0
+    (and, singlet, by colour); 3S1 singlet by f^abc against d^abc.
     """
-    k1, k2, pc, pcb = point_entry["physical_momenta"]
+    momenta = point_entry["physical_momenta"]
+    pc, pcb = momenta[2], momenta[3]
     m = math.sqrt(float(point_entry["m2"]))
-    e1 = point_entry["polarization_vectors"][0][l1]
-    e2 = point_entry["polarization_vectors"][1][l2]
-    colour = 4 / math.sqrt(24) if state == "singlet" else math.sqrt(3 / 20) * 10 / 3
-    projector = mat(mat(lin((1, slash(pcb)), (-m, UNIT)), GAMMA5), lin((1, slash(pc)), (m, UNIT)))
+    vectors = point_entry["polarization_vectors"]
+    incoming = [momenta[0], momenta[1]] + ([[-x for x in momenta[4]]] if len(vectors) == 3 else [])
+    gluons = [(incoming[g], vectors[g][labels[g]]) for g in range(len(vectors))]
+    spin = GAMMA5 if len(vectors) == 2 else slash(point_entry["psi_polarizations"][labels[3]])
+    projector = mat(mat(lin((1, slash(pcb)), (-m, UNIT)), spin), lin((1, slash(pc)), (m, UNIT)))
     projector = lin((1 / math.sqrt(8 * m ** 3), projector))
-    def propagator(q):
+    def propagator(q, derivative):
         d = mdot(q, q) - m * m
-        if mass_derivative:  # m d/dm of i (qslash + m)/(q^2 - m^2)
+        if derivative:  # m d/dm of i (qslash + m)/(q^2 - m^2)
             return lin((1j * m / d, UNIT), (2j * m * m / d ** 2, lin((1, slash(q)), (m, UNIT))))
         return lin((1j / d, lin((1, slash(q)), (m, UNIT))))
-    def chain(ea, ka, eb):
-        q = [pc[mu] - ka[mu] for mu in range(4)]
-        x = mat(mat(lin((1j, slash(ea))), propagator(q)), mat(lin((1j, slash(eb))), projector))
-        return sum(x[i][i] for i in range(4))
-    return colour * (chain(e1, k1, e2) + chain(e2, k2, e1))
+    total = 0j
+    for order in itertools.permutations(range(len(gluons))):
+        q, momenta_out = list(pc), []
+        for g in order[:-1]:
+            q = [q[mu] - gluons[g][0][mu] for mu in range(4)]
+            momenta_out.append(q)
+        for derived in (range(len(momenta_out)) if mass_derivative else [None]):
+            x = UNIT
+            for position, g in enumerate(order):
+                x = mat(x, lin((1j, slash(gluons[g][1]))))
+                if position < len(momenta_out):
+                    x = mat(x, propagator(momenta_out[position], position == derived))
+            x = mat(x, projector)
+            total += sum(x[i][i] for i in range(4))
+    return COLOUR[state] * total
 
 
 def exact_mass(value, m2):
@@ -196,7 +217,8 @@ def point_job(diagrams, k, state):
     for diagram in diagrams:
         point_entry = diagram["points"][k]
         out["index"] = point_entry["index"]
-        for l1, l2, entry in point_entry["polarizations"]:
+        for item in point_entry["polarizations"]:
+            labels, entry = item[:-1], item[-1]
             if not entry["terms"] or all(abs(c[0]) + abs(c[1]) == 0 for _, c in entry["terms"]):
                 continue
             shifts, masses, props, tree = integral_of(diagram, point_entry, entry)
@@ -213,26 +235,39 @@ def point_job(diagrams, k, state):
                               "reference": ref, "how": how}
             arrays = cache[key]
             index = {m: i for i, m in enumerate(run.basis(rank))}
-            pol = out["pols"].setdefault(f"{l1}{l2}", {"tirust": [0j] * 4, "iregi": [0j] * 4, "reference": [0j] * 4,
-                                                        "missing": set()})
-            for name in ("tirust", "iregi", "reference"):
+            pol = out["pols"].setdefault("".join(map(str, labels)), {"tirust": [0j] * 4, "iregi": [0j] * 4, "reference": [0j] * 4,
+                                                        "missing": set(), "iregi_subset": [[0j] * 4 for _ in range(3)],
+                                                        "iregi_subset_missing": set(), "lanes_without_iregi": 0})
+            # The IREGI subset: the integrals on which IREGI returns an array,
+            # summed for all three codes (IREGI's score where it has no full
+            # amplitude, e.g. its unstable Coulomb pentagons in g g > c c~ g).
+            subset = arrays["iregi"] is not None
+            pol["lanes_without_iregi"] += not subset
+            for which, name in enumerate(("tirust", "iregi", "reference")):
                 moments = arrays[name]
                 if moments is None:
                     pol["missing"].add(name)
+                    if subset:
+                        pol["iregi_subset_missing"].add(name)
                     continue
                 for exponents, (re, im) in entry["terms"]:
                     m = moments[index[tuple(exponents)]]
                     c = complex(re, im) * tree
                     for slot in range(4):
-                        pol[name][slot] += c * complex(float(m[slot][0]), float(m[slot][1]))
+                        z = c * complex(float(m[slot][0]), float(m[slot][1]))
+                        pol[name][slot] += z
+                        if subset:
+                            pol["iregi_subset"][which][slot] += z
     point_entry = diagrams[0]["points"][k]
     for key, pol in out["pols"].items():
         pol["missing"] = sorted(pol["missing"])
+        pol["iregi_subset_missing"] = sorted(pol["iregi_subset_missing"])
+        pol["iregi_subset"] = [[[z.real, z.imag] for z in row] for row in pol["iregi_subset"]]
         for name in ("tirust", "iregi", "reference"):
             pol[name] = [[z.real, z.imag] for z in pol[name]]
-        l1, l2 = int(key[0]), int(key[1])
-        a0 = born(point_entry, l1, l2, state)
-        da0 = born(point_entry, l1, l2, state, mass_derivative=True)
+        labels = [int(c) for c in key]
+        a0 = born(point_entry, labels, state)
+        da0 = born(point_entry, labels, state, mass_derivative=True)
         pol["born"] = [a0.real, a0.imag]
         pol["born_mass_derivative"] = [da0.real, da0.imag]
     out["integrals"] = len(cache)
@@ -240,21 +275,50 @@ def point_job(diagrams, k, state):
     return out
 
 
-def physics(x, a0, da0, s_invariant, state):
-    """Pole checks of one amplitude X (4 native slots) against the Born."""
-    target = complex(1 - CF / CA, math.pi) if state == "singlet" else complex(1.5 - CF / CA, math.pi / 2)
+def pole_targets(point_entry, state):
+    """(n_gluons, log part, constant) of the single-pole ratio IR1/IR2 + gamma_E + ln pi.
+
+    Bare amplitude, colour-singlet heavy pair with n gluons (Catani minus the
+    external on-shell field factors' IR parts): -(1/(n C_A)) sum_{i != j}
+    T_i.T_j L_ij + 1 - 2 C_F/(n C_A), L_ij = ln(mu^2/(-s_ij - i0)). Two gluons:
+    T_1.T_2 = -C_A, so ln(mu^2/s) + i pi + 1 - C_F/C_A; three: T_i.T_j = -C_A/2,
+    so (1/3) sum_{i<j} L_ij + 1 - 2 C_F/(3 C_A). Octet 1S0 (Becher-Neubert,
+    the pair as one heavy octet): ln(mu^2/s) + i pi/2 + 3/2 - C_F/C_A.
+    """
+    momenta = point_entry["physical_momenta"]
+    n = len(point_entry["polarization_vectors"])
+    legs = [(momenta[0], 1), (momenta[1], 1)] + ([(momenta[4], -1)] if n == 3 else [])
+    def log(i, j):
+        (p, a), (q, b) = legs[i], legs[j]
+        sij = mdot([a * x + b * y for x, y in zip(p, q)], [a * x + b * y for x, y in zip(p, q)])
+        return complex(math.log(MU * MU / abs(sij)), math.pi if sij > 0 else 0.0)
+    if state == "octet":
+        return n, log(0, 1) - 1j * math.pi / 2, complex(1.5 - CF / CA, 0)
+    pairs = [(i, j) for i in range(n) for j in range(i + 1, n)]
+    weight = 1.0 if n == 2 else 1 / 3
+    return n, weight * sum(log(i, j) for i, j in pairs), complex(1 - 2 * CF / (n * CA), 0)
+
+
+def physics(x, a0, da0, point_entry, state):
+    """Pole checks of one amplitude X (4 native slots) against the Born:
+    X_IR2 = -pi^2 n C_A A0; the single-pole ratio (pole_targets); X_UV =
+    pi^2 [(n C_A + C_F) A0 + 3 C_F m dA0/dm] (n coupling, n/2 gluon-field,
+    one heavy-field and the mass counterterms)."""
+    n, log_part, constant = pole_targets(point_entry, state)
     uv, ir1, ir2 = x[0], x[1], x[2]
-    out = {"double_pole": abs(ir2 / (-6 * math.pi ** 2 * a0) - 1)}
-    ratio = ir1 / ir2 + EULER_PI - math.log(MU * MU / s_invariant) if ir2 != 0 else math.nan
-    out["single_pole"] = abs(ratio - target)
+    out = {"double_pole": abs(ir2 / (-math.pi ** 2 * n * CA * a0) - 1)}
+    ratio = ir1 / ir2 + EULER_PI - log_part if ir2 != 0 else math.nan
+    out["single_pole"] = abs(ratio - constant)
     out["single_pole_ratio"] = [ratio.real, ratio.imag] if ir2 != 0 else None
-    out["uv_pole"] = abs(uv / (math.pi ** 2 * ((2 * CA + CF) * a0 + 3 * CF * da0)) - 1)
+    out["uv_pole"] = abs(uv / (math.pi ** 2 * ((n * CA + CF) * a0 + 3 * CF * da0)) - 1)
     return out
 
 
-def checks(result, s_invariant, state):
+def checks(result, point_entry, state):
     """Scores and physics checks of one point (see the module docstring)."""
-    physical = {k: v for k, v in result["pols"].items() if "2" not in k}
+    n = len(point_entry["polarization_vectors"])
+    gauge = lambda key: "2" in key[:n]
+    physical = {k: v for k, v in result["pols"].items() if not gauge(k)}
     has_reference = all("reference" not in v["missing"] for v in result["pols"].values())
     basis = "reference" if has_reference else "tirust"
     scale = max(abs(complex(*z)) for v in physical.values() for z in v[basis]) or 1.0
@@ -266,15 +330,39 @@ def checks(result, s_invariant, state):
             val = [complex(*z) for z in pol[name]]
             ok = has_reference and name not in pol["missing"]
             pol[f"{name}_error"] = max(abs(x - y) for x, y in zip(val, ref)) / scale if ok else None
+        if pol.get("lanes_without_iregi") and "reference" not in pol.get("iregi_subset_missing", []):
+            rows = [[complex(*z) for z in row] for row in pol["iregi_subset"]]
+            sub_scale = max(abs(z) for z in rows[2]) or 1.0
+            pol["iregi_subset_error"] = {name: max(abs(x - y) for x, y in zip(rows[which], rows[2])) / sub_scale
+                                         for which, name in ((0, "tirust"), (1, "iregi"))}
         a0, da0 = complex(*pol["born"]), complex(*pol["born_mass_derivative"])
-        if "2" in key or abs(a0) < 1e-12 * born_scale:
-            pol["ward" if "2" in key else "vanishing"] = {
+        if gauge(key) or abs(a0) < 1e-12 * born_scale:
+            pol["ward" if gauge(key) else "vanishing"] = {
                 "born": abs(a0) / born_scale,
                 **{name: [abs(complex(*z)) / scale for z in pol[name]] for name in ("reference", "tirust", "iregi")
                    if name not in pol["missing"]}}
             continue
-        pol["physics"] = {name: physics([complex(*z) for z in pol[name]], a0, da0, s_invariant, state)
+        pol["physics"] = {name: physics([complex(*z) for z in pol[name]], a0, da0, point_entry, state)
                           for name in ("reference", "tirust", "iregi") if name not in pol["missing"]}
+    # The same pole predictions scored against the point's scale: each slot's
+    # largest deviation over the physical polarizations, divided by the
+    # largest predicted value of that slot (a polarization with a small Born
+    # inflates the per-polarization ratios above).
+    n, log_part, constant = pole_targets(point_entry, state)
+    predictions = {}
+    for key, pol in physical.items():
+        a0, da0 = complex(*pol["born"]), complex(*pol["born_mass_derivative"])
+        ir2 = -math.pi ** 2 * n * CA * a0
+        predictions[key] = (math.pi ** 2 * ((n * CA + CF) * a0 + 3 * CF * da0),
+                            ir2 * (constant + log_part - EULER_PI), ir2)
+    slot_scale = [max(abs(v[slot]) for v in predictions.values()) or 1.0 for slot in range(3)]
+    result["summary"]["poles"] = {}
+    for name in ("reference", "tirust", "iregi"):
+        if any(name in physical[key]["missing"] for key in predictions):
+            continue
+        result["summary"]["poles"][name] = [
+            max(abs(complex(*physical[key][name][slot]) - predictions[key][slot]) for key in predictions)
+            / slot_scale[slot] for slot in range(3)]
 
 
 def main():
@@ -289,8 +377,7 @@ def main():
     state = data.get("state", "singlet")
     diagrams = [d for d in data["diagrams"] if d["loops"] == 1]
     npoints = len(diagrams[0]["points"])
-    points = {p["index"]: p for p in next(p for p in json.loads(args.points.read_text())["processes"]
-                                           if p["id"] == "gg_QQ")["points"]}
+    entries = {e["index"]: e for e in diagrams[0]["points"]}
     if args.reuse:
         results = json.loads(args.output.read_text())["points"]
     else:
@@ -298,7 +385,7 @@ def main():
             results = list(pool.map(point_job, [diagrams] * npoints, range(npoints), [state] * npoints))
         args.output.write_text(json.dumps({"state": state, "points": results}, indent=1) + "\n")
     for r in results:
-        checks(r, float(points[r["index"]]["s"]), state)
+        checks(r, entries[r["index"]], state)
     args.output.write_text(json.dumps({"state": state, "points": results}, indent=1) + "\n")
     worst = {}
     def keep(name, value):
@@ -306,11 +393,18 @@ def main():
             worst[name] = max(worst.get(name, 0.0), value)
     fmt = lambda v: "-" if v is None else f"{v:.1e}"
     for r in results:
+        for name, values in r["summary"]["poles"].items():
+            for slot, value in zip(("UV", "IR1", "IR2"), values):
+                keep(f"{name} {slot} pole (point scale)", value)
         print(r["index"], r["integrals"], "reference" if r["summary"]["reference"] else "NO REFERENCE",
-              r["references"] if not r["summary"]["reference"] else "")
+              r["references"] if not r["summary"]["reference"] else "",
+              "| poles (point scale) " + "  ".join(f"{k} " + "/".join(f"{v:.0e}" for v in vals)
+                                                   for k, vals in r["summary"]["poles"].items()))
         for key, pol in sorted(r["pols"].items()):
             keep("tirust vs reference", pol["tirust_error"])
             keep("iregi vs reference", pol["iregi_error"])
+            for name, value in pol.get("iregi_subset_error", {}).items():
+                keep(f"{name} vs reference on IREGI's subset", value)
             line = f"   pol {key}: TIRust {fmt(pol['tirust_error'])}, IREGI {fmt(pol['iregi_error'])}"
             for name, c in pol.get("physics", {}).items():
                 for check in ("double_pole", "single_pole", "uv_pole"):

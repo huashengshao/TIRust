@@ -4,6 +4,7 @@ use iregi_prepare::{
 };
 use symbolica::{
     atom::{Atom, AtomCore},
+    domains::atom::AtomField,
     parse,
 };
 
@@ -78,6 +79,27 @@ fn zero_polynomial_and_exact_symbolic_coefficients() {
     let prepared = polynomial_from_expression(&expression, loop_variables()).unwrap();
     assert_eq!(prepared.rank(), 3);
     assert!((prepared.expression() - expression).expand().is_zero());
+}
+
+#[test]
+fn long_sums_convert_like_the_direct_symbolica_conversion() {
+    // (q0 + q1 + q2 + q3 + a + ... + f)^6 expands to C(15, 6) = 5005 terms,
+    // past the pairwise-conversion threshold (4096 terms).
+    let expression =
+        parse!("(iregi::q0+iregi::q1+iregi::q2+iregi::q3+a+b+c+d+e+f)^6").expand();
+    let prepared = polynomial_from_expression(&expression, loop_variables()).unwrap();
+    let field = AtomField {
+        statistical_zero_test: false,
+        cancel_check_on_division: true,
+        custom_normalization: None,
+    };
+    let direct =
+        expression.to_polynomial_in_vars_with_field::<u32>(loop_variables().as_slice(), &field);
+    assert_eq!(prepared.terms.len(), direct.nterms());
+    for (term, reference) in prepared.terms.iter().zip(&direct) {
+        assert_eq!(term.exponents.map(u32::from).as_slice(), reference.exponents);
+        assert_eq!(term.coefficient, *reference.coefficient);
+    }
 }
 
 #[test]

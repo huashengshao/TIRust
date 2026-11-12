@@ -49,3 +49,15 @@ propagators as well (an s-channel propagator, the tree leg of a vertex
 correction), and list them in `tree_propagators`. Their Feynman-rule numerators
 are part of the numerator, and the caller multiplies by `1/(p^2 - m^2)` for
 each.
+
+`prepare_scalar_dot_with_tree_propagators` stops one step earlier. It
+returns the contracted, routed scalar numerator, unexpanded
+(`PreparedScalar::scalar`), with the same routings; `into_graph` finishes the
+preparation. A caller that evaluates many numeric configurations can
+substitute its numbers into the scalar first and then call
+`polynomial_from_expression`. A fully symbolic expansion can be far larger:
+an S-wave-projected g g > c c~ g pentagon runs to millions of terms.
+`polynomial_from_expression` converts sums of more than 4096 terms term by
+term and adds the polynomials pairwise. Symbolica's direct conversion
+accumulates each coefficient one term at a time, which is quadratic. The
+result is the same.
