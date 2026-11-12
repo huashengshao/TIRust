@@ -126,6 +126,62 @@ def exact_error(moments, reference, rank, n, mu):
     return float(error / amplitude) if amplitude else (0.0 if error == 0 else float("inf"))
 
 
+def numerator(integral, index):
+    """Dense random rank-R numerator N(q) = sum_alpha c_alpha q^alpha for one
+    point (deterministic), coefficients (u + i v) / mu^|alpha| with u, v
+    uniform in [-1, 1], in basis(rank) order (as in the stability study)."""
+    import random
+    rng = random.Random(f"{integral['id']}:{index}:numerator")
+    mu = integral["mu"]
+    return [complex(rng.uniform(-1, 1), rng.uniform(-1, 1)) / mu ** sum(e) for e in basis(integral["rank"])]
+
+
+def contract(moments, coefficients, exact_digits=False):
+    """sum_alpha c_alpha M_alpha in the native slots, combined as [finite,
+    single pole (UV + IR), double pole]; Decimal pairs if exact_digits
+    (high-precision strings), else binary64 sums with fsum."""
+    if moments is None:
+        return None
+    groups = ((3,), (0, 1), (2,))
+    if exact_digits:
+        out = []
+        for slots in groups:
+            re = im = Decimal(0)
+            for m, c in zip(moments, coefficients):
+                cr, ci = Decimal(c.real), Decimal(c.imag)
+                for slot in slots:
+                    a, b = Decimal(str(m[slot][0]).strip()), Decimal(str(m[slot][1]).strip())
+                    re += cr * a - ci * b
+                    im += cr * b + ci * a
+            out.append((re, im))
+        return out
+    out = []
+    for slots in groups:
+        re, im = [], []
+        for m, c in zip(moments, coefficients):
+            for slot in slots:
+                a, b = float(m[slot][0]), float(m[slot][1])
+                re += [c.real * a, -c.imag * b]
+                im += [c.real * b, c.imag * a]
+        out.append((math.fsum(re), math.fsum(im)))
+    return out
+
+
+def contracted_error(value, reference):
+    """max over [finite, single, double] of |A - A_ref| / max |A_ref|; NaN for
+    nonfinite values."""
+    if value is None or reference is None:
+        return None
+    if not all(math.isfinite(float(x)) for pair in value for x in pair):
+        return float("nan")
+    error = amplitude = Decimal(0)
+    for (a, b), (c, d) in zip(value, reference):
+        a, b, c, d = Decimal(a), Decimal(b), Decimal(c), Decimal(d)
+        error = max(error, ((a - c) ** 2 + (b - d) ** 2).sqrt())
+        amplitude = max(amplitude, (c ** 2 + d ** 2).sqrt())
+    return float(error / amplitude) if amplitude else (0.0 if error == 0 else float("inf"))
+
+
 def exact(x):
     """The exact decimal expansion of a binary64 value (for the quad build)."""
     return format(Decimal(x), "f")
@@ -186,7 +242,13 @@ def lanes_of(process, topology, points):
         shifts = [[float(x) for x in row] for row in q]
         assert all(Fraction(f) == x for row, frow in zip(q, shifts) for x, f in zip(row, frow))
         m2 = float(point["m2"])
-        out.append({"shifts": shifts, "masses_squared": [m2 if m == "H" else 0.0 for m in topology["masses"]]})
+        masses = [m2 if m == "H" else 0.0 for m in topology["masses"]]
+        # A family member (families.py): a subset of its parent's propagators,
+        # in the parent's routing.
+        members = topology.get("members")
+        if members is not None:
+            shifts, masses = [shifts[i] for i in members], [masses[i] for i in members]
+        out.append({"shifts": shifts, "masses_squared": masses})
     return out
 
 
@@ -245,7 +307,8 @@ def lane_values(lane):
     return lane.get("best_effort_moments"), True
 
 
-def chunk_job(process_id, topology, start, points, mu, with_quad, symbolic256, affine=None, coulomb=None):
+def chunk_job(process_id, topology, start, points, mu, with_quad, symbolic256, affine=None, coulomb=None,
+              return_arrays=False):
     n, rank = topology["n"], topology["rank"]
     lanes = lanes_of(None, topology, points)
     t, t_error = tirust(lanes, topology, mu, symbolic256)
@@ -361,6 +424,8 @@ def chunk_job(process_id, topology, start, points, mu, with_quad, symbolic256, a
             for name, q, stable in (("quad-ibp", q_ibp[k], f_ibp[k]), ("quad-pv", q_pv[k], f_pv[k])):
                 delta[name] = e(q, reference) if q is not None and stable else None
             record["delta"] = delta
+        if return_arrays:
+            record["arrays"] = dict(arrays, reference=reference)
         record["tirust_vs_iregi"] = {name: e(arrays.get("tirust"), arrays[name])
                                      if arrays.get("tirust") is not None and arrays[name] is not None else None
                                      for name in ("iregi-ibp", "iregi-pv")}

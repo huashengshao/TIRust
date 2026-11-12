@@ -119,3 +119,55 @@ fn coulomb_exchange_integrals_match_iregi_and_the_v0_c0() {
     }
     assert_eq!(checked, 5);
 }
+
+/// The Coulomb box of g g > c c~ and all its pinches, in the box's routing,
+/// as one amplitude (benchmarks/onia/amplitude.py): every member succeeds,
+/// sharing per-subset results is bit-identical to evaluating the members
+/// separately (the homogeneous-relation variants share like any other), and
+/// the box itself agrees with original IREGI.
+#[test]
+fn coulomb_family_in_amplitude_workspace() {
+    use iregi_rust::AmplitudeWorkspace;
+    let fixture = fixture();
+    let mu = number(&fixture["mu"]);
+    let case = fixture["cases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["kind"] == "coulomb" && c["process"] == "gg_QQ" && c["n"] == 4)
+        .expect("the gg_QQ Coulomb box");
+    let parent = batch(case, mu);
+    let n = 4;
+    let mut plans = Vec::new();
+    let mut batches = Vec::new();
+    let mut subsets = Vec::new();
+    for mask in (1u32..(1 << n)).rev().filter(|m| m.count_ones() >= 2) {
+        let members: Vec<usize> = (0..n).filter(|i| mask & (1 << i) != 0).collect();
+        plans.push(TensorReductionPlan::new(ReductionSettings::new(members.len(), members.len() as u16)).unwrap());
+        let mut values = Vec::new();
+        for &i in &members {
+            values.extend_from_slice(&parent.values[4 * i..4 * i + 4]);
+        }
+        values.extend(members.iter().map(|&i| parent.values[4 * n + i]));
+        values.push(parent.values[5 * n]);
+        batches.push(KinematicsBatch { rows: 1, components: 1, values });
+        subsets.push(members);
+    }
+    let mut amplitude = AmplitudeWorkspace::new(&plans, 0.0f64).unwrap();
+    let bits = |results: &[iregi_rust::BatchResult<f64>]| -> Vec<Vec<u64>> {
+        results
+            .iter()
+            .map(|r| r.lane(0).expect("every member succeeds").iter().flat_map(|z| [z.re.to_bits(), z.im.to_bits()]).collect())
+            .collect()
+    };
+    amplitude.set_subset_sharing(false);
+    let separate = amplitude.reduce_batches(&batches).unwrap();
+    amplitude.set_subset_sharing(true);
+    let shared = amplitude.reduce_batches(&batches).unwrap();
+    assert_eq!(bits(&separate), bits(&shared), "sharing changes the Coulomb family");
+    assert_eq!(subsets[0].len(), 4);
+    let box_values = shared[0].lane(0).unwrap().to_vec();
+    let ranks: Vec<usize> = shared[0].basis.iter().map(|m| m.rank()).collect();
+    let ea = e_over_a(&box_values, &case["iregi_reference"], &ranks, n, mu);
+    assert!(ea <= 1e-9, "Coulomb box in the amplitude workspace: E/A {ea:e}");
+}

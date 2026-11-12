@@ -138,7 +138,9 @@ def exact_props(topology, point):
     q = [(Fraction(0),) * 4]
     for group in topology["groups"][:-1]:
         q.append(tuple(a + sum(momenta[leg][c] for leg in group) for c, a in enumerate(q[-1])))
-    return tuple((qi, m2 if m == "H" else Fraction(0), 1) for qi, m in zip(q, topology["masses"]))
+    props = tuple((qi, m2 if m == "H" else Fraction(0), 1) for qi, m in zip(q, topology["masses"]))
+    members = topology.get("members")
+    return props if members is None else tuple(props[i] for i in members)
 
 
 def canonical(props):

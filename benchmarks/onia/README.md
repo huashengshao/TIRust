@@ -127,6 +127,10 @@ python3 benchmarks/onia/affine_reference.py target/onia/points.json target/onia/
 python3 benchmarks/onia/coulomb_check.py target/onia/points.json target/onia/coulomb.json --workers 32
 python3 benchmarks/onia/run.py target/onia/points.json target/onia/run --workers 32 --symbolic256 --affine target/onia/affine --coulomb target/onia/coulomb.json
 python3 benchmarks/onia/summarize.py target/onia/run
+python3 benchmarks/onia/families.py target/onia/points.json target/onia/families.json
+python3 benchmarks/onia/affine_reference.py target/onia/families.json target/onia/family-affine --workers 32
+python3 benchmarks/onia/coulomb_check.py target/onia/families.json target/onia/family-coulomb.json --workers 32
+python3 benchmarks/onia/amplitude.py target/onia/families.json target/onia/amplitude --affine target/onia/family-affine --coulomb target/onia/family-coulomb.json --workers 24
 python3 benchmarks/onia/make_fixture.py target/onia/points.json target/onia/affine target/onia/coulomb.json crates/iregi-rust/tests/fixtures/onia-swave.json
 ```
 
@@ -283,6 +287,73 @@ its first call, with no warm-up. The table gives the median time per lane:
 | gg_QQg boxes | 62 us | 1.8 ms |
 | gg_QQg triangles | 7 us | 0.56 ms |
 
+## Integral families as amplitudes
+
+A family is a parent topology of the largest N (the 4 boxes of gg_QQ and the
+12 pentagons of gg_QQg, each with its mass pattern) together with all its
+pinches down to bubbles: 11 and 26 integrals. Every member is taken in the
+parent's loop-momentum routing (`families.py`), as an amplitude's integrals
+are; this is the setting of the report's Table 9. The members are
+translations of the integrals above, 4,400 and 62,400 member lanes.
+
+**Method** (`amplitude.py`):
+- **TIRust** evaluates all members of a family in one `AmplitudeWorkspace`
+  call (`examples/onia_amplitude.rs`), timed with per-subset sharing on and
+  off. The arrays must be bit-identical with sharing on and off.
+- **References.** Every member gets the references above (run.py's rules,
+  with `affine_reference.py` and `coulomb_check.py` run on the families),
+  and original IREGI's binary64 arrays.
+- **Amplitude.** The amplitude of a family at a point is
+  A = Σ_members Σ_α c_α M_α. The coefficients are fixed random
+  (u + i v)/μ^|α| per family, member and point. A is combined as [finite,
+  single pole (UV + IR), double pole], and its error is
+  max |A − A_ref| / max |A_ref|.
+
+**Results.**
+- **Bit-identical sharing.** The sharing on/off check holds for all 2,800
+  family points.
+- **TIRust** returns every member on every point, the Coulomb ones included.
+  - Its family amplitudes are within 1e-10 of the reference on all 400
+    gg_QQ points and on 2,377 of the 2,385 gg_QQg points with a reference.
+    All are within 3.8e-10.
+  - The 8 points beyond 1e-10 contain a small-Gram triangle member
+    (E/A 1.5e-8 to 3.6e-8, see above), which huashengshao/TIRust#31
+    addresses.
+  - 15 gg_QQg family points have no reference: the 15 Coulomb pentagon lanes
+    above.
+- **Original IREGI** (IBP mode):
+  - **gg_QQg:** its family amplitude is off by more than 1 on 1,648 of the
+    1,941 family points where every member returns an array (up to 1.5e68),
+    and some member returns no array on 444 points. For the Coulomb pentagon
+    family `N5-HLHHH-Q|Q|g2|g3|g1` that happens on every point.
+  - **gg_QQ:** it is within 6.7e-9.
+
+**Timing (indicative only).** These times come from the correctness run,
+with 16 to 24 workers on an unpinned host at load 300 or more. TIRust is
+timed per call over 25 points: one warm-up, then three calls with sharing on
+and three with it off. IREGI is the sum of its members' first calls. The
+table gives medians per point; ratio is TIRust shared over IREGI. The
+slowest TIRust families are those whose members need the precision rescue.
+
+| process | family (parent) | points | with reference | TIRust <= 1e-10 | TIRust max | IREGI IBP <= 1e-10 | IREGI IBP > 1 | IREGI none | TIRust shared | TIRust separate | IREGI IBP | ratio |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| gg_QQ | `N4-HHLH-g2|Q|Q|g1` | 100 | 100 | 100 | 3.4e-15 | 70 | 0 | 0 | 75 us | 78 us | 6.9 ms | 0.011 |
+| gg_QQ | `N4-HLLH-Q|g2|Q|g1` | 100 | 100 | 100 | 3.6e-14 | 100 | 0 | 0 | 78 us | 85 us | 7.3 ms | 0.011 |
+| gg_QQ | `N4-LHHL-Q|g2|Q|g1` | 100 | 100 | 100 | 8.3e-15 | 100 | 0 | 0 | 74 us | 79 us | 7.1 ms | 0.011 |
+| gg_QQ | `N4-LLHL-g2|Q|Q|g1` | 100 | 100 | 100 | 4.6e-15 | 100 | 0 | 0 | 65 us | 72 us | 6.6 ms | 0.010 |
+| gg_QQg | `N5-HHHLH-g2|g3|Q|Q|g1` | 200 | 189 | 189 | 2.0e-14 | 0 | 21 | 165 | 974 us | 1.1 ms | 31.3 ms | 0.031 |
+| gg_QQg | `N5-HHLHH-g2|Q|Q|g3|g1` | 200 | 196 | 196 | 1.4e-13 | 1 | 104 | 79 | 898 us | 1.1 ms | 38.8 ms | 0.023 |
+| gg_QQg | `N5-HHLLH-g2|Q|g3|Q|g1` | 200 | 200 | 200 | 1.7e-11 | 14 | 178 | 0 | 1.8 ms | 2.1 ms | 42.7 ms | 0.042 |
+| gg_QQg | `N5-HLHHH-Q|Q|g2|g3|g1` | 200 | 200 | 199 | 2.1e-10 | 0 | 0 | 200 | 847 us | 953 us | - | - |
+| gg_QQg | `N5-HLLHH-Q|g2|Q|g3|g1` | 200 | 200 | 199 | 1.0e-10 | 36 | 164 | 0 | 4.5 ms | 4.8 ms | 41.3 ms | 0.109 |
+| gg_QQg | `N5-HLLLH-Q|g2|g3|Q|g1` | 200 | 200 | 198 | 1.9e-10 | 37 | 163 | 0 | 9.8 ms | 13.4 ms | 40.0 ms | 0.246 |
+| gg_QQg | `N5-LHHHL-Q|g2|g3|Q|g1` | 200 | 200 | 199 | 3.8e-10 | 28 | 172 | 0 | 14.1 ms | 14.2 ms | 42.1 ms | 0.334 |
+| gg_QQg | `N5-LHHLL-Q|g2|Q|g3|g1` | 200 | 200 | 198 | 1.8e-10 | 32 | 168 | 0 | 2.4 ms | 3.1 ms | 41.1 ms | 0.058 |
+| gg_QQg | `N5-LHLLL-Q|Q|g2|g3|g1` | 200 | 200 | 199 | 1.5e-10 | 57 | 143 | 0 | 691 us | 806 us | 37.7 ms | 0.018 |
+| gg_QQg | `N5-LLHHL-g2|Q|g3|Q|g1` | 200 | 200 | 200 | 5.2e-11 | 17 | 183 | 0 | 1.5 ms | 2.0 ms | 38.6 ms | 0.038 |
+| gg_QQg | `N5-LLHLL-g2|Q|Q|g3|g1` | 200 | 200 | 200 | 3.2e-13 | 27 | 173 | 0 | 537 us | 728 us | 37.1 ms | 0.014 |
+| gg_QQg | `N5-LLLHL-g2|g3|Q|Q|g1` | 200 | 200 | 200 | 8.4e-14 | 21 | 179 | 0 | 753 us | 793 us | 38.9 ms | 0.019 |
+
 ## Regression test
 
 `crates/iregi-rust/tests/onia.rs` runs from `tests/fixtures/onia-swave.json`
@@ -290,7 +361,10 @@ its first call, with no warm-up. The table gives the median time per lane:
 - 12 degenerate lanes (boxes, a triangle and pentagons, both processes) must
   agree with the exact-identity reference to E/A <= 1e-9;
 - 5 Coulomb lanes (a triangle, two boxes and two pentagons) must agree to
-  1e-9 with original IREGI's consistency-checked arrays.
+  1e-9 with original IREGI's consistency-checked arrays;
+- the gg_QQ Coulomb box family (the box and its 10 pinches) evaluated in one
+  `AmplitudeWorkspace` must succeed on every member, be bit-identical with
+  sharing on and off, and give the box within 1e-9 of IREGI.
 
 The Coulomb triangle's scalar moment must also equal the v = 0 value
 C0 = −(m²)^(−1−ε) Γ(1+ε) / (2ε(1 + 2ε)), to 1e-12.
@@ -306,8 +380,11 @@ C0 = −(m²)^(−1−ε) Γ(1+ε) / (2ε(1 + 2ε)), to 1e-12.
 | `coulomb_closed_form.py` | closed form of the Coulomb triangle at every rank |
 | `summarize.py` | per-topology summary (`summary.json`, `summary.md`) |
 | `make_fixture.py` | the regression test's fixture |
+| `families.py` | integral families (parent and pinches, in the parent's routing) |
+| `amplitude.py` | families as amplitudes: TIRust `AmplitudeWorkspace` against IREGI, contracted amplitudes, timing |
 | `build.py` | binaries and their provenance (`target/onia/build.json`) |
 | `drivers/iregi_onia.f90` | original-IREGI driver |
 | `drivers/collier_scalar.f90` | COLLIER scalar C0/D0, the arbiter |
 | `mre/` | minimal reproducers of the original-IREGI defects |
 | `crates/iregi-rust/examples/onia_driver.rs` | TIRust driver: per-lane masses and optional powers |
+| `crates/iregi-rust/examples/onia_amplitude.rs` | TIRust family driver: `AmplitudeWorkspace`, per-member arrays, sharing on/off timing |

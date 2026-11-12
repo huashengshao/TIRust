@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build the binaries of benchmarks/onia and record their provenance.
 
-TIRust: release example `onia_driver` (features native-f64-abc, hardware FMA
+TIRust: release examples `onia_driver` and `onia_amplitude` (features native-f64-abc, hardware FMA
 as in the benchmark builds; outputs are bit-identical without it). Original
 IREGI (binary64): drivers/iregi_onia.f90 linked against the original-IREGI
 objects of the benchmark campaigns (target/reference/objects: MadGraph's
@@ -88,11 +88,14 @@ def main() -> None:
     target = Path(os.environ.get("CARGO_TARGET_DIR", TARGET / "onia-build"))
     env = dict(os.environ, CARGO_TARGET_DIR=str(target), RUSTFLAGS=RUSTFLAGS)
     cargo = ["cargo", "build", "--release", "--offline", "-p", "iregi-rust", "--example", "onia_driver",
-             "--features", "native-f64-abc"]
+             "--example", "onia_amplitude", "--features", "native-f64-abc"]
     record["steps"]["tirust_cargo_s"] = run(cargo, env=env)
     tirust = BIN / "tirust-onia"
     shutil.copy2(target / "release/examples/onia_driver", tirust)
+    amplitude = BIN / "tirust-onia-amplitude"
+    shutil.copy2(target / "release/examples/onia_amplitude", amplitude)
     git = lambda *a: subprocess.run(["git", *a], cwd=ROOT, capture_output=True, text=True).stdout.strip()
+    record["tirust_amplitude"] = {"binary": str(amplitude), "sha256": sha256(amplitude)}
     record["tirust"] = {"binary": str(tirust), "sha256": sha256(tirust), "rustflags": RUSTFLAGS,
                         "git_head": git("rev-parse", "HEAD"),
                         "tracked_changes": [l[3:] for l in git("status", "--porcelain", "--untracked-files=no").splitlines()],
