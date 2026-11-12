@@ -18,6 +18,10 @@ the symbolic engine (symbolic256). The inputs are exact lattice points
 exactly vanishing Gram determinants.
 
 Reference per lane, in this order:
+  C. with --coulomb FILE (coulomb_check.py), for a Coulomb-exchange lane
+     (linearly dependent propagators): the closed form of the triangle
+     (coulomb_closed_form.py), else quad IREGI's IBP array where it equals the
+     exact doubled-gluon combination of IREGI's general API to 1e-12;
   0. with --affine DIR (affine_reference.py), for an integral whose shifts are
      affinely dependent: the exact denominator identity's combination of
      non-degenerate integrals, each confirmed by quad IREGI (independent of
@@ -36,7 +40,7 @@ whole-array maximum discrepancy with the moments rescaled by mu^(|alpha|+4-2N)
 directly (tirust_vs_iregi).
 
 usage: run.py POINTS_JSON OUTPUT_DIR [--workers N] [--chunk N] [--only PROCESS[/TOPOLOGY]]
-                                     [--no-quad] [--symbolic256] [--affine DIR]
+                                     [--no-quad] [--symbolic256] [--affine DIR] [--coulomb FILE]
 Binaries (build.py): ONIA_TARGET (default target), ONIA_BIN (default
 $ONIA_TARGET/onia/bin: tirust-onia, iregi-onia) and ONIA_QUAD (default
 $ONIA_TARGET/quad-iregi-source-audit/build-v6-001/iregi-reference-quad).
@@ -241,7 +245,7 @@ def lane_values(lane):
     return lane.get("best_effort_moments"), True
 
 
-def chunk_job(process_id, topology, start, points, mu, with_quad, symbolic256, affine=None):
+def chunk_job(process_id, topology, start, points, mu, with_quad, symbolic256, affine=None, coulomb=None):
     n, rank = topology["n"], topology["rank"]
     lanes = lanes_of(None, topology, points)
     t, t_error = tirust(lanes, topology, mu, symbolic256)
@@ -286,6 +290,23 @@ def chunk_job(process_id, topology, start, points, mu, with_quad, symbolic256, a
                   "direct256_quadIBP": x(d256, q_ibp[k]), "direct256_quadPV": x(d256, q_pv[k]),
                   "quadIBP_quadPV": x(q_pv[k], q_ibp[k]), "symbolic256_direct256": x(s256, d256),
                   "symbolic256_quadIBP": x(s256, q_ibp[k]), "symbolic256_quadPV": x(s256, q_pv[k])}
+        # Coulomb exchange (linearly dependent propagators, K = 0): the
+        # closed form of the triangle (coulomb_closed_form.py), or quad
+        # IREGI's IBP array where coulomb_check.py found it equal to the
+        # exact doubled-gluon combination of IREGI's general API.
+        closed = None
+        consistent = (coulomb or {}).get(point["index"])
+        if consistent is not None and n == 3:
+            try:
+                import coulomb_closed_form
+                closed = coulomb_closed_form.coulomb_triangle(lanes[k]["shifts"], lanes[k]["masses_squared"],
+                                                              rank, mu)
+            except AssertionError:
+                closed = None
+        if consistent is not None:
+            record["coulomb_combination_check"] = consistent
+            checks["direct256_closedform"] = e(d256, closed) if d256 is not None and closed else None
+            checks["quadIBP_closedform"] = e(q_ibp[k], closed) if q_ibp[k] is not None and closed else None
         record["reference_checks"] = checks
         ok = lambda v, tol: v is not None and math.isfinite(v) and v <= tol
         # COLLIER arbitrates (scalar master, IR-finite only) when TIRust's
@@ -299,7 +320,11 @@ def chunk_job(process_id, topology, start, points, mu, with_quad, symbolic256, a
             record["scalar_arbitration"] = arbiter
         quad_contradicted = bool(arbiter) and arbiter["collier_vs_quad"] > 1e-6
         reference = None
-        if a_ref is not None:
+        if closed is not None:
+            reference, record["reference"] = closed, "closed form (Coulomb triangle)"
+        elif consistent is not None and q_ibp[k] is not None and ok(consistent, AGREEMENT):
+            reference, record["reference"] = q_ibp[k], "quad IREGI IBP = exact doubled-gluon combination (Coulomb)"
+        elif a_ref is not None:
             reference, record["reference"] = a_ref, "affine identity over confirmed non-degenerate integrals"
         elif d256 is not None and (ok(checks["direct256_quadIBP"], CONFIRMATION) or
                                  ok(checks["direct256_quadPV"], CONFIRMATION)):
@@ -354,10 +379,16 @@ def main():
     parser.add_argument("--no-quad", action="store_true")
     parser.add_argument("--symbolic256", action="store_true")
     parser.add_argument("--affine", type=Path, default=None)
+    parser.add_argument("--coulomb", type=Path, default=None,
+                        help="coulomb_check.py output: references for the Coulomb-exchange lanes")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     data = json.loads(args.points.read_text())
     mu = float(data["mu"])
+    coulomb = defaultdict(dict)
+    if args.coulomb:
+        for r in json.loads(args.coulomb.read_text()):
+            coulomb[(r["process"], r["topology"])][r["index"]] = r["vs_dotted_combination"].get("quad-ibp")
     jobs = {}
     with ProcessPoolExecutor(args.workers) as pool:
         for process in data["processes"]:
@@ -376,7 +407,9 @@ def main():
                     future = pool.submit(chunk_job, process["id"], topology, start, chunk, mu, not args.no_quad,
                                          args.symbolic256,
                                          {p["index"]: affine[topology["id"]][p["index"]] for p in chunk
-                                          if p["index"] in affine[topology["id"]]})
+                                          if p["index"] in affine[topology["id"]]},
+                                         {p["index"]: coulomb[(process["id"], topology["id"])][p["index"]]
+                                          for p in chunk if p["index"] in coulomb[(process["id"], topology["id"])]})
                     jobs[future] = (process["id"], name)
         sinks = {}
         done = 0

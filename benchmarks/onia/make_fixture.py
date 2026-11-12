@@ -5,10 +5,10 @@ Selected lanes of both processes, with their exact binary64 inputs and:
 - degenerate (affinely dependent shifts, K != 0): the reference of
   affine_reference.py (exact identity over non-degenerate integrals confirmed
   by quad IREGI or arbitrated by COLLIER), 25 significant digits;
-- Coulomb exchange (linearly dependent propagators): no TIRust reference;
-  `iregi_reference` holds quad original IREGI's IBP array, which
-  coulomb_check.py found equal to the exact doubled-gluon combination of
-  IREGI's general API (kept for when TIRust supports these integrals).
+- Coulomb exchange (linearly dependent propagators): `iregi_reference`
+  holds quad original IREGI's IBP array, which coulomb_check.py found equal
+  to the exact doubled-gluon combination of IREGI's general API (for the
+  triangle also equal to coulomb_closed_form.py).
 
 usage: make_fixture.py POINTS_JSON AFFINE_DIR COULOMB_JSON OUTPUT_JSON
 """
@@ -35,6 +35,8 @@ COULOMB = [
     ("gg_QQ", "N4-HHLH-g2|Q|Q|g1", [0]),
     ("gg_QQ", "N3-HLH-Q|Q|g1+g2", [0]),
     ("gg_QQg", "N4-HHLH-g2|Q|Q|g1+g3", [0]),
+    ("gg_QQg", "N5-HLHHH-Q|Q|g2|g3|g1", [0]),
+    ("gg_QQg", "N5-HHLHH-g2|Q|Q|g3|g1", [2]),
 ]
 
 

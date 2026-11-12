@@ -121,7 +121,8 @@ IREGI's bundled OneLOop alone would not fix it.
 
 ## 4. The Coulomb-exchange integrals
 
-TIRust refuses these integrals; IREGI evaluates them. IREGI's `C0C1` recognizes the Coulomb
+IREGI evaluates these integrals, and since the Coulomb-exchange support
+of branch onia so does TIRust; the two agree (README, Results). IREGI's `C0C1` recognizes the Coulomb
 triangle (m_1 = 0, p_1^2 = m_2^2, p_3^2 = m_3^2, p_2^2 = (m_2 + m_3)^2). It
 returns the v = 0 value in dimensional regularization,
 C0 = -(m^2)^(-1-eps) Gamma(1+eps) / (2 eps (1 + 2 eps)).

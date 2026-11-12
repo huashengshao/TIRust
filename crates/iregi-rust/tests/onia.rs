@@ -12,10 +12,14 @@
 //!   degenerate kinematics; original IREGI itself is off by up to 1e+72 on
 //!   such pentagons.
 //! - Coulomb exchange: linearly dependent propagators (2 D_g = D_c + D_c~,
-//!   K = 0). TIRust does not support these yet. They must come back refused
-//!   per lane, typed, never as an array. The fixture keeps original IREGI's
-//!   array (consistent with its partial-fraction combination) for when they
-//!   are supported.
+//!   K = 0). The direct engine reduces them by that partial fraction to
+//!   pinches with a doubled gluon (its homogeneous-relation variant), whose
+//!   IR-singular on-shell bases have closed forms. They must agree with
+//!   original IREGI's arrays (quad IREGI, equal to the exact doubled-gluon
+//!   combination of IREGI's general API; for the triangle also to the closed
+//!   form of benchmarks/onia/coulomb_closed_form.py), and the triangle's
+//!   scalar moment with the v = 0 value C0 = -(m^2)^(-1-eps) Gamma(1+eps) /
+//!   (2 eps (1 + 2 eps)), independent of IREGI.
 use iregi_rust::{KinematicsBatch, LaneStatus, ReductionSettings, TensorReductionPlan, TensorWorkspace};
 use serde_json::Value;
 use symbolica::domains::float::Complex;
@@ -82,19 +86,36 @@ fn degenerate_quarkonium_integrals_match_the_exact_identity_reference() {
 }
 
 #[test]
-fn coulomb_exchange_integrals_are_refused_per_lane() {
+fn coulomb_exchange_integrals_match_iregi_and_the_v0_c0() {
     let fixture = fixture();
     let mu = number(&fixture["mu"]);
     let mut checked = 0;
     for case in fixture["cases"].as_array().unwrap().iter().filter(|c| c["kind"] == "coulomb") {
         let label = format!("{} {} #{}", case["process"], case["topology"], case["index"]);
-        let (values, _) = evaluate(case, mu);
-        match values {
-            Err(LaneStatus::Unstable(_) | LaneStatus::MasterFailure(_)) => {}
-            other => panic!("{label}: expected a typed refusal, got {other:?}"),
+        let (values, ranks) = evaluate(case, mu);
+        let values = values.unwrap_or_else(|status| panic!("{label}: {status:?}"));
+        let n = case["n"].as_u64().unwrap() as usize;
+        let ea = e_over_a(&values, &case["iregi_reference"], &ranks, n, mu);
+        assert!(ea <= 1e-9, "{label}: E/A {ea:e} against original IREGI");
+        if n == 3 {
+            // IREGI native: i pi^2 times OneLOop's normalization, the finite
+            // part shifted by -(gamma_E + ln pi) times the single pole.
+            let m2 = case["masses_squared"].as_array().unwrap().iter().map(number).fold(0.0f64, f64::max);
+            let pi2 = std::f64::consts::PI.powi(2);
+            let pole = -1.0 / (2.0 * m2);
+            let finite = 1.0 / m2 - (mu * mu / m2).ln() / (2.0 * m2);
+            let shift = 0.577_215_664_901_532_9 + std::f64::consts::PI.ln();
+            let expected = [0.0, pi2 * pole, 0.0, pi2 * (finite - shift * pole)];
+            for (slot, &want) in expected.iter().enumerate() {
+                let z = &values[slot];
+                let scale = expected.iter().map(|x| x.abs()).fold(0.0, f64::max);
+                assert!(
+                    z.re.abs() <= 1e-12 * scale && (z.im - want).abs() <= 1e-12 * scale,
+                    "{label}: scalar slot {slot} = {z:?}, v = 0 C0 gives i {want:e}"
+                );
+            }
         }
-        assert!(case["iregi_reference"].is_array(), "{label}: IREGI array kept for future support");
         checked += 1;
     }
-    assert_eq!(checked, 3);
+    assert_eq!(checked, 5);
 }

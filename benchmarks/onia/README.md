@@ -103,11 +103,18 @@ binary64 IREGI directly. Quad IREGI is scored as a code only on lanes it
 reports stable.
 
 **Coulomb-exchange integrals** (K = 0: their propagators are linearly
-dependent, 2 D_gluon = D_c + D_c~) have no reference from this route.
-`coulomb_check.py` checks original IREGI on them in two ways:
-- against the analytic v = 0 Coulomb C0;
-- against the exact partial-fraction combination of doubled-gluon integrals
-  from IREGI's general API.
+dependent, 2 D_gluon = D_c + D_c~). With `--coulomb`, these come first:
+- for the triangle, the closed form of `coulomb_closed_form.py`, at every
+  rank;
+- otherwise, quad IREGI's IBP array where `coulomb_check.py` found it equal to
+  1e-12 to the exact partial-fraction combination of doubled-gluon integrals
+  from IREGI's general API, a separate code path.
+
+Next comes the exact identity of rule 0. It is carried through the doubled
+powers, and its doubled non-degenerate integrals are confirmed by binary64
+IREGI's general API, since quad IREGI's general API overflows on them.
+`coulomb_check.py` also compares IREGI's scalar C0 with the analytic
+v = 0 value.
 
 ## Running
 
@@ -117,9 +124,9 @@ From the repository root, after `source scripts/env.sh` and the Symbolica licenc
 python3 benchmarks/onia/build.py
 python3 benchmarks/onia/make_points.py target/onia/points.json
 python3 benchmarks/onia/affine_reference.py target/onia/points.json target/onia/affine --workers 32
-python3 benchmarks/onia/run.py target/onia/points.json target/onia/run --workers 32 --symbolic256 --affine target/onia/affine
-python3 benchmarks/onia/summarize.py target/onia/run
 python3 benchmarks/onia/coulomb_check.py target/onia/points.json target/onia/coulomb.json --workers 32
+python3 benchmarks/onia/run.py target/onia/points.json target/onia/run --workers 32 --symbolic256 --affine target/onia/affine --coulomb target/onia/coulomb.json
+python3 benchmarks/onia/summarize.py target/onia/run
 python3 benchmarks/onia/make_fixture.py target/onia/points.json target/onia/affine target/onia/coulomb.json crates/iregi-rust/tests/fixtures/onia-swave.json
 ```
 
@@ -138,68 +145,110 @@ The build has these prerequisites:
 `ONIA_TARGET` points the scripts at another `target` directory, for example
 the main checkout's from a worktree.
 
-## Results (12 November 2026, main 854b79d)
+## Coulomb-exchange support in TIRust
 
-TIRust was built from `854b79d` with this suite's driver, release profile,
-hardware FMA. Original IREGI is the binary64 build of the benchmark campaigns.
-Every lane below has a reference; the 1,600 Coulomb-exchange lanes are
-counted separately. "> 1" counts lanes with E/A above 1, that is, an array
-wrong at O(1) or worse.
+For the Coulomb-exchange integrals the propagators are linearly dependent,
+2 D_g = D_c + D_c~, and both the Gram and the modified Cayley determinants
+vanish. TIRust's direct engine (`crates/iregi-rust/src/direct/`) handles
+them as follows:
 
-| process | N | lanes | TIRust <= 1e-10 | TIRust max | IREGI IBP <= 1e-10 | IREGI IBP > 1 | IREGI IBP max |
-|---|---|---|---|---|---|---|---|
-| gg_QQ | 4 | 300 | 300 | 2.0e-13 | 300 | 0 | 3.6e-13 |
-| gg_QQ | 3 | 700 | 700 | 3.3e-15 | 666 | 0 | 1.8e-8 |
-| gg_QQ | 2 | 800 | 800 | 1.0e-15 | 800 | 0 | 7.0e-16 |
-| gg_QQg | 5 | 1,800 | 1,799 | 9.4e-10 | 282 | 1,504 | 8.4e72 |
-| gg_QQg | 4 | 6,600 | 6,600 | 5.8e-11 | 5,178 | 721 | 3.9e54 |
-| gg_QQg | 3 | 6,200 | 6,183 | 2.0e-8 | 5,966 | 0 | 2.4e-5 |
-| gg_QQg | 2 | 3,600 | 3,600 | 1.4e-15 | 3,600 | 0 | 1.0e-15 |
+1. **Detection.** The affine-relation solver (`exec.rs::affine_relation`)
+   reports a vanishing identity constant K as a homogeneous relation, judged
+   to the inputs' rounding with the same test that decides exact affine
+   relations. A small nonzero relative velocity stays refused, because its
+   integral is Coulomb singular.
+2. **Partial fraction.** The plan variant (`SubsetKind::Homogeneous`,
+   `plan.rs`) reduces every subset that contains such a relation by
+   1 = −Σ_{i≠j} (c_i/c_j) D_i/D_j, where j is the massless member, the gluon.
+   Each moment becomes a sum of the first Taylor coefficients, in m_j², of
+   the pinches without i: the pinches with the gluon doubled. The engine's
+   existing jets (`master_jets`, `geometry_jets`, `run_program_jets`)
+   compute those, and the variant outputs Taylor order 0.
+3. **Closed-form bases.** The IBP recursion of the doubled masters ends in
+   IR-singular bases whose Cayley matrices are singular, so they come from
+   closed forms (`exec.rs::singular_ibp_base`, OneLOop normalization):
+   - J(2,1) = −(1/ε_IR + ln(μ²/m²) − 2)/(2m²) and
+     J(1,2) = (1/ε_IR + ln(μ²/m²))/(2m²), for the on-shell bubble
+     p² = m² with a massless partner;
+   - ∫ 1/(l² − m²)³ = −1/(2m²), for a lightlike bubble of equal masses;
+   - ∫ 1/(l²)² = 1/ε_UV − 1/ε_IR, for the scaleless doubled massless tadpole.
+4. **Lightlike bubbles under jets.** These are allowed when they do not
+   contain the doubled propagator; their jets vanish.
 
-The references of these 20,000 lanes:
+The result is the dimensional-regularization value at v = 0, with native
+UV/IR separation. That is the value of IREGI's `ColumbCase`.
+
+`coulomb_closed_form.py` gives the Coulomb triangle at every rank in closed
+form, independent of both codes. The integral reduces to the one-momentum
+on-shell family ∫ l^α / ((l²)² ((l+p)² − m²)), evaluated by Feynman
+parameters. It agrees with IREGI's Coulomb triangles to 3e-15 and with
+TIRust's to 5e-15.
+
+## Results (12 November 2026, branch onia)
+
+TIRust was built from this branch with this suite's driver. Original IREGI is
+the binary64 build of the benchmark campaigns. 21,585 of the 21,600 lanes
+have an independent reference. "> 1" counts lanes with E/A above 1 (an array
+wrong at O(1) or worse), and "none" counts lanes where IREGI returns no array.
+
+| process | N | lanes | with reference | TIRust <= 1e-10 | TIRust max | IREGI IBP <= 1e-10 | IREGI IBP > 1 | IREGI none | IREGI IBP max |
+|---|---|---|---|---|---|---|---|---|---|
+| gg_QQ | 4 | 400 | 400 | 400 | 2.0e-13 | 400 | 0 | 0 | 3.6e-13 |
+| gg_QQ | 3 | 800 | 800 | 800 | 3.4e-15 | 766 | 0 | 0 | 1.8e-8 |
+| gg_QQ | 2 | 800 | 800 | 800 | 1.0e-15 | 800 | 0 | 0 | 7.0e-16 |
+| gg_QQg | 5 | 2,400 | 2,385 | 2,384 | 9.4e-10 | 282 | 1,632 | 444 | 8.4e72 |
+| gg_QQg | 4 | 7,200 | 7,200 | 7,200 | 5.8e-11 | 5,477 | 836 | 0 | 3.9e54 |
+| gg_QQg | 3 | 6,400 | 6,400 | 6,383 | 2.0e-8 | 6,166 | 0 | 0 | 2.4e-5 |
+| gg_QQg | 2 | 3,600 | 3,600 | 3,600 | 1.4e-15 | 3,600 | 0 | 0 | 1.0e-15 |
+
+The references:
 
 | source | gg_QQ | gg_QQg |
 |---|---|---|
-| exact identity | 400 | 3,800 |
-| direct256 confirmed by quad IREGI | 1,400 | 14,292 |
+| exact identity (`affine_reference.py`) | 400 | 3,964 |
+| direct256 confirmed by quad IREGI | 1,400 | 14,385 |
 | direct256 arbitrated by COLLIER | 0 | 108 |
+| Coulomb triangle closed form | 100 | 200 |
+| quad IREGI = exact doubled-gluon combination (Coulomb) | 100 | 928 |
 
 The full per-topology table is `summary.md` of a run (`summarize.py`).
 
 **TIRust**
-- The binary64 default stays within 1e-10 on 19,982 of these 20,000 lanes,
-  and within 2e-8 on all of them. TIRust's own estimates and fallbacks (470
-  lanes flagged as fallback in gg_QQg) are included.
-- **Triangles near a small Gram determinant.** Two triangle topologies of
-  gg_QQg, `N3-HLL-Q+g2|g3|Q+g1` and `N3-LHH-Q+g2|g3|Q+g1`, account for 17
-  lanes between 1e-10 and 2.0e-8. The cause:
-  - These triangles have one lightlike leg and two nearly equal
-    virtualities, so their Gram determinant is small.
+- The binary64 default stays within 1e-10 on 21,567 of the 21,585 lanes with
+  a reference, and within 2e-8 on all of them.
+- **Coulomb exchange.** All 1,600 lanes, in 2 topologies of gg_QQ and 7 of
+  gg_QQg, now succeed in binary64 and at 256 bits.
+  - On the 1,585 lanes with a reference, the largest E/A is 4.6e-15 for
+    triangles, 1.6e-13 for boxes and 4.7e-11 for pentagons.
+  - 15 Coulomb pentagon lanes have no independent reference: in their exact
+    identity, one doubled box is not confirmed by binary64 IREGI to 1e-9.
+  - The other 20,000 lanes keep exactly the E/A they had before Coulomb
+    support (commit 75b24ef).
+- **Triangles near a small Gram determinant.** These are the remaining
+  beyond-request lanes: 17 lanes between 1e-10 and 2.0e-8, in two triangle
+  topologies of gg_QQg, `N3-HLL-Q+g2|g3|Q+g1` and `N3-LHH-Q+g2|g3|Q+g1`.
+  - The triangles have one lightlike leg and two nearly equal virtualities.
   - Lanes with G/s^2 below about 1.4e-4 are refused by the binary64 gate and
     rescued, reaching E/A of 1e-22.
   - The lanes just above the gate, at G/s^2 of about 7e-4 to 8e-4, are
     accepted in binary64 and lose about 8 digits at rank 3.
   - Triangles get no loop-rotation test (it starts at four propagators), so
-    these lanes carry neither a flag nor an error estimate.
+    these lanes carry no flag.
 - One pentagon lane (`N5-LHHHL-Q|g2|g3|Q|g1`, point 87) reaches 9.4e-10, with
   an estimated error of 2.9e-12.
-- **Coulomb-exchange integrals.** All 1,600 lanes, in 2 topologies of gg_QQ
-  and 7 of gg_QQg (1 triangle, 3 boxes and 3 pentagons), come back refused,
-  per lane and typed (`Unstable` or `MasterFailure`). No array is returned.
-  - Both the Gram and the modified Cayley determinants vanish, and the scalar
-    C0 or D0 at exact threshold is Coulomb singular.
-  - TIRust's direct engine also refuses the doubled-gluon integrals that the
-    partial fractions produce: dotted massless propagators at lightlike or
-    on-shell legs.
 
 **Original IREGI** (`mre/IREGI_ONIA_MRE.md` has the reproducers)
 - **gg_QQ.** IBP mode is right everywhere, within 1.8e-8.
 - **PV mode** is wrong by 1e-3 to 1.5, flagged stable, on both zero-Gram
   boxes with massless propagators next to the heavy legs.
-- **gg_QQg.** 2,225 lanes are off by more than 1, and IREGI flags every one of
-  them stable:
-  - 1,504 of the 1,800 pentagon lanes, with E/A up to 8.4e72;
-  - 721 box lanes, in 10 topologies.
+- **gg_QQg.** 2,468 lanes with a reference are off by more than 1, and IREGI
+  flags all of them stable:
+  - 1,632 pentagon lanes, with E/A up to 8.4e72, including the 3 Coulomb
+    pentagons; it returns no array on 444 more;
+  - 836 box lanes.
+  Before Coulomb support (commit 75b24ef) the count was 2,225 of the 20,000
+  non-Coulomb lanes: 1,504 pentagon lanes and 721 box lanes in 10
+  topologies.
 - **Bundled OneLOop 3.4.** Its three-mass D0 has a wrong real part on one box
   topology. There IREGI is wrong on 76 of 200 lanes in binary64 and its quad
   build on 108. COLLIER and TIRust agree with each other.
@@ -240,10 +289,11 @@ its first call, with no warm-up. The table gives the median time per lane:
 (`make_fixture.py`):
 - 12 degenerate lanes (boxes, a triangle and pentagons, both processes) must
   agree with the exact-identity reference to E/A <= 1e-9;
-- 3 Coulomb lanes must come back refused per lane.
+- 5 Coulomb lanes (a triangle, two boxes and two pentagons) must agree to
+  1e-9 with original IREGI's consistency-checked arrays.
 
-The fixture keeps original IREGI's consistency-checked arrays for the
-Coulomb lanes, for when TIRust supports them.
+The Coulomb triangle's scalar moment must also equal the v = 0 value
+C0 = −(m²)^(−1−ε) Γ(1+ε) / (2ε(1 + 2ε)), to 1e-12.
 
 ## Files
 
@@ -253,6 +303,7 @@ Coulomb lanes, for when TIRust supports them.
 | `run.py` | runs every code; references; E/A per lane (`deltas-*.jsonl`) |
 | `affine_reference.py` | exact denominator-identity references |
 | `coulomb_check.py` | consistency of original IREGI on the Coulomb integrals |
+| `coulomb_closed_form.py` | closed form of the Coulomb triangle at every rank |
 | `summarize.py` | per-topology summary (`summary.json`, `summary.md`) |
 | `make_fixture.py` | the regression test's fixture |
 | `build.py` | binaries and their provenance (`target/onia/build.json`) |

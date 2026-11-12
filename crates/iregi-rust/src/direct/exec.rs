@@ -61,6 +61,15 @@ pub struct DirectProfile {
     pub output: std::time::Duration,
 }
 
+/// The denominator identity of an affinely dependent propagator set.
+enum AffineRelation<T: NativeFloat> {
+    /// `sum_i c_i D_i = 1`: the weights `c` in member order.
+    Constant(Vec<C<T>>),
+    /// `sum_i c_i D_i = 0` (linearly dependent propagators): `c` in member
+    /// order, unnormalized.
+    Homogeneous(Vec<C<T>>),
+}
+
 /// Why a lane's geometry cannot use the current plan variant.
 enum GeometryFailure {
     /// Singular or ill-conditioned Gram system of this subset; it may be
@@ -178,10 +187,12 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     plan: Arc<DirectPlanData>,
     base_plan: Arc<DirectPlanData>,
     /// Variants keyed by their minimal degenerate subsets.
-    variants: HashMap<(Vec<SubsetMask>, Vec<SubsetMask>), (Arc<DirectPlanData>, Arc<Vec<T>>)>,
+    variants: HashMap<(Vec<SubsetMask>, Vec<SubsetMask>, Vec<(SubsetMask, usize)>), (Arc<DirectPlanData>, Arc<Vec<T>>)>,
     lightlike_profile: Vec<SubsetMask>,
     base_constants: Arc<Vec<T>>,
     relation_profile: Vec<SubsetMask>,
+    /// Linearly dependent subsets of the lane and their raised member.
+    homogeneous_profile: Vec<(SubsetMask, usize)>,
     prototype: T,
     zero: C<T>,
     one: C<T>,
@@ -516,6 +527,7 @@ where
             base_constants: constants.clone(),
             variants: HashMap::new(),
             relation_profile: Vec::new(),
+            homogeneous_profile: Vec::new(),
             lightlike_profile: Vec::new(),
             constants,
             evaluators,
@@ -1300,7 +1312,7 @@ where
     /// The constant-one identity `sum_i c_i D_i = 1` over `members`, if their
     /// external points are affinely dependent: `sum c_i = 0`, `sum c_i q_i = 0`
     /// and `sum c_i (q_i^2 - m_i^2) = 1`. `c` follows the member order.
-    fn affine_relation(&self, members: &[usize]) -> Result<Vec<C<T>>, String> {
+    fn affine_relation(&self, members: &[usize]) -> Result<AffineRelation<T>, String> {
         let k = members.len();
         if k < 2 {
             return Err("a single propagator has no denominator identity".into());
@@ -1397,27 +1409,34 @@ where
             constant_bound += (cnorm2(&v[j]) * &cnorm2(&f)).sqrt();
             cfma(&mut constant, &v[j], &f);
         }
-        if cnorm2(&constant).sqrt() <= constant_bound * &self.binary_tolerance(33) {
-            return Err(format!("homogeneous denominator relation among {members:?}"));
-        }
-        let inverse = cinv(&constant);
-        let mut weights = Vec::with_capacity(k);
         let mut sum = self.zero.clone();
         for value in &v {
             sum = cadd(&sum, value);
         }
+        if cnorm2(&constant).sqrt() <= constant_bound * &self.binary_tolerance(33) {
+            // The constant vanishes to the inputs' rounding: the propagators
+            // themselves are linearly dependent (Coulomb exchange).
+            let mut c = Vec::with_capacity(k);
+            c.push(csub(&self.zero, &sum));
+            c.extend(v);
+            return Ok(AffineRelation::Homogeneous(c));
+        }
+        let inverse = cinv(&constant);
+        let mut weights = Vec::with_capacity(k);
         weights.push(csub(&self.zero, &cmul(&sum, &inverse)));
         for value in &v {
             weights.push(cmul(value, &inverse));
         }
-        Ok(weights)
+        Ok(AffineRelation::Constant(weights))
     }
 
     /// Minimal support of the affine relation of a singular subset.
     #[inline(never)]
-    fn relation_support(&self, mask: SubsetMask) -> Result<SubsetMask, String> {
+    fn relation_support(&self, mask: SubsetMask) -> Result<(SubsetMask, bool), String> {
         let member_list: Vec<usize> = members(mask);
-        let weights = self.affine_relation(&member_list)?;
+        let weights = match self.affine_relation(&member_list)? {
+            AffineRelation::Constant(weights) | AffineRelation::Homogeneous(weights) => weights,
+        };
         let largest = weights
             .iter()
             .map(cnorm2)
@@ -1430,24 +1449,52 @@ where
             }
         }
         let support_members: Vec<usize> = members(support);
-        self.affine_relation(&support_members)?;
-        Ok(support)
+        let homogeneous = matches!(self.affine_relation(&support_members)?, AffineRelation::Homogeneous(_));
+        Ok((support, homogeneous))
+    }
+
+    /// The member of a linearly dependent set whose power the partial
+    /// fraction raises: a massless one (the Coulomb gluon), whose doubled
+    /// propagator the master jets and their closed form handle.
+    fn raised_member(&self, support: SubsetMask) -> Option<usize> {
+        members(support)
+            .into_iter()
+            .find(|&member| self.masses[member].re.is_zero() && self.masses[member].im.is_zero())
+    }
+
+    /// Partial fractions of the linearly dependent subsets: their order-0
+    /// moments from the order-1 Taylor coefficients of their pinches.
+    fn run_homogeneous(&mut self, plan: &DirectPlanData) {
+        for instruction in &plan.homogeneous_program {
+            let mut acc = lzero(&self.zero);
+            for term in &plan.terms[instruction.terms.0 as usize..instruction.terms.1 as usize] {
+                let factor = cscale(&self.geometry[term.geometry as usize], &self.constants[term.constant as usize]);
+                lfma(&mut acc, &factor, &self.values_jet[0][term.src as usize]);
+            }
+            self.values[instruction.dst as usize] = acc;
+        }
     }
 
     /// Switch the lane to the plan variant of `relation_profile`.
     fn select_variant(&mut self) -> Result<(), ReductionError> {
-        let key = (self.relation_profile.clone(), self.lightlike_profile.clone());
-        if self.relation_profile.is_empty() && self.lightlike_profile.is_empty() {
+        let key = (
+            self.relation_profile.clone(),
+            self.lightlike_profile.clone(),
+            self.homogeneous_profile.clone(),
+        );
+        if self.relation_profile.is_empty() && self.lightlike_profile.is_empty() && self.homogeneous_profile.is_empty()
+        {
             self.plan = self.base_plan.clone();
             self.constants = self.base_constants.clone();
         } else if let Some((plan, constants)) = self.variants.get(&key) {
             self.plan = plan.clone();
             self.constants = constants.clone();
         } else {
-            let plan = Arc::new(DirectPlanData::with_profile_boost(
+            let plan = Arc::new(DirectPlanData::with_full_profile(
                 self.base_plan.settings.clone(),
                 &self.relation_profile,
                 &self.lightlike_profile,
+                &self.homogeneous_profile,
                 self.base_plan.top_child_boost,
             )?);
             let constants: Arc<Vec<T>> = Arc::new(
@@ -1468,6 +1515,14 @@ where
             self.geometry.resize(plan.geometry_count, self.zero.clone());
         }
         let (value_count, geometry_count) = (plan.value_count, plan.geometry_count);
+        // A Coulomb-exchange variant carries jets its base plan has not.
+        let orders = plan.jet.map_or(0, |(_, k)| k - 1);
+        while self.values_jet.len() < orders {
+            self.values_jet.push(vec![lzero(&self.zero); value_count]);
+        }
+        while self.geometry_jet.len() < orders {
+            self.geometry_jet.push(vec![self.zero.clone(); geometry_count.max(1)]);
+        }
         for values in &mut self.values_jet {
             if values.len() < value_count {
                 values.resize(value_count, lzero(&self.zero));
@@ -1491,11 +1546,39 @@ where
         let n = plan.settings.propagators;
         let threshold = self.stability_threshold.clone();
         for relation in &plan.relations {
-            let weights = self
-                .affine_relation(&relation.members)
-                .map_err(GeometryFailure::Relation)?;
+            let weights = match self.affine_relation(&relation.members).map_err(GeometryFailure::Relation)? {
+                AffineRelation::Constant(weights) => weights,
+                AffineRelation::Homogeneous(_) => {
+                    return Err(GeometryFailure::Relation(format!(
+                        "propagators {:?} are linearly dependent on this lane",
+                        relation.members
+                    )))
+                }
+            };
             for (j, weight) in weights.into_iter().enumerate() {
                 self.geometry[relation.weights as usize + j] = weight;
+            }
+        }
+        for relation in &plan.homogeneous {
+            let c = match self.affine_relation(&relation.members).map_err(GeometryFailure::Relation)? {
+                AffineRelation::Homogeneous(c) => c,
+                AffineRelation::Constant(_) => {
+                    return Err(GeometryFailure::Relation(format!(
+                        "propagators {:?} are not linearly dependent on this lane",
+                        relation.members
+                    )))
+                }
+            };
+            let local = relation.members.iter().position(|&m| m == relation.raised).unwrap();
+            if cnorm2(&c[local]).is_zero() {
+                return Err(GeometryFailure::Relation(format!(
+                    "propagator {} has no weight in the relation of {:?}",
+                    relation.raised, relation.members
+                )));
+            }
+            let inverse = cinv(&c[local]);
+            for (j, value) in c.iter().enumerate() {
+                self.geometry[relation.weights as usize + j] = csub(&self.zero, &cmul(value, &inverse));
             }
         }
         let top_mask = plan.subsets.last().map(|subset| subset.mask);
@@ -1686,7 +1769,7 @@ where
                     }
                 }
                 SubsetKind::Pentagon => self.geometry_pentagon(subset, n)?,
-                SubsetKind::Relation(_) => {}
+                SubsetKind::Relation(_) | SubsetKind::Homogeneous(_) => {}
                 SubsetKind::Hexagon => self.geometry_hexagon(subset, n)?,
             }
         }
@@ -2306,7 +2389,7 @@ where
                         }
                     }
                 }
-                SubsetKind::Relation(_) => {}
+                SubsetKind::Relation(_) | SubsetKind::Homogeneous(_) => {}
             }
         }
         Ok(())
@@ -2377,7 +2460,18 @@ where
         };
         let total: u64 = (0..n).map(|i| power(powers, i)).sum();
         let active: Vec<usize> = (0..n).filter(|&i| power(powers, i) > 0).collect();
-        let inverse = self.cayley_inverse(mask)?;
+        let inverse = match self.cayley_inverse(mask) {
+            Ok(inverse) => inverse,
+            Err(error) => {
+                // IR-singular bases with closed forms (Coulomb-exchange
+                // partial fractions reach them).
+                let Some(value) = self.singular_ibp_base(&active, powers) else {
+                    return Err(error);
+                };
+                self.ibp_memo.insert(powers, value.clone());
+                return Ok(value);
+            }
+        };
         let local_l = active.iter().position(|&i| i == l).unwrap();
         let w = powers - ibp_unit(bits, l);
         let base = self.ibp(w)?;
@@ -2403,6 +2497,91 @@ where
         let result: L4<T> = std::array::from_fn(|slot| cscale(&result[slot], &divisor));
         self.ibp_memo.insert(powers, result.clone());
         Ok(result)
+    }
+
+    /// Closed forms of the IR-singular IBP bases (singular Cayley matrix)
+    /// that the Coulomb-exchange partial fractions reach, in OneLOop's
+    /// normalization (slots `[uv, ir1, ir2, finite]`), first order only:
+    /// - a doubled massless tadpole, `int 1/(l^2)^2 = 1/eps_UV - 1/eps_IR`
+    ///   (scaleless);
+    /// - a lightlike (or coincident) bubble of equal masses, total power 3:
+    ///   at `p^2 = 0` the tadpole `int 1/(l^2 - m^2)^3 = -1/(2 m^2)` (finite;
+    ///   zero for `m = 0`, scaleless);
+    /// - the on-shell bubble `(q_a - q_b)^2 = m^2` (to the inputs'
+    ///   rounding, real `m^2 > 0`) with a massless partner, from
+    ///   `J(a, b) = int 1/((l^2)^a ((l + p)^2 - m^2)^b) = (-1)^(a+b)
+    ///   (m^2)^(D/2-a-b) Gamma(a+b-D/2) Gamma(D-2a-b) / (Gamma(b)
+    ///   Gamma(D-a-b))` times `(mu^2)^eps / r_Gamma`:
+    ///   `J(2, 1) = -(1/eps_IR + ln(mu^2/m^2) - 2) / (2 m^2)` (massless line
+    ///   doubled) and `J(1, 2) = (1/eps_IR + ln(mu^2/m^2)) / (2 m^2)`
+    ///   (massive line doubled). Both are UV finite; their poles are soft.
+    /// `None` for every other configuration.
+    fn singular_ibp_base(&self, active: &[usize], powers: u64) -> Option<L4<T>> {
+        use oneloop::rust_codegen::runtime::primitives::log;
+        let n = self.plan.settings.propagators;
+        let bits = self.ibp_bits;
+        let power = |i: usize| ibp_power(powers, bits, i);
+        let massless = |z: &C<T>| z.re.is_zero() && z.im.is_zero();
+        let real = |x: T| C::new(x, self.prototype.zero());
+        match active {
+            &[d] if power(d) == 2 && massless(&self.masses[d]) => Some([
+                self.one.clone(),
+                csub(&self.zero, &self.one),
+                self.zero.clone(),
+                self.zero.clone(),
+            ]),
+            &[a, b] if power(a) + power(b) == 3 && {
+                // A lightlike (or coincident) bubble of equal masses: its
+                // Cayley matrix is singular, and at p^2 = 0 it is the tadpole
+                // int 1/(l^2 - m^2)^3 = (1/2) d B0(0; m, m)/d m^2 = -1/(2 m^2)
+                // (finite; scaleless, hence zero, for m = 0).
+                let p2 = &self.distances[a * n + b];
+                let scale = cnorm2(&self.masses[a]).sqrt();
+                let equal = cnorm2(&csub(&self.masses[a], &self.masses[b])).sqrt()
+                    <= scale.clone() * &self.binary_tolerance(33);
+                equal && cnorm2(p2).sqrt() <= scale * &self.lightlike_tolerance
+            } =>
+            {
+                if massless(&self.masses[a]) {
+                    return Some(lzero(&self.zero));
+                }
+                let half = self.prototype.one() / &self.prototype.from_usize(2);
+                let value = cscale(&cinv(&self.masses[a]), &(self.prototype.zero() - &half));
+                Some([self.zero.clone(), self.zero.clone(), self.zero.clone(), value])
+            }
+            &[a, b] => {
+                let (g, h) = if massless(&self.masses[a]) { (a, b) } else { (b, a) };
+                if !massless(&self.masses[g]) {
+                    return None;
+                }
+                let m2 = &self.masses[h];
+                if !m2.im.is_zero() || !(m2.re > m2.re.zero()) {
+                    return None;
+                }
+                let gap = cnorm2(&csub(&self.distances[g * n + h], m2)).sqrt();
+                if gap > m2.re.clone() * &self.binary_tolerance(33) {
+                    return None;
+                }
+                let mu2 = self.lane_mu2.as_ref()?;
+                let inv = self.prototype.one() / &(m2.re.clone() * &self.prototype.from_usize(2));
+                let logarithm = log(&cmul(mu2, &cinv(m2)));
+                match (power(g), power(h)) {
+                    (2, 1) => {
+                        let minus_inv = self.prototype.zero() - &inv;
+                        let two = real(self.prototype.from_usize(2));
+                        Some([
+                            self.zero.clone(),
+                            real(minus_inv.clone()),
+                            self.zero.clone(),
+                            cscale(&csub(&logarithm, &two), &minus_inv),
+                        ])
+                    }
+                    (1, 2) => Some([self.zero.clone(), real(inv.clone()), self.zero.clone(), cscale(&logarithm, &inv)]),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
     }
 
     /// Taylor coefficients `J(1_S + k e_d)` of every master containing `d`.
@@ -2534,7 +2713,7 @@ where
             for &(_, index) in family {
                 let value = &self.values[index as usize];
                 free &= zero(&value[1]) && zero(&value[2]);
-                for order in &self.values_jet {
+                for order in self.values_jet.iter().take(plan.jet.map_or(0, |(_, k)| k - 1)) {
                     let value = &order[index as usize];
                     free &= zero(&value[1]) && zero(&value[2]);
                 }
@@ -3424,16 +3603,24 @@ where
                 match self.geometry(&plan) {
                     Ok(()) => break plan,
                     Err(GeometryFailure::Relation(error)) => {
-                        if self.relation_profile.is_empty() && self.lightlike_profile.is_empty() {
+                        if self.relation_profile.is_empty()
+                            && self.lightlike_profile.is_empty()
+                            && self.homogeneous_profile.is_empty()
+                        {
                             failure = Some(error);
                             break plan;
                         }
                         self.relation_profile.clear();
                         self.lightlike_profile.clear();
+                        self.homogeneous_profile.clear();
                         self.select_variant()?;
                     }
                     Err(GeometryFailure::Lightlike(mask)) => {
-                        if self.plan.jet.is_some() || self.lightlike_profile.contains(&mask) {
+                        // A lightlike bubble without the dotted propagator has
+                        // vanishing jets (its geometry and masters do not
+                        // depend on that mass).
+                        let dotted_inside = self.plan.jet.is_some_and(|(d, _)| mask & (1 << d) != 0);
+                        if dotted_inside || self.lightlike_profile.contains(&mask) {
                             failure = Some(format!(
                                 "lightlike bubble {mask:#b} unsupported for dotted propagators"
                             ));
@@ -3449,13 +3636,35 @@ where
                     }
                     Err(GeometryFailure::Singular(mask, error)) => {
                         match self.relation_support(mask) {
-                            Ok(support)
+                            Ok((support, false))
                                 if !self.relation_profile.contains(&support)
                                     && !(batched_masters && support != 0) =>
                             {
                                 self.relation_profile.push(support);
                                 self.relation_profile.sort_unstable();
                                 self.select_variant()?;
+                            }
+                            Ok((support, true))
+                                if !batched_masters
+                                    && !self.homogeneous_profile.iter().any(|&(h, _)| h == support) =>
+                            {
+                                // Linearly dependent propagators (Coulomb
+                                // exchange): partial fractions with a raised
+                                // massless member.
+                                let Some(raised) = self.raised_member(support) else {
+                                    failure = Some(format!(
+                                        "{error}; linearly dependent propagators {support:#b} without a massless member"
+                                    ));
+                                    break plan;
+                                };
+                                self.homogeneous_profile.push((support, raised));
+                                self.homogeneous_profile.sort_unstable();
+                                if let Err(variant) = self.select_variant() {
+                                    self.homogeneous_profile.clear();
+                                    failure = Some(format!("{error}; {variant}"));
+                                    self.select_variant()?;
+                                    break plan;
+                                }
                             }
                             _ => {
                                 failure = Some(error);
@@ -3578,12 +3787,15 @@ where
             }
             let started = self.timer();
             self.run_program(&plan, true);
+            if !plan.homogeneous_program.is_empty() {
+                self.run_homogeneous(&plan);
+            }
             if let Some(started) = started {
                 self.profile.recurrence += started.elapsed();
             }
             let started = self.timer();
             let mut finite = true;
-            let output_order = plan.jet.map_or(0, |(_, k)| k - 1);
+            let output_order = plan.output_order;
             let source = if output_order == 0 {
                 &self.values
             } else {

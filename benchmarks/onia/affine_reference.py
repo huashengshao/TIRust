@@ -211,6 +211,28 @@ def quad_general(key, rank, mu, mode):
     return translate(moments, a, rank) if zero is None else moments
 
 
+def iregi_general(key, rank, mu):
+    """Binary64 IREGI general API (powers), first row with a zero shift; the
+    moments are translated back when no shift is zero."""
+    rows = list(key)
+    zero = next((i for i, (q, _, _) in enumerate(rows) if all(x == 0 for x in q)), None)
+    a = (Fraction(0),) * 4
+    if zero is not None:
+        rows.insert(0, rows.pop(zero))
+    else:
+        a = rows[0][0]
+        rows = [(tuple(x - y for x, y in zip(q, a)), m2, nu) for q, m2, nu in rows]
+    n = len(rows)
+    head = f"BENCH s general 0 {n} {rank} 0 {mu!r} 1 0 1 1\n"
+    text = head + "".join(" ".join(repr(float(x)) for x in q) + f" ({float(m2)!r},0.0) {nu}\n" for q, m2, nu in rows)
+    res, _ = run.results([str(run.IREGI)], text + "QUIT\n")
+    lane = res[0]["lanes"][0] if res else None
+    if not lane or lane.get("status") != "success":
+        return None
+    moments = lane["moments"]
+    return translate(moments, a, rank) if zero is None else moments
+
+
 def evaluate(group, mu):
     """group: list of (key, rank), all with the same (n, rank, powers); key is
     a canonical tuple of (q, m2, power). Returns {(key, rank): (status,
@@ -238,6 +260,15 @@ def evaluate(group, mu):
                 out[(key, rank)] = (f"confirmed by {name}" + (" (dotted)" if dotted else ""), d256, checks[name])
                 break
         else:
+            if dotted:
+                # Quad IREGI's general API overflows its 32-bit factorials on
+                # these; binary64 IREGI (with the factorial repair) confirms
+                # the 256-bit TIRust array instead (non-degenerate integrals).
+                b64 = iregi_general(key, rank, mu)
+                check = run.array_error(b64, d256, rank, n, mu) if b64 and d256 else None
+                if check is not None and check <= CONFIRMATION:
+                    out[(key, rank)] = ("confirmed by binary64 IREGI general API (dotted)", d256, check)
+                    continue
             # Both quad modes disagree: COLLIER's scalar master arbitrates
             # (IR-finite scalars only; both quad modes share IREGI's bundled
             # OneLOop 3.4, whose D0 is wrong on some boxes, README).
