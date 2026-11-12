@@ -11,6 +11,17 @@
 //! `RotationTest::Disabled` those of 027 and 028 (release
 //! `tirust-bench-20261109`).
 //!
+//! Triangles have had the rotation test since the S-wave quarkonium
+//! triangles (`binary64_triangles_are_checked_by_the_rotation_test` in
+//! `tests/direct_engine.rs`), so with the test their lanes now carry an
+//! estimate, which changed the default's hashes. For the pentagon and
+//! hexagon amplitudes, hashed with the triangles' estimates as absent (as
+//! they were), they are still the captures': no array or status changed. In
+//! the heptagon amplitude the test refuses 4 of the 1,120 triangle lanes,
+//! which the double-double tier now serves: against 256 bits they were off
+//! by E/A 7.9e-11 to 2.1e-9 (beyond the request 2^-34, unflagged) and are now
+//! within 1.3e-16; every other triangle lane is unchanged.
+//!
 //! Platform: the hashes cover every bit, so they depend on the C library's
 //! `log`, `exp`, `atan2` and other libm functions behind the scalar masters.
 //! They were captured on x86_64 Linux with glibc 2.42's libm and Rust
@@ -25,7 +36,9 @@
 //! `echo FINAL | cargo run --example amplitude_timing --
 //! tests/fixtures/amplitude-pentagon-r5.json`. Its `fingerprint_on` and
 //! `fingerprint_off` (sharing on and off) must agree, and that value goes
-//! here.
+//! here. The captures' hash with the test (the triangles' estimates absent)
+//! is what the same run prints with a build from before the triangles' test
+//! (main 854b79d).
 use iregi_rust::{
     AmplitudeOptions, AmplitudeWorkspace, BatchResult, KinematicsBatch, ReductionSettings, RotationTest,
     TensorReductionPlan, TensorWorkspaceOptions,
@@ -33,8 +46,9 @@ use iregi_rust::{
 use serde_json::Value;
 use symbolica::domains::float::Complex;
 
-/// FNV-1a as in `examples/amplitude_timing.rs`.
-fn fingerprint(results: &[BatchResult<f64>]) -> u64 {
+/// FNV-1a as in `examples/amplitude_timing.rs`; the estimates of the
+/// integrals `masked` marks are hashed as absent.
+fn fingerprint(results: &[BatchResult<f64>], masked: &[bool]) -> u64 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     let mut eat = |x: u64| {
         for byte in x.to_le_bytes() {
@@ -42,7 +56,7 @@ fn fingerprint(results: &[BatchResult<f64>]) -> u64 {
             hash = hash.wrapping_mul(0x0100_0000_01b3);
         }
     };
-    for result in results {
+    for (result, &masked) in results.iter().zip(masked) {
         for lane in 0..result.rows() {
             match result.lane_with_estimate(lane) {
                 Some(best) => best.values.iter().for_each(|z| {
@@ -54,7 +68,8 @@ fn fingerprint(results: &[BatchResult<f64>]) -> u64 {
             for byte in format!("{:?}", result.statuses[lane]).bytes() {
                 eat(u64::from(byte));
             }
-            eat(result.estimated_errors.get(lane).copied().flatten().map_or(u64::MAX, f64::to_bits));
+            let estimate = if masked { None } else { result.estimated_errors.get(lane).copied().flatten() };
+            eat(estimate.map_or(u64::MAX, f64::to_bits));
         }
     }
     hash
@@ -62,15 +77,17 @@ fn fingerprint(results: &[BatchResult<f64>]) -> u64 {
 
 /// One plan and one batch per integral; every integral takes its members'
 /// shifts and masses from each lane (the amplitude's common routing).
-fn amplitude(spec: &str) -> (Vec<TensorReductionPlan>, Vec<KinematicsBatch<f64>>) {
+fn amplitude(spec: &str) -> (Vec<TensorReductionPlan>, Vec<KinematicsBatch<f64>>, Vec<bool>) {
     let spec: Value = serde_json::from_str(spec).unwrap();
     let lanes = spec["lanes"].as_array().unwrap();
     let mut plans = Vec::new();
     let mut batches = Vec::new();
+    let mut triangles = Vec::new();
     for integral in spec["integrals"].as_array().unwrap() {
         let members: Vec<usize> =
             integral["members"].as_array().unwrap().iter().map(|m| m.as_u64().unwrap() as usize).collect();
         let rank = integral["rank"].as_u64().unwrap() as u16;
+        triangles.push(members.len() == 3);
         plans.push(TensorReductionPlan::new(ReductionSettings::new(members.len(), rank)).unwrap());
         let mut values = Vec::new();
         for lane in lanes {
@@ -82,11 +99,16 @@ fn amplitude(spec: &str) -> (Vec<TensorReductionPlan>, Vec<KinematicsBatch<f64>>
         }
         batches.push(KinematicsBatch { rows: lanes.len(), components: 1, values });
     }
-    (plans, batches)
+    (plans, batches, triangles)
 }
 
-fn check(label: &str, spec: &str, enabled: u64, disabled: u64) {
-    let (plans, batches) = amplitude(spec);
+/// `enabled` and `disabled`: the hashes with the test and without it;
+/// `capture`: capture 026's with the test, which the hash with the
+/// triangles' estimates as absent must equal (`None`: some triangle arrays
+/// changed since).
+fn check(label: &str, spec: &str, enabled: u64, capture: Option<u64>, disabled: u64) {
+    let (plans, batches, triangles) = amplitude(spec);
+    let none = vec![false; plans.len()];
     for (test, expected) in [(RotationTest::Enabled, enabled), (RotationTest::Disabled, disabled)] {
         let options = AmplitudeOptions {
             workspace: TensorWorkspaceOptions { rotation_test: test, ..Default::default() },
@@ -97,25 +119,37 @@ fn check(label: &str, spec: &str, enabled: u64, disabled: u64) {
             workspace.set_subset_sharing(share);
             let results = workspace.reduce_batches(&batches).unwrap();
             assert_eq!(
-                format!("{:016x}", fingerprint(&results)),
+                format!("{:016x}", fingerprint(&results, &none)),
                 format!("{expected:016x}"),
                 "{label}, {test:?}, sharing {share}"
             );
+            if let (RotationTest::Enabled, Some(capture)) = (test, capture) {
+                assert_eq!(
+                    format!("{:016x}", fingerprint(&results, &triangles)),
+                    format!("{capture:016x}"),
+                    "{label}, triangles' estimates absent, sharing {share}"
+                );
+            }
         }
     }
 }
 
 #[test]
 fn pentagon_amplitude_fingerprints_are_the_captures() {
-    check("pentagon", include_str!("fixtures/amplitude-pentagon-r5.json"), 0x2e7a_57a2_a747_69b4, 0x5b55_fb4e_1b7d_4877);
+    let spec = include_str!("fixtures/amplitude-pentagon-r5.json");
+    check("pentagon", spec, 0xd6c3_821e_eeae_dbf5, Some(0x2e7a_57a2_a747_69b4), 0x5b55_fb4e_1b7d_4877);
 }
 
 #[test]
 fn hexagon_amplitude_fingerprints_are_the_captures() {
-    check("hexagon", include_str!("fixtures/amplitude-hexagon-r6.json"), 0x0007_2b2b_c3bf_86bc, 0x4fd7_39ec_d746_b99d);
+    let spec = include_str!("fixtures/amplitude-hexagon-r6.json");
+    check("hexagon", spec, 0xe860_2f5e_9ed0_cea1, Some(0x0007_2b2b_c3bf_86bc), 0x4fd7_39ec_d746_b99d);
 }
 
 #[test]
 fn heptagon_amplitude_fingerprints_are_the_captures() {
-    check("heptagon", include_str!("fixtures/amplitude-heptagon-r7.json"), 0xb23a_5b5d_c0e2_5cb2, 0x3925_2438_efef_2cac);
+    // Capture 026's 0xb23a_5b5d_c0e2_5cb2 no longer applies: 4 triangle
+    // lanes are now rescued (see the module notes).
+    let spec = include_str!("fixtures/amplitude-heptagon-r7.json");
+    check("heptagon", spec, 0x969b_77c8_40b4_f1ac, None, 0x3925_2438_efef_2cac);
 }

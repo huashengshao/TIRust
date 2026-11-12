@@ -717,6 +717,75 @@ fn binary64_boxes_are_checked_by_the_rotation_test() {
     }
 }
 
+/// Rank-3 triangle of S-wave quarkonium production g g > c c~ g (p_c = p_c~
+/// = P/2), point 115 of the quarkonium suite's lattice: shifts 0, k_g2 + P/2
+/// and k_g2 + P/2 + k_g3, every component and invariant exact in binary64.
+/// One leg is lightlike and the other two have nearly equal virtualities
+/// (p_1^2 = -379.88, p_2^2 = -358.91 GeV^2), so the Gram determinant
+/// det(2 p_i.p_j) is small, -2.0e-4 s^2 (s = 1477.59 GeV^2). The 1e-12
+/// binary64 gate accepts both mass patterns below, yet PV keeps only E/A
+/// 2.0e-8 (heavy propagator first, `N3-HLL-Q+g2|g3|Q+g1`) and 1.5e-8 (light
+/// propagator first, `N3-LHH-Q+g2|g3|Q+g1`); the other cyclic orders keep
+/// 3e-11 to 4e-10.
+const QUARKONIUM_TRIANGLE: [[f64; 4]; 3] = [
+    [0.0, 0.0, 0.0, 0.0],
+    [34.28497314453125, -11.43359375, 14.21484375, -34.96502685546875],
+    [-17.0078125, -20.85546875, 3.22265625, 14.2421875],
+];
+/// m_c^2 = P^2 / 4 of that point (exact), and mu.
+const QUARKONIUM_M2: f64 = 2.3941650390625;
+const QUARKONIUM_MU: f64 = 3.0;
+
+#[test]
+fn binary64_triangles_are_checked_by_the_rotation_test() {
+    // Triangles get the loop-rotation test too. Both lanes pass the gate;
+    // their rotated copies differ by about their error, so the test refuses
+    // them: with the precision rescue (the default) the double-double tier
+    // serves them within the request, and in binary64 alone they come back
+    // unstable with that difference as their estimate.
+    use iregi_rust::{PrecisionRescue, TensorEngineExecution, TensorWorkspaceOptions};
+    let m2 = QUARKONIUM_M2;
+    for (label, masses) in [("HLL", [m2, 0.0, 0.0]), ("LHH", [0.0, m2, m2])] {
+        let masses = masses.map(|m| (m, 0.0));
+        let values = row(&QUARKONIUM_TRIANGLE, &masses, QUARKONIUM_MU);
+        let (_, reference) = direct_256(3, 3, &values);
+        let plan = TensorReductionPlan::new(ReductionSettings::new(3, 3)).unwrap();
+        for rescue in [PrecisionRescue::Automatic, PrecisionRescue::Disabled] {
+            let options = TensorWorkspaceOptions { precision_rescue: rescue, ..Default::default() };
+            let mut workspace = TensorWorkspace::new_with_options(&plan, 0.0f64, options).unwrap();
+            let result = workspace
+                .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: values.clone() })
+                .unwrap();
+            let TensorEngineExecution::Direct(stats) = workspace.engine_execution() else {
+                panic!("expected the direct engine");
+            };
+            let notes = workspace.last_diagnostics()[0].clone();
+            assert_eq!((stats.rotation_rows, stats.rotation_failures), (1, 1), "{label} {rescue:?}: {stats:?}");
+            assert!(notes[0].contains("loop-rotation test: binary64 arrays differ"), "{label}: {notes:?}");
+            let error = |lane: &[Complex<f64>]| {
+                general_array_error(&result.basis, 4 - 2 * 3, QUARKONIUM_MU, lane, &reference)
+            };
+            if rescue == PrecisionRescue::Automatic {
+                assert_eq!(result.statuses[0], LaneStatus::Success, "{label}: {notes:?}");
+                assert!(result.fallback_used[0], "{label}: {notes:?}");
+                assert_eq!(stats.precision_rescue.len(), 1, "{label}: {stats:?}");
+                assert_eq!((stats.precision_rescue[0].bits, stats.precision_rescue[0].successes), (106, 1));
+                let error = error(result.lane(0).unwrap());
+                assert!(error <= 1e-15, "{label}: E/A = {error:e}");
+            } else {
+                assert!(matches!(result.statuses[0], LaneStatus::Unstable(_)), "{label}: {notes:?}");
+                // The best binary64 array (the first order's), flagged with
+                // the rotation difference, which is about its error.
+                let best = result.lane_with_estimate(0).expect("a best-effort array");
+                assert!(!best.certified);
+                let (estimate, error) = (best.estimated_error.unwrap(), error(best.values));
+                assert!(error > 2f64.powi(-34) && estimate > 2f64.powi(-34), "{label}: {error:e} {estimate:e}");
+                assert!(estimate > error / 4.0 && estimate < error * 4.0, "{label}: {error:e} {estimate:e}");
+            }
+        }
+    }
+}
+
 /// gg -> HH rank-6 box (stability point box-r6 #759): the a priori Gram gate
 /// refuses it (estimate 3.8e-17), yet binary64 keeps E/A 3.8e-12.
 const GATE_REFUSED_BOX: [[f64; 4]; 4] = [

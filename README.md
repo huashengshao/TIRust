@@ -297,13 +297,14 @@ not from fixed caps, and `DirectReductionPlan::capabilities` reports them (see
 "Inputs, embedder mode and capabilities" below);
 `engine_kind()` reports `Direct`, and `engine_execution()` reports direct
 successes, fallback rows and the fallback's own detail. Binary64 lanes are
-checked by conditioning gates and, for four or more propagators with equal
+checked by conditioning gates and, for three or more propagators with equal
 powers, a loop-rotation test (the same integral with relabelled propagators,
 tolerance the requested accuracy, 2^-34 by default; a lane within 4 bits of
-the tolerance must also agree in a third cyclic order). Refused lanes where
-COLLIER's a priori PV estimate 2^-52 w^r exceeds the request for some box or
-triangle (five to seven propagators, rank <= 7) are first evaluated again with
-those boxes and triangles off PV. Lanes the a priori gate refuses are
+the tolerance must also agree in a third cyclic order; triangles keep the
+engine's 1e-12 gate, boxes and larger integrals run at 1e-15). Refused lanes
+where COLLIER's a priori PV estimate 2^-52 w^r exceeds the request for some
+box or triangle (five to seven propagators, rank <= 7) are first evaluated
+again with those boxes and triangles off PV. Lanes the a priori gate refuses are
 evaluated again below it, then with refused boxes and triangles
 computed by the small-Gram expansions of Denner and Dittmaier (hep-ph/0509141:
 small Gram determinant, and small Gram with small modified Cayley

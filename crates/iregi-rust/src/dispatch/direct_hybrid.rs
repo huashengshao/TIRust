@@ -1,13 +1,16 @@
 //! Binary64 default: the direct numerical engine with per-lane fallback.
 //!
 //! The direct engine evaluates the validated PV recurrence numerically. With
-//! four or more propagators and equal powers (Gram recursions, whose rounding
+//! three or more propagators and equal powers (Gram recursions, whose rounding
 //! a conditioning estimate predicts poorly) every binary64 lane is evaluated a
 //! second time with its propagators rotated, the same integral through
 //! different Gram systems, as in MadLoop's loop-direction test; a relative
 //! difference above the requested accuracy (2^-34 by default) or a refused
 //! rotated copy refuses the lane. A lane within `NEAR_MARGIN_BITS` of the
 //! tolerance is evaluated in a third cyclic order, which must agree too.
+//! Triangles keep the direct engine's own gate (1e-12) and the retries they
+//! had before the test (`lowered_gate`): the test only checks the lanes that
+//! gate accepts.
 //!
 //! Which retries a refused lane gets depends on the precision rescue. In both
 //! settings, refused five- and six-point lanes first get the consensus of
@@ -125,8 +128,9 @@ pub(super) const RESCUE_MARGIN: u32 = 8;
 
 /// Largest accepted E/A between a binary64 lane and its rotated copy.
 const ROTATION_TOLERANCE: f64 = 1.0 / (1u64 << 34) as f64;
-/// Binary64 conditioning gate of plans with the loop-rotation test (N >= 4,
-/// uniform powers). The test checks every accepted lane a posteriori, so the
+/// Binary64 conditioning gate of box and larger plans with the loop-rotation
+/// test (N >= 4, uniform powers: `lowered_gate`; triangles keep the direct
+/// engine's 1e-12). The test checks every accepted lane a posteriori, so the
 /// a priori gate only removes hopeless lanes: on physical gg->Hgg pentagons
 /// and gg->gggg hexagons (stability-20261030) the default `1e-12` refused
 /// lanes of which most were good to 1e-10. The gate alone bounds nothing:
@@ -167,7 +171,7 @@ const NEAR_MARGIN_BITS: i32 = 4;
 /// per lane against 0.07-2 ms; on stability-20261030 no PV lane the rotation
 /// test accepted was improved by them.
 fn estimate_choice(settings: &ReductionSettings) -> bool {
-    rotation_tested(settings) && (4..=7).contains(&settings.propagators) && settings.rank <= 7
+    lowered_gate(settings) && (4..=7).contains(&settings.propagators) && settings.rank <= 7
 }
 
 /// Refused lanes the per-box choice kept with an agreement worse than this
@@ -194,7 +198,25 @@ pub(crate) const UNCHECKED_NOTE: &str =
 /// rank-4 and 214 of 10000 rank-6 boxes beyond the tolerance 2^-34 (up to
 /// E/A 7.0e-6 and 1.6e-7); the rotation test refuses 117 and 231 of the
 /// lanes the gate accepts there, and the same points stay within 6.7e-11.
+/// Triangles too: on the S-wave quarkonium points of g g > c c~ g (rank-3
+/// triangles with one lightlike leg and two nearly equal virtualities, a
+/// small Gram determinant) the 1e-12 gate alone accepted 22 of 400 lanes
+/// beyond 2^-34 (up to E/A 2.0e-8), and in the gg -> ggggg amplitude
+/// (stability heptagon points, every pinch) 4 of its 1,120 triangle lanes (up
+/// to 2.1e-9). Their rotated copies differ by about the error, as the other
+/// orders' Gram systems are better conditioned; the test refuses all 26 and
+/// the double-double tier serves them within 1.3e-16.
 fn rotation_tested(settings: &ReductionSettings) -> bool {
+    settings.propagators >= 3 && uniform_powers(settings)
+}
+
+/// Whether the binary64 passes run at `ROTATION_GATE` instead of the direct
+/// engine's own gate (1e-12) and the double-double tier is checked by the
+/// rotation test too: four or more propagators of equal powers. Triangles
+/// keep the gate and the unchecked double-double tier they had before their
+/// rotation test, so the lanes the gate refuses take the same route and get
+/// the same values as before; the test only checks the lanes it accepts.
+fn lowered_gate(settings: &ReductionSettings) -> bool {
     settings.propagators >= 4 && uniform_powers(settings)
 }
 
@@ -352,7 +374,7 @@ pub struct DirectExecutionStats {
     pub precision_rescue: Vec<DirectRescueTier>,
     /// Lanes passed on to the symbolic engine.
     pub symbolic_rows: usize,
-    /// Binary64 lanes re-evaluated with rotated propagators (N >= 4, equal powers), and
+    /// Binary64 lanes re-evaluated with rotated propagators (N >= 3, equal powers), and
     /// those whose rotated copy disagreed or was refused.
     pub rotation_rows: usize,
     pub rotation_failures: usize,
@@ -459,7 +481,7 @@ where
             .direct
             .workspace_with_masters(prototype.clone(), masters_for(options.master_policy))?;
         direct.set_profiling(options.profiling);
-        if rotation_tested(plan.direct.settings()) {
+        if lowered_gate(plan.direct.settings()) {
             direct.set_stability_threshold(from_binary64(&prototype, ROTATION_GATE));
         }
         if options.precision_rescue == PrecisionRescue::Automatic {
@@ -555,7 +577,7 @@ where
     }
 
     /// The effective setting: `Disabled` where the first pass never runs the
-    /// test (fewer than four propagators or unequal powers).
+    /// test (fewer than three propagators or unequal powers).
     pub(crate) fn rotation_test_setting(&self) -> RotationTest {
         if rotation_tested(self.plan.direct.settings()) {
             self.options.rotation_test
@@ -681,7 +703,7 @@ where
         result: &BatchResult<T>,
         profile: &mut ExecutionProfile,
     ) -> Result<(), ReductionError> {
-        if !rotation_tested(self.plan.direct.settings()) {
+        if !lowered_gate(self.plan.direct.settings()) {
             return Ok(());
         }
         let bits = RESCUE_BITS[0];
@@ -827,7 +849,7 @@ where
                 .workspace_with_masters(self.prototype.clone(), masters_for(self.options.master_policy))?;
             if expansion {
                 // The a priori gate decides which boxes are expanded.
-                if rotation_tested(self.plan.direct.settings()) {
+                if lowered_gate(self.plan.direct.settings()) {
                     workspace.set_stability_threshold(from_binary64(&self.prototype, ROTATION_GATE));
                 }
                 if stage == 4 {
@@ -837,7 +859,7 @@ where
                         workspace.enable_partial_rescue(rescue_threshold(RESCUE_BITS[0]));
                     }
                 } else if stage == 3 {
-                    let gate = if rotation_tested(self.plan.direct.settings()) { ROTATION_GATE } else { 1e-12 };
+                    let gate = if lowered_gate(self.plan.direct.settings()) { ROTATION_GATE } else { 1e-12 };
                     workspace.enable_gram_expansion_everywhere(GRAM_BOOST, from_binary64(&self.prototype, gate));
                 } else if stage == 2 {
                     workspace.enable_alternative_pv();
@@ -1162,7 +1184,7 @@ where
         Ok(result)
     }
 
-    /// Loop-rotation test of [`Self::reduce_batch`] (four or more points):
+    /// Loop-rotation test of [`Self::reduce_batch`] (three or more points):
     /// each accepted lane against its rotated copy, and near misses against
     /// a third cyclic order.
     #[inline(never)]
@@ -1538,7 +1560,7 @@ where
                     .direct
                     .workspace_with_masters(self.prototype.clone(), masters_for(self.options.master_policy))?;
                 if stage == 0 {
-                    if rotation_tested(self.plan.direct.settings()) {
+                    if lowered_gate(self.plan.direct.settings()) {
                         workspace.set_stability_threshold(from_binary64(&self.prototype, ROTATION_GATE));
                     }
                     workspace.enable_gram_expansion(GRAM_BOOST);

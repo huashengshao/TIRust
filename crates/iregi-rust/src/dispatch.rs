@@ -504,10 +504,16 @@ pub enum PrecisionRescue {
 /// misses against a third cyclic order too). The difference is the lane's
 /// `estimated_errors` entry, and a disagreement sends the lane to the
 /// retries and the precision rescue. The test only runs in binary64
-/// workspaces of the direct engine, for four or more propagators of equal
-/// powers; everywhere else (fewer propagators, other powers, other number
+/// workspaces of the direct engine, for three or more propagators of equal
+/// powers; everywhere else (bubbles and tadpoles, other powers, other number
 /// types, other engines, embedder mode) this option changes nothing, and
-/// [`TensorWorkspace::rotation_test`] reports `Disabled`.
+/// [`TensorWorkspace::rotation_test`] reports `Disabled`. Triangles have had
+/// the test since S-wave quarkonium kinematics (g g > c c~ g, rank 3, a small
+/// Gram determinant) showed their gate alone accepting lanes off by up to
+/// E/A 2.0e-8 (and 4 of the 1,120 triangle lanes of the benchmark's
+/// gg -> ggggg amplitude, up to 2.1e-9); they keep the gate they had without
+/// it (the direct engine's 1e-12, where boxes and larger integrals run at
+/// 1e-15).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum RotationTest {
     /// Every lane the first pass's gates accept is checked by the rotation
@@ -539,8 +545,9 @@ pub enum RotationTest {
     /// checked retries (each kept by its rotation agreement), the precision
     /// rescue with the double-double tier's rotation check, the symbolic
     /// fallback and the best-effort arrays. The first pass keeps the gate it
-    /// runs with the test (1e-15), so gate-refused lanes take the same route
-    /// and get the same values with the test enabled or disabled.
+    /// runs with the test (1e-15; 1e-12 for triangles), so gate-refused lanes
+    /// take the same route and get the same values with the test enabled or
+    /// disabled.
     ///
     /// Compared with embedder mode ([`TensorWorkspace::new_embedded`], with a
     /// [`crate::TensorStore`] or not), which runs no rotation test either:
@@ -1476,16 +1483,16 @@ where
 
     /// The effective setting, as [`Self::precision_rescue`] reports its own:
     /// `Enabled` only where later calls run the test (the binary64 facade's
-    /// direct engine, four or more propagators of equal powers, the test
-    /// enabled), and `Disabled` everywhere else, whatever was set: fewer
-    /// propagators, unequal powers, other number types, other engines and
+    /// direct engine, three or more propagators of equal powers, the test
+    /// enabled), and `Disabled` everywhere else, whatever was set: bubbles,
+    /// tadpoles, unequal powers, other number types, other engines and
     /// embedder mode run no rotation test, and mark or count no lane as
     /// unchecked either.
     ///
     /// The getter reports the effect; the configuration is
     /// [`TensorWorkspaceOptions::rotation_test`] (or
     /// [`Self::set_rotation_test`]). Configure other workspaces from the
-    /// options, not from this getter: its `Disabled` from a triangle,
+    /// options, not from this getter: its `Disabled` from a bubble,
     /// double-double or embedder-mode workspace would turn the test of a
     /// binary64 box workspace off.
     pub fn rotation_test(&self) -> RotationTest {
