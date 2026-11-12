@@ -40,6 +40,12 @@ ordering, incoming state and PDG codes. Before passing denominators to the
 reducer, turn `s=-1` into the canonical `q + s*sum(c_i*p_i)` routing. The
 numerator remains a polynomial in the selected `q`.
 
-The current graph path accepts one-loop graphs whose internal propagators all
-depend on the loop momentum. It reports open tensor components, nonpolynomial
-loop dependence and internal tree propagators as explicit preparation errors.
+`prepare_dot` and `prepare_diagram` accept one-loop graphs whose internal
+propagators all depend on the loop momentum. They report open tensor
+components, nonpolynomial loop dependence and internal tree propagators as
+explicit preparation errors. `prepare_dot_with_tree_propagators` and
+`prepare_diagram_with_tree_propagators` accept loop-independent internal
+propagators as well (an s-channel propagator, the tree leg of a vertex
+correction), and list them in `tree_propagators`. Their Feynman-rule numerators
+are part of the numerator, and the caller multiplies by `1/(p^2 - m^2)` for
+each.

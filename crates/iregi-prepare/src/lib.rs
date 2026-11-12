@@ -116,6 +116,14 @@ pub struct PreparedGraph {
     pub name: String,
     pub numerator: PreparedNumerator,
     pub propagators: Vec<PropagatorRouting>,
+    /// Loop-independent internal propagators (`loop_coefficient == 0`), such
+    /// as the s-channel gluon or the tree leg of a vertex correction; empty
+    /// unless prepared by `prepare_dot_with_tree_propagators` (or
+    /// `prepare_diagram_with_tree_propagators`). Their Feynman-rule numerators
+    /// are part of `numerator`; their denominators are not: the caller
+    /// multiplies by `1 / (p^2 - m^2)` for each, with `p = sum(c_i p_i)` from
+    /// `external_coefficients`.
+    pub tree_propagators: Vec<PropagatorRouting>,
     /// Physical edge IDs corresponding to external routing coefficient slots.
     pub external_edges: Vec<usize>,
     pub external_legs: Vec<PreparedExternalLeg>,
@@ -135,6 +143,8 @@ pub enum PrepareError {
     OpenTensor { rank: usize },
     #[error("numerator is not a polynomial in the four loop components: {0}")]
     NonPolynomial(String),
+    /// Returned by `prepare_dot` and `prepare_diagram`; the
+    /// `*_with_tree_propagators` variants list such edges instead.
     #[error("unsupported propagator {edge}: its momentum does not depend on the loop")]
     TreePropagator { edge: usize },
 }
@@ -143,11 +153,39 @@ pub fn loop_variables() -> [Atom; 4] {
     ["iregi::q0", "iregi::q1", "iregi::q2", "iregi::q3"].map(|name| Atom::var(symbol!(name)))
 }
 
-/// Import an immutable model snapshot and a compact or serialized FeynKit DOT graph.
+/// Load a FeynKit JSON model snapshot (as `prepare_dot` does), for callers
+/// that drive FeynKit's diagram generator on the same model.
+pub fn load_model(json: &str) -> Result<feynkit_model::Model, PrepareError> {
+    model::from_json(json)
+}
+
+/// Import an immutable model snapshot and a compact or serialized FeynKit DOT
+/// graph. Every internal propagator must depend on the loop momentum
+/// (`PrepareError::TreePropagator` otherwise).
 pub fn prepare_dot(
     model_json: &str,
     dot: &str,
     options: &PrepareOptions,
+) -> Result<PreparedGraph, PrepareError> {
+    prepare_dot_inner(model_json, dot, options, false)
+}
+
+/// As `prepare_dot`, for graphs with loop-independent internal propagators:
+/// they are listed in `PreparedGraph::tree_propagators`, and their
+/// denominators are the caller's.
+pub fn prepare_dot_with_tree_propagators(
+    model_json: &str,
+    dot: &str,
+    options: &PrepareOptions,
+) -> Result<PreparedGraph, PrepareError> {
+    prepare_dot_inner(model_json, dot, options, true)
+}
+
+fn prepare_dot_inner(
+    model_json: &str,
+    dot: &str,
+    options: &PrepareOptions,
+    tree_propagators: bool,
 ) -> Result<PreparedGraph, PrepareError> {
     // Register canonical tensor declarations before parsing user-supplied DOT.
     idenso::representations::initialize();
@@ -159,12 +197,29 @@ pub fn prepare_dot(
     let model = Arc::new(model::from_json(model_json)?);
     let diagram =
         FeynmanDiagram::from_dot(model, dot).map_err(|e| PrepareError::Graph(e.to_string()))?;
-    prepare_diagram(&diagram, options)
+    prepare_diagram_inner(&diagram, options, tree_propagators)
 }
 
 pub fn prepare_diagram(
     diagram: &FeynmanDiagram,
     options: &PrepareOptions,
+) -> Result<PreparedGraph, PrepareError> {
+    prepare_diagram_inner(diagram, options, false)
+}
+
+/// As `prepare_diagram`, listing loop-independent internal propagators in
+/// `PreparedGraph::tree_propagators` (see `prepare_dot_with_tree_propagators`).
+pub fn prepare_diagram_with_tree_propagators(
+    diagram: &FeynmanDiagram,
+    options: &PrepareOptions,
+) -> Result<PreparedGraph, PrepareError> {
+    prepare_diagram_inner(diagram, options, true)
+}
+
+fn prepare_diagram_inner(
+    diagram: &FeynmanDiagram,
+    options: &PrepareOptions,
+    allow_tree_propagators: bool,
 ) -> Result<PreparedGraph, PrepareError> {
     if diagram.loop_count() != 1 {
         return Err(PrepareError::LoopCount(diagram.loop_count()));
@@ -222,6 +277,7 @@ pub fn prepare_diagram(
     let numerator = polynomial_from_expression(&scalar, variables)?;
     let basis = diagram.loop_momentum_basis();
     let mut propagators = Vec::new();
+    let mut tree_propagators = Vec::new();
     let mut external_legs = Vec::new();
     for (edge_id, _, edge) in diagram.edges() {
         if let Some(external) = &edge.external {
@@ -245,14 +301,15 @@ pub fn prepare_diagram(
     {
         let signature = &basis.edge_signatures[&edge_id];
         let loop_coefficient = signature.loops.integer_coefficients()[0] as i8;
-        if loop_coefficient == 0 {
+        if loop_coefficient == 0 && !allow_tree_propagators {
             return Err(PrepareError::TreePropagator { edge: edge_id.0 });
         }
         let particle = diagram
             .model()
             .particle_by_id(edge.particle)
             .map_err(|e| PrepareError::Model(e.to_string()))?;
-        propagators.push(PropagatorRouting {
+        let target = if loop_coefficient == 0 { &mut tree_propagators } else { &mut propagators };
+        target.push(PropagatorRouting {
             edge_id: edge_id.0,
             particle_pdg: particle.pdg_code,
             loop_coefficient,
@@ -269,6 +326,7 @@ pub fn prepare_diagram(
         name: diagram.name().to_owned(),
         numerator,
         propagators,
+        tree_propagators,
         external_edges: basis.external_edges.iter().map(|edge| edge.0).collect(),
         external_legs,
     })

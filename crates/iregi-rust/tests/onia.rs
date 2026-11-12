@@ -185,3 +185,57 @@ fn coulomb_family_in_amplitude_workspace() {
     let ea = e_over_a(&box_values, &case["iregi_reference"], &ranks, n, mu);
     assert!(ea <= 1e-9, "Coulomb box in the amplitude workspace: E/A {ea:e}");
 }
+
+/// Physical 1S0 amplitudes of g g > c c~ at one loop, colour singlet and
+/// octet (benchmarks/onia/swave.py; fixture by make_swave_fixture.py): the
+/// FeynKit diagrams' S-wave-projected numerators, contracted per distinct
+/// loop integral (tree factors included) at the polarizations (e1, e2).
+/// TIRust's amplitude X (native slots [UV, IR1, IR2, finite], X / (2 pi)^4
+/// at the poles, G = 1) must agree with the reference amplitude to 1e-9 and
+/// satisfy, against the Born A0, the pole structure of the bare amplitude:
+/// X_IR2 = -6 pi^2 A0; IR1/IR2 + gamma_E + ln(pi) - ln(mu^2/s) = 1 - C_F/C_A
+/// + i pi (singlet) or 3/2 - C_F/C_A + i pi/2 (octet); X_UV = pi^2 [(2 C_A +
+/// C_F) A0 + 3 C_F m dA0/dm]. Point 5 is boosted, and its soft triangles are
+/// IR-divergent only at the exact lattice m^2 (an ulp-off mass regulates them).
+#[test]
+fn swave_1s0_amplitudes_match_the_reference_and_the_pole_structure() {
+    let fixture: Value = serde_json::from_str(include_str!("fixtures/onia-swave-amplitude.json")).unwrap();
+    let abs = |z: Complex<f64>| z.norm_squared().sqrt();
+    let pair = |v: &Value| Complex::new(number(&v[0]), number(&v[1]));
+    let (ca, cf) = (3.0, 4.0 / 3.0);
+    let pi2 = std::f64::consts::PI.powi(2);
+    let euler_pi = 0.577_215_664_901_532_9 + std::f64::consts::PI.ln();
+    let cases = fixture["cases"].as_array().unwrap();
+    assert!(cases.len() >= 4);
+    for case in cases {
+        let label = format!("{} point {}", case["state"], case["point"]);
+        let mu = number(&case["mu"]);
+        let mut x = [Complex::new(0.0, 0.0); 4];
+        for lane in case["lanes"].as_array().unwrap() {
+            let (moments, _) = evaluate(lane, mu);
+            let moments = moments.unwrap_or_else(|status| panic!("{label}: lane fails: {status:?}"));
+            for term in lane["coefficients"].as_array().unwrap() {
+                let m = term[0].as_u64().unwrap() as usize;
+                let coefficient = Complex::new(number(&term[1]), number(&term[2]));
+                for (slot, value) in x.iter_mut().enumerate() {
+                    *value += coefficient * moments[4 * m + slot];
+                }
+            }
+        }
+        let reference: Vec<_> = (0..4).map(|slot| pair(&case["reference"][slot])).collect();
+        let scale = reference.iter().map(|&z| abs(z)).fold(0.0, f64::max);
+        let error = (0..4).map(|slot| abs(x[slot] - reference[slot])).fold(0.0, f64::max) / scale;
+        assert!(error <= 1e-9, "{label}: amplitude E/A {error:e}");
+
+        let (born, born_dm) = (pair(&case["born"]), pair(&case["born_mass_derivative"]));
+        let double = abs(x[2] / (born * Complex::new(-6.0 * pi2, 0.0)) - Complex::new(1.0, 0.0));
+        assert!(double <= 1e-10, "{label}: double pole {double:e}");
+        let s = number(&case["s"]);
+        let ratio = x[1] / x[2] + Complex::new(euler_pi - (mu * mu / s).ln(), 0.0);
+        let single = abs(ratio - pair(&case["single_pole_target"]));
+        assert!(single <= 1e-10, "{label}: single pole ratio {ratio:?}");
+        let uv_born = (born * Complex::new(2.0 * ca + cf, 0.0) + born_dm * Complex::new(3.0 * cf, 0.0)) * Complex::new(pi2, 0.0);
+        let uv = abs(x[0] / uv_born - Complex::new(1.0, 0.0));
+        assert!(uv <= 1e-10, "{label}: UV pole {uv:e}");
+    }
+}

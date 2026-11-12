@@ -134,6 +134,17 @@ python3 benchmarks/onia/amplitude.py target/onia/families.json target/onia/ampli
 python3 benchmarks/onia/make_fixture.py target/onia/points.json target/onia/affine target/onia/coulomb.json crates/iregi-rust/tests/fixtures/onia-swave.json
 ```
 
+The physical S-wave amplitudes:
+
+```bash
+cargo run -p iregi-prepare --example onia_diagrams -- fixtures/models/sm.json target/onia/diagrams-gg_QQ gg_QQ
+for state in singlet octet; do
+  cargo run -p iregi-prepare --example onia_swave -- fixtures/models/sm.json target/onia/diagrams-gg_QQ target/onia/points.json target/onia/swave-num-$state.json 100 $state
+  python3 benchmarks/onia/swave.py target/onia/swave-num-$state.json target/onia/points.json target/onia/swave-$state.json --workers 16
+done
+python3 benchmarks/onia/make_swave_fixture.py target/onia/points.json target/onia/swave-num-singlet.json target/onia/swave-singlet.json target/onia/swave-num-octet.json target/onia/swave-octet.json crates/iregi-rust/tests/fixtures/onia-swave-amplitude.json 0 5
+```
+
 The build has these prerequisites:
 - The original-IREGI objects under `target/reference/objects`. These are
   MadGraph's vendored IREGI, built with gfortran -O3 by the benchmark
@@ -360,6 +371,116 @@ slowest TIRust families are those whose members need the precision rescue.
 | gg_QQg | `N5-LLHLL-g2\|Q\|Q\|g3\|g1` | 200 | 200 | 200 | 3.2e-13 | 27 | 173 | 0 | 787 us | 833 us | 39.1 ms | 0.020 |
 | gg_QQg | `N5-LLLHL-g2\|g3\|Q\|Q\|g1` | 200 | 200 | 200 | 8.4e-14 | 21 | 179 | 0 | 1.2 ms | 1.1 ms | 41.5 ms | 0.028 |
 
+## Physical S-wave amplitudes: g g > c c~ [1S0]
+
+This section evaluates the one-loop QCD amplitude of g g > c c~ with the pair
+projected onto the 1S0 state at v = 0 (the η_c channel), in the colour singlet
+1S0[1] and the octet 1S0[8]. The numerators come from Feynman rules. The
+amplitude is bare and R1 only: no R2 rational terms and no counterterms, so
+its finite part is not a physical prediction. Its poles are.
+
+**Diagrams** (`crates/iregi-prepare/examples/onia_diagrams.rs`). FeynKit's
+generator runs on `fixtures/models/sm.json` with these settings:
+- QCD order 2 + 2 × loops and QED order 0;
+- Feynman gauge with ghosts;
+- b and t vetoed; u, d and s massless;
+- self-energies on external legs, and tadpoles, vetoed.
+
+That gives 3 tree and 39 one-loop diagrams. 32 of the one-loop diagrams have
+a loop-independent internal propagator: an s-channel gluon, or the tree leg of
+a vertex correction or of an internal self-energy. iregi-prepare's new
+`prepare_dot_with_tree_propagators` lists these in
+`PreparedGraph::tree_propagators`, and the caller multiplies by 1/(p² − m²).
+`prepare_dot` itself still refuses such graphs.
+
+**Projection** (`crates/iregi-prepare/examples/onia_swave.rs`). The DOT
+`projector` replaces the open c line ū(p_c) … v(p_c~) by
+Π₀ = (p̸_c~ − m) γ5 (p̸_c + m) / √(8m³), the Weyl γ5 = iγ⁰γ¹γ²γ³ of spenso.
+The colour projector is:
+- singlet: δ_ij/√3 · δ^ab/√8;
+- octet: Σ_c √2 T^c_ji d^abc / √(40/3) = √(3/20) ({T^a,T^b}_ji − δ_ij δ^ab/3),
+  by Fierz.
+
+Each gluon gets two real linear polarizations, plus k/k⁰ for the Ward
+identity. The coefficients are evaluated at 128 bits on the 100 lattice
+points, with G = 1. 16 diagrams survive the singlet projection and 14 the
+octet one. The other two are the non-abelian boxes with a triple-gluon
+vertex, whose colour factor is 0 against d^abc; explicit Gell-Mann matrices
+give the same 0 (singlet: −6i).
+
+**Amplitude** (`swave.py`):
+- **Integrals.** For each surviving diagram, the integral comes from FeynKit's
+  routing, with the shifts exact on the lattice. Its masses are 0 or the
+  lattice m².
+- **Tree factors** are taken at the same exact momenta.
+- **Tensor arrays** come from three sources:
+  - TIRust (binary64 default);
+  - original IREGI (binary64 IBP);
+  - the reference: the exact denominator identity on degenerate integrals,
+    else TIRust at 256 bits confirmed by quad IREGI or COLLIER, as above.
+- **Contraction.** The arrays are contracted with the coefficients:
+  X = Σ_diagrams tree · Σ_α c_α M_α. X uses the native slots, and the
+  amplitude is X/(2π)⁴ at the poles.
+
+**Physics checks.** These are independent of the integral references. Each of
+the three amplitudes is checked against the Born A0, which swave.py writes
+out from the same Feynman rules: vertex iγ^μT^a, propagator i(p̸+m)/(p²−m²),
+and the same Π₀.
+- **Double pole:** X_IR2 = −6π² A0. This is Catani's −C_A/ε² in units of
+  α_s/2π.
+- **Single pole:** IR1/IR2 + γ_E + ln π − ln(μ²/s) must equal 1 − C_F/C_A + iπ
+  for the singlet and 3/2 − C_F/C_A + iπ/2 for the octet.
+  - Singlet: Catani's two-gluon singlet.
+  - Octet: Becher–Neubert with the pair as one heavy octet of mass 2m.
+  - Both are corrected for the IR parts of the external on-shell field
+    factors that the bare amplitude leaves out: −(5/6 C_A − 2/3 T_F n_l)/ε for
+    the gluons and −C_F/ε for c c~. n_l cancels.
+- **UV pole:** X_UV = π²[(2C_A + C_F) A0 + 3C_F m ∂A0/∂m]. This is minus the
+  MS-bar coupling, on-shell field and on-shell mass counterterms; ∂/∂m acts
+  on internal propagator masses only.
+- **Ward identity:** ε₁ → k₁/k₁⁰ (or ε₂). The amplitude vanishes exactly, but
+  trivially: every Levi-Civita structure needs two independent momenta
+  besides the polarizations, and g g > c c~ at v = 0 has only one. The 00 and
+  11 linear polarizations vanish for the same reason. Milestone 2, g g > c c~ g,
+  will make this check non-trivial.
+
+**Results** (100 lattice points per state). On a physical polarization pair
+the Born is nonzero: 296 pairs in all, since 00 and 11 also contribute where
+the gluons' linear polarizations are not aligned. Errors are
+max |X − X_ref| / max |X_ref| over the four slots. The pole columns give each
+check's worst deviation for the reference, TIRust and IREGI amplitudes.
+
+| state | points (with reference) | polarization pairs | TIRust vs reference: max (pairs <= 1e-12) | IREGI vs reference: max (pairs <= 1e-12) | double pole: reference / TIRust / IREGI | single pole | UV pole |
+|---|---|---|---|---|---|---|---|
+| 1S0[1] | 100 (100) | 296 | 6.8e-12 (290) | 2.9e-12 (291) | 9.6e-13 / 4.0e-12 / 2.6e-12 | 3.7e-12 / 2.4e-11 / 1.6e-11 | 9.3e-15 / 9.3e-15 / 9.4e-15 |
+| 1S0[8] | 100 (100) | 296 | 6.3e-12 (290) | 2.3e-12 (292) | 1.5e-12 / 1.9e-12 / 6.5e-13 | 2.4e-12 / 8.7e-12 / 2.4e-12 | 9.3e-15 / 9.3e-15 / 9.3e-15 |
+
+- Every check holds on every point, in both states and for all three
+  amplitudes.
+- The worst errors are on the most boosted points, with gluon energy ratios
+  of about 300 (points 15 and 24).
+- The Ward entries vanish to 9e-14 of the amplitude scale.
+- This 2 → 1 amplitude has at most boxes, so it does not reach the
+  degenerate pentagons, nor the zero-Gram boxes on which IREGI fails in
+  g g > c c~ g (above).
+- R2 is left out, so the finite parts are not compared with the literature.
+
+**Finding: the on-shell condition is exact in TIRust.** onia_swave binds
+MC = fl(√m²), so the prepared MC² can miss the lattice m² by an ulp. It does
+at point 5, by −2e-16 relative.
+- The rank-2 soft triangles of diagrams 017, 018, 020 and 021 are then off
+  their on-shell, IR-divergent configuration. They have one massive and two
+  massless propagators, on an on-shell massive leg.
+- TIRust correctly returns the regulated integral, with status success: IR2 =
+  0, and ln δ in the IR1 and finite parts, up to 5e4.
+- Original IREGI snaps to on-shell.
+- The singlet hides this, because those four diagrams cancel by colour. The
+  octet's poles were off by 50% (IR2) and by a factor of 73 (IR1).
+
+swave.py therefore snaps the masses to the exact lattice value. An amplitude
+code that squares a rounded mass will hit the same cliff. TIRust has no
+on-shell tolerance.
+
 ## Regression test
 
 `crates/iregi-rust/tests/onia.rs` runs from `tests/fixtures/onia-swave.json`
@@ -375,6 +496,14 @@ slowest TIRust families are those whose members need the precision rescue.
 The Coulomb triangle's scalar moment must also equal the v = 0 value
 C0 = −(m²)^(−1−ε) Γ(1+ε) / (2ε(1 + 2ε)), to 1e-12.
 
+The S-wave amplitude test runs from `tests/fixtures/onia-swave-amplitude.json`
+(`make_swave_fixture.py`). It covers the 1S0 singlet and octet at points 0
+(at rest) and 5 (boosted), at the polarizations (e1, e2): each case's distinct
+loop integrals, with contracted coefficients. For each case:
+- TIRust's amplitude must agree with the reference to 1e-9;
+- its double, single and UV poles must match the Born predictions above to
+  1e-10.
+
 ## Files
 
 | file | role |
@@ -388,6 +517,10 @@ C0 = −(m²)^(−1−ε) Γ(1+ε) / (2ε(1 + 2ε)), to 1e-12.
 | `make_fixture.py` | the regression test's fixture |
 | `families.py` | integral families (parent and pinches, in the parent's routing) |
 | `amplitude.py` | families as amplitudes: TIRust `AmplitudeWorkspace` against IREGI, contracted amplitudes, timing |
+| `swave.py` | physical 1S0 amplitudes of g g > c c~: contraction, Born, pole and Ward checks |
+| `make_swave_fixture.py` | the S-wave amplitude test's fixture |
+| `crates/iregi-prepare/examples/onia_diagrams.rs` | FeynKit diagram generation (DOT files) |
+| `crates/iregi-prepare/examples/onia_swave.rs` | S-wave projection and numerator coefficients per point and polarization |
 | `build.py` | binaries and their provenance (`target/onia/build.json`) |
 | `drivers/iregi_onia.f90` | original-IREGI driver |
 | `drivers/collier_scalar.f90` | COLLIER scalar C0/D0, the arbiter |
