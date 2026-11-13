@@ -601,8 +601,15 @@ pub(crate) struct DirectPlanData {
     /// `coefficient_ranges` entry, or of its pentagon block).
     pub coefficient_terms: Vec<u32>,
     /// Per PV subset mask: value index of `C(lambda, kappa)` (the small-Gram
-    /// expansion fills a refused box from its triangles through these).
+    /// expansion fills a refused box from its triangles through these). Only
+    /// the top's own and its pinches' layouts, for a top of three or four
+    /// propagators, are kept: nothing else reads
+    /// them (`gram::TopLayout`), and the maps of every subset of every plan
+    /// variant were a large share of a variant's memory.
     pub coefficient_lookup: FastMap<SubsetMask, FastMap<(u16, Vec<u16>), u32>>,
+    /// Every PV subset's layout (the structural tests).
+    #[cfg(test)]
+    pub all_coefficient_lookup: FastMap<SubsetMask, FastMap<(u16, Vec<u16>), u32>>,
     /// Extra coefficient ranks of the top subset's pinches (see
     /// `with_top_child_boost`); variants keep it.
     pub top_child_boost: u16,
@@ -1638,6 +1645,16 @@ impl DirectPlanData {
             ));
         }
         let top_subset = &subsets[subset_index[&top]];
+        // The layouts the small-Gram expansion of a top of three or four
+        // propagators reads (`gram::TopLayout`, whatever the top's kind: the
+        // top's own and its pinches'); none for larger tops.
+        let read_layouts: Vec<SubsetMask> = if (3..=4).contains(&top_subset.members.len()) {
+            std::iter::once(top).chain(top_subset.members.iter().map(|&member| top & !(1 << member))).collect()
+        } else {
+            Vec::new()
+        };
+        #[cfg(test)]
+        let all_coefficient_lookup = layouts.iter().map(|(&mask, layout)| (mask, layout.lookup.clone())).collect();
         let output = (0..basis.len() as u32)
             .map(|i| top_subset.moment_base.unwrap() + i)
             .collect();
@@ -1667,7 +1684,13 @@ impl DirectPlanData {
             pentagon_blocks,
             subset_signatures,
             coefficient_terms,
-            coefficient_lookup: layouts.into_iter().map(|(mask, layout)| (mask, layout.lookup)).collect(),
+            coefficient_lookup: layouts
+                .into_iter()
+                .filter(|(mask, _)| read_layouts.contains(mask))
+                .map(|(mask, layout)| (mask, layout.lookup))
+                .collect(),
+            #[cfg(test)]
+            all_coefficient_lookup,
             top_child_boost: boost,
             derived: DerivedPlans::default(),
         })
@@ -1752,7 +1775,7 @@ mod tests {
                     assert_eq!((a as usize..b as usize).contains(&index), inside(instruction.dst), "N{n} pentagon {id}");
                 }
                 assert!(plan.moment_program.iter().all(|instruction| !inside(instruction.dst)));
-                let lookup = &plan.coefficient_lookup[&plan.subsets[id].mask];
+                let lookup = &plan.all_coefficient_lookup[&plan.subsets[id].mask];
                 assert_eq!(2 * lookup.len() as u32, block.count);
                 assert!(lookup.values().all(|&v| inside(v)));
                 signatures.push(plan.subset_signatures[id]);
