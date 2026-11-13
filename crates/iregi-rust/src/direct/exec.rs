@@ -2595,18 +2595,16 @@ where
         };
         let total: u64 = (0..n).map(|i| power(powers, i)).sum();
         let active: Vec<usize> = (0..n).filter(|&i| power(powers, i) > 0).collect();
-        let inverse = match self.cayley_inverse(mask) {
-            Ok(inverse) => inverse,
-            Err(error) => {
-                // IR-singular bases with closed forms (Coulomb-exchange
-                // partial fractions reach them).
-                let Some(value) = self.singular_ibp_base(&active, powers) else {
-                    return Err(error);
-                };
-                self.ibp_memo.insert(powers, value.clone());
-                return Ok(value);
-            }
-        };
+        // IR-singular bases with closed forms (Coulomb-exchange partial
+        // fractions and dotted plans reach them) take precedence whenever
+        // their own test holds. Their Cayley matrix is singular to the
+        // inputs' rounding, so its inverse must not be used, whatever the
+        // stability threshold (a threshold of zero would accept it).
+        if let Some(value) = self.singular_ibp_base(&active, powers) {
+            self.ibp_memo.insert(powers, value.clone());
+            return Ok(value);
+        }
+        let inverse = self.cayley_inverse(mask)?;
         let local_l = active.iter().position(|&i| i == l).unwrap();
         let w = powers - ibp_unit(bits, l);
         let base = self.ibp(w)?;

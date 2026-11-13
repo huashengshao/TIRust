@@ -464,10 +464,6 @@ fn direct256(settings: ReductionSettings, lane: &[Complex<f64>]) -> (LaneStatus,
     (status, to_f64(&values))
 }
 
-fn square(q: [f64; 4]) -> f64 {
-    q[0] * q[0] - q[1] * q[1] - q[2] * q[2] - q[3] * q[3]
-}
-
 /// The exact identity of a triple D_a, D_b, D_c with equally spaced
 /// collinear shifts, D_a + D_c - 2 D_b = K (a constant): the lane is
 /// [I(without D_a) + I(without D_c) - 2 I(without D_b)] / K, with 256-bit
@@ -521,6 +517,14 @@ fn triple_identity(shifts: &[[f64; 4]], masses: &[f64], mu: f64, rank: u16, (a, 
 /// linearly dependent, and its array equals the exact lane's. (Through the
 /// facade, the triangle's loop-rotation test then refuses it; the pentagon
 /// passes that test.)
+/// The rounding window is wider than one ulp (PR #38 review): the tests
+/// bound the rounding by sums of magnitudes, so binary64 accepts the
+/// dependence up to |delta| = 1.5e-14 here (about 80 ulp of M), and 1e-13
+/// after a common translation of the shifts by (40, -30, 25, 10). Inside it,
+/// directly, at a stability threshold of zero and through the facade, a lane
+/// is refused, agrees with the 256-bit reference, or has the v = 0 value (the
+/// exact lane's array). At threshold zero the near on-shell bubbles must
+/// still take their closed forms, not their near-singular Cayley inverses.
 #[test]
 fn nearly_dependent_lanes_are_refused() {
     let k = [5.0, 0.0, 0.0, 4.0];
@@ -589,6 +593,72 @@ fn nearly_dependent_lanes_are_refused() {
             assert!(ea <= 1e-12, "{}, M one ulp above 9, rank {rank}: E/A {ea:e} against the exact lane", exact.0);
         }
     }
+    let translation = [40.0, -30.0, 25.0, 10.0];
+    let translate = |shifts: Vec<[f64; 4]>, by: [f64; 4]| -> Vec<[f64; 4]> {
+        shifts.into_iter().map(|q| plus(q, by, 1.0)).collect()
+    };
+    let mut window: Vec<(String, f64, [f64; 4])> = Vec::new();
+    for delta in [2e-16, -2e-16, 5e-16, 1e-15, -1e-15, 3e-15, 5e-15, 1e-14, 1.5e-14, -1.5e-14] {
+        window.push((format!("M = 9 (1 + {delta:e})"), delta, still));
+    }
+    for delta in [1e-14, 5e-14, 1e-13] {
+        window.push((format!("M = 9 (1 + {delta:e}), translated"), delta, translation));
+    }
+    for (label, delta, by) in &window {
+        for (near, exact) in lanes(9.0 * (1.0 + delta), still).into_iter().zip(lanes(9.0, still)) {
+            let (name, shifts, masses, triple) = near;
+            let shifts = translate(shifts, *by);
+            let n = shifts.len();
+            let lane = coulomb_lane(&shifts, &masses, mu);
+            let exact_lane = coulomb_lane(&translate(exact.1, *by), &exact.2, mu);
+            for rank in 0..=2u16 {
+                let settings = ReductionSettings::new(n, rank);
+                let reference = triple_identity(&shifts, &masses, mu, rank, triple);
+                // The v = 0 value: the exact lane (the facade rescues the
+                // scalar triangle, refused directly on exact inputs).
+                let v0 = match direct_lanes_with(settings.clone(), &exact_lane) {
+                    (LaneStatus::Success, values) => values,
+                    _ => {
+                        let (status, values) = facade_lane(settings.clone(), &exact_lane);
+                        assert_eq!(status, LaneStatus::Success, "{name}, rank {rank}: the exact lane");
+                        values
+                    }
+                };
+                let paths = [
+                    ("direct", direct_lanes_with(settings.clone(), &lane)),
+                    ("direct at threshold 0", direct_lane_at_threshold(settings.clone(), &lane, 0.0)),
+                    ("facade", facade_lane(settings, &lane)),
+                ];
+                for (what, (status, values)) in paths {
+                    if status != LaneStatus::Success {
+                        continue;
+                    }
+                    let tolerance = if n == 3 && rank == 0 { 1e-15 / delta.abs() } else { 1e-8 };
+                    let (against_reference, against_v0) =
+                        (relative_difference(&values, &reference), relative_difference(&values, &v0));
+                    assert!(
+                        against_reference <= tolerance || against_v0 <= 1e-10,
+                        "{label}, {name}, rank {rank}, {what}: E/A {against_reference:e} against 256 bits, \
+                         {against_v0:e} against the v = 0 value"
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Statuses and array of one binary64 `DirectWorkspace` lane at `settings`,
+/// with the stability threshold given (zero: an embedder's last resort).
+fn direct_lane_at_threshold(
+    settings: ReductionSettings,
+    lane: &[Complex<f64>],
+    threshold: f64,
+) -> (LaneStatus, Vec<Complex<f64>>) {
+    let mut workspace = DirectReductionPlan::new(settings).unwrap().workspace(0.0f64).unwrap();
+    workspace.set_stability_threshold(threshold);
+    let batch = KinematicsBatch { rows: 1, components: 1, values: lane.to_vec() };
+    let result = workspace.reduce_batch(&batch).unwrap();
+    (result.statuses[0].clone(), result.lane(0).map(<[_]>::to_vec).unwrap_or_default())
 }
 
 /// Central difference in m^2 with one Richardson step, of a lane's direct
