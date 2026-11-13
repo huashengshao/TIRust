@@ -188,6 +188,9 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     constants: Arc<Vec<T>>,
     evaluators: [Option<MasterEvaluator<T>>; 4],
     native: [Option<oneloop::NativeEvaluator<T>>; 4],
+    /// How the workspace evaluates masters; a plan variant that needs a
+    /// family its base plan has not gets that family's evaluator on first use.
+    master_mode: DirectMasters,
     native_input: Vec<C<T>>,
     native_output: Vec<C<T>>,
     /// Key of the current double-double master in the shared store: family,
@@ -335,29 +338,18 @@ where
                 .map(|value| prototype.from_rational(value))
                 .collect(),
         );
-        let families = [
-            ScalarIntegral::A0,
-            ScalarIntegral::B0,
-            ScalarIntegral::C0,
-            ScalarIntegral::D0,
-        ];
         let mut evaluators: [Option<MasterEvaluator<T>>; 4] = Default::default();
         let mut native: [Option<oneloop::NativeEvaluator<T>>; 4] = Default::default();
-        for (family_index, family) in families.into_iter().enumerate() {
+        for (family_index, family) in MASTER_FAMILIES.into_iter().enumerate() {
             if plan.masters[family_index].is_empty() {
                 continue;
             }
             match masters {
                 DirectMasters::Native => {
-                    let mut evaluator = oneloop::NativeEvaluator::with_binary_precision(
-                        family,
-                        prototype.get_precision(),
-                    )
-                    .map_err(ReductionError::Preparation)?;
-                    if family == ScalarIntegral::C0 {
-                        evaluator.set_handwritten_negative_kallen_c0(true);
-                    }
-                    native[family_index] = Some(evaluator);
+                    native[family_index] = Some(
+                        native_evaluator(family_index, prototype.get_precision())
+                            .map_err(ReductionError::Preparation)?,
+                    );
                 }
                 DirectMasters::Policy(policy) => {
                     evaluators[family_index] = Some(
@@ -473,6 +465,7 @@ where
             native_output: vec![zero.clone(); 3],
             master_key: Vec::with_capacity(25),
             native,
+            master_mode: masters,
             master_inputs: Default::default(),
             master_values: Vec::new(),
             master_errors: Vec::new(),
@@ -855,6 +848,21 @@ where
         // The embedder's binary64 masters on a miss (sharing on or off).
         let provider = self.shared.as_ref().filter(|store| store.provider().is_some()).cloned();
         for family in 0..4 {
+            if plan.masters[family].is_empty() {
+                continue;
+            }
+            if self.native[family].is_none() {
+                // A plan variant (a relation variant) can need a family its
+                // base plan has not: its masters must be evaluated, never
+                // left at the previous lane's values.
+                if self.master_mode != DirectMasters::Native {
+                    return Err(format!(
+                        "no {:?} evaluator for this plan variant's masters",
+                        MASTER_FAMILIES[family]
+                    ));
+                }
+                self.native[family] = Some(native_evaluator(family, self.prototype.get_precision())?);
+            }
             let Some(evaluator) = self.native[family].as_mut() else {
                 continue;
             };
@@ -3804,6 +3812,25 @@ fn write_dd_master<T: NativeFloat>(output: &mut [C<T>], stored: &[C<symbolica::d
 fn read_dd_master<T: NativeFloat>(output: &[C<T>]) -> Option<[C<symbolica::domains::float::DoubleFloat>; 3]> {
     let read = |k: usize| (&output[k] as &dyn std::any::Any).downcast_ref::<C<symbolica::domains::float::DoubleFloat>>().cloned();
     Some([read(0)?, read(1)?, read(2)?])
+}
+
+/// The scalar-master families, in the order of `DirectPlanData::masters`.
+const MASTER_FAMILIES: [ScalarIntegral; 4] =
+    [ScalarIntegral::A0, ScalarIntegral::B0, ScalarIntegral::C0, ScalarIntegral::D0];
+
+/// oneloopmaster's native evaluator of the master family with index `family`
+/// at `bits` (C0 with the hand-written negative-Källén kernel,
+/// huashengshao/TIRust#22).
+fn native_evaluator<T: NativeFloat>(family: usize, bits: u32) -> Result<oneloop::NativeEvaluator<T>, String>
+where
+    Complex<T>: EvaluationDomain,
+{
+    let family = MASTER_FAMILIES[family];
+    let mut evaluator = oneloop::NativeEvaluator::with_binary_precision(family, bits)?;
+    if family == ScalarIntegral::C0 {
+        evaluator.set_handwritten_negative_kallen_c0(true);
+    }
+    Ok(evaluator)
 }
 
 /// `2^-(bits - margin)` in the domain of `prototype`.
