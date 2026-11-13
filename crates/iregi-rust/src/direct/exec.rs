@@ -1458,10 +1458,12 @@ where
             c.extend(v);
             // The propagators are linearly dependent (Coulomb exchange) only
             // when the shifts' relation and the constant vanish to the
-            // inputs' rounding at the working precision. Otherwise they are
-            // nearly dependent: a nonzero relative velocity, whose value is
-            // not the v = 0 one, refused as without Coulomb support.
-            if dependent && magnitude <= constant_size * &self.rounding {
+            // inputs' rounding at the working precision, and the on-shell
+            // bubbles their partial fraction reaches are decided at that
+            // rounding too. Otherwise they are nearly dependent: a nonzero
+            // relative velocity, whose value is not the v = 0 one, refused
+            // as without Coulomb support.
+            if dependent && magnitude <= constant_size * &self.rounding && self.bubbles_decided(members) {
                 return Ok(AffineRelation::Homogeneous(c));
             }
             return Ok(AffineRelation::NearlyHomogeneous(c));
@@ -1521,6 +1523,31 @@ where
             size += delta.clone() * &delta + delta * &spread * &two;
         }
         size
+    }
+
+    /// Whether every bubble {g, h} of a massless member g and a massive
+    /// member h of `members` is either on shell to the working precision's
+    /// rounding (`singular_ibp_base`'s test: |d(g, h) - m_h^2| within
+    /// `self.rounding` of m_h^2 plus the size of d(g, h)'s inputs) or off
+    /// shell by more than 2^-33 of that. The partial fraction of linearly
+    /// dependent propagators doubles g and reaches these bubbles; one only
+    /// nearly on shell would get neither the closed form nor a
+    /// well-conditioned reduction. (The constant's test alone, against its
+    /// larger input size, can pass while such a bubble's fails.)
+    fn bubbles_decided(&self, members: &[usize]) -> bool {
+        let n = self.plan.settings.propagators;
+        let massless = |m: usize| self.masses[m].re.is_zero() && self.masses[m].im.is_zero();
+        for &g in members.iter().filter(|&&m| massless(m)) {
+            for &h in members.iter().filter(|&&m| !massless(m)) {
+                let mass = &self.masses[h];
+                let gap = cnorm2(&csub(&self.distances[g * n + h], mass)).sqrt();
+                let scale = cnorm2(mass).sqrt() + &self.invariant_size(g, h);
+                if gap > scale.clone() * &self.rounding && gap <= scale * &self.binary_tolerance(33) {
+                    return false;
+                }
+            }
+        }
+        true
     }
 
     /// The member of a linearly dependent set whose power the partial

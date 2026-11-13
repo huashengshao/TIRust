@@ -528,7 +528,7 @@ fn nearly_dependent_lanes_are_refused() {
     let mu = 3.0;
     let still = [0.0; 4];
     let mut cases: Vec<(String, f64, f64, [f64; 4])> = Vec::new();
-    for delta in [1.75e-10, 1e-11, 1e-13, -1e-13, 3e-14] {
+    for delta in [1.75e-10, 1e-11, 1e-13, -1e-13, 4e-14, 3e-14, 2e-14] {
         cases.push((format!("M = 9 (1 + {delta:e})"), delta, 9.0 * (1.0 + delta), still));
     }
     for (eps, axis) in [(1e-12, 1), (1e-14, 1), (1e-12, 2), (1e-14, 2)] {
