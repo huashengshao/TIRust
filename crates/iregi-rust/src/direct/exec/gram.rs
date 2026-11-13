@@ -1045,10 +1045,12 @@ where
                 let executor = match gram.executors.entry((size, rank, boost, direct)) {
                     std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
                     std::collections::hash_map::Entry::Vacant(entry) => {
-                        let aux = DirectPlanData::with_top_child_boost(self.subset_settings(size, rank), boost.max(1))
+                        let aux = self
+                            .base_plan
+                            .auxiliary(self.subset_settings(size, rank), boost.max(1))
                             .map_err(|e| e.to_string())?;
                         let mut executor = DirectExecutor::<T>::new(
-                            std::sync::Arc::new(aux),
+                            aux,
                             self.prototype.clone(),
                             DirectMasters::Native,
                         )

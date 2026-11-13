@@ -1451,12 +1451,7 @@ where
             self.plan = plan.clone();
             self.constants = constants.clone();
         } else {
-            let plan = Arc::new(DirectPlanData::with_profile_boost(
-                self.base_plan.settings.clone(),
-                &self.relation_profile,
-                &self.lightlike_profile,
-                self.base_plan.top_child_boost,
-            )?);
+            let plan = self.base_plan.variant(&self.relation_profile, &self.lightlike_profile)?;
             let constants: Arc<Vec<T>> = Arc::new(
                 plan.constants
                     .iter()

@@ -97,6 +97,13 @@ rank-one lifecycle case. Each family's validated domain is documented separately
   double-double rescue and precision tiers (binary64, off by default). No
   loop-rotation test, no rescue-first routing, never the symbolic engine;
   settings outside the direct engine are refused (`tests/embedder_mode.rs`).
+  `EmbedderOptions::tier_margin_bits` (default 8) is the margin by which a
+  refused lane's binary64 conditioning estimate must clear a tier's limit to
+  start there; with 0 a lane starts at the lowest tier whose own gate may
+  accept it (double-double instead of 256 bits for near-limit lanes, at the
+  same accuracy bound). The executors of one direct plan (binary64,
+  double-double and MPFR, method choice and check passes) share its plan
+  variants and small-Gram auxiliary plans, built once per plan.
 - The lightlike bubble rule is relative to the inputs' precision: |p^2| up
   to 2^-(p - 13) of the bubble's scale (2^-40 for binary64 inputs, also in the
   rescue tiers that lift them; `DirectWorkspace::set_input_precision`).

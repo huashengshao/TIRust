@@ -35,7 +35,8 @@ use symbolica::{
 };
 
 use super::direct_hybrid::{
-    DirectExecutionStats, DirectRescueTier, add_direct_profile, first_tier_under, masters_for, prepare_tier, run_tier,
+    DirectExecutionStats, DirectRescueTier, RESCUE_MARGIN, add_direct_profile, first_tier_with_margin, masters_for,
+    prepare_tier, run_tier,
 };
 use crate::{
     BatchResult, DirectReductionPlan, DirectWorkspace, ExecutionProfile, KinematicsBatch, LaneStatus, ReductionError,
@@ -64,6 +65,16 @@ pub struct EmbedderOptions {
     pub method_choice_gate: Option<f64>,
     /// Scalar-master implementation (see [`MasterExecutionPolicy`]).
     pub master_policy: MasterExecutionPolicy,
+    /// Precision tiers: bits of margin by which a lane's binary64
+    /// conditioning estimate must clear a tier's limit for the lane to start
+    /// at that tier (default 8). A lane whose estimate falls inside the
+    /// margin skips the tier, on the expectation that the tier would refuse
+    /// it. Every tier still applies its own gate (accuracy is unchanged);
+    /// with 0, a lane starts at the lowest tier whose limit admits its
+    /// estimate and moves up only if that tier refuses it. On amplitudes
+    /// with many near-limit lanes (massless QCD), 0 replaces most 256-bit
+    /// evaluations by double-double ones.
+    pub tier_margin_bits: u32,
 }
 
 impl Default for EmbedderOptions {
@@ -75,6 +86,7 @@ impl Default for EmbedderOptions {
             gate: None,
             method_choice_gate: None,
             master_policy: MasterExecutionPolicy::Default,
+            tier_margin_bits: RESCUE_MARGIN,
         }
     }
 }
@@ -332,7 +344,10 @@ where
         // exactly singular binary64 pivot carries a zero estimate: 256 bits).
         let mut pending: Vec<(usize, usize)> = lanes
             .iter()
-            .map(|&lane| (lane, first_tier_under(conditions[lane].unwrap_or(0.0), tier_threshold)))
+            .map(|&lane| {
+                let condition = conditions[lane].unwrap_or(0.0);
+                (lane, first_tier_with_margin(condition, tier_threshold, self.options.tier_margin_bits))
+            })
             .collect();
         self.last.fallback_rows += pending.len();
         let masters = masters_for(self.options.master_policy);

@@ -5,9 +5,9 @@
 //! facade's `PrecisionRescue::Automatic` sends a refused box straight to its
 //! double-double tier) and never the symbolic engine.
 use iregi_rust::{
-    Algorithm, DirectReductionPlan, EmbedderOptions, InvariantInput, KinematicsBatch, LaneRoute,
+    Algorithm, Convention, DirectReductionPlan, EmbedderOptions, InvariantInput, KinematicsBatch, LaneRoute,
     LaneStatus, PrecisionRescue, ReductionError, ReductionSettings, ScaleInput, TensorEngineExecution,
-    TensorReductionPlan, TensorWorkspace, TensorWorkspaceOptions,
+    TensorReductionPlan, TensorWeights, TensorWorkspace, TensorWorkspaceOptions,
 };
 use symbolica::domains::float::{Complex, DoubleFloat, Float, Real, RealLike, SingleFloat};
 
@@ -127,6 +127,65 @@ fn a_refused_box_gets_the_method_choice_not_the_rescue_first_route() {
     println!("gate-refused box, embedder tier {tier_bits} bits: E/A {error:e}");
     assert!(error <= 1e-12, "E/A = {error:e}");
     assert_eq!(stats(&embedded).symbolic_rows, 0);
+}
+
+/// A massless rank-4 pentagon of MadLoop's QCD u u~ > z g g g at 1 TeV
+/// (shifts and the supplied invariants s_ij = (p_i - p_j)^2, column-major, as
+/// MadLoop's TIRust bridge passes them; mu^2 = 10^6). The binary64 gates and
+/// the method choice refuse it, with a conditioning estimate inside the
+/// default 8-bit margin above the double-double tier's limit 2^-66.
+const ZGGG_PENTAGON_SHIFTS: [u64; 20] = [
+    0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x407f40000000000a,
+    0xbd00000000000000, 0x3d36000000000000, 0x407f40000000000a, 0x4055945286e7a19c, 0xc06bd4785c87a13c,
+    0xc07594ea4e9ead65, 0x408121f7eecf071e, 0xc0432f7033be507e, 0xc0692d49abfa7a3e, 0xc077fcc682af1d94,
+    0x4083685e2c7546a3, 0xc0671604ba4c69f8, 0xc058eedca3c58e8a, 0xc0721f6791e15459, 0x4081ebb254e902cc,
+];
+const ZGGG_PENTAGON_INVARIANTS: [u64; 25] = [
+    0x0000000000000000, 0x0000000000000000, 0xc11c31a2187cccfa, 0xc121757e578777e7, 0xc117ba97fedfc9b2,
+    0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x40f55196c85c661f, 0x41168b809dee9f90,
+    0xc11c31a2187cccfa, 0x0000000000000000, 0x0000000000000000, 0x40c03da02c0a4a08, 0x40eaadde2f25ae46,
+    0xc121757e578777e7, 0x40f55196c85c661f, 0x40c03da02c0a4a08, 0x0000000000000000, 0x0000000000000000,
+    0xc117ba97fedfc9b2, 0x41168b809dee9f90, 0x40eaadde2f25ae46, 0x0000000000000000, 0x0000000000000000,
+];
+
+#[test]
+fn a_zero_tier_margin_starts_near_limit_lanes_in_double_double() {
+    let n = 5;
+    let mut settings = ReductionSettings::new(n, 4);
+    settings.convention = Convention::MadLoop;
+    settings.tensor_weights = TensorWeights::Components;
+    settings.invariants = InvariantInput::SuppliedInvariants;
+    settings.scale_input = ScaleInput::MuSquared;
+    let invariants = ZGGG_PENTAGON_INVARIANTS.map(f64::from_bits);
+    let mut values: Vec<Complex<f64>> =
+        ZGGG_PENTAGON_SHIFTS.iter().map(|&x| Complex::new(f64::from_bits(x), 0.0)).collect();
+    for i in 0..n {
+        for j in i + 1..n {
+            values.push(Complex::new(invariants[i + n * j], 0.0));
+        }
+    }
+    values.extend((0..n).map(|_| Complex::new(0.0, 0.0)));
+    values.push(Complex::new(1e6, 0.0));
+    let plan = TensorReductionPlan::new(settings).unwrap();
+    assert_eq!(EmbedderOptions::default().tier_margin_bits, 8);
+    let run = |tier_margin_bits| {
+        let options = EmbedderOptions { precision_tiers: true, tier_margin_bits, ..Default::default() };
+        let mut embedded = TensorWorkspace::new_embedded(&plan, 0.0f64, options).unwrap();
+        let result = embedded.reduce_batch(&batch(values.clone())).unwrap();
+        assert_eq!(result.statuses[0], LaneStatus::Success, "{:?}", embedded.last_diagnostics());
+        let route = embedded.last_lane_routes().unwrap()[0];
+        (result.lane(0).unwrap().to_vec(), route, result.basis.clone())
+    };
+    // The default margin skips the double-double tier for this estimate;
+    // without it, the double-double tier's own gate accepts the lane.
+    let (skipped, skipped_route, basis) = run(8);
+    let (direct, direct_route, _) = run(0);
+    assert_eq!(skipped_route, LaneRoute::Tier(256));
+    assert_eq!(direct_route, LaneRoute::Tier(106));
+    // Both tiers bound the amplification of their rounding by 2^-40.
+    let error = array_error(&basis, n, 1000.0, &direct, &skipped);
+    println!("near-limit pentagon: double-double against 256-bit tier E/A {error:e}");
+    assert!(error <= 2f64.powi(-40), "E/A = {error:e}");
 }
 
 #[test]
