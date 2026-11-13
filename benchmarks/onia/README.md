@@ -15,11 +15,13 @@ Coulomb-exchange integrals (a gluon propagator between the c and c~ legs) the
 modified Cayley determinant vanishes too: their propagators are linearly
 dependent, 2 D_gluon = D_c + D_c~.
 
-**Companion branch.** TIRust's Coulomb-exchange support (`direct/plan.rs`,
+**Companion PR.** TIRust's Coulomb-exchange support (`direct/plan.rs`,
 `direct/exec.rs`) and the regression test `crates/iregi-rust/tests/onia.rs`
-with its fixtures are on branch `hs/coulomb-exchange`, reviewed separately.
-The results below were measured with it; without it, main refuses the
-Coulomb-exchange lanes (typed), and the scripts here still run.
+with its fixtures are huashengshao/TIRust#33, to be merged before this
+suite. The results below were measured with it; without it, main refuses
+the Coulomb-exchange lanes (typed), and the scripts here still run. The
+commits cited below (75b24ef, c65727b, 25e3f31) are on branch `hs/onia`, the
+history of huashengshao/TIRust#32, kept for these references.
 
 ## Topologies
 
@@ -198,10 +200,11 @@ vanish. TIRust's direct engine (`crates/iregi-rust/src/direct/`) handles
 them as follows:
 
 1. **Detection.** The affine-relation solver (`exec.rs::affine_relation`)
-   reports a vanishing identity constant K as a homogeneous relation, judged
-   to the inputs' rounding with the same test that decides exact affine
-   relations. A small nonzero relative velocity stays refused, because its
-   integral is Coulomb singular.
+   reports a vanishing identity constant K as a homogeneous relation when
+   the propagators are linearly dependent to the working precision's
+   rounding of the inputs (Tolerances, below). A small nonzero relative
+   velocity stays refused (typed), as on main, because its integral is
+   Coulomb singular, not the v = 0 value.
 2. **Partial fraction.** The plan variant (`SubsetKind::Homogeneous`,
    `plan.rs`) reduces every subset that contains such a relation by
    1 = −Σ_{i≠j} (c_i/c_j) D_i/D_j, where j is the massless member, the gluon.
@@ -245,18 +248,32 @@ facade). `tests/onia.rs` covers each case: mixed batches at ranks 0 to 3,
 the planar pentagon, and the Coulomb triangle and box at every rank against
 their full-rank arrays; reverting any of the three fixes fails it.
 
-**Tolerances.** Three relative tests decide the Coulomb treatment, all at
-2^-33 (about 1e-10, the inputs' rounding with margin):
-- linear dependence: |K| <= 2^-33 sum_j |c_j| |f_j| for the identity
-  sum_j c_j D_j = K (`exec.rs::affine_relation`, f_j = d(origin, j) − m_j² +
-  m_origin²; the shifts' affine relation itself is accepted to the same
-  tolerance);
-- the closed form of the on-shell bubble with a massless partner:
-  |p² − m²| <= 2^-33 m² (`exec.rs::singular_ibp_base`);
-- the closed form of a lightlike bubble: equal masses, |m_a² − m_b²| <=
-  2^-33 |m_a²|.
+**Tolerances.** Three tests decide the Coulomb treatment. Each holds to the
+working precision's rounding: u = 8 · 2^-p (p = 53 in binary64, 106 or more
+in the facade's rescue tiers) relative to the size of the inputs it reads,
+the tolerance that already snaps lightlike invariants to zero.
+- **Linear dependence** (`exec.rs::affine_relation`), for the identity
+  sum_j c_j D_j = K, f_j = d(origin, j) − m_j² + m_origin²:
+  - the shifts' affine relation, component by component:
+    |sum_i c_i q_ia| <= u sum_i |c_i| |q_ia|;
+  - the constant: |K| <= u sum_j |c_j| s_j, where s_j is the size of
+    d(origin, j)'s inputs, sum_a |Δ_a|² + 2 |Δ_a| (|q_ja| + |q_origin,a|),
+    plus both masses.
 
-These apply only inside the Coulomb variant. Elsewhere TIRust's on-shell
+  A lane whose K vanishes only relative to 2^-33 (main's window for
+  refusing homogeneous relations) stays refused, as on main.
+- **The on-shell bubble with a massless partner** (`singular_ibp_base`):
+  |p² − m²| <= u (m² + the size of p²'s inputs).
+- **The lightlike bubble**: equal masses, |m_a² − m_b²| <= u (|m_a²| +
+  |m_b²|).
+
+The closed-form bases (item 3) also serve main's dotted (raised-power)
+plans, which reach them whenever an IBP base is IR singular. Triangles,
+boxes and pentagons with a doubled propagator that main refuses ("singular
+Cayley matrix", also through the facade) now succeed. #33's
+`raised_powers_use_the_singular_base_closed_forms` checks them: bubbles
+against the closed forms, and triangles and boxes against the mass
+derivative of the undotted integral. Outside these bases TIRust's on-shell
 condition stays exact (see the S-wave finding below).
 
 **Limits.**
@@ -264,13 +281,18 @@ condition stays exact (see the S-wave finding below).
   Gram check to detect the linear dependence. On exact inputs oneloopmaster
   returns a nonfinite master and the lane is refused (typed); the facade
   rescues the triangle and refuses the box.
-- Rounded inputs. With p_c = p_c~ only to rounding (k² − m² = 4e-16
-  relative), the binary64 engine snaps a Coulomb triangle at ranks 1 to 3 to
-  v = 0. At rank 0, and at 106 bits (where the Gram check passes), it
-  evaluates the integral at that tiny v instead, which is Coulomb singular:
-  the rank-0 array differs from the snapped one by 1e8, and the 106-bit one
-  by 1e17. The facade's rotation test sends such lanes to 106 bits. Exact inputs, as in this suite, are consistent; for
-  rounded ones the snapping is not yet the same on every path.
+- Rounded inputs. A lane that is linearly dependent only to binary64's
+  rounding, such as a heavy mass one ulp above the on-shell value, or
+  M = 9 (1 + 1e-15) in the triangle of the #33 review, is within u at
+  p = 53. A binary64 `DirectWorkspace` cannot tell it from exact dependence
+  and gives the v = 0 value. Through the facade, the triangle's
+  loop-rotation test tells it apart, and the facade refuses it (at 106 bits
+  and above it is far outside the rounding); the pentagon passes that test
+  and keeps the v = 0 value. Lanes further from dependence (M = 9 (1 +
+  delta) with |delta| >= 3e-14, or the third heavy-quark point moved off the
+  line by 1e-14) are refused at every precision, directly and through the
+  facade, or evaluated correctly by the facade's 256-bit tier. Exact inputs,
+  as in this suite, are accepted on every path.
 
 The result is the dimensional-regularization value at v = 0, with native
 UV/IR separation. That is the value of IREGI's `ColumbCase`.
@@ -281,13 +303,16 @@ on-shell family ∫ l^α / ((l²)² ((l+p)² − m²)), evaluated by Feynman
 parameters. It agrees with IREGI's Coulomb triangles to 3e-15 and with
 TIRust's to 5e-15.
 
-## Results (12 November 2026, branch onia)
+## Results (12 November 2026, the engine of #32)
 
-TIRust was built from this branch, with main's huashengshao/TIRust#31 merged
-(triangles get the loop-rotation test), using this suite's drivers. Original
-IREGI is the binary64 build of the benchmark campaigns. 21,585 of the 21,600 lanes
-have an independent reference. "> 1" counts lanes with E/A above 1 (an array
-wrong at O(1) or worse), and "none" counts lanes where IREGI returns no array.
+TIRust was built from `hs/onia` (25e3f31, #32's head), with main's
+huashengshao/TIRust#31 merged (triangles get the loop-rotation test), using
+this suite's drivers. Original IREGI is the binary64 build of the benchmark
+campaigns. 21,585 of the 21,600 lanes have an independent reference. "> 1"
+counts lanes with E/A above 1 (an array wrong at O(1) or worse), and "none"
+counts lanes where IREGI returns no array. #33's final engine, with its
+review fixes, gives bit-identical arrays on all 21,600 integral lanes and
+the 2,800 family lanes.
 
 | process | N | lanes | with reference | TIRust <= 1e-10 | TIRust max | IREGI IBP <= 1e-10 | IREGI IBP > 1 | IREGI none | IREGI IBP max |
 |---|---|---|---|---|---|---|---|---|---|
@@ -561,9 +586,9 @@ at point 5, by −2e-16 relative.
 
 swave.py therefore snaps the masses to the exact lattice value. An amplitude
 code that squares a rounded mass will hit the same cliff. TIRust has no
-on-shell tolerance outside the Coulomb variant's closed-form bases (2^-33,
-"Coulomb-exchange support in TIRust" above), which these soft triangles do
-not reach.
+on-shell tolerance outside the closed-form bases of dotted plans (the
+working precision's rounding, "Coulomb-exchange support in TIRust" above),
+which these soft triangles do not reach.
 
 ## Physical S-wave amplitudes: g g > c c~ [3S1, singlet] g
 
@@ -725,7 +750,7 @@ where i, j run over the gluons, s_ij = 2σ_ij p_i·p_j, and both logs carry
 
 ## Regression test
 
-`crates/iregi-rust/tests/onia.rs` (branch `hs/coulomb-exchange`) runs from
+`crates/iregi-rust/tests/onia.rs` (huashengshao/TIRust#33) runs from
 `tests/fixtures/onia-swave.json` (`make_fixture.py`):
 - 12 degenerate lanes (boxes, a triangle and pentagons, both processes) must
   agree with the exact-identity reference to E/A <= 1e-9;
@@ -751,6 +776,15 @@ The S-wave amplitude test runs from `tests/fixtures/onia-swave-amplitude.json`
 Each case holds its distinct loop integrals with contracted coefficients.
 TIRust's amplitude must agree with the reference to 1e-9. Its poles must
 match the Born predictions: double and UV poles to 1e-10, single to 1e-9.
+
+The test file's other cases need no fixture:
+- the #32 review's cases: mixed batches, the planar pentagon, and the
+  Coulomb triangle and box at every rank;
+- the #33 review's near-dependent lanes, M = 9 (1 + delta) and a point moved
+  off the line, refused or equal to a 256-bit reference, directly and
+  through the facade;
+- dotted plans that reach the closed-form bases, against the closed forms or
+  the mass derivative of the undotted integral.
 
 ## Files
 
