@@ -871,8 +871,9 @@ where
                 continue;
             }
             if self.native[family].is_none() {
-                // A plan variant can need a family its base plan has not:
-                // its masters must be evaluated, never left at the previous
+                // A plan variant (a relation variant or a Coulomb partial
+                // fraction) can need a family its base plan has not: its
+                // masters must be evaluated, never left at the previous
                 // lane's values.
                 if self.master_mode != DirectMasters::Native {
                     return Err(format!(
