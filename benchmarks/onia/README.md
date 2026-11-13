@@ -258,7 +258,13 @@ the tolerance that already snaps lightlike invariants to zero.
     |sum_i c_i q_ia| <= u sum_i |c_i| |q_ia|;
   - the constant: |K| <= u sum_j |c_j| s_j, where s_j is the size of
     d(origin, j)'s inputs, sum_a |Δ_a|² + 2 |Δ_a| (|q_ja| + |q_origin,a|),
-    plus both masses.
+    plus both masses;
+  - every bubble of a massless and a massive member, which the partial
+    fraction reaches, is on shell to the closed form's test below, or off
+    shell by more than 2^-33. Without this, the constant's test (against
+    its larger size) accepted M = 9 (1 + delta) with delta = 2e-14 to 4e-14
+    while the bubble's closed form was refused, and the facade returned a
+    near-singular reduction as `Success` (E/A 1e8).
 
   A lane whose K vanishes only relative to 2^-33 (main's window for
   refusing homogeneous relations) stays refused, as on main.
@@ -283,13 +289,13 @@ condition stays exact (see the S-wave finding below).
   rescues the triangle and refuses the box.
 - Rounded inputs. A lane that is linearly dependent only to binary64's
   rounding, such as a heavy mass one ulp above the on-shell value, or
-  M = 9 (1 + 1e-15) in the triangle of the #33 review, is within u at
+  M = 9 (1 + 1e-15) in the lanes of the #33 review, is within u at
   p = 53. A binary64 `DirectWorkspace` cannot tell it from exact dependence
   and gives the v = 0 value. Through the facade, the triangle's
   loop-rotation test tells it apart, and the facade refuses it (at 106 bits
   and above it is far outside the rounding); the pentagon passes that test
   and keeps the v = 0 value. Lanes further from dependence (M = 9 (1 +
-  delta) with |delta| >= 3e-14, or the third heavy-quark point moved off the
+  delta) with |delta| >= 2e-14, or the third heavy-quark point moved off the
   line by 1e-14) are refused at every precision, directly and through the
   facade, or evaluated correctly by the facade's 256-bit tier. Exact inputs,
   as in this suite, are accepted on every path.
