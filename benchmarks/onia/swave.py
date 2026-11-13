@@ -211,7 +211,36 @@ def reference_arrays(props, rank):
     return None, "unconfirmed"
 
 
-def point_job(diagrams, k, state):
+def feynkit_born(trees, k, key):
+    """Born, m dA0/dm (internal masses) and colour insertions from FeynKit's
+    tree diagrams (onia_swave's tree entries) at point k and labels key, or
+    None when the numerator file has no tree values."""
+    if not trees or "points" not in trees[0]:
+        return None
+    born, derivative, insertions = 0j, 0j, {}
+    for tree in trees:
+        point_entry = tree["points"][k]
+        m2 = Fraction(float(point_entry["m2"]))
+        m = math.sqrt(float(m2))
+        entry = next(item[-1] for item in point_entry["polarizations"] if "".join(map(str, item[:-1])) == key)
+        _, _, _, factor = integral_of({**tree, "loop_propagators": []}, point_entry, {**entry, "masses_squared": []})
+        momenta = [[Fraction(x) for x in q] for q in point_entry["physical_momenta"]]
+        slot_leg = {slot: next(l["index"] for l in tree["external_legs"] if l["edge"] == edge)
+                    for slot, edge in enumerate(tree["external_edges"])}
+        dlog = 0.0  # m d/dm of the massive tree denominators: 2 m^2 / (p^2 - m^2) each.
+        for prop, mass in zip(tree["tree_propagators"], entry["tree_masses_squared"]):
+            if mass != 0:
+                q = [sum(Fraction(c) * momenta[slot_leg[i]][mu] for i, c in enumerate(prop["external"])) for mu in range(4)]
+                dlog += 2 * float(m2) / float(q[0] ** 2 - q[1] ** 2 - q[2] ** 2 - q[3] ** 2 - m2)
+        value = complex(*entry["value"])
+        born += value * factor
+        derivative += (m * complex(*entry["d_value_d_mass"]) + value * dlog) * factor
+        for i, j, z in entry["insertions"]:
+            insertions[(i, j)] = insertions.get((i, j), 0j) + complex(*z) * factor
+    return born, derivative, insertions
+
+
+def point_job(diagrams, k, state, trees=()):
     out = {"index": None, "pols": {}}
     cache = {}
     for diagram in diagrams:
@@ -266,8 +295,17 @@ def point_job(diagrams, k, state):
         for name in ("tirust", "iregi", "reference"):
             pol[name] = [[z.real, z.imag] for z in pol[name]]
         labels = [int(c) for c in key]
-        a0 = born(point_entry, labels, state)
-        da0 = born(point_entry, labels, state, mass_derivative=True)
+        fk = feynkit_born(trees, k, key)
+        if state in COLOUR:
+            a0 = born(point_entry, labels, state)
+            da0 = born(point_entry, labels, state, mass_derivative=True)
+            if fk is not None:
+                pol["born_feynkit"] = [fk[0].real, fk[0].imag, fk[1].real, fk[1].imag]
+        else:
+            # Octets with gluon colour wavefunctions: FeynKit's trees, the
+            # triple- and four-gluon-vertex diagrams included.
+            a0, da0, insertions = fk
+            pol["insertions"] = [[i, j, z.real, z.imag] for (i, j), z in sorted(insertions.items())]
         pol["born"] = [a0.real, a0.imag]
         pol["born_mass_derivative"] = [da0.real, da0.imag]
     out["integrals"] = len(cache)
@@ -299,13 +337,57 @@ def pole_targets(point_entry, state):
     return n, weight * sum(log(i, j) for i, j in pairs), complex(1 - 2 * CF / (n * CA), 0)
 
 
-def physics(x, a0, da0, point_entry, state):
+def octet_single_pole(point_entry, pol):
+    """pi^2 S A0 for the octet pair with three gluons (Becher-Neubert, the pair
+    as one heavy octet of mass 2m, minus the external field factors'
+    IR parts), in colour space, alpha_s/(4 pi) units:
+    S = 2 sum_{i<j gluons} T_i.T_j L_ij + 2 sum_i T_P.T_i l_Pi - 4 C_A + 2 C_F,
+    L_ij = ln(mu^2/(-s_ij - i0)), l_Pi = ln(M mu/(-s_Pi - i0)), M = 2m,
+    s_ij = 2 sigma_ij p_i.p_j. Colour legs: 0, 1 incoming gluons, 2 the
+    outgoing gluon, 3 the pair. Also the colour-conservation residual
+    max_i |sum_{j != i} T_i.T_j A0 + C_A A0| / |A0|."""
+    momenta = point_entry["physical_momenta"]
+    m = math.sqrt(float(point_entry["m2"]))
+    pair = [a + b for a, b in zip(momenta[2], momenta[3])]
+    legs = [(momenta[0], -1), (momenta[1], -1), (momenta[4], 1), (pair, 1)]  # (momentum, +1 outgoing)
+    def log(i, j, numerator):
+        (p, a), (q, b) = legs[i], legs[j]
+        sij = 2 * a * b * mdot(p, q)
+        return complex(math.log(numerator / abs(sij)), math.pi if sij > 0 else 0.0)
+    insertions = {(i, j): complex(re, im) for i, j, re, im in pol["insertions"]}
+    a0 = complex(*pol["born"])
+    total = (-4 * CA + 2 * CF) * a0
+    for (i, j), z in insertions.items():
+        total += 2 * z * (log(i, j, MU * MU) if j < 3 else log(i, j, 2 * m * MU))
+    conservation = max(abs(sum(z for (a, b), z in insertions.items() if i in (a, b)) + CA * a0) for i in range(4))
+    return math.pi ** 2 * total, conservation / (abs(a0) or 1.0)
+
+
+def predicted_poles(point_entry, state, pol):
+    """Native [UV, IR1, IR2] predictions of the bare amplitude from the Born."""
+    n = len(point_entry["polarization_vectors"])
+    a0, da0 = complex(*pol["born"]), complex(*pol["born_mass_derivative"])
+    ir2 = -math.pi ** 2 * n * CA * a0
+    if "insertions" in pol:
+        ir1 = octet_single_pole(point_entry, pol)[0] - EULER_PI * ir2
+    else:
+        _, log_part, constant = pole_targets(point_entry, state)
+        ir1 = ir2 * (constant + log_part - EULER_PI)
+    return math.pi ** 2 * ((n * CA + CF) * a0 + 3 * CF * da0), ir1, ir2
+
+
+def physics(x, a0, da0, point_entry, state, pol=None):
     """Pole checks of one amplitude X (4 native slots) against the Born:
-    X_IR2 = -pi^2 n C_A A0; the single-pole ratio (pole_targets); X_UV =
-    pi^2 [(n C_A + C_F) A0 + 3 C_F m dA0/dm] (n coupling, n/2 gluon-field,
-    one heavy-field and the mass counterterms)."""
-    n, log_part, constant = pole_targets(point_entry, state)
+    X_IR2 = -pi^2 n C_A A0; the single-pole ratio (pole_targets), or for the
+    octets X_IR1 against octet_single_pole; X_UV = pi^2 [(n C_A + C_F) A0 +
+    3 C_F m dA0/dm] (n coupling, n/2 gluon-field, one heavy-field and the
+    mass counterterms)."""
     uv, ir1, ir2 = x[0], x[1], x[2]
+    if pol is not None and "insertions" in pol:
+        p_uv, p_ir1, p_ir2 = predicted_poles(point_entry, state, pol)
+        return {"double_pole": abs(ir2 / p_ir2 - 1), "single_pole": abs(ir1 - p_ir1) / abs(p_ir1),
+                "single_pole_ratio": None, "uv_pole": abs(uv / p_uv - 1)}
+    n, log_part, constant = pole_targets(point_entry, state)
     out = {"double_pole": abs(ir2 / (-math.pi ** 2 * n * CA * a0) - 1)}
     ratio = ir1 / ir2 + EULER_PI - log_part if ir2 != 0 else math.nan
     out["single_pole"] = abs(ratio - constant)
@@ -342,19 +424,18 @@ def checks(result, point_entry, state):
                 **{name: [abs(complex(*z)) / scale for z in pol[name]] for name in ("reference", "tirust", "iregi")
                    if name not in pol["missing"]}}
             continue
-        pol["physics"] = {name: physics([complex(*z) for z in pol[name]], a0, da0, point_entry, state)
+        pol["physics"] = {name: physics([complex(*z) for z in pol[name]], a0, da0, point_entry, state, pol)
                           for name in ("reference", "tirust", "iregi") if name not in pol["missing"]}
+        if "insertions" in pol:
+            pol["colour_conservation"] = octet_single_pole(point_entry, pol)[1]
+        if "born_feynkit" in pol:
+            fk = pol["born_feynkit"]
+            pol["born_feynkit_difference"] = max(abs(complex(fk[0], fk[1]) - a0), abs(complex(fk[2], fk[3]) - da0)) / born_scale
     # The same pole predictions scored against the point's scale: each slot's
     # largest deviation over the physical polarizations, divided by the
     # largest predicted value of that slot (a polarization with a small Born
     # inflates the per-polarization ratios above).
-    n, log_part, constant = pole_targets(point_entry, state)
-    predictions = {}
-    for key, pol in physical.items():
-        a0, da0 = complex(*pol["born"]), complex(*pol["born_mass_derivative"])
-        ir2 = -math.pi ** 2 * n * CA * a0
-        predictions[key] = (math.pi ** 2 * ((n * CA + CF) * a0 + 3 * CF * da0),
-                            ir2 * (constant + log_part - EULER_PI), ir2)
+    predictions = {key: predicted_poles(point_entry, state, pol) for key, pol in physical.items()}
     slot_scale = [max(abs(v[slot]) for v in predictions.values()) or 1.0 for slot in range(3)]
     result["summary"]["poles"] = {}
     for name in ("reference", "tirust", "iregi"):
@@ -376,13 +457,15 @@ def main():
     data = json.loads(args.numerators.read_text())
     state = data.get("state", "singlet")
     diagrams = [d for d in data["diagrams"] if d["loops"] == 1]
+    trees = [d for d in data["diagrams"] if d["loops"] == 0]
     npoints = len(diagrams[0]["points"])
     entries = {e["index"]: e for e in diagrams[0]["points"]}
     if args.reuse:
         results = json.loads(args.output.read_text())["points"]
     else:
         with ProcessPoolExecutor(args.workers) as pool:
-            results = list(pool.map(point_job, [diagrams] * npoints, range(npoints), [state] * npoints))
+            results = list(pool.map(point_job, [diagrams] * npoints, range(npoints), [state] * npoints,
+                                    [trees] * npoints))
         args.output.write_text(json.dumps({"state": state, "points": results}, indent=1) + "\n")
     for r in results:
         checks(r, entries[r["index"]], state)
@@ -403,6 +486,8 @@ def main():
         for key, pol in sorted(r["pols"].items()):
             keep("tirust vs reference", pol["tirust_error"])
             keep("iregi vs reference", pol["iregi_error"])
+            keep("colour conservation", pol.get("colour_conservation"))
+            keep("FeynKit Born vs swave.born", pol.get("born_feynkit_difference"))
             for name, value in pol.get("iregi_subset_error", {}).items():
                 keep(f"{name} vs reference on IREGI's subset", value)
             line = f"   pol {key}: TIRust {fmt(pol['tirust_error'])}, IREGI {fmt(pol['iregi_error'])}"

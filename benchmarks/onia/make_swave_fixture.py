@@ -6,7 +6,9 @@ Each case is one S-wave amplitude at one point and polarization labels
 integral (lane) with its contracted coefficients sum over diagrams of tree
 factor x numerator coefficient, keyed by TIRust basis index; the reference
 amplitude and the Born (from swave.py's output); the number of gluons and the
-single-pole prediction (log part and constant, swave.pole_targets).
+single-pole prediction: log part and constant (swave.pole_targets), or for
+the octets of g g > c c~ g the colour-space value pi^2 S A0
+(swave.octet_single_pole) of the MS-bar single pole.
 
 usage: make_swave_fixture.py FIXTURE_JSON --case NUMERATORS OUTPUT POINT LABELS [--case ...]
 """
@@ -43,7 +45,14 @@ def case(diagrams, outputs, k, state, key):
     result = next(r for r in outputs["points"] if r["index"] == point_entry["index"])
     pol = result["pols"][key]
     assert result["summary"]["reference"], "point without a reference"
-    n, log_part, constant = swave.pole_targets(point_entry, state)
+    n = len(point_entry["polarization_vectors"])
+    if "insertions" in pol:
+        prediction = swave.octet_single_pole(point_entry, pol)[0]
+        single = {"single_pole_prediction": [text(prediction.real), text(prediction.imag)]}
+    else:
+        _, log_part, constant = swave.pole_targets(point_entry, state)
+        single = {"single_pole_log": [text(log_part.real), text(log_part.imag)],
+                  "single_pole_target": [text(constant.real), text(constant.imag)]}
     return {
         "state": state,
         "point": point_entry["index"],
@@ -54,8 +63,7 @@ def case(diagrams, outputs, k, state, key):
         "born": [text(x) for x in pol["born"]],
         "born_mass_derivative": [text(x) for x in pol["born_mass_derivative"]],
         "reference": [[text(x) for x in z] for z in pol["reference"]],
-        "single_pole_log": [text(log_part.real), text(log_part.imag)],
-        "single_pole_target": [text(constant.real), text(constant.imag)],
+        **single,
         "lanes": [{"n": v["n"], "rank": v["rank"],
                    "shifts": [[text(x) for x in row] for row in v["shifts"]],
                    "masses_squared": [text(x) for x in v["masses_squared"]],

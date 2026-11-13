@@ -212,13 +212,16 @@ pub fn prepare_dot_with_tree_propagators(
 }
 
 /// As `prepare_dot_with_tree_propagators`, stopping before the polynomial
-/// extraction (see `PreparedScalar`).
+/// extraction (see `PreparedScalar`). Tree graphs are accepted as well: their
+/// scalar does not depend on the loop components, and every internal
+/// propagator is a tree propagator (a Born amplitude from the same Feynman
+/// rules and projector as the loop graphs).
 pub fn prepare_scalar_dot_with_tree_propagators(
     model_json: &str,
     dot: &str,
     options: &PrepareOptions,
 ) -> Result<PreparedScalar, PrepareError> {
-    prepare_scalar_inner(&parse_dot(model_json, dot)?, options, true)
+    prepare_scalar_inner(&parse_dot(model_json, dot)?, options, true, true)
 }
 
 fn prepare_dot_inner(
@@ -263,15 +266,16 @@ fn prepare_diagram_inner(
     options: &PrepareOptions,
     allow_tree_propagators: bool,
 ) -> Result<PreparedGraph, PrepareError> {
-    prepare_scalar_inner(diagram, options, allow_tree_propagators)?.into_graph()
+    prepare_scalar_inner(diagram, options, allow_tree_propagators, false)?.into_graph()
 }
 
 fn prepare_scalar_inner(
     diagram: &FeynmanDiagram,
     options: &PrepareOptions,
     allow_tree_propagators: bool,
+    allow_tree_graph: bool,
 ) -> Result<PreparedScalar, PrepareError> {
-    if diagram.loop_count() != 1 {
+    if !(diagram.loop_count() == 1 || allow_tree_graph && diagram.loop_count() == 0) {
         return Err(PrepareError::LoopCount(diagram.loop_count()));
     }
     let physical;
@@ -348,7 +352,8 @@ fn prepare_scalar_inner(
         .filter(|(_, _, edge)| edge.external.is_none())
     {
         let signature = &basis.edge_signatures[&edge_id];
-        let loop_coefficient = signature.loops.integer_coefficients()[0] as i8;
+        // A tree graph's signatures have no loop coefficient.
+        let loop_coefficient = signature.loops.integer_coefficients().first().copied().unwrap_or(0) as i8;
         if loop_coefficient == 0 && !allow_tree_propagators {
             return Err(PrepareError::TreePropagator { edge: edge_id.0 });
         }

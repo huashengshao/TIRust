@@ -188,7 +188,8 @@ fn coulomb_family_in_amplitude_workspace() {
 
 /// Physical S-wave amplitudes at one loop (benchmarks/onia/swave.py; fixture
 /// by make_swave_fixture.py): g g > c c~ [1S0] colour singlet and octet at
-/// points 0 and 5, and g g > c c~ [3S1, singlet] g at one point. Each case
+/// points 0 and 5, and g g > c c~ [3S1, singlet] g and [3S1, octet] g at one
+/// point each (the octet with numeric colour wavefunctions). Each case
 /// holds the FeynKit diagrams' S-wave-projected numerators, contracted per
 /// distinct loop integral (tree factors included) at fixed polarizations.
 /// TIRust's amplitude X (native slots [UV, IR1, IR2, finite], X / (2 pi)^4
@@ -197,7 +198,9 @@ fn coulomb_family_in_amplitude_workspace() {
 /// the bare amplitude: X_IR2 = -n C_A pi^2 A0; IR1/IR2 + gamma_E + ln(pi) -
 /// (the fixture's log part, sum of ln(mu^2/(-s_ij)) terms) = the fixture's
 /// constant (1 - C_F/C_A singlet, 3/2 - C_F/C_A octet, 1 - 2 C_F/(3 C_A) for
-/// 3S1); X_UV = pi^2 [(n C_A + C_F) A0 + 3 C_F m dA0/dm]. Point 5 is
+/// 3S1), or for the g g > c c~ g octet X_IR1 + (gamma_E + ln pi) X_IR2 = the
+/// fixture's colour-space Becher-Neubert value pi^2 S A0; X_UV = pi^2 [(n C_A
+/// + C_F) A0 + 3 C_F m dA0/dm]. Point 5 is
 /// boosted, and its soft triangles are IR-divergent only at the exact lattice
 /// m^2 (an ulp-off mass regulates them). The 3S1 case has 84 integrals,
 /// pentagons included, among them the Coulomb pentagons on which original
@@ -211,7 +214,7 @@ fn swave_amplitudes_match_the_reference_and_the_pole_structure() {
     let pi2 = std::f64::consts::PI.powi(2);
     let euler_pi = 0.577_215_664_901_532_9 + std::f64::consts::PI.ln();
     let cases = fixture["cases"].as_array().unwrap();
-    assert!(cases.len() >= 5);
+    assert!(cases.len() >= 6);
     for case in cases {
         let label = format!("{} point {}", case["state"], case["point"]);
         let mu = number(&case["mu"]);
@@ -236,9 +239,17 @@ fn swave_amplitudes_match_the_reference_and_the_pole_structure() {
         let n = case["gluons"].as_u64().unwrap() as f64;
         let double = abs(x[2] / (born * Complex::new(-n * ca * pi2, 0.0)) - Complex::new(1.0, 0.0));
         assert!(double <= 1e-10, "{label}: double pole {double:e}");
-        let ratio = x[1] / x[2] + Complex::new(euler_pi, 0.0) - pair(&case["single_pole_log"]);
-        let single = abs(ratio - pair(&case["single_pole_target"]));
-        assert!(single <= 1e-9, "{label}: single pole ratio {ratio:?}");
+        if case.get("single_pole_prediction").is_some() {
+            // Octet: the MS-bar single pole X_IR1 + (gamma_E + ln pi) X_IR2
+            // against the colour-space prediction pi^2 S A0.
+            let prediction = pair(&case["single_pole_prediction"]);
+            let single = abs(x[1] + x[2] * Complex::new(euler_pi, 0.0) - prediction) / abs(prediction);
+            assert!(single <= 1e-9, "{label}: single pole {single:e}");
+        } else {
+            let ratio = x[1] / x[2] + Complex::new(euler_pi, 0.0) - pair(&case["single_pole_log"]);
+            let single = abs(ratio - pair(&case["single_pole_target"]));
+            assert!(single <= 1e-9, "{label}: single pole ratio {ratio:?}");
+        }
         let uv_born = (born * Complex::new(n * ca + cf, 0.0) + born_dm * Complex::new(3.0 * cf, 0.0)) * Complex::new(pi2, 0.0);
         let uv = abs(x[0] / uv_born - Complex::new(1.0, 0.0));
         assert!(uv <= 1e-10, "{label}: UV pole {uv:e}");

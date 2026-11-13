@@ -10,7 +10,22 @@
 //! - `singlet` (g g > c c~ [1S0]): delta_ij / sqrt(3) and delta^ab / sqrt(8);
 //! - `octet` (g g > c c~ [1S0]): sqrt(2) T^c_ji d^abc / sqrt(40/3), summed over c;
 //! - `3S1-singlet` (g g > c c~ [3S1] g): delta_ij / sqrt(3) and d^abc /
-//!   sqrt(40/3) for the three gluons (the f^abc part vanishes by C parity).
+//!   sqrt(40/3) for the three gluons (the f^abc part vanishes by C parity);
+//! - `1S0-octet`, `3S1-octet` (g g > c c~ [8] g): sqrt(2) T^c_ji chi^c and
+//!   colour wavefunctions u^a for the three gluons. The octet amplitude is a
+//!   vector in a colour space of several invariant tensors, so its colour is
+//!   not projected: chi and the u are numeric unit vectors (two random sets per
+//!   point, label 5), bound like the polarizations (epsbar(0|1, coad) for the
+//!   incoming gluons, eps(4, coad) for the outgoing one, eps(3, coad) for the
+//!   pair).
+//! The projector's mass is its own symbol `onia::M` (bound to the same value),
+//! so that dA0/dm over the internal masses is d/d`UFO::MC`.
+//!
+//! Tree diagrams go through the same path (`prepare_scalar_dot_with_tree_propagators`
+//! accepts them): per label set their value, its d/dMC, and for the octets the
+//! Born with T_i.T_j inserted between colour legs i < j (0, 1, 2 the gluons,
+//! 3 the pair; sum over x of the Born with both legs' wavefunctions w -> t^x w,
+//! (t^x w)^b = sum_a w^a (-i f^xab)), for Catani's colour-space poles.
 //! The gluon polarizations stay symbolic and are bound per point. The
 //! numerator is prepared with the model's Feynman rules and evaluated at the
 //! onia lattice points (points.json) for two real linear polarizations of
@@ -18,14 +33,18 @@
 //! one gluon at a time), and for 3S1 three real polarizations of the J/psi
 //! (orthonormal, orthogonal to P). G = 1.
 //!
-//! usage: onia_swave MODEL_JSON DIAGRAM_DIR POINTS_JSON OUTPUT_JSON [MAX_POINTS [STATE]]
+//! usage: onia_swave MODEL_JSON DIAGRAM_DIR POINTS_JSON OUTPUT_JSON [MAX_POINTS [STATE [FIRST_POINT]]]
+//! (points FIRST_POINT .. FIRST_POINT + MAX_POINTS of the process; separate
+//! ranges can run in parallel and be concatenated with merge_swave.py).
 //! Output: {"state", "process", "diagrams": [{"name", "loops", "loop_propagators": [{"loop",
 //! "external", "pdg"}], "tree_propagators": [...], "external_legs":
 //! [{"edge", "index", "incoming"}], "external_edges": [...], "points": [{"index",
 //! "m2", "physical_momenta", "polarization_vectors": [each gluon's three],
 //! "psi_polarizations": [three, 3S1 only],
-//! "polarizations": [[l_g1, l_g2, (l_g3, l_psi,) {"masses_squared": [..],
+//! "polarizations": [[l_g1, l_g2, (l_g3, l_psi, (l_colour,)) {"masses_squared": [..],
 //! "tree_masses_squared": [..], "terms": [[[e0,e1,e2,e3], [re, im]]...]}]...]}]}]}
+//! (tree diagrams: {"tree_masses_squared", "value", "d_value_d_mass",
+//! "insertions": [[i, j, [re, im]]...]}); octets add "colour_vectors": [set][leg][8].
 //! g g > c c~ g: physical gluon labels {0, 1}^3 with every J/psi label, then
 //! the gauge label on one gluon (the others 0) with every J/psi label.
 use std::{collections::HashMap, error::Error};
@@ -79,8 +98,10 @@ fn swave_projector(state: &str, process: &str) -> Result<String, Box<dyn Error>>
     };
     let one = |row: &str, column: &str| format!("{METRIC}({},{})", bis(row), bis(column));
     let gamma = match (state, process) {
-        ("singlet" | "octet", "gg_QQ") => format!("spenso::gamma5({},{})", bis("onia::a"), bis("onia::b")),
-        ("3S1-singlet", "gg_QQg") => format!(
+        ("singlet" | "octet", "gg_QQ") | ("1S0-octet", "gg_QQg") => {
+            format!("spenso::gamma5({},{})", bis("onia::a"), bis("onia::b"))
+        }
+        ("3S1-singlet" | "3S1-octet", "gg_QQg") => format!(
             "{GAMMA}({},{},{})*{EPSBAR}(2,{})",
             bis("onia::a"),
             bis("onia::b"),
@@ -90,7 +111,7 @@ fn swave_projector(state: &str, process: &str) -> Result<String, Box<dyn Error>>
         _ => return Err(format!("unsupported state {state} for {process}").into()),
     };
     let spin = format!(
-        "(({}) - UFO::MC*{})*{gamma}*(({}) + UFO::MC*{})/(8*UFO::MC^3)^(1/2)",
+        "(({}) - onia::M*{})*{gamma}*(({}) + onia::M*{})/(8*onia::M^3)^(1/2)",
         slash(&h3, "onia::a", 3, "onia::mu1"),
         one(&h3, "onia::a"),
         slash("onia::b", &h2, 2, "onia::mu2"),
@@ -119,7 +140,18 @@ fn swave_projector(state: &str, process: &str) -> Result<String, Box<dyn Error>>
             };
             format!("{delta}/3^(1/2)*2*({}+{})/(40/3)^(1/2)", trace(&h0, &h1, &h4), trace(&h1, &h0, &h4))
         }
-        other => return Err(format!("unknown state {other} (singlet, octet or 3S1-singlet)").into()),
+        "1S0-octet" | "3S1-octet" => {
+            let coad = |x: &str| format!("{COAD}(8,{x})");
+            format!(
+                "2^(1/2)*{GENERATOR}({},{COF}(3,{h2}),{DIND}({COF}(3,{h3})))*{EPS}(3,{})*{EPSBAR}(0,{})*{EPSBAR}(1,{})*{EPS}(4,{})",
+                coad("onia::c8"),
+                coad("onia::c8"),
+                coad(&h0),
+                coad(&h1),
+                coad(&h4)
+            )
+        }
+        other => return Err(format!("unknown state {other}").into()),
     };
     let mut polarizations = format!("{EPS}(0,{})*{EPS}(1,{})", mink(&h0), mink(&h1));
     if process == "gg_QQg" {
@@ -176,6 +208,41 @@ fn massive_polarizations(p: &[f64; 4]) -> [[f64; 4]; 3] {
     [out[0], out[1], out[2]]
 }
 
+/// SU(3) structure constants f^abc (Gell-Mann basis, indices from 0).
+fn structure_constants() -> [[[f64; 8]; 8]; 8] {
+    let h = 0.5;
+    let r = 3f64.sqrt() / 2.0;
+    let entries = [
+        (0, 1, 2, 1.0), (0, 3, 6, h), (0, 4, 5, -h), (1, 3, 5, h), (1, 4, 6, h),
+        (2, 3, 4, h), (2, 5, 6, -h), (3, 4, 7, r), (5, 6, 7, r),
+    ];
+    let mut f = [[[0.0; 8]; 8]; 8];
+    for (a, b, c, v) in entries {
+        for (x, y, z, sign) in [(a, b, c, 1.0), (b, c, a, 1.0), (c, a, b, 1.0), (b, a, c, -1.0), (a, c, b, -1.0), (c, b, a, -1.0)] {
+            f[x][y][z] = sign * v;
+        }
+    }
+    f
+}
+
+/// Deterministic unit 8-vectors (xorshift), one per colour leg.
+fn colour_vectors(seed: u64) -> [[f64; 8]; 4] {
+    let mut state = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+    let mut next = || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        (state >> 11) as f64 / (1u64 << 53) as f64 - 0.5
+    };
+    let mut out = [[0.0; 8]; 4];
+    for leg in &mut out {
+        leg.iter_mut().for_each(|x| *x = next());
+        let norm = leg.iter().map(|x| x * x).sum::<f64>().sqrt();
+        leg.iter_mut().for_each(|x| *x /= norm);
+    }
+    out
+}
+
 fn evaluate(atom: &Atom, bindings: &HashMap<Atom, Complex<Float>>) -> Result<[f64; 2], Box<dyn Error>> {
     let value = atom.evaluate_with_prec(bindings, 128).map_err(|e| format!("{e}: {atom}"))?.to_f64();
     Ok([value.re, value.im])
@@ -187,6 +254,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let points: Value = serde_json::from_str(&std::fs::read_to_string(&args[3])?)?;
     let max_points: usize = args.get(5).map_or(Ok(usize::MAX), |s| s.parse())?;
     let state = args.get(6).map_or("singlet", String::as_str);
+    let first_point: usize = args.get(7).map_or(Ok(0), |s| s.parse())?;
     let mut names: Vec<_> = std::fs::read_dir(&args[2])?
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|p| p.extension().is_some_and(|x| x == "dot"))
@@ -201,21 +269,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         let name = path.file_stem().unwrap().to_string_lossy().to_string();
         let dot = with_projector(&std::fs::read_to_string(&path)?, &projector)?;
         let loops = if name.contains("-L1-") { 1 } else { 0 };
-        let prepared = if loops == 1 {
-            // The contracted scalar, unexpanded: every point and polarization
-            // substitutes its numbers (128-bit floats) before the loop
-            // polynomial is extracted. The fully symbolic expansion of a
-            // g g > c c~ g pentagon runs to millions of terms.
-            prepare_scalar_dot_with_tree_propagators(&model, &dot, &options).map_err(|e| format!("{name}: {e}"))?
-        } else {
-            // Tree diagrams: one-loop only in prepare_dot; their projected
-            // numerators come from the Born evaluation in swave.py.
-            diagrams.push(json!({"name": name, "loops": 0}));
-            continue;
-        };
+        // The contracted scalar, unexpanded: every point and polarization
+        // substitutes its numbers (128-bit floats) before the loop polynomial
+        // is extracted (the fully symbolic expansion of a g g > c c~ g
+        // pentagon runs to millions of terms). Tree diagrams give the Born.
+        let prepared = prepare_scalar_dot_with_tree_propagators(&model, &dot, &options).map_err(|e| format!("{name}: {e}"))?;
+        let mass_derivative = (loops == 0).then(|| prepared.scalar.derivative(symbol!("UFO::MC")));
+        let octet = state.ends_with("-octet");
+        let f = structure_constants();
         let mut point_out = Vec::new();
         let mut rank = 0;
-        for point in process["points"].as_array().unwrap().iter().take(max_points) {
+        for point in process["points"].as_array().unwrap().iter().skip(first_point).take(max_points) {
             let momenta = &point["momenta"];
             let vector = |leg: &str, sign: f64| -> [f64; 4] {
                 std::array::from_fn(|mu| sign * number(&momenta[leg][mu]))
@@ -229,6 +293,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             let mut base: HashMap<Atom, Complex<f64>> = HashMap::new();
             base.insert(Atom::var(symbol!("UFO::ZERO")), Complex::new(0.0, 0.0));
             base.insert(Atom::var(symbol!("UFO::MC")), Complex::new(m2.sqrt(), 0.0));
+            base.insert(Atom::var(symbol!("onia::M")), Complex::new(m2.sqrt(), 0.0));
             base.insert(Atom::var(symbol!("UFO::G")), Complex::new(1.0, 0.0));
             // Massless light quarks (u, d, s loops).
             for light in ["UFO::MU", "UFO::MD", "UFO::MS"] {
@@ -261,19 +326,30 @@ fn main() -> Result<(), Box<dyn Error>> {
                     }
                 }
             } else {
+                let psi_labels = if state.starts_with("1S0") { 1 } else { 3 };
+                let colour_labels: Vec<Vec<usize>> = if octet { vec![vec![0], vec![1]] } else { vec![vec![]] };
                 for l in 0..8usize {
-                    for psi in 0..3 {
-                        label_sets.push(vec![l & 1, (l >> 1) & 1, (l >> 2) & 1, psi]);
+                    for psi in 0..psi_labels {
+                        for colour in &colour_labels {
+                            let mut labels = vec![l & 1, (l >> 1) & 1, (l >> 2) & 1, psi];
+                            labels.extend(colour);
+                            label_sets.push(labels);
+                        }
                     }
                 }
                 for gauge in 0..3 {
-                    for psi in 0..3 {
+                    for psi in 0..psi_labels {
                         let mut labels = vec![0, 0, 0, psi];
                         labels[gauge] = 2;
+                        labels.extend(&colour_labels[0]);
                         label_sets.push(labels);
                     }
                 }
             }
+            // Colour wavefunctions of the octets: legs g1, g2, g3, pair.
+            let index = point["index"].as_u64().unwrap();
+            let colour_sets: Vec<[[f64; 8]; 4]> = if octet { (0..2).map(|set| colour_vectors(1000 * index + set)).collect() } else { Vec::new() };
+            let colour_heads = [(symbols::epsilonbar(), 0i64), (symbols::epsilonbar(), 1), (symbols::epsilon(), 4), (symbols::epsilon(), 3)];
             let mut pols = Vec::new();
             for labels in label_sets {
                 {
@@ -292,29 +368,70 @@ fn main() -> Result<(), Box<dyn Error>> {
                             bindings.insert(function!(symbols::epsilonbar(), Atom::num(2), component(mu)), Complex::new(pol[mu], 0.0));
                         }
                     }
+                    if octet {
+                        for (leg, &(head, edge)) in colour_heads.iter().enumerate() {
+                            for a in 0..8 {
+                                bindings.insert(function!(head, Atom::num(edge), component(a)), Complex::new(colour_sets[labels[4]][leg][a], 0.0));
+                            }
+                        }
+                    }
                     let precise: HashMap<_, _> = bindings
                         .iter()
                         .map(|(a, v)| (a.clone(), Complex::new(Float::with_val(128, v.re), Float::with_val(128, v.im))))
                         .collect();
-                    let replacements: Vec<Replacement> = bindings
-                        .iter()
-                        .map(|(a, v)| {
-                            assert!(v.im == 0.0, "real bindings only");
-                            Replacement::new(a.clone(), Atom::num(Float::with_val(128, v.re)))
-                        })
-                        .collect();
-                    let numeric = prepared.scalar.replace_multiple(&replacements);
-                    let polynomial = polynomial_from_expression(&numeric, loop_variables()).map_err(|e| format!("{name}: {e}"))?;
-                    rank = rank.max(polynomial.rank());
-                    let terms = polynomial
-                        .terms
-                        .iter()
-                        .map(|t| Ok(json!([t.exponents, evaluate(&t.coefficient, &precise)?])))
-                        .collect::<Result<Vec<_>, Box<dyn Error>>>()?;
-                    let masses = prepared.propagators.iter().map(|p| evaluate(&p.mass_squared, &precise).map(|v| v[0])).collect::<Result<Vec<_>, _>>()?;
                     let tree = prepared.tree_propagators.iter().map(|p| evaluate(&p.mass_squared, &precise).map(|v| v[0])).collect::<Result<Vec<_>, _>>()?;
                     let mut entry: Vec<Value> = labels.iter().map(|&l| json!(l)).collect();
-                    entry.push(json!({"masses_squared": masses, "tree_masses_squared": tree, "terms": terms}));
+                    if let Some(derivative) = &mass_derivative {
+                        // Born: the value, d/dMC, and the colour insertions.
+                        let value = evaluate(&prepared.scalar, &precise)?;
+                        let d_value = evaluate(derivative, &precise)?;
+                        let mut insertions = Vec::new();
+                        if octet {
+                            let wavefunctions = &colour_sets[labels[4]];
+                            for i in 0..4 {
+                                for j in i + 1..4 {
+                                    let mut sum = [0.0, 0.0];
+                                    for x in 0..8 {
+                                        let mut inserted = precise.clone();
+                                        for leg in [i, j] {
+                                            let (head, edge) = colour_heads[leg];
+                                            for b in 0..8 {
+                                                // (t^x w)^b = sum_a w^a (-i f^xab).
+                                                let im: f64 = -(0..8).map(|a| wavefunctions[leg][a] * f[x][a][b]).sum::<f64>();
+                                                inserted.insert(
+                                                    function!(head, Atom::num(edge), component(b)),
+                                                    Complex::new(Float::with_val(128, 0.0), Float::with_val(128, im)),
+                                                );
+                                            }
+                                        }
+                                        let v = evaluate(&prepared.scalar, &inserted)?;
+                                        sum[0] += v[0];
+                                        sum[1] += v[1];
+                                    }
+                                    insertions.push(json!([i, j, sum]));
+                                }
+                            }
+                        }
+                        entry.push(json!({"tree_masses_squared": tree, "value": value, "d_value_d_mass": d_value, "insertions": insertions}));
+                    } else {
+                        let replacements: Vec<Replacement> = bindings
+                            .iter()
+                            .map(|(a, v)| {
+                                assert!(v.im == 0.0, "real bindings only");
+                                Replacement::new(a.clone(), Atom::num(Float::with_val(128, v.re)))
+                            })
+                            .collect();
+                        let numeric = prepared.scalar.replace_multiple(&replacements);
+                        let polynomial = polynomial_from_expression(&numeric, loop_variables()).map_err(|e| format!("{name}: {e}"))?;
+                        rank = rank.max(polynomial.rank());
+                        let terms = polynomial
+                            .terms
+                            .iter()
+                            .map(|t| Ok(json!([t.exponents, evaluate(&t.coefficient, &precise)?])))
+                            .collect::<Result<Vec<_>, Box<dyn Error>>>()?;
+                        let masses = prepared.propagators.iter().map(|p| evaluate(&p.mass_squared, &precise).map(|v| v[0])).collect::<Result<Vec<_>, _>>()?;
+                        entry.push(json!({"masses_squared": masses, "tree_masses_squared": tree, "terms": terms}));
+                    }
                     pols.push(Value::Array(entry));
                 }
             }
@@ -323,11 +440,14 @@ fn main() -> Result<(), Box<dyn Error>> {
             if process_id == "gg_QQg" {
                 out["psi_polarizations"] = json!(psi_pols);
             }
+            if octet {
+                out["colour_vectors"] = json!(colour_sets);
+            }
             point_out.push(out);
         }
         let routing = |p: &iregi_prepare::PropagatorRouting| json!({"loop": p.loop_coefficient, "external": p.external_coefficients, "pdg": p.particle_pdg});
         diagrams.push(json!({
-            "name": name, "loops": 1,
+            "name": name, "loops": loops,
             "loop_propagators": prepared.propagators.iter().map(routing).collect::<Vec<_>>(),
             "tree_propagators": prepared.tree_propagators.iter().map(routing).collect::<Vec<_>>(),
             "external_edges": prepared.external_edges,

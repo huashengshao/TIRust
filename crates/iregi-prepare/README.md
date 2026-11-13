@@ -53,7 +53,9 @@ each.
 `prepare_scalar_dot_with_tree_propagators` stops one step earlier. It
 returns the contracted, routed scalar numerator, unexpanded
 (`PreparedScalar::scalar`), with the same routings; `into_graph` finishes the
-preparation. A caller that evaluates many numeric configurations can
+preparation. It also accepts tree graphs: their scalar has no loop dependence,
+and every internal propagator is a tree propagator. A Born amplitude then
+comes from the same Feynman rules and projector as the loop graphs. A caller that evaluates many numeric configurations can
 substitute its numbers into the scalar first and then call
 `polynomial_from_expression`. A fully symbolic expansion can be far larger:
 an S-wave-projected g g > c c~ g pentagon runs to millions of terms.

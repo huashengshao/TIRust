@@ -1,6 +1,6 @@
 use iregi_prepare::{
     NumeratorSource, PrepareError, PrepareOptions, loop_variables, polynomial_from_expression,
-    prepare_dot, prepare_dot_with_tree_propagators,
+    prepare_dot, prepare_dot_with_tree_propagators, prepare_scalar_dot_with_tree_propagators,
 };
 use symbolica::{
     atom::{Atom, AtomCore},
@@ -160,6 +160,29 @@ fn non_one_loop_graph_is_rejected() {
         prepare_dot(SCALAR_MODEL, graph, &PrepareOptions::default()),
         Err(PrepareError::LoopCount(0))
     ));
+}
+
+#[test]
+fn tree_graphs_prepare_through_the_scalar_path_only() {
+    // s-channel phi^3 exchange: two vertices, one internal tree propagator.
+    let graph = "digraph tree { edge [particle=phi]; ext [style=invis]; ext -> a; ext -> a; a -> b; b -> ext; b -> ext; }";
+    let options = PrepareOptions {
+        source: NumeratorSource::FeynmanRules,
+        ..Default::default()
+    };
+    assert!(matches!(
+        prepare_dot_with_tree_propagators(SCALAR_MODEL, graph, &options),
+        Err(PrepareError::LoopCount(0))
+    ));
+    let tree = prepare_scalar_dot_with_tree_propagators(SCALAR_MODEL, graph, &options).unwrap();
+    assert!(tree.propagators.is_empty());
+    assert_eq!(tree.tree_propagators.len(), 1);
+    assert_eq!(tree.tree_propagators[0].loop_coefficient, 0);
+    assert_eq!(tree.external_legs.len(), 4);
+    assert!(!tree.scalar.is_zero());
+    assert!(loop_variables().iter().all(|q| !tree.scalar.contains(q)));
+    let graph = tree.into_graph().unwrap();
+    assert_eq!(graph.numerator.rank(), 0);
 }
 
 #[test]

@@ -150,7 +150,23 @@ python3 benchmarks/onia/make_swave_fixture.py crates/iregi-rust/tests/fixtures/o
   --case target/onia/swave-num-singlet.json target/onia/swave-singlet.json 5 01 \
   --case target/onia/swave-num-octet.json target/onia/swave-octet.json 0 01 \
   --case target/onia/swave-num-octet.json target/onia/swave-octet.json 5 01 \
-  --case target/onia/swave-num-3s1.json target/onia/swave-3s1.json 2 1000
+  --case target/onia/swave-num-3s1.json target/onia/swave-3s1.json 2 1000 \
+  --case target/onia/swave-num-3S1-octet.json target/onia/swave-3S1-octet.json 2 10000
+```
+
+The octets, in four parallel point ranges per state (onia_swave's 7th
+argument is the first point):
+
+```bash
+for state in 1S0-octet 3S1-octet; do
+  for first in 0 5 10 15; do
+    target/release/examples/onia_swave fixtures/models/sm.json target/onia/diagrams-gg_QQg target/onia/points.json target/onia/swave-num-$state-r$first.json 5 $state $first &
+  done
+done; wait
+for state in 1S0-octet 3S1-octet; do
+  python3 benchmarks/onia/merge_swave.py target/onia/swave-num-$state.json target/onia/swave-num-$state-r{0,5,10,15}.json
+  python3 benchmarks/onia/swave.py target/onia/swave-num-$state.json target/onia/points.json target/onia/swave-$state.json --workers 20
+done
 ```
 
 The build has these prerequisites:
@@ -570,6 +586,83 @@ physical):
     π² 3C_F m ∂A0/∂m to 1.6e-14 (all three amplitudes);
   - the finite part stays at up to 7% of the scale, as expected without R2.
 
+## Physical S-wave amplitudes: g g > c c~ [1S0, octet] g and [3S1, octet] g
+
+These are the colour-octet channels of J/ψ (and η_c) + g production.
+
+**Colour wavefunctions.**
+- The octet pair and three gluons span several invariant colour tensors, and
+  the amplitude is a vector in that space. So the colour is not projected.
+- The pair gets √2 T^c_ji χ^c. Each gluon gets a colour wavefunction u^a.
+- χ and the u are numeric unit 8-vectors, two random sets per point, bound
+  like the polarizations: ϵbar(0|1, coad) for the incoming gluons, ϵ(4, coad)
+  for the outgoing one, ϵ(3, coad) for χ.
+- The spin projectors are Π₀ (1S0) and Π₁ (3S1), as above.
+
+**Born from FeynKit.** The octet Born includes the triple- and four-gluon
+vertex diagrams, which vanish for the singlets.
+- In 3S1[8], g* → c c~[3S1, octet] is allowed, since Tr[γ^μ Π₁] ≠ 0.
+- The Born is therefore taken from FeynKit's 16 tree diagrams, prepared by
+  iregi-prepare's scalar path, which now accepts tree graphs.
+- The projector's mass is a separate symbol, so m ∂A0/∂m over the internal
+  masses is d/dMC of the tree scalars, plus the massive tree denominators.
+- On g g > c c~ (singlet and octet), FeynKit's Born and its mass derivative
+  equal swave.py's hand-written Born to 2.4e-16.
+
+**Colour-space poles.** The IR poles follow Becher–Neubert with the pair as
+one heavy octet P of mass 2m (as for 1S0[8] above), minus the external field
+factors' IR parts. In units of α_s/4π, the single pole of the bare amplitude
+is
+
+S = 2 Σ_{i<j} T_i·T_j ln(μ²/(−s_ij)) + 2 Σ_i T_P·T_i ln(2mμ/(−s_Pi)) − 4C_A + 2C_F,
+
+where i, j run over the gluons, s_ij = 2σ_ij p_i·p_j, and both logs carry
+−i0. The double pole is diagonal: X_IR2 = −9π² A0.
+- onia_swave evaluates the tree diagrams with T_i·T_j inserted on each pair
+  of colour legs. A leg's wavefunction w becomes t^x w, with
+  (t^x w)^b = Σ_a w^a (−i f^xab), summed over x.
+- swave.py checks X_IR1 + (γ_E + ln π) X_IR2 = π² S A0.
+- It also checks colour conservation: Σ_{j≠i} T_i·T_j A0 = −C_A A0 for every
+  leg.
+- The UV and Ward checks are those of the singlet.
+
+**Results** (the first 20 gg_QQg lattice points, as for the singlet):
+- Polarization sets per point: 1S0[8] has 16 physical sets (2³ gluon × 2
+  colour) and 3 Ward sets; 3S1[8] has 48 physical sets (× 3 J/ψ) and 9 Ward
+  sets.
+- 1S0[8] has 161 to 164 distinct integrals per point, and 3S1[8] has 183 to
+  201.
+- Pole deviations are on the point scale, as for the singlet.
+
+| state | amplitude | points | vs reference | UV pole | IR1 pole | IR2 pole |
+|---|---|---|---|---|---|---|
+| 1S0[8] | reference | 6 | – | 8.6e-15 | 1.3e-14 | 1.1e-14 |
+| 1S0[8] | TIRust | 20 | 1.0e-13 (6 points) | 1.2e-14 | 2.4e-13 | 9.9e-14 |
+| 1S0[8] | original IREGI | 1 (point 10) | 1.4e-7 | 7.7e-15 | 7.2e-15 | 4.0e-15 |
+| 3S1[8] | reference | 6 | – | 8.3e-14 | 1.2e-14 | 1.1e-14 |
+| 3S1[8] | TIRust | 20 | 1.6e-13 (6 points) | 1.0e-13 | 1.5e-13 | 2.9e-13 |
+| 3S1[8] | original IREGI | 1 (point 10) | 2.9e-7 | 9.3e-15 | 9.7e-15 | 6.4e-15 |
+
+- **Colour conservation** holds to 4.7e-14 (1S0[8]) and 1.1e-10 (3S1[8]),
+  relative to each set's Born.
+- **Poles.** The colour-space Becher–Neubert prediction holds on every
+  point, for the reference and TIRust. This covers the T_P·T_i soft terms of
+  the octet pair and its −C_A anomalous dimension.
+- **References** exist at the same 6 points as for the singlet, for the same
+  reason (dotted sub-integrals).
+- **Original IREGI** is complete only at point 10. Elsewhere the Coulomb
+  pentagons have no array, and its partial amplitudes are off by 5e38 to
+  2.6e54 (TIRust on the same subsets: 1.3e-9).
+- **Ward identity:**
+  - the IR poles vanish (TIRust to 6e-14);
+  - the UV pole equals the mass-counterterm structure to 1e-14;
+  - the finite part reaches 0.7% (1S0[8]) and 11% (3S1[8]) of the scale,
+    without R2.
+- **Cost.** One process takes about 25 minutes for 5 points of 1S0[8] and
+  about 70 minutes for 5 points of 3S1[8]. The tree diagrams' 48 colour
+  insertions per set dominate. Point ranges run in parallel (onia_swave's
+  FIRST_POINT, then `merge_swave.py`).
+
 ## Regression test
 
 `crates/iregi-rust/tests/onia.rs` runs from `tests/fixtures/onia-swave.json`
@@ -586,12 +679,14 @@ The Coulomb triangle's scalar moment must also equal the v = 0 value
 C0 = −(m²)^(−1−ε) Γ(1+ε) / (2ε(1 + 2ε)), to 1e-12.
 
 The S-wave amplitude test runs from `tests/fixtures/onia-swave-amplitude.json`
-(`make_swave_fixture.py`, 188 KB). Its cases are:
+(`make_swave_fixture.py`, 518 KB). Its cases are:
 - the 1S0 singlet and octet at points 0 (at rest) and 5 (boosted), at the
   polarizations (e1, e2);
 - g g > c c~ [3S1, singlet] g at point 2, labels 1000: 84 integrals,
   pentagons included, among them the Coulomb pentagons on which IREGI returns
-  no array.
+  no array;
+- g g > c c~ [3S1, octet] g at point 2, labels 10000: 183 integrals. It is
+  checked against the colour-space single-pole value stored in the fixture.
 
 Each case holds its distinct loop integrals with contracted coefficients.
 TIRust's amplitude must agree with the reference to 1e-9. Its poles must
@@ -610,8 +705,9 @@ match the Born predictions: double and UV poles to 1e-10, single to 1e-9.
 | `make_fixture.py` | the regression test's fixture |
 | `families.py` | integral families (parent and pinches, in the parent's routing) |
 | `amplitude.py` | families as amplitudes: TIRust `AmplitudeWorkspace` against IREGI, contracted amplitudes, timing |
-| `swave.py` | physical S-wave amplitudes (1S0 of g g > c c~, 3S1 of g g > c c~ g): contraction, Born, pole and Ward checks |
+| `swave.py` | physical S-wave amplitudes (1S0 of g g > c c~; 3S1, 1S0[8] and 3S1[8] of g g > c c~ g): contraction, Born, pole and Ward checks |
 | `make_swave_fixture.py` | the S-wave amplitude test's fixture |
+| `merge_swave.py` | concatenates onia_swave outputs over point ranges |
 | `crates/iregi-prepare/examples/onia_diagrams.rs` | FeynKit diagram generation (DOT files) |
 | `crates/iregi-prepare/examples/onia_swave.rs` | S-wave projection and numerator coefficients per point and polarization |
 | `build.py` | binaries and their provenance (`target/onia/build.json`) |
