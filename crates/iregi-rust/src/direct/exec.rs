@@ -65,9 +65,16 @@ pub struct DirectProfile {
 enum AffineRelation<T: NativeFloat> {
     /// `sum_i c_i D_i = 1`: the weights `c` in member order.
     Constant(Vec<C<T>>),
-    /// `sum_i c_i D_i = 0` (linearly dependent propagators): `c` in member
-    /// order, unnormalized.
+    /// `sum_i c_i D_i = 0` (linearly dependent propagators) to the working
+    /// precision's rounding of the inputs: `c` in member order,
+    /// unnormalized.
     Homogeneous(Vec<C<T>>),
+    /// `sum_i c_i D_i` vanishes relative to 2^-33 but not to the working
+    /// precision's rounding: nearly linearly dependent propagators (a small
+    /// nonzero relative velocity). The engine refuses them, as it does
+    /// without Coulomb-exchange support: their value is not the `v = 0` one.
+    /// `c` only locates the relation's support.
+    NearlyHomogeneous(Vec<C<T>>),
 }
 
 /// Why a lane's geometry cannot use the current plan variant.
@@ -864,9 +871,9 @@ where
                 continue;
             }
             if self.native[family].is_none() {
-                // A plan variant (a relation or a Coulomb partial fraction)
-                // can need a family its base plan has not: its masters must
-                // be evaluated, never left at the previous lane's values.
+                // A plan variant can need a family its base plan has not:
+                // its masters must be evaluated, never left at the previous
+                // lane's values.
                 if self.master_mode != DirectMasters::Native {
                     return Err(format!(
                         "no {:?} evaluator for this plan variant's masters",
@@ -1403,18 +1410,32 @@ where
         for j in 0..n {
             bound += cnorm2(&v[j]).sqrt() * &norms[j];
         }
+        let mut sum = self.zero.clone();
+        for value in &v {
+            sum = cadd(&sum, value);
+        }
+        // Linear dependence (below) must hold to the working precision's
+        // rounding of the inputs, `self.rounding` (8 units of 2^-p) relative
+        // to the size of what each test reads: here, component by component,
+        // sum_i |c_i| |q_ia| with the origin's weight c_0 = -sum_j v_j.
+        let mut dependent = true;
         for a in 0..4 {
             let mut residual = self.zero.clone();
+            let mut size = cnorm2(&sum).sqrt() * &cnorm2(&self.shifts[origin][a]).sqrt();
             for j in 0..n {
                 cfma(&mut residual, &v[j], &original[a * n + j]);
+                size += cnorm2(&v[j]).sqrt() * &cnorm2(&self.shifts[members[j + 1]][a]).sqrt();
             }
-            if cnorm2(&residual).sqrt() > bound.clone() * &self.binary_tolerance(33) {
+            let residual = cnorm2(&residual).sqrt();
+            if residual > bound.clone() * &self.binary_tolerance(33) {
                 return Err(format!("no exact affine relation among {members:?}"));
             }
+            dependent &= residual <= size * &self.rounding;
         }
         let nprop = self.plan.settings.propagators;
         let mut constant = self.zero.clone();
         let mut constant_bound = self.prototype.zero();
+        let mut constant_size = self.prototype.zero();
         for j in 0..n {
             let member = members[j + 1];
             let f = cadd(
@@ -1423,18 +1444,26 @@ where
             );
             constant_bound += (cnorm2(&v[j]) * &cnorm2(&f)).sqrt();
             cfma(&mut constant, &v[j], &f);
+            // The size of f_j's inputs: d(0, j)'s and both masses.
+            let size = self.invariant_size(origin, member)
+                + &cnorm2(&self.masses[member]).sqrt()
+                + &cnorm2(&self.masses[origin]).sqrt();
+            constant_size += cnorm2(&v[j]).sqrt() * &size;
         }
-        let mut sum = self.zero.clone();
-        for value in &v {
-            sum = cadd(&sum, value);
-        }
-        if cnorm2(&constant).sqrt() <= constant_bound * &self.binary_tolerance(33) {
-            // The constant vanishes to the inputs' rounding: the propagators
-            // themselves are linearly dependent (Coulomb exchange).
+        let magnitude = cnorm2(&constant).sqrt();
+        if magnitude <= constant_bound * &self.binary_tolerance(33) {
             let mut c = Vec::with_capacity(k);
             c.push(csub(&self.zero, &sum));
             c.extend(v);
-            return Ok(AffineRelation::Homogeneous(c));
+            // The propagators are linearly dependent (Coulomb exchange) only
+            // when the shifts' relation and the constant vanish to the
+            // inputs' rounding at the working precision. Otherwise they are
+            // nearly dependent: a nonzero relative velocity, whose value is
+            // not the v = 0 one, refused as without Coulomb support.
+            if dependent && magnitude <= constant_size * &self.rounding {
+                return Ok(AffineRelation::Homogeneous(c));
+            }
+            return Ok(AffineRelation::NearlyHomogeneous(c));
         }
         let inverse = cinv(&constant);
         let mut weights = Vec::with_capacity(k);
@@ -1450,7 +1479,9 @@ where
     fn relation_support(&self, mask: SubsetMask) -> Result<(SubsetMask, bool), String> {
         let member_list: Vec<usize> = members(mask);
         let weights = match self.affine_relation(&member_list)? {
-            AffineRelation::Constant(weights) | AffineRelation::Homogeneous(weights) => weights,
+            AffineRelation::Constant(weights)
+            | AffineRelation::Homogeneous(weights)
+            | AffineRelation::NearlyHomogeneous(weights) => weights,
         };
         let largest = weights
             .iter()
@@ -1464,8 +1495,31 @@ where
             }
         }
         let support_members: Vec<usize> = members(support);
-        let homogeneous = matches!(self.affine_relation(&support_members)?, AffineRelation::Homogeneous(_));
+        let homogeneous = match self.affine_relation(&support_members)? {
+            AffineRelation::Constant(_) => false,
+            AffineRelation::Homogeneous(_) => true,
+            AffineRelation::NearlyHomogeneous(_) => {
+                return Err(format!(
+                    "propagators {support_members:?} are linearly dependent only beyond the working precision's rounding"
+                ))
+            }
+        };
         Ok((support, homogeneous))
+    }
+
+    /// The size of the inputs of the invariant `d(i, j)`, as in the distances'
+    /// rounding test: `sum_a |delta_a|^2 + 2 |delta_a| (|q_ia| + |q_ja|)`
+    /// with `delta = q_i - q_j`. Their working-precision rounding moves
+    /// `d(i, j)` by about `self.rounding` times this.
+    fn invariant_size(&self, i: usize, j: usize) -> T {
+        let two = self.prototype.from_usize(2);
+        let mut size = self.prototype.zero();
+        for a in 0..4 {
+            let delta = cnorm2(&csub(&self.shifts[i][a], &self.shifts[j][a])).sqrt();
+            let spread = cnorm2(&self.shifts[i][a]).sqrt() + cnorm2(&self.shifts[j][a]).sqrt();
+            size += delta.clone() * &delta + delta * &spread * &two;
+        }
+        size
     }
 
     /// The member of a linearly dependent set whose power the partial
@@ -1580,7 +1634,7 @@ where
         for relation in &plan.relations {
             let weights = match self.affine_relation(&relation.members).map_err(GeometryFailure::Relation)? {
                 AffineRelation::Constant(weights) => weights,
-                AffineRelation::Homogeneous(_) => {
+                AffineRelation::Homogeneous(_) | AffineRelation::NearlyHomogeneous(_) => {
                     return Err(GeometryFailure::Relation(format!(
                         "propagators {:?} are linearly dependent on this lane",
                         relation.members
@@ -1597,6 +1651,12 @@ where
                 AffineRelation::Constant(_) => {
                     return Err(GeometryFailure::Relation(format!(
                         "propagators {:?} are not linearly dependent on this lane",
+                        relation.members
+                    )))
+                }
+                AffineRelation::NearlyHomogeneous(_) => {
+                    return Err(GeometryFailure::Relation(format!(
+                        "propagators {:?} are linearly dependent only beyond the working precision's rounding",
                         relation.members
                     )))
                 }
@@ -2554,8 +2614,9 @@ where
     /// - a lightlike (or coincident) bubble of equal masses, total power 3:
     ///   at `p^2 = 0` the tadpole `int 1/(l^2 - m^2)^3 = -1/(2 m^2)` (finite;
     ///   zero for `m = 0`, scaleless);
-    /// - the on-shell bubble `(q_a - q_b)^2 = m^2` (to the inputs'
-    ///   rounding, real `m^2 > 0`) with a massless partner, from
+    /// - the on-shell bubble `(q_a - q_b)^2 = m^2` (to the working
+    ///   precision's rounding of the inputs, real `m^2 > 0`) with a massless
+    ///   partner, from
     ///   `J(a, b) = int 1/((l^2)^a ((l + p)^2 - m^2)^b) = (-1)^(a+b)
     ///   (m^2)^(D/2-a-b) Gamma(a+b-D/2) Gamma(D-2a-b) / (Gamma(b)
     ///   Gamma(D-a-b))` times `(mu^2)^eps / r_Gamma`:
@@ -2582,10 +2643,11 @@ where
                 // Cayley matrix is singular, and at p^2 = 0 it is the tadpole
                 // int 1/(l^2 - m^2)^3 = (1/2) d B0(0; m, m)/d m^2 = -1/(2 m^2)
                 // (finite; scaleless, hence zero, for m = 0).
+                // Equal masses to the working precision's rounding.
                 let p2 = &self.distances[a * n + b];
                 let scale = cnorm2(&self.masses[a]).sqrt();
                 let equal = cnorm2(&csub(&self.masses[a], &self.masses[b])).sqrt()
-                    <= scale.clone() * &self.binary_tolerance(33);
+                    <= (scale.clone() + &cnorm2(&self.masses[b]).sqrt()) * &self.rounding;
                 equal && cnorm2(p2).sqrt() <= scale * &self.lightlike_tolerance
             } =>
             {
@@ -2605,8 +2667,10 @@ where
                 if !m2.im.is_zero() || !(m2.re > m2.re.zero()) {
                     return None;
                 }
+                // On shell to the working precision's rounding of the inputs
+                // (p^2's and m^2's).
                 let gap = cnorm2(&csub(&self.distances[g * n + h], m2)).sqrt();
-                if gap > m2.re.clone() * &self.binary_tolerance(33) {
+                if gap > (m2.re.clone() + &self.invariant_size(g, h)) * &self.rounding {
                     return None;
                 }
                 let mu2 = self.lane_mu2.as_ref()?;

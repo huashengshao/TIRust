@@ -24,7 +24,7 @@ use iregi_rust::{
     DirectReductionPlan, KinematicsBatch, LaneStatus, ReductionSettings, TensorReductionPlan, TensorWorkspace,
 };
 use serde_json::Value;
-use symbolica::domains::float::Complex;
+use symbolica::domains::float::{Complex, Float, RealLike};
 
 fn fixture() -> Value {
     serde_json::from_str(include_str!("fixtures/onia-swave.json")).unwrap()
@@ -440,4 +440,258 @@ fn coulomb_integrals_agree_across_ranks() {
             }
         }
     }
+}
+
+const BITS: u32 = 256;
+
+/// The direct engine at 256 bits on one lane (as benchmarks/onia's
+/// direct256).
+fn direct256_float(settings: ReductionSettings, lane: &[Complex<f64>]) -> (LaneStatus, Vec<Complex<Float>>) {
+    let mut workspace = DirectReductionPlan::new(settings).unwrap().workspace(Float::new(BITS)).unwrap();
+    workspace.set_stability_threshold(Float::with_val(BITS, 2f64.powi(-(BITS as i32 - 40))));
+    let values = lane.iter().map(|z| Complex::new(Float::with_val(BITS, z.re), Float::with_val(BITS, z.im))).collect();
+    let result = workspace.reduce_batch(&KinematicsBatch { rows: 1, components: 1, values }).unwrap();
+    (result.statuses[0].clone(), result.lane(0).map(<[_]>::to_vec).unwrap_or_default())
+}
+
+fn to_f64(values: &[Complex<Float>]) -> Vec<Complex<f64>> {
+    values.iter().map(|z| Complex::new(z.re.to_f64(), z.im.to_f64())).collect()
+}
+
+/// `direct256_float`, rounded to binary64.
+fn direct256(settings: ReductionSettings, lane: &[Complex<f64>]) -> (LaneStatus, Vec<Complex<f64>>) {
+    let (status, values) = direct256_float(settings, lane);
+    (status, to_f64(&values))
+}
+
+fn square(q: [f64; 4]) -> f64 {
+    q[0] * q[0] - q[1] * q[1] - q[2] * q[2] - q[3] * q[3]
+}
+
+/// The exact identity of a triple D_a, D_b, D_c with equally spaced
+/// collinear shifts, D_a + D_c - 2 D_b = K (a constant): the lane is
+/// [I(without D_a) + I(without D_c) - 2 I(without D_b)] / K, with 256-bit
+/// pinches summed at 256 bits (the sum cancels like 1/K).
+fn triple_identity(shifts: &[[f64; 4]], masses: &[f64], mu: f64, rank: u16, (a, b, c): (usize, usize, usize)) -> Vec<Complex<f64>> {
+    // K from the binary64 inputs at 256 bits (exact: in binary64 its terms
+    // round by more than K = -18 delta).
+    let constant = |i: usize| {
+        let q = |x: f64| Float::with_val(BITS, x);
+        let [t, x, y, z] = shifts[i].map(q);
+        t.clone() * &t - x.clone() * &x - y.clone() * &y - z.clone() * &z - q(masses[i])
+    };
+    let k = constant(a) + constant(c) - constant(b) * Float::with_val(BITS, 2.0);
+    let n = shifts.len();
+    let mut total: Vec<Complex<Float>> = Vec::new();
+    for (dropped, weight) in [(a, 1.0), (c, 1.0), (b, -2.0)] {
+        let keep: Vec<usize> = (0..n).filter(|&i| i != dropped).collect();
+        let pinch = coulomb_lane(
+            &keep.iter().map(|&i| shifts[i]).collect::<Vec<_>>(),
+            &keep.iter().map(|&i| masses[i]).collect::<Vec<_>>(),
+            mu,
+        );
+        let (status, values) = direct256_float(ReductionSettings::new(n - 1, rank), &pinch);
+        assert_eq!(status, LaneStatus::Success, "256-bit pinch without D{dropped}, rank {rank}");
+        let weight = Float::with_val(BITS, weight) / k.clone();
+        if total.is_empty() {
+            total = vec![Complex::new(Float::new(BITS), Float::new(BITS)); values.len()];
+        }
+        for (t, z) in total.iter_mut().zip(&values) {
+            *t = Complex::new(t.re.clone() + weight.clone() * &z.re, t.im.clone() + weight.clone() * &z.im);
+        }
+    }
+    to_f64(&total)
+}
+
+/// Nearly linearly dependent propagators (PR #33 review). The Coulomb
+/// triangle (shifts q1, q1 + k, q1 + 2k) and the review's pentagon with the
+/// heavy mass M = 9 (1 + delta), so that D1 + D3 - 2 D2 = -18 delta, or with
+/// the third heavy-quark point moved off the line by eps, have a small
+/// nonzero relative velocity. Their integrals are Coulomb singular (they
+/// grow like delta^(-1/2)), not the v = 0 value. Linear dependence is
+/// accepted only to the working precision's rounding of the inputs, so
+/// binary64 refuses these lanes, typed, at every rank with a Gram or Cayley
+/// check. The scalar triangle has none: its master is evaluated at the lane's
+/// own kinematics, bit-identical to main. Every lane that succeeds, directly
+/// or through the facade (whose 256-bit tier accepts the moved lanes), agrees
+/// with a 256-bit reference: the exact identity over 256-bit pinches, or the
+/// 256-bit generic reduction of the moved lane.
+/// A heavy mass one ulp above 9 is within binary64's rounding (|K| is below
+/// 2^-53 of its inputs' size): a binary64 `DirectWorkspace` accepts it as
+/// linearly dependent, and its array equals the exact lane's. (Through the
+/// facade, the triangle's loop-rotation test then refuses it; the pentagon
+/// passes that test.)
+#[test]
+fn nearly_dependent_lanes_are_refused() {
+    let k = [5.0, 0.0, 0.0, 4.0];
+    let (q1, pq1, q4) = ([1.5, 0.5, 2.0, -1.0], [1.0, 2.0, -1.0, 0.5], [-2.0, 1.0, 3.0, -1.0]);
+    let mu = 3.0;
+    let still = [0.0; 4];
+    let mut cases: Vec<(String, f64, f64, [f64; 4])> = Vec::new();
+    for delta in [1.75e-10, 1e-11, 1e-13, -1e-13, 3e-14] {
+        cases.push((format!("M = 9 (1 + {delta:e})"), delta, 9.0 * (1.0 + delta), still));
+    }
+    for (eps, axis) in [(1e-12, 1), (1e-14, 1), (1e-12, 2), (1e-14, 2)] {
+        let mut offset = still;
+        offset[axis] = eps;
+        cases.push((format!("third point moved by {eps:e} along axis {axis}"), 0.0, 9.0, offset));
+    }
+    let lanes = |m: f64, offset: [f64; 4]| {
+        [
+            ("triangle", vec![q1, plus(q1, k, 1.0), plus(plus(q1, k, 2.0), offset, 1.0)], vec![m, 0.0, m], (0, 1, 2)),
+            (
+                "pentagon",
+                vec![[0.0; 4], pq1, plus(pq1, k, 1.0), plus(plus(pq1, k, 2.0), offset, 1.0), q4],
+                vec![0.0, m, 0.0, m, 2.0],
+                (1, 2, 3),
+            ),
+        ]
+    };
+    for (label, delta, m, offset) in &cases {
+        for (name, shifts, masses, triple) in lanes(*m, *offset) {
+            let n = shifts.len();
+            let lane = coulomb_lane(&shifts, &masses, mu);
+            for rank in 0..=2u16 {
+                let settings = ReductionSettings::new(n, rank);
+                let reference = if *offset == still {
+                    triple_identity(&shifts, &masses, mu, rank, triple)
+                } else {
+                    let (status, values) = direct256(settings.clone(), &lane);
+                    assert_eq!(status, LaneStatus::Success, "{label}, {name}, rank {rank}: 256-bit reference");
+                    values
+                };
+                let direct = direct_lanes(n, rank, &[lane.clone()]).remove(0);
+                if n == 5 || rank >= 1 {
+                    assert_ne!(direct.0, LaneStatus::Success, "{label}, {name}, rank {rank}: binary64 accepted the lane");
+                }
+                let facade = facade_lane(settings, &lane);
+                for (what, (status, values)) in [("direct", direct), ("facade", facade)] {
+                    if status == LaneStatus::Success {
+                        // The scalar triangle is oneloopmaster's binary64 C0,
+                        // bit-identical to main, conditioned like 1/delta
+                        // near the threshold.
+                        let tolerance = if n == 3 && rank == 0 && *delta != 0.0 { 1e-15 / delta.abs() } else { 1e-8 };
+                        let ea = relative_difference(&values, &reference);
+                        assert!(ea <= tolerance, "{label}, {name}, rank {rank}, {what}: E/A {ea:e} against 256 bits");
+                    }
+                }
+            }
+        }
+    }
+    let ulp = f64::from_bits(9.0f64.to_bits() + 1);
+    for (exact, rounded) in lanes(9.0, still).into_iter().zip(lanes(ulp, still)) {
+        let n = exact.1.len();
+        for rank in 1..=2u16 {
+            let exact_lane = direct_lanes(n, rank, &[coulomb_lane(&exact.1, &exact.2, mu)]).remove(0);
+            let rounded_lane = direct_lanes(n, rank, &[coulomb_lane(&rounded.1, &rounded.2, mu)]).remove(0);
+            assert_eq!(rounded_lane.0, LaneStatus::Success, "{}, M one ulp above 9, rank {rank}", exact.0);
+            let ea = relative_difference(&rounded_lane.1, &exact_lane.1);
+            assert!(ea <= 1e-12, "{}, M one ulp above 9, rank {rank}: E/A {ea:e} against the exact lane", exact.0);
+        }
+    }
+}
+
+/// Central difference in m^2 with one Richardson step, of a lane's direct
+/// binary64 array: the integral with that propagator doubled.
+fn mass_derivative(shifts: &[[f64; 4]], masses: &[f64], mu: f64, rank: u16, line: usize) -> Vec<Complex<f64>> {
+    let at = |m2: f64| {
+        let mut moved = masses.to_vec();
+        moved[line] = m2;
+        let (status, values) = direct_lanes(shifts.len(), rank, &[coulomb_lane(shifts, &moved, mu)]).remove(0);
+        assert_eq!(status, LaneStatus::Success, "undotted lane at m^2 = {m2}");
+        values
+    };
+    let central = |h: f64| -> Vec<Complex<f64>> {
+        let (up, down) = (at(masses[line] + h), at(masses[line] - h));
+        up.iter().zip(&down).map(|(a, b)| Complex::new((a.re - b.re) / (2.0 * h), (a.im - b.im) / (2.0 * h))).collect()
+    };
+    let h = 1e-3 * masses[line];
+    let (coarse, fine) = (central(h), central(h / 2.0));
+    coarse
+        .iter()
+        .zip(&fine)
+        .map(|(c, f)| Complex::new((4.0 * f.re - c.re) / 3.0, (4.0 * f.im - c.im) / 3.0))
+        .collect()
+}
+
+/// Raised powers outside the Coulomb variant (PR #33 review): the closed
+/// forms of the IR-singular IBP bases also serve main's dotted plans. Main
+/// refuses every lane below ("singular Cayley matrix"), directly and through
+/// the facade (the bubble of equal masses only directly).
+/// - Bubbles, rank 0, against the closed forms: J(2,1) and J(1,2) of the
+///   on-shell bubble p^2 = m^2 with a massless partner, and the lightlike
+///   bubble of equal masses with one line doubled, int 1/(l^2 - m^2)^3 =
+///   -1/(2 m^2).
+/// - Ranks 0 to 2 against the mass derivative of the undotted integral (IR
+///   finite and smooth in that mass): a triangle and a box with one on-shell
+///   pair (a massless line and a massive one with p^2 = m^2) and a third
+///   line doubled, whose IBP reaches the scaleless doubled massless tadpole;
+///   and a box with a lightlike equal-mass pair, the doubled line inside or
+///   outside the pair.
+#[test]
+fn raised_powers_use_the_singular_base_closed_forms() {
+    let mu = 3.0;
+    let pi2 = std::f64::consts::PI.powi(2);
+    let euler_pi = 0.577_215_664_901_532_9 + std::f64::consts::PI.ln();
+    // [uv, ir1, ir2, finite] in OneLOop's normalization, to the facade's: i
+    // pi^2 times it, the finite part shifted by -(gamma_E + ln pi) ir1.
+    let convention = |x: [f64; 4]| -> Vec<Complex<f64>> {
+        vec![
+            Complex::new(0.0, pi2 * x[0]),
+            Complex::new(0.0, pi2 * x[1]),
+            Complex::new(0.0, pi2 * x[2]),
+            Complex::new(0.0, pi2 * (x[3] - euler_pi * x[1])),
+        ]
+    };
+    let (p, m2): ([f64; 4], f64) = ([5.0, 0.0, 0.0, 4.0], 9.0);
+    let log = (mu * mu / m2).ln();
+    let inv = 1.0 / (2.0 * m2);
+    let bubbles = [
+        ("on-shell bubble, massless line doubled", vec![[0.0; 4], p], vec![0.0, m2], vec![2, 1], [0.0, -inv, 0.0, -(log - 2.0) * inv]),
+        ("on-shell bubble, massive line doubled", vec![[0.0; 4], p], vec![0.0, m2], vec![1, 2], [0.0, inv, 0.0, log * inv]),
+        ("lightlike equal-mass bubble", vec![[0.0; 4], [3.0, 0.0, 0.0, 3.0]], vec![4.0, 4.0], vec![2, 1], [0.0, 0.0, 0.0, -1.0 / 8.0]),
+    ];
+    for (label, shifts, masses, powers, closed_form) in bubbles {
+        let mut settings = ReductionSettings::new(2, 0);
+        settings.powers = powers;
+        let lane = coulomb_lane(&shifts, &masses, mu);
+        let expected = convention(closed_form);
+        let direct = direct_lanes_with(settings.clone(), &lane);
+        for (what, (status, values)) in [("direct", direct), ("facade", facade_lane(settings, &lane))] {
+            assert_eq!(status, LaneStatus::Success, "{label}, {what}");
+            let ea = relative_difference(&values, &expected);
+            assert!(ea <= 1e-13, "{label}, {what}: E/A {ea:e} against the closed form");
+        }
+    }
+    let (q2, q3) = ([3.0, 1.0, -1.0, 2.0], [-2.0, 0.5, 1.0, -1.0]);
+    let lightlike = [3.0, 0.0, 0.0, 3.0];
+    let dotted: [(&str, Vec<[f64; 4]>, Vec<f64>, usize); 4] = [
+        ("triangle with an on-shell pair", vec![[0.0; 4], p, q2], vec![0.0, m2, 4.0], 2),
+        ("box with an on-shell pair", vec![[0.0; 4], p, q2, q3], vec![0.0, m2, 4.0, 1.0], 2),
+        ("lightlike equal-mass box, pair line doubled", vec![[0.0; 4], lightlike, q2, q3], vec![4.0, 4.0, 5.0, 2.0], 0),
+        ("lightlike equal-mass box, other line doubled", vec![[0.0; 4], lightlike, q2, q3], vec![4.0, 4.0, 5.0, 2.0], 2),
+    ];
+    for (label, shifts, masses, line) in dotted {
+        let n = shifts.len();
+        let lane = coulomb_lane(&shifts, &masses, mu);
+        for rank in 0..=2u16 {
+            let mut settings = ReductionSettings::new(n, rank);
+            settings.powers[line] = 2;
+            let reference = mass_derivative(&shifts, &masses, mu, rank, line);
+            let direct = direct_lanes_with(settings.clone(), &lane);
+            for (what, (status, values)) in [("direct", direct), ("facade", facade_lane(settings, &lane))] {
+                assert_eq!(status, LaneStatus::Success, "{label}, D{line} doubled, rank {rank}, {what}");
+                let ea = relative_difference(&values, &reference);
+                assert!(ea <= 1e-8, "{label}, D{line} doubled, rank {rank}, {what}: E/A {ea:e} against d/dm^2");
+            }
+        }
+    }
+}
+
+/// Statuses and array of one binary64 `DirectWorkspace` lane at `settings`.
+fn direct_lanes_with(settings: ReductionSettings, lane: &[Complex<f64>]) -> (LaneStatus, Vec<Complex<f64>>) {
+    let mut workspace = DirectReductionPlan::new(settings).unwrap().workspace(0.0f64).unwrap();
+    let batch = KinematicsBatch { rows: 1, components: 1, values: lane.to_vec() };
+    let result = workspace.reduce_batch(&batch).unwrap();
+    (result.statuses[0].clone(), result.lane(0).map(<[_]>::to_vec).unwrap_or_default())
 }
