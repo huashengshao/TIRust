@@ -1,9 +1,10 @@
 use iregi_prepare::{
     NumeratorSource, PrepareError, PrepareOptions, loop_variables, polynomial_from_expression,
-    prepare_dot,
+    prepare_dot, prepare_dot_with_tree_propagators, prepare_scalar_dot_with_tree_propagators,
 };
 use symbolica::{
     atom::{Atom, AtomCore},
+    domains::atom::AtomField,
     parse,
 };
 
@@ -81,6 +82,27 @@ fn zero_polynomial_and_exact_symbolic_coefficients() {
 }
 
 #[test]
+fn long_sums_convert_like_the_direct_symbolica_conversion() {
+    // (q0 + q1 + q2 + q3 + a + ... + f)^6 expands to C(15, 6) = 5005 terms,
+    // past the pairwise-conversion threshold (4096 terms).
+    let expression =
+        parse!("(iregi::q0+iregi::q1+iregi::q2+iregi::q3+a+b+c+d+e+f)^6").expand();
+    let prepared = polynomial_from_expression(&expression, loop_variables()).unwrap();
+    let field = AtomField {
+        statistical_zero_test: false,
+        cancel_check_on_division: true,
+        custom_normalization: None,
+    };
+    let direct =
+        expression.to_polynomial_in_vars_with_field::<u32>(loop_variables().as_slice(), &field);
+    assert_eq!(prepared.terms.len(), direct.nterms());
+    for (term, reference) in prepared.terms.iter().zip(&direct) {
+        assert_eq!(term.exponents.map(u32::from).as_slice(), reference.exponents);
+        assert_eq!(term.coefficient, *reference.coefficient);
+    }
+}
+
+#[test]
 fn tiny_exact_coefficients_are_never_discarded() {
     let expression = parse!("1/10^100*(a+b)*iregi::q0^2 + 1/10^200*iregi::q1");
     let prepared = polynomial_from_expression(&expression, loop_variables()).unwrap();
@@ -138,6 +160,29 @@ fn non_one_loop_graph_is_rejected() {
         prepare_dot(SCALAR_MODEL, graph, &PrepareOptions::default()),
         Err(PrepareError::LoopCount(0))
     ));
+}
+
+#[test]
+fn tree_graphs_prepare_through_the_scalar_path_only() {
+    // s-channel phi^3 exchange: two vertices, one internal tree propagator.
+    let graph = "digraph tree { edge [particle=phi]; ext [style=invis]; ext -> a; ext -> a; a -> b; b -> ext; b -> ext; }";
+    let options = PrepareOptions {
+        source: NumeratorSource::FeynmanRules,
+        ..Default::default()
+    };
+    assert!(matches!(
+        prepare_dot_with_tree_propagators(SCALAR_MODEL, graph, &options),
+        Err(PrepareError::LoopCount(0))
+    ));
+    let tree = prepare_scalar_dot_with_tree_propagators(SCALAR_MODEL, graph, &options).unwrap();
+    assert!(tree.propagators.is_empty());
+    assert_eq!(tree.tree_propagators.len(), 1);
+    assert_eq!(tree.tree_propagators[0].loop_coefficient, 0);
+    assert_eq!(tree.external_legs.len(), 4);
+    assert!(!tree.scalar.is_zero());
+    assert!(loop_variables().iter().all(|q| !tree.scalar.contains(q)));
+    let graph = tree.into_graph().unwrap();
+    assert_eq!(graph.numerator.rank(), 0);
 }
 
 #[test]
@@ -258,4 +303,34 @@ fn fixed_gluon_color_traces_are_contracted_by_spenso() {
         .unwrap();
         assert_eq!(prepared.numerator.expression(), expected);
     }
+}
+
+#[test]
+fn tree_propagators_are_listed_and_keep_the_loop_numerator() {
+    let options = PrepareOptions {
+        source: NumeratorSource::FeynmanRules,
+        ..Default::default()
+    };
+    // The triangle with one external leg replaced by a tree propagator c -> d
+    // and two external legs at d.
+    let triangle = "digraph t { edge [particle=phi]; ext [style=invis]; ext -> a; b -> ext; c -> ext; a -> b [lmb_id=0]; b -> c; c -> a; }";
+    let with_tree = "digraph t { edge [particle=phi]; ext [style=invis]; ext -> a; b -> ext; c -> d; d -> ext; d -> ext; a -> b [lmb_id=0]; b -> c; c -> a; }";
+    let plain = prepare_dot(SCALAR_MODEL, triangle, &options).unwrap();
+    // The default entry point still refuses the tree leg.
+    assert!(matches!(
+        prepare_dot(SCALAR_MODEL, with_tree, &options),
+        Err(PrepareError::TreePropagator { .. })
+    ));
+    let tree = prepare_dot_with_tree_propagators(SCALAR_MODEL, with_tree, &options).unwrap();
+    assert_eq!(plain.tree_propagators.len(), 0);
+    assert_eq!(tree.propagators.len(), 3);
+    assert_eq!(tree.tree_propagators.len(), 1);
+    let leg = &tree.tree_propagators[0];
+    assert_eq!(leg.loop_coefficient, 0);
+    assert!(leg.external_coefficients.iter().any(|&c| c != 0), "{leg:?}");
+    // The loop numerator keeps its loop dependence (rank 0 here); the tree
+    // leg adds a loop-independent factor (a coupling and the propagator
+    // numerator).
+    assert_eq!(tree.numerator.rank(), plain.numerator.rank());
+    assert!(!tree.numerator.expression().is_zero());
 }
