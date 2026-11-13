@@ -40,26 +40,6 @@ ordering, incoming state and PDG codes. Before passing denominators to the
 reducer, turn `s=-1` into the canonical `q + s*sum(c_i*p_i)` routing. The
 numerator remains a polynomial in the selected `q`.
 
-`prepare_dot` and `prepare_diagram` accept one-loop graphs whose internal
-propagators all depend on the loop momentum. They report open tensor
-components, nonpolynomial loop dependence and internal tree propagators as
-explicit preparation errors. `prepare_dot_with_tree_propagators` and
-`prepare_diagram_with_tree_propagators` accept loop-independent internal
-propagators as well (an s-channel propagator, the tree leg of a vertex
-correction), and list them in `tree_propagators`. Their Feynman-rule numerators
-are part of the numerator, and the caller multiplies by `1/(p^2 - m^2)` for
-each.
-
-`prepare_scalar_dot_with_tree_propagators` stops one step earlier. It
-returns the contracted, routed scalar numerator, unexpanded
-(`PreparedScalar::scalar`), with the same routings; `into_graph` finishes the
-preparation. It also accepts tree graphs: their scalar has no loop dependence,
-and every internal propagator is a tree propagator. A Born amplitude then
-comes from the same Feynman rules and projector as the loop graphs. A caller that evaluates many numeric configurations can
-substitute its numbers into the scalar first and then call
-`polynomial_from_expression`. A fully symbolic expansion can be far larger:
-an S-wave-projected g g > c c~ g pentagon runs to millions of terms.
-`polynomial_from_expression` converts sums of more than 4096 terms term by
-term and adds the polynomials pairwise. Symbolica's direct conversion
-accumulates each coefficient one term at a time, which is quadratic. The
-result is the same.
+The current graph path accepts one-loop graphs whose internal propagators all
+depend on the loop momentum. It reports open tensor components, nonpolynomial
+loop dependence and internal tree propagators as explicit preparation errors.
