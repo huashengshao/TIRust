@@ -75,6 +75,13 @@ pub struct EmbedderOptions {
     /// with many near-limit lanes (massless QCD), 0 replaces most 256-bit
     /// evaluations by double-double ones.
     pub tier_margin_bits: u32,
+    /// Precision tiers: bits the double-double tier keeps between its working
+    /// precision (106 bits) and the conditioning it accepts (default 40: it
+    /// accepts estimates down to 2^-66, amplifying its rounding by at most
+    /// 2^-40). A smaller headroom accepts worse-conditioned lanes in
+    /// double-double instead of 256 bits, with a correspondingly larger bound
+    /// (26: down to 2^-80, at most 2^-26). The MPFR tiers keep 40 bits.
+    pub double_double_headroom_bits: u32,
 }
 
 impl Default for EmbedderOptions {
@@ -87,6 +94,7 @@ impl Default for EmbedderOptions {
             method_choice_gate: None,
             master_policy: MasterExecutionPolicy::Default,
             tier_margin_bits: RESCUE_MARGIN,
+            double_double_headroom_bits: TIER_HEADROOM,
         }
     }
 }
@@ -332,6 +340,16 @@ where
         Ok(())
     }
 
+    /// The conditioning a precision tier of `bits` accepts (see
+    /// [`EmbedderOptions::double_double_headroom_bits`]).
+    fn tier_limit(&self, bits: u32) -> f64 {
+        if bits == TIER_BITS[0] {
+            2f64.powi(-((bits - self.options.double_double_headroom_bits.min(bits - 1)) as i32))
+        } else {
+            tier_threshold(bits)
+        }
+    }
+
     fn precision_tiers(
         &mut self,
         batch: &KinematicsBatch<T>,
@@ -346,7 +364,7 @@ where
             .iter()
             .map(|&lane| {
                 let condition = conditions[lane].unwrap_or(0.0);
-                (lane, first_tier_with_margin(condition, tier_threshold, self.options.tier_margin_bits))
+                (lane, first_tier_with_margin(condition, |bits| self.tier_limit(bits), self.options.tier_margin_bits))
             })
             .collect();
         self.last.fallback_rows += pending.len();
@@ -362,7 +380,7 @@ where
                 if self.double.is_none() {
                     self.double = Some(prepare_tier::<DoubleFloat>(
                         self.plan.workspace_with_masters::<DoubleFloat>(DoubleFloat::from(0.0), masters),
-                        DoubleFloat::from(tier_threshold(bits)),
+                        DoubleFloat::from(self.tier_limit(bits)),
                         self.profiling,
                     )?);
                 }
