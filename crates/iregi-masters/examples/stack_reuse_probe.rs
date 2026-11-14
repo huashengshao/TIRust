@@ -6,6 +6,7 @@
 //! stack_reuse_probe target/stack-reuse [A0|B0|dB0|C0|D0] [--emit]
 //! No production generated file is replaced. No timing is claimed by this probe.
 
+use iregi_masters::{IntoRowEvaluator};
 use oneloop::{
     NativeFloat, OneLoopExpressions, ScalarIntegral,
     rust_codegen::{EmitOptions, RustEmitter},
@@ -210,11 +211,11 @@ where
     let mut a = baseline
         .clone()
         .map_coeff_with_prec(&convert, prototype.get_precision())
-        .into_batch_evaluator();
+        .into_row_evaluator();
     let mut b = candidate
         .clone()
         .map_coeff_with_prec(&convert, prototype.get_precision())
-        .into_batch_evaluator();
+        .into_row_evaluator();
     for &rows in row_counts {
         for ordering in ["homogeneous", "interleaved", "grouped", "reversed"] {
             let input: Vec<_> = (0..rows)

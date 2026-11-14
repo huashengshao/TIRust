@@ -1,9 +1,10 @@
 //! Target-only exact Symbolica evaluator reuse; no reducer/master imports.
+use iregi_masters::{RowEvaluator, IntoRowEvaluator};
 use crate::Answer;
 use serde_json::{Value,json};
 use std::collections::BTreeSet;
 use symbolica::{atom::{Atom,AtomCore,Symbol},domains::{float::{Complex,DoubleFloat as Float,FloatLike,Real,SingleFloat},rational::Rational},
-    evaluate::{BatchExpressionEvaluator,ExpressionEvaluator,ExportedInstructions,Instruction,Slot}};
+    evaluate::{ExpressionEvaluator,ExportedInstructions,Instruction,Slot}};
 pub const MAX_SLOT_VALUES:usize=4_000_000;
 pub const PARAMETERS:usize=5;
 #[derive(Debug)]
@@ -130,11 +131,11 @@ impl Program {
         Ok(Self{exact,inventory,expressions:expressions.iter().map(|a|a.to_canonical_string()).collect(),
             parameters:parameters.iter().map(|a|a.to_canonical_string()).collect()})
     }
-    pub fn instantiate(&self)->Answer<BatchExpressionEvaluator<Complex<Float>>> {
+    pub fn instantiate(&self)->Answer<RowEvaluator<Complex<Float>>> {
         let prototype=Float::from(0.0);
         let mapped=self.exact.clone().map_coeff_with_prec(&|v|Complex::new(prototype.from_rational(&v.re),prototype.from_rational(&v.im)),106);
         if mapped.export_instructions().constants.iter().any(|v|!v.is_finite()) {return Err("nonfinite DoubleFloat constant".into());}
-        Ok(mapped.into_batch_evaluator())
+        Ok(mapped.into_row_evaluator())
     }
     pub fn artifact(&self)->Value {json!({"instructions":self.inventory.instructions,"numeric_slots":self.inventory.slots,
         "inputs":self.inventory.inputs,"constants":self.inventory.constants,

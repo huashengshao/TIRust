@@ -6,6 +6,7 @@
 //! arithmetic. Chart bookkeeping and numeric conversion are the only local
 //! operations. See `docs/research/exact-invariant-certificate.md`.
 
+use iregi_masters::{IntoRowEvaluator, RowEvaluator};
 use symbolica::{
     atom::{Atom, AtomCore},
     domains::{
@@ -14,7 +15,7 @@ use symbolica::{
         float::{Complex, ComplexBall, Float, SingleFloat},
         rational::{Q, Rational},
     },
-    evaluate::{BatchExpressionEvaluator, Dualizer, ExpressionEvaluator},
+    evaluate::{Dualizer, ExpressionEvaluator},
     poly::PolyVariable,
     tensors::matrix::Matrix,
 };
@@ -268,7 +269,7 @@ pub(crate) struct InvariantCertificateWorkspace {
     components: usize,
     charts: Vec<Chart>,
     exact: ExpressionEvaluator<Complex<Rational>>,
-    evaluators: Vec<(u32, BatchExpressionEvaluator<ComplexBall>)>,
+    evaluators: Vec<(u32, RowEvaluator<ComplexBall>)>,
     initial_bits: u32,
     maximum_bits: u32,
     evaluated_rows: usize,
@@ -392,7 +393,7 @@ impl InvariantCertificateWorkspace {
                             &|value| ComplexBall::from_rational_ball(value, &radius, bits),
                             bits,
                         )
-                        .into_batch_evaluator();
+                        .into_row_evaluator();
                     self.evaluators.push((bits, evaluator));
                     self.evaluators.len() - 1
                 };

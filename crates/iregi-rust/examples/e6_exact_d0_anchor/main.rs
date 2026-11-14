@@ -3,12 +3,12 @@
 #[path = "../parameter_oracle/kernel.rs"]
 mod kernel;
 
+use iregi_masters::{RowEvaluator, IntoRowEvaluator};
 use std::{cmp::Ordering, fs};
 use serde_json::{Value, json};
 use symbolica::{
     atom::{Atom, AtomCore},
     domains::{float::{Complex, Float, FloatLike, SingleFloat}, integer::Integer, rational::Rational},
-    evaluate::BatchExpressionEvaluator,
 };
 
 const BITS: u32 = 256;
@@ -104,7 +104,7 @@ fn rules(text: &str) -> Answer<Vec<Vec<Rule>>> {
     Ok(answer)
 }
 
-fn evaluator(input: &[C]) -> Answer<(BatchExpressionEvaluator<C>,Vec<String>)> {
+fn evaluator(input: &[C]) -> Answer<(RowEvaluator<C>,Vec<String>)> {
     let x: [Atom;4] = std::array::from_fn(|i|kernel::variable(&format!("anchor_x{i}")));
     let masses: [Atom;4] = std::array::from_fn(|i|kernel::variable(&format!("anchor_m{i}")));
     let route = [
@@ -149,10 +149,10 @@ fn evaluator(input: &[C]) -> Answer<(BatchExpressionEvaluator<C>,Vec<String>)> {
         .build().map_err(|e|format!("Symbolica scalar parameter evaluator: {e}"))?;
     let prototype = Float::new(BITS);
     let mapped = exact.map_coeff_with_prec(&|r|Complex::new(prototype.from_rational(&r.re),prototype.from_rational(&r.im)),BITS);
-    Ok((mapped.into_batch_evaluator(),expression_strings))
+    Ok((mapped.into_row_evaluator(),expression_strings))
 }
 
-fn integrate(evaluator: &mut BatchExpressionEvaluator<C>, input: &[C], axes: &[Rule], order: usize) -> Answer<Value> {
+fn integrate(evaluator: &mut RowEvaluator<C>, input: &[C], axes: &[Rule], order: usize) -> Answer<Value> {
     let prototype = Float::new(BITS);
     let total = order*order*order;
     let mut sums = vec![zero();8];

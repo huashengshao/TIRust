@@ -5,6 +5,7 @@
 //! and delegates the contraction, including Dual products, to a Symbolica
 //! instruction-major batch evaluator.
 
+use iregi_masters::{RowEvaluator, IntoRowEvaluator};
 use std::collections::HashMap;
 
 use iregi_masters::NativeFloat;
@@ -15,7 +16,7 @@ use symbolica::{
         float::{Complex, FloatLike},
         rational::Rational,
     },
-    evaluate::{BatchExpressionEvaluator, Dualizer, EvaluationDomain, ExpressionEvaluator},
+    evaluate::{Dualizer, EvaluationDomain, ExpressionEvaluator},
 };
 
 use crate::{
@@ -168,7 +169,7 @@ pub struct ContractionWorkspace<T> {
     plan: ContractionPlan,
     components: usize,
     shape: Option<Vec<Vec<usize>>>,
-    evaluator: BatchExpressionEvaluator<Complex<T>>,
+    evaluator: RowEvaluator<Complex<T>>,
     input: Vec<Complex<T>>,
     output: Vec<Complex<T>>,
     active: Vec<usize>,
@@ -238,7 +239,7 @@ where
                 },
                 prototype.get_precision(),
             )
-            .into_batch_evaluator();
+            .into_row_evaluator();
         Ok(Self {
             prototype,
             plan: plan.clone(),

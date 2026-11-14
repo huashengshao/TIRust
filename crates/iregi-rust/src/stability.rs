@@ -1840,6 +1840,7 @@ fn term_budget(value: AtomView<'_>) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use iregi_masters::IntoRowEvaluator;
     use super::*;
     use symbolica::domains::float::{Float, FloatLike, Real, SingleFloat};
 
@@ -1908,7 +1909,7 @@ mod tests {
                 },
                 53,
             )
-            .into_batch_evaluator();
+            .into_row_evaluator();
         let input: Vec<_> = rows.iter().flatten().copied().map(complex).collect();
         let mut output = vec![complex(0.0); rows.len() * expressions.len()];
         evaluator

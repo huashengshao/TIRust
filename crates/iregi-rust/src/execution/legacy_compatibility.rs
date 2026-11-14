@@ -6,6 +6,7 @@
 //! on represented inputs; this module only packs lanes and selects predicates.
 //! No shifted geometry, derivative projection or alternate metric is invented.
 
+use iregi_masters::{RowEvaluator};
 use super::*;
 use crate::snapping::{CartesianConstraintKind, SnapTarget};
 
@@ -101,7 +102,7 @@ impl PreparedLegacyCompatibility {
 
 #[derive(Clone)]
 pub(crate) struct LegacyCompatibilityWorkspace<T: NativeFloat> {
-    selectors: BatchExpressionEvaluator<Complex<T>>,
+    selectors: RowEvaluator<Complex<T>>,
     certificate: ExactZeroConstraintWorkspace,
     labels: Vec<String>,
     kinds: Vec<CartesianConstraintKind>,

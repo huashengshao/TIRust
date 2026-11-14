@@ -3,6 +3,7 @@
 //! Signed local affine coefficients are Dualized before taking their component
 //! norms. A second Symbolica-Dualized positive alias DAG owns every convolution.
 //! No ABS is differentiated and no Taylor arithmetic is implemented here.
+use iregi_masters::{RowEvaluator};
 use std::{
     collections::{BTreeSet, HashMap},
     sync::{Arc, OnceLock},
@@ -12,7 +13,7 @@ use iregi_masters::NativeFloat;
 use symbolica::{
     atom::{Atom, AtomCore, Symbol},
     domains::{atom::AtomField, dual::HyperDual, float::Complex, rational::Rational},
-    evaluate::{BatchExpressionEvaluator, EvaluationDomain, ExpressionEvaluator},
+    evaluate::{EvaluationDomain, ExpressionEvaluator},
 };
 
 use super::{
@@ -343,8 +344,8 @@ impl PreparedComponentSensitivity {
 #[derive(Clone)]
 pub(crate) struct ComponentSensitivityWorkspace<T: NativeFloat> {
     exact: Arc<PreparedComponentSensitivity>,
-    coefficients: BatchExpressionEvaluator<Complex<T>>,
-    positive: BatchExpressionEvaluator<Complex<T>>,
+    coefficients: RowEvaluator<Complex<T>>,
+    positive: RowEvaluator<Complex<T>>,
     coefficient_values: Vec<Complex<T>>,
     positive_inputs: Vec<Complex<T>>,
     output: Vec<Complex<T>>,

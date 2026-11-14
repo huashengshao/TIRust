@@ -293,7 +293,7 @@ where
         "batch_execution":{"input_rows":execution.input_rows,"active_rows":execution.active_rows,"numeric_batch_calls":execution.numeric_batch_calls,
           "enclosure_batch_calls":execution.enclosure_batch_calls,"tail_batch_calls":execution.tail_batch_calls,
           "estimated_exported_instruction_lane_visits":execution.estimated_exported_instruction_lane_visits,
-          "method":"Symbolica BatchExpressionEvaluator executes each instruction across active lanes"},
+          "method":"Symbolica ExpressionEvaluator evaluates each lane per row"},
         "empty_reorder_singleton_checks":"passed","impossible_accuracy_rejected":true,
         "overlap_requested_bits":24,"overlap_status":format!("{:?}",overlap[0].status),"overlap_components":overlap_comparisons}),
     )

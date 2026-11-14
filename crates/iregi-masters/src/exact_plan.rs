@@ -63,7 +63,7 @@ impl ExactMasterPlan {
 
     /// Map exact coefficients directly to the supplied precision and numeric domain.
     ///
-    /// This always selects Symbolica's instruction-major batch interpreter. The
+    /// This always selects Symbolica's interpreter (per-row evaluation). The
     /// independently generated Rust backend is selected with
     /// [`MasterEvaluator::new_with_backend`].
     pub fn instantiate<T: NativeFloat>(

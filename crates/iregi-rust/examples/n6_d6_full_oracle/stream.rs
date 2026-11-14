@@ -1,9 +1,10 @@
 //! Source-only weighted native stream. All numeric operations use Symbolica Float.
+use iregi_masters::{RowEvaluator};
 use crate::{Answer,kernel::{Prepared,OUTPUTS}};
 use serde_json::{Value,json};
 use sha2::{Digest,Sha256};
 use std::io::{Read,Write};
-use symbolica::{domains::float::{Complex,Float,FloatLike,Real,SingleFloat},evaluate::BatchExpressionEvaluator};
+use symbolica::{domains::float::{Complex,Float,FloatLike,Real,SingleFloat}};
 
 pub const PROTOCOL:&str="n6-d6-weighted-float128-v1";
 pub const MAX_ROWS:usize=256;
@@ -104,7 +105,7 @@ impl Rule {
 }
 
 pub struct Worker<'a> {
-    prepared:&'a Prepared,evaluator:BatchExpressionEvaluator<Complex<Float>>,geometry:[BatchExpressionEvaluator<Complex<Float>>;2],constants:Vec<Complex<Float>>,
+    prepared:&'a Prepared,evaluator:RowEvaluator<Complex<Float>>,geometry:[RowEvaluator<Complex<Float>>;2],constants:Vec<Complex<Float>>,
     rule:Option<Rule>,completed:usize,
 }
 impl<'a> Worker<'a> {

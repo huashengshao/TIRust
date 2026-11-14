@@ -318,6 +318,7 @@ pub(crate) fn exact_threshold(text: &str) -> Result<Atom, ReductionError> {
 
 #[cfg(test)]
 mod tests {
+    use iregi_masters::IntoRowEvaluator;
     use super::*;
     use crate::{
         Algorithm, InputPolicy, InvariantInput, KinematicsBatch, LaneStatus,
@@ -378,7 +379,7 @@ mod tests {
                 },
                 prototype.get_precision(),
             )
-            .into_batch_evaluator();
+            .into_row_evaluator();
         let mut output = vec![
             Complex::new(prototype.zero(), prototype.zero());
             rows * outputs.len() * components

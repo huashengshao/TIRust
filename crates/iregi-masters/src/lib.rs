@@ -1,4 +1,4 @@
-//! Scalar masters evaluated with Symbolica's instruction-major batch engine.
+//! Scalar masters evaluated with Symbolica's expression evaluator, one row at a time.
 //!
 //! Every input row contains the OneLOop arguments (squared invariants, squared
 //! masses, then the squared scale). Dual components are argument-major and
@@ -24,6 +24,8 @@ mod execution_policy_tests;
 mod normalization;
 mod pentagon6;
 mod scale_transport;
+pub mod row_evaluator;
+pub use row_evaluator::{IntoRowEvaluator, RowEvaluator};
 pub use dual_validation::validate_dual_structure;
 pub use exact_plan::ExactMasterPlan;
 pub use pentagon6::{
@@ -41,7 +43,7 @@ pub use symbolica::domains::{
 use symbolica::{
     atom::{Atom, AtomCore, Symbol},
     domains::{float::SingleFloat, rational::Rational},
-    evaluate::{BatchExpressionEvaluator, EvaluationDomain, ExpressionEvaluator},
+    evaluate::{EvaluationDomain, ExpressionEvaluator},
 };
 
 // Five physical outputs and one private derivative-domain discriminant.
@@ -205,7 +207,7 @@ impl MasterExecutionPolicy {
 }
 
 /// Default scalar backend selected by this crate's compiled feature set.
-/// Dual plans always use Symbolica's batch interpreter.
+/// Dual plans always use Symbolica's interpreter.
 pub const fn default_master_backend() -> MasterBackend {
     if cfg!(feature = "native-batch") {
         MasterBackend::RustBatch
@@ -216,7 +218,7 @@ pub const fn default_master_backend() -> MasterBackend {
 
 #[derive(Clone)]
 enum PreparedMaster<T: NativeFloat> {
-    Symbolica(BatchExpressionEvaluator<Complex<T>>),
+    Symbolica(RowEvaluator<Complex<T>>),
     #[cfg(feature = "native-batch")]
     Rust(native_batch::NativeBatchEvaluator<T>),
     #[cfg(feature = "native-f64-abc")]
@@ -274,7 +276,7 @@ where
     }
 
     /// Select the native generated kernels or the exact-expression interpreter.
-    /// Both execute instructions across batches; neither loops over scalar calls.
+    /// The native kernels execute instructions across batches; Symbolica evaluates row by row.
     /// `RustBatch` retains its broad `native-batch` feature requirement. Use
     /// [`Self::new_with_policy`] for the separate selective capability.
     pub fn new_with_backend(
@@ -402,7 +404,7 @@ where
                 },
                 bits,
             )
-            .into_batch_evaluator();
+            .into_row_evaluator();
         Ok(Self {
             family,
             prototype,

@@ -1,11 +1,12 @@
 //! Source-only weighted native stream. All numeric operations use Symbolica DoubleFloat.
+use iregi_masters::{RowEvaluator};
 use crate::{Answer,kernel::{Prepared,Table,MOMENTS,NATIVE}};
 use serde_json::{Value,json};
 use sha2::{Digest,Sha256};
 // Numeric transport only; no scalar master or reduction calls.
 use oneloop::NativeFloat;
 use std::io::{Read,Write};
-use symbolica::{domains::float::{Complex,DoubleFloat as Float,FloatLike,Real,SingleFloat},evaluate::BatchExpressionEvaluator};
+use symbolica::{domains::float::{Complex,DoubleFloat as Float,FloatLike,Real,SingleFloat}};
 
 pub const PROTOCOL:&str="n6-sample-n5-d6-mass-second-dd-v1";
 pub const MAX_ROWS:usize=256;
@@ -68,7 +69,7 @@ pub const OUTPUTS:usize=CHILD_WIDTH*(CHILD_FIELDS+PARENT_COMPONENTS);
 const PARENT_OFFSET:usize=CHILD_WIDTH*CHILD_FIELDS;
 
 struct TableRuntime {
-    dynamic:Option<BatchExpressionEvaluator<Complex<Float>>>,constants:Vec<Complex<Float>>,
+    dynamic:Option<RowEvaluator<Complex<Float>>>,constants:Vec<Complex<Float>>,
 }
 impl TableRuntime {
     fn new(table:&Table,max_rows:usize)->Answer<Self> {
@@ -129,7 +130,7 @@ impl Rule {
 }
 pub struct Worker<'a> {
     prepared:&'a Prepared,unit:TableRuntime,derivatives:TableRuntime,
-    geometry:[BatchExpressionEvaluator<Complex<Float>>;2],gap:BatchExpressionEvaluator<Complex<Float>>,
+    geometry:[RowEvaluator<Complex<Float>>;2],gap:RowEvaluator<Complex<Float>>,
     rule:Option<Rule>,completed:usize,map_digest:String,
 }
 impl<'a>Worker<'a> {
