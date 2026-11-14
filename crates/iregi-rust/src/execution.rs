@@ -12,6 +12,7 @@ mod master_policy_tests;
 #[path = "execution/policy_composition_tests.rs"]
 pub(crate) mod policy_composition_tests;
 
+use iregi_masters::{RowEvaluator, IntoRowEvaluator};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex, OnceLock},
@@ -29,7 +30,7 @@ use symbolica::{
         float::Complex,
         rational::Rational,
     },
-    evaluate::{BatchExpressionEvaluator, Dualizer, EvaluationDomain, ExpressionEvaluator},
+    evaluate::{Dualizer, EvaluationDomain, ExpressionEvaluator},
 };
 
 use crate::{
@@ -254,7 +255,7 @@ struct DistanceZeroWorkspace<T: NativeFloat> {
     pairs: Vec<(usize, usize)>,
     certificate: ExactZeroConstraintWorkspace,
     conditioning: Arc<ArgumentStabilityPlan>,
-    envelope: BatchExpressionEvaluator<Complex<T>>,
+    envelope: RowEvaluator<Complex<T>>,
     envelope_inputs: Vec<Complex<T>>,
     envelope_values: Vec<Complex<T>>,
     input: Vec<Complex<Rational>>,
@@ -458,8 +459,8 @@ impl PreparedQuadrature {
 #[derive(Clone)]
 struct QuadratureWorkspace<T: NativeFloat> {
     plan: Arc<QuadratureStabilityPlan>,
-    coefficients: BatchExpressionEvaluator<Complex<T>>,
-    contraction: BatchExpressionEvaluator<Complex<T>>,
+    coefficients: RowEvaluator<Complex<T>>,
+    contraction: RowEvaluator<Complex<T>>,
     coefficient_count: usize,
     output_count: usize,
     leaf_offsets: Vec<Option<usize>>,
@@ -1076,13 +1077,13 @@ pub struct Workspace<T: NativeFloat> {
     distance_zeros: Option<DistanceZeroWorkspace<T>>,
     zero_profile_plan: Option<Box<ReductionPlan>>,
     zero_profiles: HashMap<ZeroInvariantProfile, Result<Box<Workspace<T>>, String>>,
-    arguments: BatchExpressionEvaluator<Complex<T>>,
-    reduction: BatchExpressionEvaluator<Complex<T>>,
+    arguments: RowEvaluator<Complex<T>>,
+    reduction: RowEvaluator<Complex<T>>,
     reduction_outputs: usize,
     primal_fused: bool,
-    primal_monitor: Option<BatchExpressionEvaluator<Complex<T>>>,
+    primal_monitor: Option<RowEvaluator<Complex<T>>>,
     primal_monitor_outputs: usize,
-    snapping_monitor: Option<BatchExpressionEvaluator<Complex<T>>>,
+    snapping_monitor: Option<RowEvaluator<Complex<T>>>,
     legacy_compatibility: Option<LegacyCompatibilityWorkspace<T>>,
     snapping_labels: Vec<String>,
     snapping_positive_threshold: bool,
@@ -2802,7 +2803,7 @@ pub(crate) fn compile_exact<D: DualNumberStructure>(
 pub(crate) fn map_exact<T: NativeFloat>(
     exact: &ExpressionEvaluator<Complex<Rational>>,
     prototype: &T,
-) -> BatchExpressionEvaluator<Complex<T>>
+) -> RowEvaluator<Complex<T>>
 where
     Complex<T>: EvaluationDomain,
 {
@@ -2817,7 +2818,7 @@ where
             },
             prototype.get_precision(),
         )
-        .into_batch_evaluator()
+        .into_row_evaluator()
 }
 
 fn preparation_timer() -> Option<Instant> {

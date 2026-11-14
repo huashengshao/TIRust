@@ -3,13 +3,14 @@
 //! The wire stores little-endian `(real, imaginary)` f64 pairs. Rust workspaces
 //! retain their numeric domain: Float coefficients and constants are mapped at
 //! the prototype precision, without an intermediate f64 conversion.
+use iregi_masters::{RowEvaluator, IntoRowEvaluator};
 use super::{Answer, Prepared};
 use serde_json::{Value, json};
 use std::{collections::BTreeSet, io::{self, Read, Write}};
 use symbolica::{
     atom::{AtomCore, Symbol},
     domains::{float::{Complex, Float, FloatLike, Real, SingleFloat}, rational::Rational},
-    evaluate::{BatchExpressionEvaluator, ExportedInstructions, Instruction, Slot},
+    evaluate::{ExportedInstructions, Instruction, Slot},
     evaluate::EvaluationDomain,
 };
 
@@ -142,7 +143,7 @@ fn audit(exported: &ExportedInstructions<Complex<Rational>>) -> Answer<Inventory
 
 pub struct Workspace<T: Real + SingleFloat>
 where Complex<T>: EvaluationDomain {
-    evaluator: BatchExpressionEvaluator<Complex<T>>,
+    evaluator: RowEvaluator<Complex<T>>,
     prototype: T,
     topology: usize,
     pub instructions: usize,
@@ -194,7 +195,7 @@ where Complex<T>: EvaluationDomain {
             .map(|value| [value.re.to_string(),value.im.to_string()]).collect();
         let max_rows = MAX_ROWS.min(MAX_SLOT_VALUES / inventory.slots.max(1));
         if max_rows != MAX_ROWS { return Err("selected evaluator cannot admit fixed256-row contract within numeric-slot allowance".into()); }
-        Ok(Self { evaluator:mapped.into_batch_evaluator(), prototype, topology:6,
+        Ok(Self { evaluator:mapped.into_row_evaluator(), prototype, topology:6,
             instructions:inventory.instructions,numeric_slots_upper_bound:inventory.slots,
             max_rows,batches:0,rows:0,scheduled_instruction_lane_visits:0,
             dynamic_logarithms:inventory.dynamic_logarithms,

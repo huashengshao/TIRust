@@ -1,5 +1,6 @@
 //! Actual upstream graph/tensor/Expression interoperability, with no serialization.
 
+use iregi_masters::{IntoRowEvaluator};
 use std::sync::Arc;
 
 use feynkit_graph::FeynmanDiagram;
@@ -275,7 +276,7 @@ where
                 },
                 prototype.get_precision(),
             )
-            .into_batch_evaluator();
+            .into_row_evaluator();
         let row_count = input.len();
         py.detach(|| evaluator.evaluate_batch(&values, &mut output, row_count))
             .map_err(reduction_error)?;

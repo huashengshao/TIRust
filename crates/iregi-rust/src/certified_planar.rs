@@ -872,6 +872,7 @@ fn add_stats(total: &mut ExecutionStats, value: ExecutionStats) -> Result<(), Re
 #[cfg(test)]
 mod tests {
     use super::*;
+    use iregi_masters::IntoRowEvaluator;
     use crate::{Convention, TensorWeights};
     use symbolica::{
         atom::AtomCore,
@@ -1212,7 +1213,7 @@ mod tests {
                 },
                 prototype.get_precision(),
             )
-            .into_batch_evaluator();
+            .into_row_evaluator();
         let slots = plan.basis().len() * 4;
         let mut inputs = Vec::new();
         for lane in 0..input.rows {

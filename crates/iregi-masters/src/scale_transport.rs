@@ -4,16 +4,17 @@
 //! extracts the Laurent coefficients, and differentiates the requested Dual
 //! shape. No kinematic scalar-master expression is differentiated here.
 
+use crate::row_evaluator::{RowEvaluator, IntoRowEvaluator};
 use crate::{Complex, HyperDual, MasterError, NativeFloat};
 use symbolica::{
     atom::{Atom, AtomCore},
-    evaluate::{BatchExpressionEvaluator, EvaluationDomain},
+    evaluate::{EvaluationDomain},
     id::Replacement,
 };
 
 #[derive(Clone)]
 pub(crate) struct ScaleTransport<T: NativeFloat> {
-    evaluator: BatchExpressionEvaluator<Complex<T>>,
+    evaluator: RowEvaluator<Complex<T>>,
 }
 
 impl<T: NativeFloat> ScaleTransport<T>
@@ -73,7 +74,7 @@ where
                 },
                 prototype.get_precision(),
             )
-            .into_batch_evaluator();
+            .into_row_evaluator();
         Ok(Self { evaluator })
     }
 

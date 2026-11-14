@@ -5,6 +5,7 @@
 //! differentiation, and quadrature polynomials. Sampling and weighted sums are
 //! numerical operations. See `docs/research/shifted-pentagon.md` for the proof.
 
+use crate::row_evaluator::{RowEvaluator, IntoRowEvaluator};
 use crate::{
     Complex, DualNumberStructure, ExactMasterPlan, HyperDual, LaneError, MasterBackend,
     MasterError, MasterEvaluator, MasterExecutionPolicy, NativeFloat, ScalarIntegral, default_master_backend,
@@ -22,7 +23,7 @@ use symbolica::{
         integer::Integer,
         rational::{Q, Rational},
     },
-    evaluate::{BatchExpressionEvaluator, Dualizer, EvaluationDomain, ExpressionEvaluator},
+    evaluate::{Dualizer, EvaluationDomain, ExpressionEvaluator},
     tensors::matrix::Matrix,
 };
 
@@ -304,13 +305,13 @@ impl<T: NativeFloat> Pentagon6Batch<T> {
     }
 }
 
-/// Owned scratch and generic instruction-major evaluators.
+/// Owned scratch and generic per-row evaluators.
 #[derive(Clone)]
 pub struct Pentagon6Evaluator<T: NativeFloat> {
     prototype: T,
     components: usize,
-    geometry: BatchExpressionEvaluator<Complex<T>>,
-    contraction: BatchExpressionEvaluator<Complex<T>>,
+    geometry: RowEvaluator<Complex<T>>,
+    contraction: RowEvaluator<Complex<T>>,
     boxes: MasterEvaluator<T>,
     rules: Arc<Mutex<HashMap<(usize, u32), Arc<Vec<(Rational, Rational)>>>>>,
     geometry_workspace: Vec<Complex<T>>,
@@ -977,7 +978,7 @@ fn compile<D: DualNumberStructure>(
 fn map<T: NativeFloat>(
     exact: &ExpressionEvaluator<Complex<Rational>>,
     prototype: &T,
-) -> BatchExpressionEvaluator<Complex<T>>
+) -> RowEvaluator<Complex<T>>
 where
     Complex<T>: EvaluationDomain,
 {
@@ -992,7 +993,7 @@ where
             },
             prototype.get_precision(),
         )
-        .into_batch_evaluator()
+        .into_row_evaluator()
 }
 struct BorrowedDual<'a, D>(&'a D);
 impl<D: DualNumberStructure> DualNumberStructure for BorrowedDual<'_, D> {

@@ -581,6 +581,7 @@ fn variable(name: &str) -> Atom {
 
 #[cfg(test)]
 mod tests {
+    use iregi_masters::IntoRowEvaluator;
     use super::*;
     use crate::{Algorithm, Convention, ReductionSettings};
     use symbolica::{
@@ -643,7 +644,7 @@ mod tests {
                 },
                 53,
             )
-            .into_batch_evaluator();
+            .into_row_evaluator();
         let mut output = vec![c(0.0); rows * expressions.len() * shape.len()];
         batch.evaluate_batch(input, &mut output, rows).unwrap();
         output

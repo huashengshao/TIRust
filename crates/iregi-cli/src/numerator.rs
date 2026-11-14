@@ -1,11 +1,12 @@
 //! Compiled Symbolica coefficient evaluation shared by the CLI and benchmarks.
+use iregi_masters::{RowEvaluator, IntoRowEvaluator};
 use iregi_masters::{Complex, NativeFloat};
 use iregi_prepare::PreparedGraph;
 use iregi_rust::{NumeratorBatch, basis::Monomial};
 use symbolica::{
     atom::{Atom, AtomCore},
     domains::rational::Rational,
-    evaluate::{BatchExpressionEvaluator, EvaluationDomain, ExpressionEvaluator},
+    evaluate::{EvaluationDomain, ExpressionEvaluator},
 };
 
 use crate::input::{Sample, parse_complex};
@@ -72,7 +73,7 @@ impl CoefficientPlan {
 }
 
 pub struct CoefficientWorkspace<T: NativeFloat> {
-    evaluator: Option<BatchExpressionEvaluator<Complex<T>>>,
+    evaluator: Option<RowEvaluator<Complex<T>>>,
     input_width: usize,
     width: usize,
     prototype: T,
@@ -95,7 +96,7 @@ where
                     },
                     prototype.get_precision(),
                 )
-                .into_batch_evaluator()
+                .into_row_evaluator()
         });
         Self {
             evaluator,

@@ -2,12 +2,13 @@
 //! One shared signed affine coefficient kernel, one positive Dual contraction.
 //! Output slots are internal work rows; they never become physical sample lanes
 //! or Taylor directions. No integral graph is inlined into this program.
+use iregi_masters::{RowEvaluator};
 use std::collections::{BTreeSet,HashMap};
 use iregi_masters::NativeFloat;
 use symbolica::{
     atom::{Atom,AtomCore},
     domains::{dual::DualNumberStructure,float::Complex,rational::Rational},
-    evaluate::{BatchExpressionEvaluator,EvaluationDomain,ExpressionEvaluator},
+    evaluate::{EvaluationDomain,ExpressionEvaluator},
 };
 use crate::{KinematicsBatch,ReductionError,ResultMetadata,basis::Monomial,
     execution::{compile_exact,map_exact}};
@@ -108,8 +109,8 @@ impl PreparedImportedAffineQuadrature {
 
 #[derive(Clone)]
 pub(crate) struct ImportedAffineQuadrature<T:NativeFloat> {
-    coefficients:BatchExpressionEvaluator<Complex<T>>,
-    positive:BatchExpressionEvaluator<Complex<T>>,
+    coefficients:RowEvaluator<Complex<T>>,
+    positive:RowEvaluator<Complex<T>>,
     coefficient_parameters:usize,sources:usize,outputs:usize,
     shape:Option<Vec<Vec<usize>>>,working_precision:u32,
     coefficient_values:Vec<Complex<T>>,positive_inputs:Vec<Complex<T>>,

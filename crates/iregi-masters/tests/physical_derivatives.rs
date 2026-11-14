@@ -1,5 +1,6 @@
 //! Physical-sheet derivatives checked against independently evaluated native
 //! scalar masters. Finite-difference weights are solved exactly by Symbolica.
+use iregi_masters::{IntoRowEvaluator};
 use iregi_masters::{Complex, Float, HyperDual, MasterEvaluator, ScalarIntegral};
 use symbolica::{
     domains::{
@@ -308,7 +309,7 @@ fn analytic_grouping_preserves_zero_primal_jets() {
         )
         .unwrap()
         .map_coeff_with_prec(&map, BITS)
-        .into_batch_evaluator();
+        .into_row_evaluator();
     let input = vec![c(0, 0), c(1, 2), c(3, 4), c(5, 6), c(7, 8), c(9, 10)];
     let mut actual = vec![c(0, 0); SHAPE.len()];
     evaluator.evaluate_batch(&input, &mut actual, 1).unwrap();
@@ -327,7 +328,7 @@ fn analytic_grouping_preserves_zero_primal_jets() {
         )
         .unwrap()
         .map_coeff_with_prec(&map, BITS)
-        .into_batch_evaluator();
+        .into_row_evaluator();
     conditional.evaluate_batch(&input, &mut actual, 1).unwrap();
     assert!(actual.iter().all(|v| v.re.is_zero() && v.im.is_zero()));
 
@@ -345,7 +346,7 @@ fn analytic_grouping_preserves_zero_primal_jets() {
         )
         .unwrap()
         .map_coeff_with_prec(&map, BITS)
-        .into_batch_evaluator();
+        .into_row_evaluator();
     let mut arguments = vec![c(0, 0); 3 * SHAPE.len()];
     arguments[0] = c(29929, 0);
     arguments[SHAPE.len()] = c(29929, 0);

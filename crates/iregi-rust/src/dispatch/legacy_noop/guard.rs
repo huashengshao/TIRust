@@ -1,12 +1,13 @@
 //! Existing Legacy branch monitor and selected exact residuals, before any
 //! reduction recipe. This module owns lane bookkeeping, never snap algebra.
+use iregi_masters::{RowEvaluator};
 use super::*;
 use crate::execution::legacy_compatibility::{
     LegacyCompatibilityWorkspace, PreparedLegacyCompatibility,
 };
 use crate::execution::{compile_exact, map_exact, validate_input_row};
 use symbolica::domains::rational::Rational;
-use symbolica::evaluate::{BatchExpressionEvaluator, ExpressionEvaluator};
+use symbolica::evaluate::{ExpressionEvaluator};
 
 pub(super) struct GuardSelection {
     pub accepted: Vec<usize>,
@@ -18,7 +19,7 @@ pub(super) struct GuardSelection {
 #[derive(Clone)]
 pub(super) struct NoOpGuard<T: NativeFloat> {
     compatibility: LegacyCompatibilityWorkspace<T>,
-    monitor: BatchExpressionEvaluator<Complex<T>>,
+    monitor: RowEvaluator<Complex<T>>,
     labels: Vec<String>,
     layout: InputLayout,
     parameters: usize,

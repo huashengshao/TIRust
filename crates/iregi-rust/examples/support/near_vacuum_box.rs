@@ -1,6 +1,7 @@
 //! Validation-only finite D0 neighborhood. All polynomial/jet/ball operations
 //! belong to Symbolica; production master dispatch is deliberately untouched.
 
+use iregi_masters::{RowEvaluator, IntoRowEvaluator};
 use oneloop::NativeFloat;
 use std::sync::Arc;
 use symbolica::{
@@ -13,7 +14,7 @@ use symbolica::{
         rational::{Q, Rational},
     },
     evaluate::{
-        BatchExpressionEvaluator, Dualizer, EvaluationDomain, ExpressionEvaluator, Instruction,
+        Dualizer, EvaluationDomain, ExpressionEvaluator, Instruction,
     },
     poly::PolyVariable,
     tensors::matrix::Matrix,
@@ -346,7 +347,7 @@ impl NearVacuumPlan {
                     },
                     bits,
                 )
-                .into_batch_evaluator(),
+                .into_row_evaluator(),
             enclosure: self
                 .exact
                 .clone()
@@ -354,7 +355,7 @@ impl NearVacuumPlan {
                     &|x| ComplexBall::from_rational_ball(x, &Rational::from(0), bits),
                     bits,
                 )
-                .into_batch_evaluator(),
+                .into_row_evaluator(),
             tail: self
                 .tail
                 .clone()
@@ -365,7 +366,7 @@ impl NearVacuumPlan {
                     },
                     bits,
                 )
-                .into_batch_evaluator(),
+                .into_row_evaluator(),
             execution: Execution::default(),
         }
     }
@@ -374,9 +375,9 @@ impl NearVacuumPlan {
 pub struct Workspace<T: NativeFloat> {
     plan: NearVacuumPlan,
     prototype: T,
-    numeric: BatchExpressionEvaluator<Complex<T>>,
-    enclosure: BatchExpressionEvaluator<ComplexBall>,
-    tail: BatchExpressionEvaluator<RealBall>,
+    numeric: RowEvaluator<Complex<T>>,
+    enclosure: RowEvaluator<ComplexBall>,
+    tail: RowEvaluator<RealBall>,
     pub execution: Execution,
 }
 

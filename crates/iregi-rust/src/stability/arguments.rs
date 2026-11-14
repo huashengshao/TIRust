@@ -190,6 +190,7 @@ impl ArgumentStabilityPlan {
 
 #[cfg(test)]
 mod tests {
+    use iregi_masters::IntoRowEvaluator;
     use super::*;
     use symbolica::{
         domains::{
@@ -217,7 +218,7 @@ mod tests {
             .vectorize(&Dualizer::new(shape, Vec::new()))
             .unwrap()
             .map_coeff(&|value| Complex::new(value.re.to_f64(), value.im.to_f64()))
-            .into_batch_evaluator();
+            .into_row_evaluator();
         // For x=(1,2^27-1,-2^53+2^27+2), the exact quadratic
         // coefficient of x² is5, but binary64 convolution produces4.
         let positive = [
@@ -350,7 +351,7 @@ mod tests {
                 },
                 256,
             )
-            .into_batch_evaluator();
+            .into_row_evaluator();
         let complex = |value| Complex::new(value, Float::new(256));
         let input = [
             complex(Float::with_val(80, 1)),
@@ -443,10 +444,10 @@ mod tests {
         let mut small_exact = compile(&small, &small_parameters);
         let mut small_numeric = compile(&small, &small_parameters)
             .map_coeff_with_prec(&numeric, 128)
-            .into_batch_evaluator();
+            .into_row_evaluator();
         let mut wide_numeric = compile(&wide, &wide_parameters)
             .map_coeff_with_prec(&numeric, 128)
-            .into_batch_evaluator();
+            .into_row_evaluator();
         let rows = 3;
         let mut small_input = Vec::with_capacity(rows * 2 * components);
         let mut wide_input = Vec::with_capacity(rows * wide_parameters.len() * components);
