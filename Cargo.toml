@@ -15,13 +15,13 @@ repository = "https://github.com/huashengshao/TIRust"
 
 [workspace.dependencies]
 symbolica = { version = "3.0", default-features = false, features = ["integer-gmp", "float-mpfr", "native_code_generation", "bincode", "serde"] }
-oneloop = { git = "https://github.com/alphal00p/oneloopmaster.git", rev = "bd703d09a78f7849a6b86a07096e6f222fc01193", default-features = false, features = ["generated-evaluators", "rust-codegen"] }
-feynkit-graph = { git = "https://github.com/alphal00p/gammaloop", rev = "9102f885722e856e30227ed46e685e5c465905f7" }
-feynkit-model = { git = "https://github.com/alphal00p/gammaloop", rev = "9102f885722e856e30227ed46e685e5c465905f7", features = ["native"] }
-feynkit-generator = { git = "https://github.com/alphal00p/gammaloop", rev = "9102f885722e856e30227ed46e685e5c465905f7" }
-spenso = { git = "https://github.com/alphal00p/gammaloop", rev = "9102f885722e856e30227ed46e685e5c465905f7", default-features = false }
-spenso-hep-lib = { git = "https://github.com/alphal00p/gammaloop", rev = "9102f885722e856e30227ed46e685e5c465905f7", default-features = false }
-idenso = { git = "https://github.com/alphal00p/gammaloop", rev = "9102f885722e856e30227ed46e685e5c465905f7", default-features = false }
+oneloop = { git = "https://github.com/alphal00p/oneloopmaster.git", rev = "3b6f229fc2636654b11e6ff98e921ee5028f7936", default-features = false, features = ["generated-evaluators", "rust-codegen"] }
+feynkit-graph = { git = "https://github.com/ValentinHirschi/gammaloop", rev = "6ef9ab3a426844c89cd2c15962ce4a274bb2e43c" }
+feynkit-model = { git = "https://github.com/ValentinHirschi/gammaloop", rev = "6ef9ab3a426844c89cd2c15962ce4a274bb2e43c", features = ["native"] }
+feynkit-generator = { git = "https://github.com/ValentinHirschi/gammaloop", rev = "6ef9ab3a426844c89cd2c15962ce4a274bb2e43c" }
+spenso = { git = "https://github.com/ValentinHirschi/gammaloop", rev = "6ef9ab3a426844c89cd2c15962ce4a274bb2e43c", default-features = false }
+spenso-hep-lib = { git = "https://github.com/ValentinHirschi/gammaloop", rev = "6ef9ab3a426844c89cd2c15962ce4a274bb2e43c", default-features = false }
+idenso = { git = "https://github.com/ValentinHirschi/gammaloop", rev = "6ef9ab3a426844c89cd2c15962ce4a274bb2e43c", default-features = false }
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["arbitrary_precision"] }
@@ -31,14 +31,13 @@ iregi-rust = { path = "crates/iregi-rust" }
 iregi-prepare = { path = "crates/iregi-prepare" }
 
 [patch.crates-io]
-# Symbolica: ValentinHirschi/symbolica dfe6bd97 (symbolica-dev/symbolica `community` 36cbac3a plus
-# the consolidated upstream PR symbolica-dev/symbolica#163), the one revision shared with
-# pyAmpliCol, NinjaRS and oneloopmaster; it moves to upstream once the PR is merged. Crates
-# require symbolica = "3.0" so that an embedding workspace's own patch decides the revision.
-# Needed Symbolica changes go to that PR line, never into a vendored or modified copy here.
-symbolica = { git = "https://github.com/ValentinHirschi/symbolica.git", rev = "dfe6bd97b974b1028dc63071ea165136cd2b0ef5" }
-numerica = { git = "https://github.com/ValentinHirschi/symbolica.git", rev = "dfe6bd97b974b1028dc63071ea165136cd2b0ef5" }
-graphica = { git = "https://github.com/ValentinHirschi/symbolica.git", rev = "dfe6bd97b974b1028dc63071ea165136cd2b0ef5" }
+# Symbolica: symbolica-dev/symbolica `community` 0e2ad04c, the one revision shared with
+# pyAmpliCol, NinjaRS and oneloopmaster. Crates require symbolica = "3.0" so that an
+# embedding workspace's own patch decides the revision.
+# Needed Symbolica changes go upstream, never into a vendored or modified copy here.
+symbolica = { git = "https://github.com/symbolica-dev/symbolica.git", rev = "0e2ad04c4f281e28bd29d5ad8b1bebf2764379b7" }
+numerica = { git = "https://github.com/symbolica-dev/symbolica.git", rev = "0e2ad04c4f281e28bd29d5ad8b1bebf2764379b7" }
+graphica = { git = "https://github.com/symbolica-dev/symbolica.git", rev = "0e2ad04c4f281e28bd29d5ad8b1bebf2764379b7" }
 symbolica-typst-plugin = { git = "https://github.com/symbolica-dev/symbolica-typst-plugin", rev = "57b7455b37c30f4f87353c0073e49f5225e937ab" }
 
 [profile.release]
@@ -60,5 +59,5 @@ inherits = "release"
 debug = true
 
 # Native SVG layout must keep numeric CBOR typed under exact JSON feature unification.
-[patch."https://github.com/alphal00p/gammaloop"]
+[patch."https://github.com/ValentinHirschi/gammaloop"]
 linnest = { path = "dependencies/linnest" }
