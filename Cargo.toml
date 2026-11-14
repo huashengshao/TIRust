@@ -15,7 +15,7 @@ repository = "https://github.com/huashengshao/TIRust"
 
 [workspace.dependencies]
 symbolica = { version = "3.0", default-features = false, features = ["integer-gmp", "float-mpfr", "native_code_generation", "bincode", "serde"] }
-oneloop = { git = "https://github.com/alphal00p/oneloopmaster.git", rev = "3b6f229fc2636654b11e6ff98e921ee5028f7936", default-features = false, features = ["generated-evaluators", "rust-codegen"] }
+oneloop = { git = "https://github.com/alphal00p/oneloopmaster.git", rev = "2e7afabb5903814196d7ab39c695ed9cac777aa4", default-features = false, features = ["generated-evaluators", "rust-codegen"] }
 feynkit-graph = { git = "https://github.com/ValentinHirschi/gammaloop", rev = "6ef9ab3a426844c89cd2c15962ce4a274bb2e43c" }
 feynkit-model = { git = "https://github.com/ValentinHirschi/gammaloop", rev = "6ef9ab3a426844c89cd2c15962ce4a274bb2e43c", features = ["native"] }
 feynkit-generator = { git = "https://github.com/ValentinHirschi/gammaloop", rev = "6ef9ab3a426844c89cd2c15962ce4a274bb2e43c" }
