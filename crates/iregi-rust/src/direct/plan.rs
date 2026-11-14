@@ -11,7 +11,7 @@
 //! linear instruction over a flat value array, evaluated numerically per lane.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
 };
 
@@ -368,6 +368,11 @@ pub(crate) enum PostOp {
     None,
     /// Multiply by `(a - 2 epsilon)^-1`, with `1/a` stored as a constant.
     DivideDimension { inverse: u32 },
+    /// Partial fraction of a linearly dependent subset (moment programs with
+    /// a Taylor jet only): Taylor order `k` of the destination is the terms
+    /// applied to order `k + 1` of their sources, and the jet's last order
+    /// is zero.
+    TaylorShift,
 }
 
 /// Instructions and values of a Gram-free pentagon's coefficients.
@@ -403,6 +408,14 @@ pub(crate) enum SubsetKind {
     /// denominator identity `sum_i w_i D_i = 1` reduces every moment to
     /// same-rank pinches. Index into `DirectPlanData::relations`.
     Relation(usize),
+    /// Linearly dependent propagators, `sum_i c_i D_i = 0` (the constant of
+    /// the denominator identity vanishes): the Coulomb-exchange integrals
+    /// of a heavy pair with equal momenta, `2 D_g = D_c + D_c~`. With the
+    /// raised member `j`, `1 = -sum_(i != j) (c_i / c_j) D_i / D_j`, so every
+    /// moment is `sum_(i != j) w_i` times the first Taylor coefficient, in the
+    /// squared mass of `j`, of the pinch without `i` (that pinch with `D_j`
+    /// doubled). Index into `DirectPlanData::homogeneous`.
+    Homogeneous(usize),
 }
 
 /// A minimal affinely dependent propagator subset of a plan variant.
@@ -412,6 +425,18 @@ pub(crate) struct RelationGeometry {
     pub mask: SubsetMask,
     pub members: Vec<usize>,
     /// Geometry offset of the identity weights, one per member.
+    pub weights: u32,
+}
+
+/// A minimal linearly dependent propagator subset of a plan variant.
+#[derive(Clone, Debug)]
+pub(crate) struct HomogeneousGeometry {
+    pub mask: SubsetMask,
+    pub members: Vec<usize>,
+    /// The member whose power the partial fraction raises (the plan's jet).
+    pub raised: usize,
+    /// Geometry offset of the weights `-c_i / c_raised`, one per member
+    /// (the raised member's entry is unused).
     pub weights: u32,
 }
 
@@ -565,14 +590,20 @@ pub(crate) struct DirectPlanData {
     pub masters: [Vec<(usize, u32)>; 4],
     /// Minimal degenerate subsets of this variant, in profile order.
     pub relations: Vec<RelationGeometry>,
+    /// Minimal linearly dependent subsets of this variant (Coulomb exchange).
+    pub homogeneous: Vec<HomogeneousGeometry>,
     /// Lightlike bubbles: `(subset, [(lambda, k, value index)])` excluding
     /// the master `(0, 0)`.
     pub lightlike: Vec<(usize, Vec<(u16, u16, u32)>)>,
     pub output: Vec<u32>,
     pub gather_scratch: usize,
     /// Differentiated propagator and Taylor length `K` (its power). The
-    /// output is the order-`K-1` Taylor coefficient in its squared mass.
+    /// output is the order-`K-1` Taylor coefficient in its squared mass,
+    /// except in a Coulomb-exchange variant (see `output_order`).
     pub jet: Option<(usize, usize)>,
+    /// Taylor order of the output: `K - 1` for a raised power, 0 otherwise
+    /// (a Coulomb-exchange variant differentiates its pinches only).
+    pub output_order: usize,
     /// Gathers read `C(lambda + h, kappa)` and scale by `(-2)^h`.
     pub lambda_shift: u16,
     /// Value index holding the constant `[0, 0, 0, 1]` (unit finite part),
@@ -624,10 +655,14 @@ pub(crate) struct DirectPlanData {
 #[derive(Clone, Default)]
 pub(crate) struct DerivedPlans(Arc<DerivedMaps>);
 
+/// A plan variant's profile: relation masks, lightlike masks and linearly
+/// dependent sets (mask, raised member).
+type VariantKey = (Vec<SubsetMask>, Vec<SubsetMask>, Vec<(SubsetMask, usize)>);
+
 #[derive(Default)]
 struct DerivedMaps {
-    /// Variants by `(relation profile, lightlike profile)`.
-    variants: Mutex<HashMap<(Vec<SubsetMask>, Vec<SubsetMask>), Arc<DirectPlanData>>>,
+    /// Variants by `(relation profile, lightlike profile, homogeneous profile)`.
+    variants: Mutex<HashMap<VariantKey, Arc<DirectPlanData>>>,
     /// Auxiliary plans by `(propagators, rank, top-child boost)`.
     auxiliary: Mutex<HashMap<(usize, u16, u16), Arc<DirectPlanData>>>,
 }
@@ -789,19 +824,27 @@ impl DirectPlanData {
         Self::with_profile_boost(settings, &[], &[], boost)
     }
 
-    /// The variant of this plan for `relation_masks` and `lightlike_masks`
-    /// (as [`Self::with_profile_boost`] with this plan's settings and boost),
-    /// built once per plan: a variant is a pure function of its profile, so
-    /// the executors of one plan (binary64, double-double and MPFR, their
-    /// method choice and check passes) share it instead of each building
-    /// its own.
+    /// The variant of this plan for `relation_masks`, `lightlike_masks` and
+    /// the linearly dependent sets `homogeneous` (as [`Self::with_full_profile`]
+    /// with this plan's settings and boost), built once per plan: a variant is
+    /// a pure function of its full profile, so the executors of one plan
+    /// (binary64, double-double and MPFR, their method choice and check
+    /// passes) share it instead of each building its own.
     pub fn variant(
         &self,
         relation_masks: &[SubsetMask],
         lightlike_masks: &[SubsetMask],
+        homogeneous: &[(SubsetMask, usize)],
     ) -> Result<Arc<DirectPlanData>, ReductionError> {
-        derived(&self.derived.0.variants, (relation_masks.to_vec(), lightlike_masks.to_vec()), || {
-            Self::with_profile_boost(self.settings.clone(), relation_masks, lightlike_masks, self.top_child_boost)
+        let key = (relation_masks.to_vec(), lightlike_masks.to_vec(), homogeneous.to_vec());
+        derived(&self.derived.0.variants, key, || {
+            Self::with_full_profile(
+                self.settings.clone(),
+                relation_masks,
+                lightlike_masks,
+                homogeneous,
+                self.top_child_boost,
+            )
         })
     }
 
@@ -824,18 +867,58 @@ impl DirectPlanData {
         lightlike_masks: &[SubsetMask],
         boost: u16,
     ) -> Result<Self, ReductionError> {
+        Self::with_full_profile(settings, relation_masks, lightlike_masks, &[], boost)
+    }
+
+    /// Plan variant with constant-one identities for `relation_masks`,
+    /// lightlike bubbles `lightlike_masks` and partial fractions for the
+    /// linearly dependent sets `homogeneous` (mask, raised member). Subsets
+    /// containing a constant relation take it first.
+    pub fn with_full_profile(
+        settings: ReductionSettings,
+        relation_masks: &[SubsetMask],
+        lightlike_masks: &[SubsetMask],
+        homogeneous: &[(SubsetMask, usize)],
+        boost: u16,
+    ) -> Result<Self, ReductionError> {
         Self::supported(&settings)?;
         let lambda_shift = settings.dimension_shift as u16;
-        let jet = settings
-            .powers
-            .iter()
-            .position(|&p| p > 1)
-            .map(|d| (d, usize::from(settings.powers[d])));
+        let raised = homogeneous.first().map(|&(_, j)| j);
+        if let Some(j) = raised {
+            if settings.powers.iter().any(|&p| p != 1) {
+                return Err(ReductionError::Unsupported(
+                    "direct engine: linearly dependent propagators with a raised power".into(),
+                ));
+            }
+            if homogeneous.iter().any(|&(_, r)| r != j) {
+                return Err(ReductionError::Unsupported(
+                    "direct engine: linearly dependent propagator sets raising different propagators".into(),
+                ));
+            }
+            let mut dotted = settings.clone();
+            dotted.powers[j] = 2;
+            Self::supported(&dotted)?;
+        }
+        let jet = match raised {
+            Some(j) => Some((j, 2)),
+            None => settings
+                .powers
+                .iter()
+                .position(|&p| p > 1)
+                .map(|d| (d, usize::from(settings.powers[d]))),
+        };
+        let output_order = if raised.is_some() { 0 } else { jet.map_or(0, |(_, k)| k - 1) };
         let relation_for = |mask: SubsetMask| -> Option<usize> {
             if mask.count_ones() >= 6 {
                 return None;
             }
             relation_masks.iter().position(|&r| r & !mask == 0)
+        };
+        let homogeneous_for = |mask: SubsetMask| -> Option<usize> {
+            if mask.count_ones() >= 6 || relation_for(mask).is_some() {
+                return None;
+            }
+            homogeneous.iter().position(|&(h, _)| h & !mask == 0)
         };
         let n = settings.propagators;
         let rank = settings.rank;
@@ -874,6 +957,17 @@ impl DirectPlanData {
             if let Some(relation) = relation_for(mask) {
                 if moment >= 0 {
                     for member in members(relation_masks[relation]) {
+                        let child = without(mask, member);
+                        let need = moment_need.entry(child).or_insert(-1);
+                        *need = (*need).max(moment);
+                    }
+                }
+                continue;
+            }
+            if let Some(h) = homogeneous_for(mask) {
+                if moment >= 0 {
+                    let (h_mask, j) = homogeneous[h];
+                    for member in members(h_mask).into_iter().filter(|&member| member != j) {
                         let child = without(mask, member);
                         let need = moment_need.entry(child).or_insert(-1);
                         *need = (*need).max(moment);
@@ -972,6 +1066,17 @@ impl DirectPlanData {
             });
             geometry_count = grow(geometry_count, member_list.len() as u32)?;
         }
+        let mut homogeneous_geometry = Vec::new();
+        for &(h_mask, j) in homogeneous {
+            let member_list = members(h_mask);
+            homogeneous_geometry.push(HomogeneousGeometry {
+                mask: h_mask,
+                weights: geometry_count,
+                members: member_list.clone(),
+                raised: j,
+            });
+            geometry_count = grow(geometry_count, member_list.len() as u32)?;
+        }
         for &mask in &masks {
             let coefficient = coefficient_need.get(&mask).copied().unwrap_or(-1);
             let moment = moment_need.get(&mask).copied().unwrap_or(-1);
@@ -980,10 +1085,11 @@ impl DirectPlanData {
             }
             let member_list = members(mask);
             let size = member_list.len();
-            let kind = match (relation_for(mask), size) {
-                (Some(relation), _) => SubsetKind::Relation(relation),
-                (None, 6..) => SubsetKind::Hexagon,
-                (None, 5) => SubsetKind::Pentagon,
+            let kind = match (relation_for(mask), homogeneous_for(mask), size) {
+                (Some(relation), _, _) => SubsetKind::Relation(relation),
+                (None, Some(h), _) => SubsetKind::Homogeneous(h),
+                (None, None, 6..) => SubsetKind::Hexagon,
+                (None, None, 5) => SubsetKind::Pentagon,
                 _ => SubsetKind::Pv,
             };
             let geometry_base = geometry_count;
@@ -1084,7 +1190,7 @@ impl DirectPlanData {
                     subset.hexagon = Some(geometry_base);
                     geometry_count = grow(geometry_count, 5 * size as u32)?;
                 }
-                SubsetKind::Relation(_) => {
+                SubsetKind::Relation(_) | SubsetKind::Homogeneous(_) => {
                     if coefficient >= 0 {
                         return Err(ReductionError::Preparation(
                             "a degenerate subset cannot supply PV coefficients".into(),
@@ -1410,8 +1516,9 @@ impl DirectPlanData {
                                 SubsetKind::Pentagon => 1,
                                 SubsetKind::Hexagon => 2,
                                 SubsetKind::Relation(_) => 3,
+                                SubsetKind::Homogeneous(_) => 4,
                             };
-                            eat(kind | u64::from(sub.lightlike) << 2);
+                            eat(kind | u64::from(sub.lightlike) << 3);
                             eat(sub.coefficient_rank as i64 as u64);
                         }
                     }
@@ -1529,12 +1636,71 @@ impl DirectPlanData {
             debug_assert!(i32::from(rank) <= child.moment_rank);
             child.moment_base.unwrap() + index_in_basis(exponents)
         };
+        // Subsets whose Taylor orders above the last one the partial fraction
+        // gives are missing: the linearly dependent subsets (order k from
+        // order k + 1 of their pinches, so the jet's last order is zero) and
+        // every moment recursion that reads one. A partial fraction reading
+        // such a subset would miss that order.
+        let mut truncated: HashSet<SubsetMask> = HashSet::new();
         for subset in &subsets {
             if subset.moment_rank < 0 {
                 continue;
             }
+            let read: Vec<SubsetMask> = match subset.kind {
+                SubsetKind::Pv => Vec::new(),
+                SubsetKind::Relation(relation) => {
+                    relations[relation].members.iter().map(|&member| without(subset.mask, member)).collect()
+                }
+                SubsetKind::Homogeneous(h) => {
+                    let geometry = &homogeneous_geometry[h];
+                    geometry
+                        .members
+                        .iter()
+                        .filter(|&&member| member != geometry.raised)
+                        .map(|&member| without(subset.mask, member))
+                        .collect()
+                }
+                SubsetKind::Pentagon | SubsetKind::Hexagon => {
+                    subset.members.iter().map(|&member| without(subset.mask, member)).collect()
+                }
+            };
+            if read.iter().any(|child| truncated.contains(child)) {
+                if let SubsetKind::Homogeneous(_) = subset.kind {
+                    return Err(ReductionError::Unsupported(format!(
+                        "direct engine: linearly dependent propagators {:#b} contain a pinch that needs \
+                         another linearly dependent set's partial fraction",
+                        subset.mask
+                    )));
+                }
+                truncated.insert(subset.mask);
+            }
             match subset.kind {
                 SubsetKind::Pv => {}
+                SubsetKind::Homogeneous(h) => {
+                    // Partial fraction of a linearly dependent subset, after
+                    // its pinches and before every parent: its order-0
+                    // moments are the order-1 Taylor coefficients of the
+                    // pinches with a doubled massless member.
+                    truncated.insert(subset.mask);
+                    let geometry = &homogeneous_geometry[h];
+                    let base = subset.moment_base.unwrap();
+                    for (index, e) in tensor_basis(subset.moment_rank as u16).iter().enumerate() {
+                        let terms = geometry
+                            .members
+                            .iter()
+                            .enumerate()
+                            .filter(|&(_, &member)| member != geometry.raised)
+                            .map(|(j, &member)| {
+                                builder.term(
+                                    child_moment(without(subset.mask, member), e.0),
+                                    geometry.weights + j as u32,
+                                    rational(1, 1),
+                                )
+                            })
+                            .collect();
+                        moment_program.push(builder.instruction(base + index as u32, terms, PostOp::TaylorShift));
+                    }
+                }
                 SubsetKind::Relation(relation) => {
                     let relation = &relations[relation];
                     let base = subset.moment_base.unwrap();
@@ -1673,10 +1839,12 @@ impl DirectPlanData {
             terms: builder.terms,
             masters,
             relations,
+            homogeneous: homogeneous_geometry,
             lightlike,
             output,
             gather_scratch,
             jet,
+            output_order,
             lambda_shift,
             unit_finite,
             coefficient_ranges,
@@ -1739,8 +1907,8 @@ mod tests {
     fn derived_plans_are_shared_and_equal_fresh_builds() {
         let plan = DirectPlanData::new(ReductionSettings::new(5, 4)).unwrap();
         let lightlike: Vec<SubsetMask> = vec![0b00011, 0b01100];
-        let variant = plan.variant(&[], &lightlike).unwrap();
-        assert!(Arc::ptr_eq(&variant, &plan.clone().variant(&[], &lightlike).unwrap()));
+        let variant = plan.variant(&[], &lightlike, &[]).unwrap();
+        assert!(Arc::ptr_eq(&variant, &plan.clone().variant(&[], &lightlike, &[]).unwrap()));
         let fresh = DirectPlanData::with_profile_boost(plan.settings.clone(), &[], &lightlike, plan.top_child_boost).unwrap();
         assert_eq!(structure(&variant), structure(&fresh));
         assert_ne!(structure(&variant), structure(&plan));
@@ -1842,5 +2010,61 @@ mod tests {
                 assert!(used.into_iter().all(|used| used));
             }
         }
+    }
+
+    /// A partial fraction runs after its pinches and before every parent
+    /// that reads it: here a relation parent (the pentagon of a planar lane,
+    /// whose relation {0, 1, 2, 4} leaves the Coulomb box {1, 2, 3, 4}).
+    #[test]
+    fn partial_fractions_precede_the_recursions_that_read_them() {
+        let plan = DirectPlanData::with_full_profile(
+            ReductionSettings::new(5, 2),
+            &[0b10111],
+            &[],
+            &[(0b01110, 2)],
+            0,
+        )
+        .unwrap();
+        let top = plan.subsets.last().unwrap();
+        assert!(matches!(top.kind, SubsetKind::Relation(_)));
+        let child = plan.subsets.iter().find(|subset| subset.mask == 0b11110).unwrap();
+        assert!(matches!(child.kind, SubsetKind::Homogeneous(_)));
+        let moments = |subset: &Subset| {
+            let base = subset.moment_base.unwrap();
+            base..base + tensor_basis(subset.moment_rank as u16).len() as u32
+        };
+        let (child_moments, top_moments) = (moments(child), moments(top));
+        let written = plan
+            .moment_program
+            .iter()
+            .rposition(|instruction| child_moments.contains(&instruction.dst))
+            .unwrap();
+        assert!(matches!(plan.moment_program[written].post, PostOp::TaylorShift));
+        let read = plan
+            .moment_program
+            .iter()
+            .position(|instruction| {
+                plan.terms[instruction.terms.0 as usize..instruction.terms.1 as usize]
+                    .iter()
+                    .any(|term| child_moments.contains(&term.src))
+            })
+            .unwrap();
+        assert!(top_moments.contains(&plan.moment_program[read].dst));
+        assert!(written < read, "the relation reads the Coulomb box before its partial fraction");
+    }
+
+    /// A partial fraction whose pinch is itself a partial fraction would need
+    /// that pinch's Taylor order 1, which no partial fraction gives: refused.
+    #[test]
+    fn nested_partial_fractions_are_refused() {
+        let error = DirectPlanData::with_full_profile(
+            ReductionSettings::new(5, 2),
+            &[],
+            &[],
+            &[(0b00111, 1), (0b01110, 1)],
+            0,
+        )
+        .unwrap_err();
+        assert!(matches!(error, ReductionError::Unsupported(_)), "{error:?}");
     }
 }
