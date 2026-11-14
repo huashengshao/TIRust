@@ -331,10 +331,16 @@ fn first_tier(condition: f64) -> usize {
 /// [`first_tier`] for tiers that accept conditioning down to `threshold(bits)`
 /// (the facade's rescue or embedder mode's stricter tiers).
 pub(super) fn first_tier_under(condition: f64, threshold: impl Fn(u32) -> f64) -> usize {
+    first_tier_with_margin(condition, threshold, RESCUE_MARGIN)
+}
+
+/// [`first_tier_under`] with `margin` bits (instead of [`RESCUE_MARGIN`])
+/// between a tier's limit and the binary64 estimate it must admit.
+pub(super) fn first_tier_with_margin(condition: f64, threshold: impl Fn(u32) -> f64, margin: u32) -> usize {
     if condition > 0.0 {
         RESCUE_BITS
             .iter()
-            .position(|&bits| condition >= threshold(bits) * 2f64.powi(RESCUE_MARGIN as i32))
+            .position(|&bits| condition >= threshold(bits) * 2f64.powi(margin as i32))
             .unwrap_or(RESCUE_BITS.len() - 1)
     } else {
         1

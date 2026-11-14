@@ -5,9 +5,9 @@
 //! facade's `PrecisionRescue::Automatic` sends a refused box straight to its
 //! double-double tier) and never the symbolic engine.
 use iregi_rust::{
-    Algorithm, DirectReductionPlan, EmbedderOptions, InvariantInput, KinematicsBatch, LaneRoute,
+    Algorithm, Convention, DirectReductionPlan, EmbedderOptions, InvariantInput, KinematicsBatch, LaneRoute,
     LaneStatus, PrecisionRescue, ReductionError, ReductionSettings, ScaleInput, TensorEngineExecution,
-    TensorReductionPlan, TensorWorkspace, TensorWorkspaceOptions,
+    TensorReductionPlan, TensorWeights, TensorWorkspace, TensorWorkspaceOptions,
 };
 use symbolica::domains::float::{Complex, DoubleFloat, Float, Real, RealLike, SingleFloat};
 
@@ -127,6 +127,128 @@ fn a_refused_box_gets_the_method_choice_not_the_rescue_first_route() {
     println!("gate-refused box, embedder tier {tier_bits} bits: E/A {error:e}");
     assert!(error <= 1e-12, "E/A = {error:e}");
     assert_eq!(stats(&embedded).symbolic_rows, 0);
+}
+
+/// A massless rank-4 pentagon of MadLoop's QCD u u~ > z g g g at 1 TeV
+/// (shifts and the supplied invariants s_ij = (p_i - p_j)^2, column-major, as
+/// MadLoop's TIRust bridge passes them; mu^2 = 10^6). The binary64 gates and
+/// the method choice refuse it, with a conditioning estimate inside the
+/// default 8-bit margin above the double-double tier's limit 2^-66.
+const ZGGG_PENTAGON_SHIFTS: [u64; 20] = [
+    0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x407f40000000000a,
+    0xbd00000000000000, 0x3d36000000000000, 0x407f40000000000a, 0x4055945286e7a19c, 0xc06bd4785c87a13c,
+    0xc07594ea4e9ead65, 0x408121f7eecf071e, 0xc0432f7033be507e, 0xc0692d49abfa7a3e, 0xc077fcc682af1d94,
+    0x4083685e2c7546a3, 0xc0671604ba4c69f8, 0xc058eedca3c58e8a, 0xc0721f6791e15459, 0x4081ebb254e902cc,
+];
+const ZGGG_PENTAGON_INVARIANTS: [u64; 25] = [
+    0x0000000000000000, 0x0000000000000000, 0xc11c31a2187cccfa, 0xc121757e578777e7, 0xc117ba97fedfc9b2,
+    0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x40f55196c85c661f, 0x41168b809dee9f90,
+    0xc11c31a2187cccfa, 0x0000000000000000, 0x0000000000000000, 0x40c03da02c0a4a08, 0x40eaadde2f25ae46,
+    0xc121757e578777e7, 0x40f55196c85c661f, 0x40c03da02c0a4a08, 0x0000000000000000, 0x0000000000000000,
+    0xc117ba97fedfc9b2, 0x41168b809dee9f90, 0x40eaadde2f25ae46, 0x0000000000000000, 0x0000000000000000,
+];
+
+#[test]
+fn a_zero_tier_margin_starts_near_limit_lanes_in_double_double() {
+    let n = 5;
+    let mut settings = ReductionSettings::new(n, 4);
+    settings.convention = Convention::MadLoop;
+    settings.tensor_weights = TensorWeights::Components;
+    settings.invariants = InvariantInput::SuppliedInvariants;
+    settings.scale_input = ScaleInput::MuSquared;
+    let invariants = ZGGG_PENTAGON_INVARIANTS.map(f64::from_bits);
+    let mut values: Vec<Complex<f64>> =
+        ZGGG_PENTAGON_SHIFTS.iter().map(|&x| Complex::new(f64::from_bits(x), 0.0)).collect();
+    for i in 0..n {
+        for j in i + 1..n {
+            values.push(Complex::new(invariants[i + n * j], 0.0));
+        }
+    }
+    values.extend((0..n).map(|_| Complex::new(0.0, 0.0)));
+    values.push(Complex::new(1e6, 0.0));
+    let plan = TensorReductionPlan::new(settings).unwrap();
+    assert_eq!(EmbedderOptions::default().tier_margin_bits, 8);
+    let run = |tier_margin_bits| {
+        let options = EmbedderOptions { precision_tiers: true, tier_margin_bits, ..Default::default() };
+        let mut embedded = TensorWorkspace::new_embedded(&plan, 0.0f64, options).unwrap();
+        let result = embedded.reduce_batch(&batch(values.clone())).unwrap();
+        assert_eq!(result.statuses[0], LaneStatus::Success, "{:?}", embedded.last_diagnostics());
+        let route = embedded.last_lane_routes().unwrap()[0];
+        (result.lane(0).unwrap().to_vec(), route, result.basis.clone())
+    };
+    // The default margin skips the double-double tier for this estimate;
+    // without it, the double-double tier's own gate accepts the lane.
+    let (skipped, skipped_route, basis) = run(8);
+    let (direct, direct_route, _) = run(0);
+    assert_eq!(skipped_route, LaneRoute::Tier(256));
+    assert_eq!(direct_route, LaneRoute::Tier(106));
+    // Both tiers bound the amplification of their rounding by 2^-40.
+    let error = array_error(&basis, n, 1000.0, &direct, &skipped);
+    println!("near-limit pentagon: double-double against 256-bit tier E/A {error:e}");
+    assert!(error <= 2f64.powi(-40), "E/A = {error:e}");
+}
+
+/// Another massless rank-4 Zggg pentagon (a `check profile` point of MadLoop's
+/// QCD u u~ > z g g g): its conditioning estimate lies below the
+/// double-double tier's default limit 2^-66 but above 2^-80.
+const ZGGG_DEEP_PENTAGON_SHIFTS: [u64; 20] = [
+    0xbd30000000000000, 0xbd20000000000000, 0x0000000000000000, 0x0000000000000000, 0x407f400000000013,
+    0x0000000000000000, 0x0000000000000000, 0xc07f400000000013, 0x4074011813b39860, 0xc0509adcb1b36375,
+    0x406352587250862f, 0xc07b432443e5f19a, 0xc062b339a6b3279c, 0x40670b9c892b1922, 0xc06cd0796b314db1,
+    0xc07d532b4bc1cdff, 0xc0662bca95747b8c, 0x4068ed92d165434d, 0xc06f38dc0ca8a5d8, 0xc07c809d875748c7,
+];
+const ZGGG_DEEP_PENTAGON_INVARIANTS: [u64; 25] = [
+    0x0000000000000000, 0x0000000000000000, 0xc0fc59ff9c44ac98, 0xc1116374b867ef0d, 0xc1110237eb315cb8,
+    0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x41146146b5f8ce8c, 0x4115a6c3d5f3c0c4,
+    0xc0fc59ff9c44ac98, 0x0000000000000000, 0x0000000000000000, 0x40c03da02c0a4a0e, 0x40c926d8ab1a5b69,
+    0xc1116374b867ef0d, 0x41146146b5f8ce8c, 0x40c03da02c0a4a0e, 0x0000000000000000, 0x0000000000000000,
+    0xc1110237eb315cb8, 0x4115a6c3d5f3c0c4, 0x40c926d8ab1a5b69, 0x0000000000000000, 0x0000000000000000,
+];
+
+#[test]
+fn a_smaller_double_double_headroom_keeps_deeper_lanes_in_double_double() {
+    let n = 5;
+    let mut settings = ReductionSettings::new(n, 4);
+    settings.convention = Convention::MadLoop;
+    settings.tensor_weights = TensorWeights::Components;
+    settings.invariants = InvariantInput::SuppliedInvariants;
+    settings.scale_input = ScaleInput::MuSquared;
+    let invariants = ZGGG_DEEP_PENTAGON_INVARIANTS.map(f64::from_bits);
+    let mut values: Vec<Complex<f64>> =
+        ZGGG_DEEP_PENTAGON_SHIFTS.iter().map(|&x| Complex::new(f64::from_bits(x), 0.0)).collect();
+    for i in 0..n {
+        for j in i + 1..n {
+            values.push(Complex::new(invariants[i + n * j], 0.0));
+        }
+    }
+    values.extend((0..n).map(|_| Complex::new(0.0, 0.0)));
+    values.push(Complex::new(1e6, 0.0));
+    let plan = TensorReductionPlan::new(settings).unwrap();
+    assert_eq!(EmbedderOptions::default().double_double_headroom_bits, 40);
+    let run = |double_double_headroom_bits| {
+        let options =
+            EmbedderOptions { precision_tiers: true, tier_margin_bits: 0, double_double_headroom_bits, ..Default::default() };
+        let mut embedded = TensorWorkspace::new_embedded(&plan, 0.0f64, options).unwrap();
+        let result = embedded.reduce_batch(&batch(values.clone())).unwrap();
+        assert_eq!(result.statuses[0], LaneStatus::Success, "{:?}", embedded.last_diagnostics());
+        let route = embedded.last_lane_routes().unwrap()[0];
+        (result.lane(0).unwrap().to_vec(), route, result.basis.clone())
+    };
+    let (mpfr, mpfr_route, basis) = run(40);
+    let (dd, dd_route, _) = run(26);
+    assert_eq!(mpfr_route, LaneRoute::Tier(256));
+    assert_eq!(dd_route, LaneRoute::Tier(106));
+    // The bound is 2^-26 of amplified double-double rounding; the values
+    // agree with 256 bits to binary64 rounding.
+    let error = array_error(&basis, n, 1000.0, &dd, &mpfr);
+    println!("deep pentagon: double-double (headroom 26) against 256 bits E/A {error:e}");
+    assert!(error <= 2f64.powi(-40), "E/A = {error:e}");
+    // A headroom of 106 or more is clamped to 105 (limit 2^-1): the lane goes
+    // to 256 bits and gives the default's values.
+    for headroom in [105, 106, u32::MAX] {
+        let (values, route, _) = run(headroom);
+        assert_eq!((route, &values), (LaneRoute::Tier(256), &mpfr), "headroom {headroom}");
+    }
 }
 
 #[test]

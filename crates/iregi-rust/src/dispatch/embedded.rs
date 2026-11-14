@@ -35,7 +35,8 @@ use symbolica::{
 };
 
 use super::direct_hybrid::{
-    DirectExecutionStats, DirectRescueTier, add_direct_profile, first_tier_under, masters_for, prepare_tier, run_tier,
+    DirectExecutionStats, DirectRescueTier, RESCUE_MARGIN, add_direct_profile, first_tier_with_margin, masters_for,
+    prepare_tier, run_tier,
 };
 use crate::{
     BatchResult, DirectReductionPlan, DirectWorkspace, ExecutionProfile, KinematicsBatch, LaneStatus, ReductionError,
@@ -51,7 +52,9 @@ pub struct EmbedderOptions {
     /// flagged per lane). Default `true`.
     pub method_choice: bool,
     /// Binary64 workspaces: boxes and triangles refused inside a lane are
-    /// computed in double-double. Default `false`.
+    /// computed in double-double. Default `false`. Their double-double gate
+    /// is fixed at 2^-66 (40 bits of headroom);
+    /// [`Self::double_double_headroom_bits`] does not change it.
     pub partial_rescue: bool,
     /// Binary64 workspaces: lanes still refused on conditioning are evaluated
     /// again by the direct engine at 106, 256 and 512 bits. Default `false`.
@@ -64,6 +67,27 @@ pub struct EmbedderOptions {
     pub method_choice_gate: Option<f64>,
     /// Scalar-master implementation (see [`MasterExecutionPolicy`]).
     pub master_policy: MasterExecutionPolicy,
+    /// Precision tiers: bits of margin by which a lane's binary64
+    /// conditioning estimate must clear a tier's limit for the lane to start
+    /// at that tier (default 8). A lane whose estimate falls inside the
+    /// margin skips the tier, on the expectation that the tier would refuse
+    /// it. Every tier still applies its own gate (accuracy is unchanged);
+    /// with 0, a lane starts at the lowest tier whose limit admits its
+    /// estimate and moves up only if that tier refuses it. On amplitudes
+    /// with many near-limit lanes (massless QCD), 0 replaces most 256-bit
+    /// evaluations by double-double ones.
+    pub tier_margin_bits: u32,
+    /// Precision tiers: bits the double-double tier keeps between its working
+    /// precision (106 bits) and the conditioning it accepts (default 40: it
+    /// accepts estimates down to 2^-66, amplifying its rounding by at most
+    /// 2^-40). A smaller headroom accepts worse-conditioned lanes in
+    /// double-double instead of 256 bits, with a correspondingly larger bound
+    /// (26: down to 2^-80, at most 2^-26). The MPFR tiers keep 40 bits, and
+    /// [`Self::partial_rescue`] keeps its 2^-66 subset gate whatever this
+    /// headroom. Values of 106 and above are clamped to 105: the tier then
+    /// accepts only estimates of at least 2^-1, so almost every gate-refused
+    /// lane goes on to 256 bits.
+    pub double_double_headroom_bits: u32,
 }
 
 impl Default for EmbedderOptions {
@@ -75,6 +99,8 @@ impl Default for EmbedderOptions {
             gate: None,
             method_choice_gate: None,
             master_policy: MasterExecutionPolicy::Default,
+            tier_margin_bits: RESCUE_MARGIN,
+            double_double_headroom_bits: TIER_HEADROOM,
         }
     }
 }
@@ -320,6 +346,16 @@ where
         Ok(())
     }
 
+    /// The conditioning a precision tier of `bits` accepts (see
+    /// [`EmbedderOptions::double_double_headroom_bits`]).
+    fn tier_limit(&self, bits: u32) -> f64 {
+        if bits == TIER_BITS[0] {
+            2f64.powi(-((bits - self.options.double_double_headroom_bits.min(bits - 1)) as i32))
+        } else {
+            tier_threshold(bits)
+        }
+    }
+
     fn precision_tiers(
         &mut self,
         batch: &KinematicsBatch<T>,
@@ -332,7 +368,10 @@ where
         // exactly singular binary64 pivot carries a zero estimate: 256 bits).
         let mut pending: Vec<(usize, usize)> = lanes
             .iter()
-            .map(|&lane| (lane, first_tier_under(conditions[lane].unwrap_or(0.0), tier_threshold)))
+            .map(|&lane| {
+                let condition = conditions[lane].unwrap_or(0.0);
+                (lane, first_tier_with_margin(condition, |bits| self.tier_limit(bits), self.options.tier_margin_bits))
+            })
             .collect();
         self.last.fallback_rows += pending.len();
         let masters = masters_for(self.options.master_policy);
@@ -347,7 +386,7 @@ where
                 if self.double.is_none() {
                     self.double = Some(prepare_tier::<DoubleFloat>(
                         self.plan.workspace_with_masters::<DoubleFloat>(DoubleFloat::from(0.0), masters),
-                        DoubleFloat::from(tier_threshold(bits)),
+                        DoubleFloat::from(self.tier_limit(bits)),
                         self.profiling,
                     )?);
                 }

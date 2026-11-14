@@ -120,6 +120,82 @@ impl<T: NativeFloat> GramRescue<T> {
 /// First boost tried (see `GramRescue::boosts`).
 const FIRST_BOOST: u16 = 8;
 
+thread_local! {
+    /// Auxiliary expansion executors of this thread, by configuration
+    /// ([`AuxKey`]), shared by every executor whose small-Gram expansion asks
+    /// for that configuration: the method-choice executors of all plans and
+    /// both MadLoop directions build the same auxiliary boxes and triangles.
+    /// A parent takes one for a subset and returns it after the call
+    /// ([`AuxLease`]). An executor's results are pure functions of its inputs
+    /// and configuration (scratch is rewritten, variants are pure), so
+    /// sharing changes no value; it bounds the copies of their plans'
+    /// scratch, constants, master evaluators and coefficient pools.
+    static AUX_POOL: RefCell<HashMap<AuxKey, Vec<Box<dyn std::any::Any>>>> = RefCell::new(HashMap::new());
+}
+
+/// Configuration of a pooled auxiliary executor: the executor type (number
+/// type and evaluation mode) and the working precision, the parent plan's invariant and scale inputs (the auxiliary
+/// plan's settings), the subset size, rank and boost, the expansion flags,
+/// the input precision and the exact bits of both gates. Only binary64 and
+/// double-double executors are pooled (their gates are keyed exactly).
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub(super) struct AuxKey {
+    executor_type: std::any::TypeId,
+    bits: u32,
+    inputs: String,
+    words: Vec<u64>,
+}
+
+impl AuxKey {
+    fn of<T: NativeFloat, E: 'static>(
+        prototype: &T,
+        plan: &DirectPlanData,
+        words: [u64; 8],
+        threshold: &T,
+        nested: Option<&(u16, T)>,
+    ) -> Option<Self> {
+        if !matches!(T::FIXED_BITS, Some(53) | Some(106)) {
+            return None;
+        }
+        let mut all = words.to_vec();
+        all.extend(super::real_key_words(threshold));
+        match nested {
+            Some((boost, threshold)) => {
+                all.push(u64::from(*boost));
+                all.extend(super::real_key_words(threshold));
+            }
+            None => all.push(u64::MAX),
+        }
+        Some(Self {
+            executor_type: std::any::TypeId::of::<E>(),
+            bits: prototype.get_precision(),
+            inputs: format!("{:?} {:?}", plan.settings.invariants, plan.settings.scale_input),
+            words: all,
+        })
+    }
+
+    fn take<E: 'static>(&self) -> Option<E> {
+        AUX_POOL.with(|pool| pool.borrow_mut().get_mut(self).and_then(Vec::pop)).map(|executor| {
+            *executor.downcast::<E>().expect("auxiliary executor pool keyed by the executor type")
+        })
+    }
+}
+
+/// An auxiliary executor taken from the pool for one subset; returned when
+/// dropped (on every path out of the attempt).
+pub(super) struct AuxLease<E: 'static> {
+    key: Option<AuxKey>,
+    executor: Option<E>,
+}
+
+impl<E: 'static> Drop for AuxLease<E> {
+    fn drop(&mut self) {
+        if let (Some(key), Some(executor)) = (self.key.take(), self.executor.take()) {
+            let _ = AUX_POOL.try_with(|pool| pool.borrow_mut().entry(key).or_default().push(Box::new(executor)));
+        }
+    }
+}
+
 type Key = (u16, [u16; 3]);
 
 /// Index of the expansion coefficients `(lambda, kappa)`, kappa over `nm`
@@ -1042,42 +1118,42 @@ where
                 while let Some(&(boost, direct)) = attempts.get(next) {
                 next += 1;
                 let alternative_only = gram.alternative || boost == 0;
-                let executor = match gram.executors.entry((size, rank, boost, direct)) {
-                    std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
-                    std::collections::hash_map::Entry::Vacant(entry) => {
-                        let aux = DirectPlanData::with_top_child_boost(self.subset_settings(size, rank), boost.max(1))
-                            .map_err(|e| e.to_string())?;
-                        let mut executor = DirectExecutor::<T>::new(
-                            std::sync::Arc::new(aux),
-                            self.prototype.clone(),
-                            DirectMasters::Native,
-                        )
-                        .map_err(|e| e.to_string())?;
-                        executor.set_input_precision(self.input_bits);
-                        // Its triangles carry `boost` extra ranks whose errors
-                        // enter only Delta-suppressed terms (COLLIER relaxes them
-                        // likewise); the caller's a posteriori check decides.
-                        executor.set_stability_threshold(
-                            gram.aux_threshold.clone().unwrap_or_else(|| self.stability_threshold.clone() * &self.stability_threshold),
-                        );
-                        executor.gram_top = Some(rank);
-                        executor.gram_alt_only = alternative_only;
-                        executor.gram_alt_direct = direct;
-                        executor.gram_final = !alternative_only && !direct && boost >= largest;
-                        executor.gram_extra_ranks = if boost == 0 {
-                            0
-                        } else {
-                            gram.boosts.iter().find(|&&next| next > boost).map_or(0, |&next| next - boost)
-                        };
-                        // (Bounded: the nested triangles' plans stay at rank <= 16.)
-                        if let Some(threshold) = gram.aux_threshold.as_ref().filter(|_| rank + boost <= 17) {
-                            // COLLIER chooses per C function too: the auxiliary
-                            // box's own triangles by the same choice (nested).
-                            let boost = *gram.boosts.last().unwrap_or(&FIRST_BOOST);
-                            executor.enable_gram_expansion_everywhere(boost, threshold.clone());
-                        }
-                        entry.insert(executor)
+                // Everything the auxiliary executor is configured with below.
+                let aux_threshold =
+                    gram.aux_threshold.clone().unwrap_or_else(|| self.stability_threshold.clone() * &self.stability_threshold);
+                let extra_ranks = if boost == 0 {
+                    0
+                } else {
+                    gram.boosts.iter().find(|&&next| next > boost).map_or(0, |&next| next - boost)
+                };
+                let nested = gram
+                    .aux_threshold
+                    .as_ref()
+                    .filter(|_| rank + boost <= 17)
+                    .map(|threshold| (*gram.boosts.last().unwrap_or(&FIRST_BOOST), threshold.clone()));
+                let pool_key = AuxKey::of::<T, Self>(&self.prototype, &self.base_plan, [
+                    size as u64,
+                    u64::from(rank),
+                    u64::from(boost),
+                    u64::from(direct),
+                    u64::from(alternative_only),
+                    u64::from(largest),
+                    u64::from(extra_ranks),
+                    u64::from(self.input_bits),
+                ], &aux_threshold, nested.as_ref());
+                let mut lease: AuxLease<Self> = AuxLease { key: pool_key.clone(), executor: pool_key.as_ref().and_then(AuxKey::take) };
+                let executor = match (lease.executor.is_some(), pool_key.is_some()) {
+                    (true, _) => lease.executor.as_mut().unwrap(),
+                    (false, true) => {
+                        lease.executor = Some(self.auxiliary_executor(size, rank, boost, direct, alternative_only, largest, extra_ranks, &aux_threshold, nested.as_ref())?);
+                        lease.executor.as_mut().unwrap()
                     }
+                    (false, false) => match gram.executors.entry((size, rank, boost, direct)) {
+                        std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+                        std::collections::hash_map::Entry::Vacant(entry) => entry.insert(self.auxiliary_executor(
+                            size, rank, boost, direct, alternative_only, largest, extra_ranks, &aux_threshold, nested.as_ref(),
+                        )?),
+                    },
                 };
                 let values = self.subset_row(&subset.members, |z| z.clone());
                 // Nested expansions of the auxiliary box share too.
@@ -1128,6 +1204,42 @@ where
         })();
         self.gram = Some(gram);
         outcome
+    }
+
+    /// A new auxiliary executor for the expansion of a `size`-point subset at
+    /// `rank` with `boost` (configured as the pooled key describes).
+    #[allow(clippy::too_many_arguments)]
+    fn auxiliary_executor(
+        &self,
+        size: usize,
+        rank: u16,
+        boost: u16,
+        direct: bool,
+        alternative_only: bool,
+        largest: u16,
+        extra_ranks: u16,
+        threshold: &T,
+        nested: Option<&(u16, T)>,
+    ) -> Result<Self, String> {
+        let aux = self.base_plan.auxiliary(self.subset_settings(size, rank), boost.max(1)).map_err(|e| e.to_string())?;
+        let mut executor = Self::new(aux, self.prototype.clone(), DirectMasters::Native).map_err(|e| e.to_string())?;
+        executor.set_input_precision(self.input_bits);
+        // Its triangles carry `boost` extra ranks whose errors enter only
+        // Delta-suppressed terms (COLLIER relaxes them likewise); the
+        // caller's a posteriori check decides.
+        executor.set_stability_threshold(threshold.clone());
+        executor.gram_top = Some(rank);
+        executor.gram_alt_only = alternative_only;
+        executor.gram_alt_direct = direct;
+        executor.gram_final = !alternative_only && !direct && boost >= largest;
+        executor.gram_extra_ranks = extra_ranks;
+        // (Bounded: the nested triangles' plans stay at rank <= 16.) COLLIER
+        // chooses per C function too: the auxiliary box's own triangles by
+        // the same choice (nested).
+        if let Some((boost, threshold)) = nested {
+            executor.enable_gram_expansion_everywhere(*boost, threshold.clone());
+        }
+        Ok(executor)
     }
 
     /// Fill the top box's coefficients up to rank `target` from its
@@ -2012,6 +2124,38 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A gg -> HH top-loop box the binary64 gates refuse and the small-Gram
+    /// expansion keeps (`SMALL_GRAM_BOX` of `tests/embedder_mode.rs`),
+    /// reduced by two independent embedder workspaces: the second takes the
+    /// first's auxiliary executors from the pool (none is built) and gives
+    /// the same bits.
+    #[test]
+    fn auxiliary_executors_are_pooled_and_shared_between_parents() {
+        let shifts = [
+            [0.0, 0.0, 0.0, 0.0],
+            [500.0, 0.0, 0.0, 500.0],
+            [1000.0, 0.0, 0.0, 0.0],
+            [499.9999999999999, 8.840408903567376, -6.981798561273453, -483.99184048831603],
+        ];
+        let mut values: Vec<Complex<f64>> = shifts.iter().flatten().map(|&x| Complex::new(x, 0.0)).collect();
+        values.extend((0..4).map(|_| Complex::new(173.0 * 173.0, 0.0)));
+        values.push(Complex::new(1000.0, 0.0));
+        let batch = KinematicsBatch { rows: 1, components: 1, values };
+        let plan = crate::TensorReductionPlan::new(crate::ReductionSettings::new(4, 4)).unwrap();
+        let pooled = || AUX_POOL.with(|pool| pool.borrow().values().map(Vec::len).sum::<usize>());
+        let run = || {
+            let mut workspace = crate::TensorWorkspace::new_embedded(&plan, 0.0f64, crate::EmbedderOptions::default()).unwrap();
+            let result = workspace.reduce_batch(&batch).unwrap();
+            assert_eq!(workspace.last_lane_routes().unwrap()[0], crate::LaneRoute::MethodChoice);
+            result.lane(0).unwrap().iter().map(|z| (z.re.to_bits(), z.im.to_bits())).collect::<Vec<_>>()
+        };
+        let first = run();
+        let after_first = pooled();
+        assert!(after_first > 0, "the expansion's auxiliary executors return to the pool");
+        assert_eq!(run(), first);
+        assert_eq!(pooled(), after_first, "the second parent reused them");
+    }
 
     #[test]
     fn predicted_passes_extrapolate_the_observed_rate_within_its_window() {

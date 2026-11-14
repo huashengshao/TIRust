@@ -10,7 +10,10 @@
 //! building one expression per moment, every recurrence node becomes a short
 //! linear instruction over a flat value array, evaluated numerically per lane.
 
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{Arc, Mutex},
+};
 
 use symbolica::domains::{integer::Integer, rational::Rational};
 
@@ -255,9 +258,22 @@ pub(crate) struct MonomialTable {
 }
 
 impl MonomialTable {
+    /// The table of `max_degree`, built once per process and shared: it
+    /// depends on the degree only, and every plan and plan variant of that
+    /// rank uses it.
+    pub fn shared(max_degree: u16) -> Arc<Self> {
+        static TABLES: std::sync::LazyLock<Mutex<FastMap<u16, Arc<MonomialTable>>>> =
+            std::sync::LazyLock::new(Default::default);
+        if let Some(table) = TABLES.lock().unwrap_or_else(|e| e.into_inner()).get(&max_degree) {
+            return table.clone();
+        }
+        let table = Arc::new(Self::new(max_degree));
+        TABLES.lock().unwrap_or_else(|e| e.into_inner()).entry(max_degree).or_insert(table).clone()
+    }
+
     pub fn new(max_degree: u16) -> Self {
         let exponents: Vec<_> = tensor_basis(max_degree).into_iter().map(|m| m.0).collect();
-        let lookup: HashMap<[u16; 4], u32> = exponents
+        let lookup: FastMap<[u16; 4], u32> = exponents
             .iter()
             .enumerate()
             .map(|(index, &e)| (e, index as u32))
@@ -557,7 +573,7 @@ pub(crate) struct Subset {
 pub(crate) struct DirectPlanData {
     pub settings: ReductionSettings,
     pub basis: Vec<Monomial>,
-    pub monomials: MonomialTable,
+    pub monomials: Arc<MonomialTable>,
     pub subsets: Vec<Subset>,
     pub value_count: usize,
     pub geometry_count: usize,
@@ -616,16 +632,67 @@ pub(crate) struct DirectPlanData {
     /// `coefficient_ranges` entry, or of its pentagon block).
     pub coefficient_terms: Vec<u32>,
     /// Per PV subset mask: value index of `C(lambda, kappa)` (the small-Gram
-    /// expansion fills a refused box from its triangles through these).
+    /// expansion fills a refused box from its triangles through these). Only
+    /// the top's own and its pinches' layouts, for a top of three or four
+    /// propagators, are kept: nothing else reads
+    /// them (`gram::TopLayout`), and the maps of every subset of every plan
+    /// variant were a large share of a variant's memory.
     pub coefficient_lookup: FastMap<SubsetMask, FastMap<(u16, Vec<u16>), u32>>,
+    /// Every PV subset's layout (the structural tests).
+    #[cfg(test)]
+    pub all_coefficient_lookup: FastMap<SubsetMask, FastMap<(u16, Vec<u16>), u32>>,
     /// Extra coefficient ranks of the top subset's pinches (see
     /// `with_top_child_boost`); variants keep it.
     pub top_child_boost: u16,
+    /// Plans derived from this one and already built (its variants, see
+    /// [`Self::variant`], and its auxiliary small-Gram plans, see
+    /// [`Self::auxiliary`]), shared by every executor of the plan; clones
+    /// share them too.
+    pub derived: DerivedPlans,
+}
+
+/// Plans derived from a [`DirectPlanData`], each a pure function of its key.
+#[derive(Clone, Default)]
+pub(crate) struct DerivedPlans(Arc<DerivedMaps>);
+
+/// A plan variant's profile: relation masks, lightlike masks and linearly
+/// dependent sets (mask, raised member).
+type VariantKey = (Vec<SubsetMask>, Vec<SubsetMask>, Vec<(SubsetMask, usize)>);
+
+#[derive(Default)]
+struct DerivedMaps {
+    /// Variants by `(relation profile, lightlike profile, homogeneous profile)`.
+    variants: Mutex<HashMap<VariantKey, Arc<DirectPlanData>>>,
+    /// Auxiliary plans by `(propagators, rank, top-child boost)`.
+    auxiliary: Mutex<HashMap<(usize, u16, u16), Arc<DirectPlanData>>>,
+}
+
+impl std::fmt::Debug for DerivedPlans {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let variants = self.0.variants.lock().map_or(0, |map| map.len());
+        let auxiliary = self.0.auxiliary.lock().map_or(0, |map| map.len());
+        f.debug_struct("DerivedPlans").field("variants", &variants).field("auxiliary", &auxiliary).finish()
+    }
+}
+
+/// `map[key]`, else `build()` stored under `key`. The build runs outside the
+/// lock: concurrent executors may build a plan twice and keep the first
+/// (equal) one. Failures are not kept.
+fn derived<K: std::hash::Hash + Eq>(
+    map: &Mutex<HashMap<K, Arc<DirectPlanData>>>,
+    key: K,
+    build: impl FnOnce() -> Result<DirectPlanData, ReductionError>,
+) -> Result<Arc<DirectPlanData>, ReductionError> {
+    if let Some(plan) = map.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
+        return Ok(plan.clone());
+    }
+    let plan = Arc::new(build()?);
+    Ok(map.lock().unwrap_or_else(|e| e.into_inner()).entry(key).or_insert(plan).clone())
 }
 
 struct Builder {
     constants: Vec<Rational>,
-    constant_lookup: HashMap<Rational, u32>,
+    constant_lookup: FastMap<Rational, u32>,
     terms: Vec<Term>,
 }
 
@@ -717,7 +784,7 @@ pub(crate) fn members(mask: SubsetMask) -> Vec<usize> {
 /// Per-PV-subset coefficient layout.
 struct CoefficientLayout {
     lookup: FastMap<(u16, Vec<u16>), u32>,
-    spz: HashMap<(u16, Vec<u16>), u32>,
+    spz: FastMap<(u16, Vec<u16>), u32>,
 }
 
 impl DirectPlanData {
@@ -755,6 +822,43 @@ impl DirectPlanData {
     /// reaches its rank-`r` coefficients from triangles of rank `r + boost`.
     pub fn with_top_child_boost(settings: ReductionSettings, boost: u16) -> Result<Self, ReductionError> {
         Self::with_profile_boost(settings, &[], &[], boost)
+    }
+
+    /// The variant of this plan for `relation_masks`, `lightlike_masks` and
+    /// the linearly dependent sets `homogeneous` (as [`Self::with_full_profile`]
+    /// with this plan's settings and boost), built once per plan: a variant is
+    /// a pure function of its full profile, so the executors of one plan
+    /// (binary64, double-double and MPFR, their method choice and check
+    /// passes) share it instead of each building its own.
+    pub fn variant(
+        &self,
+        relation_masks: &[SubsetMask],
+        lightlike_masks: &[SubsetMask],
+        homogeneous: &[(SubsetMask, usize)],
+    ) -> Result<Arc<DirectPlanData>, ReductionError> {
+        let key = (relation_masks.to_vec(), lightlike_masks.to_vec(), homogeneous.to_vec());
+        derived(&self.derived.0.variants, key, || {
+            Self::with_full_profile(
+                self.settings.clone(),
+                relation_masks,
+                lightlike_masks,
+                homogeneous,
+                self.top_child_boost,
+            )
+        })
+    }
+
+    /// The auxiliary plan [`Self::with_top_child_boost`]`(settings, boost)`
+    /// of the small-Gram expansion of this plan's `settings.propagators`-point
+    /// subsets at `settings.rank`, built once per plan and shared by its
+    /// executors. `settings` are the executor's subset settings: this plan's
+    /// invariant and scale inputs with that size and rank, so size, rank and
+    /// boost identify them.
+    pub fn auxiliary(&self, settings: ReductionSettings, boost: u16) -> Result<Arc<DirectPlanData>, ReductionError> {
+        debug_assert!(settings.invariants == self.settings.invariants && settings.scale_input == self.settings.scale_input);
+        derived(&self.derived.0.auxiliary, (settings.propagators, settings.rank, boost), || {
+            Self::with_top_child_boost(settings, boost)
+        })
     }
 
     pub fn with_profile_boost(
@@ -819,7 +923,7 @@ impl DirectPlanData {
         let n = settings.propagators;
         let rank = settings.rank;
         let basis = tensor_basis(rank);
-        let monomials = MonomialTable::new(rank);
+        let monomials = MonomialTable::shared(rank);
         let top = full_mask(n);
         // Gram-free pentagon rank: not for dotted propagators (no geometry
         // jets of X^-1 yet) or when a box child is degenerate (it supplies
@@ -835,8 +939,8 @@ impl DirectPlanData {
         };
 
         // Propagate rank needs from the top topology to its pinches.
-        let mut coefficient_need: HashMap<SubsetMask, i32> = HashMap::new();
-        let mut moment_need: HashMap<SubsetMask, i32> = HashMap::new();
+        let mut coefficient_need: FastMap<SubsetMask, i32> = FastMap::default();
+        let mut moment_need: FastMap<SubsetMask, i32> = FastMap::default();
         moment_need.insert(top, i32::from(rank));
         // Every nonempty subset: memory, not a cap, bounds the point count.
         let mut masks: Vec<SubsetMask> = Vec::new();
@@ -937,7 +1041,7 @@ impl DirectPlanData {
 
         let mut builder = Builder {
             constants: Vec::new(),
-            constant_lookup: HashMap::new(),
+            constant_lookup: FastMap::default(),
             terms: Vec::new(),
         };
         builder.constant(rational(1, 1));
@@ -945,12 +1049,12 @@ impl DirectPlanData {
         // Subsets in increasing size, so children precede parents.
         masks.reverse();
         let mut subsets = Vec::new();
-        let mut subset_index: HashMap<SubsetMask, usize> = HashMap::new();
+        let mut subset_index: FastMap<SubsetMask, usize> = FastMap::default();
         let mut value_count: u32 = 0;
         let mut geometry_count: u32 = 0;
-        let mut layouts: HashMap<SubsetMask, CoefficientLayout> = HashMap::new();
+        let mut layouts: FastMap<SubsetMask, CoefficientLayout> = FastMap::default();
         // D(0) of a Gram-free pentagon in its own momentum basis.
-        let mut shifted_layouts: HashMap<SubsetMask, HashMap<(u16, Vec<u16>), u32>> = HashMap::new();
+        let mut shifted_layouts: FastMap<SubsetMask, FastMap<(u16, Vec<u16>), u32>> = FastMap::default();
         let mut unit_finite = None;
         let mut relations = Vec::new();
         for &relation in relation_masks {
@@ -1011,7 +1115,7 @@ impl DirectPlanData {
                     let momenta = size - 1;
                     let mut layout = CoefficientLayout {
                         lookup: FastMap::default(),
-                        spz: HashMap::new(),
+                        spz: FastMap::default(),
                     };
                     for r in 0..=coefficient.max(0) as u16 {
                         for lambda in (0..=r / 2).rev() {
@@ -1061,9 +1165,9 @@ impl DirectPlanData {
                         subset.coefficient_rank = dd;
                         let mut layout = CoefficientLayout {
                             lookup: FastMap::default(),
-                            spz: HashMap::new(),
+                            spz: FastMap::default(),
                         };
-                        let mut shifted = HashMap::new();
+                        let mut shifted = FastMap::default();
                         for r in 0..=dd as u16 {
                             for lambda in (0..=r / 2).rev() {
                                 for kappa in compositions(r - 2 * lambda, 4) {
@@ -1437,7 +1541,7 @@ impl DirectPlanData {
         // (origin, (propagator, exponent) of each member momentum with a
         // nonzero exponent, in propagator order) -> product: sized by the
         // subset, so any propagator index is addressed.
-        let mut product_lookup: HashMap<(usize, Vec<(usize, u16)>), u32> = HashMap::new();
+        let mut product_lookup: FastMap<(usize, Vec<(usize, u16)>), u32> = FastMap::default();
         let mut gather_scratch = 0usize;
         for (id, subset) in subsets.iter().enumerate() {
             let gram_free = subset.pentagon.is_some_and(|geometry| geometry.dd_rank >= 0);
@@ -1464,7 +1568,7 @@ impl DirectPlanData {
             };
             let mut kappas = Vec::new();
             let mut kappa_products = Vec::new();
-            let mut kappa_lookup: HashMap<Vec<u16>, u32> = HashMap::new();
+            let mut kappa_lookup: FastMap<Vec<u16>, u32> = FastMap::default();
             let mut offset = 0u32;
             for degree in 0..=rank {
                 for kappa in compositions(degree, momenta) {
@@ -1707,6 +1811,16 @@ impl DirectPlanData {
             ));
         }
         let top_subset = &subsets[subset_index[&top]];
+        // The layouts the small-Gram expansion of a top of three or four
+        // propagators reads (`gram::TopLayout`, whatever the top's kind: the
+        // top's own and its pinches'); none for larger tops.
+        let read_layouts: Vec<SubsetMask> = if (3..=4).contains(&top_subset.members.len()) {
+            std::iter::once(top).chain(top_subset.members.iter().map(|&member| top & !(1 << member))).collect()
+        } else {
+            Vec::new()
+        };
+        #[cfg(test)]
+        let all_coefficient_lookup = layouts.iter().map(|(&mask, layout)| (mask, layout.lookup.clone())).collect();
         let output = (0..basis.len() as u32)
             .map(|i| top_subset.moment_base.unwrap() + i)
             .collect();
@@ -1738,8 +1852,15 @@ impl DirectPlanData {
             pentagon_blocks,
             subset_signatures,
             coefficient_terms,
-            coefficient_lookup: layouts.into_iter().map(|(mask, layout)| (mask, layout.lookup)).collect(),
+            coefficient_lookup: layouts
+                .into_iter()
+                .filter(|(mask, _)| read_layouts.contains(mask))
+                .map(|(mask, layout)| (mask, layout.lookup))
+                .collect(),
+            #[cfg(test)]
+            all_coefficient_lookup,
             top_child_boost: boost,
+            derived: DerivedPlans::default(),
         })
     }
 }
@@ -1771,6 +1892,50 @@ pub(crate) fn index_in_basis(e: [u16; 4]) -> u32 {
 mod tests {
     use super::*;
 
+    /// The structure an executor runs (everything but the shared caches).
+    fn structure(plan: &DirectPlanData) -> String {
+        format!(
+            "{:?} {:?} {:?} {:?} {:?} {:?} {} {}",
+            plan.constants, plan.coefficient_program, plan.moment_program, plan.terms, plan.output, plan.relations,
+            plan.value_count, plan.geometry_count
+        )
+    }
+
+    /// Variants and auxiliary plans are built once per plan (clones share
+    /// them) and are exactly what a fresh build of the same profile gives.
+    #[test]
+    fn derived_plans_are_shared_and_equal_fresh_builds() {
+        let plan = DirectPlanData::new(ReductionSettings::new(5, 4)).unwrap();
+        let lightlike: Vec<SubsetMask> = vec![0b00011, 0b01100];
+        let variant = plan.variant(&[], &lightlike, &[]).unwrap();
+        assert!(Arc::ptr_eq(&variant, &plan.clone().variant(&[], &lightlike, &[]).unwrap()));
+        let fresh = DirectPlanData::with_profile_boost(plan.settings.clone(), &[], &lightlike, plan.top_child_boost).unwrap();
+        assert_eq!(structure(&variant), structure(&fresh));
+        assert_ne!(structure(&variant), structure(&plan));
+        // The homogeneous profile is part of the key: profiles that differ
+        // only there give distinct variants, each equal to a fresh build.
+        let (first, second) = ([(0b01110, 2)], [(0b00111, 1)]);
+        let a = plan.variant(&[], &[], &first).unwrap();
+        let b = plan.variant(&[], &[], &second).unwrap();
+        assert!(!Arc::ptr_eq(&a, &b));
+        assert!(Arc::ptr_eq(&a, &plan.variant(&[], &[], &first).unwrap()));
+        assert_ne!(structure(&a), structure(&b));
+        for (shared, homogeneous) in [(&a, &first[..]), (&b, &second[..])] {
+            let fresh = DirectPlanData::with_full_profile(plan.settings.clone(), &[], &[], homogeneous, plan.top_child_boost);
+            assert_eq!(structure(shared), structure(&fresh.unwrap()));
+        }
+        let mut settings = ReductionSettings::new(4, 4);
+        settings.invariants = plan.settings.invariants;
+        settings.scale_input = plan.settings.scale_input;
+        let auxiliary = plan.auxiliary(settings.clone(), 2).unwrap();
+        assert!(Arc::ptr_eq(&auxiliary, &plan.auxiliary(settings.clone(), 2).unwrap()));
+        assert!(!Arc::ptr_eq(&auxiliary, &plan.auxiliary(settings.clone(), 3).unwrap()));
+        assert_eq!(structure(&auxiliary), structure(&DirectPlanData::with_top_child_boost(settings, 2).unwrap()));
+        // One monomial table per rank, shared by every plan of that rank.
+        assert!(Arc::ptr_eq(&plan.monomials, &fresh.monomials));
+        assert!(Arc::ptr_eq(&plan.monomials, &MonomialTable::shared(4)));
+    }
+
     /// A Gram-free pentagon's block (shared between the integrals of an
     /// amplitude) holds its coefficients and is written by its own
     /// instructions only; equal pentagons in different plans have equal
@@ -1790,7 +1955,7 @@ mod tests {
                     assert_eq!((a as usize..b as usize).contains(&index), inside(instruction.dst), "N{n} pentagon {id}");
                 }
                 assert!(plan.moment_program.iter().all(|instruction| !inside(instruction.dst)));
-                let lookup = &plan.coefficient_lookup[&plan.subsets[id].mask];
+                let lookup = &plan.all_coefficient_lookup[&plan.subsets[id].mask];
                 assert_eq!(2 * lookup.len() as u32, block.count);
                 assert!(lookup.values().all(|&v| inside(v)));
                 signatures.push(plan.subset_signatures[id]);

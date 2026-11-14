@@ -1604,13 +1604,8 @@ where
             self.plan = plan.clone();
             self.constants = constants.clone();
         } else {
-            let plan = Arc::new(DirectPlanData::with_full_profile(
-                self.base_plan.settings.clone(),
-                &self.relation_profile,
-                &self.lightlike_profile,
-                &self.homogeneous_profile,
-                self.base_plan.top_child_boost,
-            )?);
+            let plan =
+                self.base_plan.variant(&self.relation_profile, &self.lightlike_profile, &self.homogeneous_profile)?;
             let constants: Arc<Vec<T>> = Arc::new(
                 plan.constants
                     .iter()
@@ -4280,6 +4275,77 @@ mod tests {
         let (handwritten, generated) = (evaluate(&mut handwritten), evaluate(&mut generated));
         assert_ne!(handwritten, generated, "the point does not tell the two kernels apart at {bits} bits");
         assert_eq!(engine, handwritten, "{bits} bits");
+    }
+
+    /// Two Coulomb pentagons (tests/onia.rs) that differ only in the order of
+    /// their propagators: the dependent triple D1 + D3 = 2 D2 sits at
+    /// {1, 2, 3} (raised member 2) or at {0, 1, 2} (raised member 1). Their
+    /// relation and lightlike profiles agree and their homogeneous profiles
+    /// do not, so they need different plan variants. Neither one executor
+    /// nor the variants that the executors of one plan share hand one lane
+    /// the other's plan: every lane equals its value from a plan of its own.
+    #[test]
+    fn lanes_differing_only_in_their_homogeneous_profile_do_not_share_a_plan() {
+        let (k, q1, q4) = ([5.0, 0.0, 0.0, 4.0], [1.0, 2.0, -1.0, 0.5], [-2.0, 1.0, 3.0, -1.0]);
+        let along = |s: f64| -> [f64; 4] { std::array::from_fn(|i| q1[i] + s * k[i]) };
+        let shifts = [[0.0; 4], q1, along(1.0), along(2.0), q4];
+        let masses = [0.0, 9.0, 0.0, 9.0, 2.0];
+        let lane = |order: [usize; 5]| -> Vec<C<f64>> {
+            let mut values: Vec<C<f64>> =
+                order.iter().flat_map(|&i| shifts[i].iter().map(|&x| C::new(x, 0.0))).collect();
+            values.extend(order.iter().map(|&i| C::new(masses[i], 0.0)));
+            values.push(C::new(3.0, 0.0));
+            values
+        };
+        let (a, b) = (lane([0, 1, 2, 3, 4]), lane([1, 2, 3, 4, 0]));
+        let batch = |lanes: &[&Vec<C<f64>>]| KinematicsBatch {
+            rows: lanes.len(),
+            components: 1,
+            values: lanes.iter().flat_map(|lane| lane.iter().cloned()).collect(),
+        };
+        let bits = |result: &BatchResult<f64>, row: usize| -> Vec<u64> {
+            result.lane(row).expect("an accepted lane").iter().flat_map(|z| [z.re.to_bits(), z.im.to_bits()]).collect()
+        };
+        for rank in [1u16, 2] {
+            let plan = || DirectReductionPlan::new(ReductionSettings::new(5, rank)).unwrap();
+            // Each lane alone, from a plan of its own, and its profiles.
+            let alone = |values: &Vec<C<f64>>| {
+                let mut workspace = plan().workspace(0.0f64).unwrap();
+                let result = workspace.reduce_batch(&batch(&[values])).unwrap();
+                let executor = &workspace.executor;
+                let profiles = (
+                    executor.relation_profile.clone(),
+                    executor.lightlike_profile.clone(),
+                    executor.homogeneous_profile.clone(),
+                );
+                (bits(&result, 0), profiles)
+            };
+            let ((a_bits, a_profiles), (b_bits, b_profiles)) = (alone(&a), alone(&b));
+            assert_eq!((&a_profiles.0, &a_profiles.1), (&b_profiles.0, &b_profiles.1), "rank {rank}");
+            assert_eq!(a_profiles.2, vec![(0b01110, 2)], "rank {rank}");
+            assert_eq!(b_profiles.2, vec![(0b00111, 1)], "rank {rank}");
+            // One plan: separate executors (sharing its variants) and one executor.
+            let shared = plan();
+            let mut first = shared.workspace(0.0f64).unwrap();
+            assert_eq!(bits(&first.reduce_batch(&batch(&[&a])).unwrap(), 0), a_bits, "rank {rank}");
+            // The plan holds two distinct variants, one per homogeneous
+            // profile (checked before lane b runs: handed a's variant, b's
+            // geometry would restart from the base plan without end).
+            let base = first.executor.base_plan.clone();
+            let a_variant = base.variant(&a_profiles.0, &a_profiles.1, &a_profiles.2).unwrap();
+            let b_variant = base.variant(&b_profiles.0, &b_profiles.1, &b_profiles.2).unwrap();
+            assert!(!Arc::ptr_eq(&a_variant, &b_variant), "rank {rank}");
+            assert!(Arc::ptr_eq(&first.executor.plan, &a_variant), "rank {rank}");
+            let mut second = shared.workspace(0.0f64).unwrap();
+            assert_eq!(bits(&second.reduce_batch(&batch(&[&b])).unwrap(), 0), b_bits, "rank {rank}");
+            // Each executor ran its own lane's variant of the shared plan.
+            assert!(Arc::ptr_eq(&second.executor.base_plan, &base), "rank {rank}");
+            assert!(Arc::ptr_eq(&second.executor.plan, &b_variant), "rank {rank}");
+            let both = shared.workspace(0.0f64).unwrap().reduce_batch(&batch(&[&a, &b])).unwrap();
+            assert_eq!((bits(&both, 0), bits(&both, 1)), (a_bits.clone(), b_bits.clone()), "rank {rank}");
+            let both = shared.workspace(0.0f64).unwrap().reduce_batch(&batch(&[&b, &a])).unwrap();
+            assert_eq!((bits(&both, 0), bits(&both, 1)), (b_bits, a_bits), "rank {rank}");
+        }
     }
 
     #[test]
