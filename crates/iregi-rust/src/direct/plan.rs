@@ -1912,6 +1912,18 @@ mod tests {
         let fresh = DirectPlanData::with_profile_boost(plan.settings.clone(), &[], &lightlike, plan.top_child_boost).unwrap();
         assert_eq!(structure(&variant), structure(&fresh));
         assert_ne!(structure(&variant), structure(&plan));
+        // The homogeneous profile is part of the key: profiles that differ
+        // only there give distinct variants, each equal to a fresh build.
+        let (first, second) = ([(0b01110, 2)], [(0b00111, 1)]);
+        let a = plan.variant(&[], &[], &first).unwrap();
+        let b = plan.variant(&[], &[], &second).unwrap();
+        assert!(!Arc::ptr_eq(&a, &b));
+        assert!(Arc::ptr_eq(&a, &plan.variant(&[], &[], &first).unwrap()));
+        assert_ne!(structure(&a), structure(&b));
+        for (shared, homogeneous) in [(&a, &first[..]), (&b, &second[..])] {
+            let fresh = DirectPlanData::with_full_profile(plan.settings.clone(), &[], &[], homogeneous, plan.top_child_boost);
+            assert_eq!(structure(shared), structure(&fresh.unwrap()));
+        }
         let mut settings = ReductionSettings::new(4, 4);
         settings.invariants = plan.settings.invariants;
         settings.scale_input = plan.settings.scale_input;

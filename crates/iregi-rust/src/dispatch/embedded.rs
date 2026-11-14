@@ -52,7 +52,9 @@ pub struct EmbedderOptions {
     /// flagged per lane). Default `true`.
     pub method_choice: bool,
     /// Binary64 workspaces: boxes and triangles refused inside a lane are
-    /// computed in double-double. Default `false`.
+    /// computed in double-double. Default `false`. Their double-double gate
+    /// is fixed at 2^-66 (40 bits of headroom);
+    /// [`Self::double_double_headroom_bits`] does not change it.
     pub partial_rescue: bool,
     /// Binary64 workspaces: lanes still refused on conditioning are evaluated
     /// again by the direct engine at 106, 256 and 512 bits. Default `false`.
@@ -80,7 +82,11 @@ pub struct EmbedderOptions {
     /// accepts estimates down to 2^-66, amplifying its rounding by at most
     /// 2^-40). A smaller headroom accepts worse-conditioned lanes in
     /// double-double instead of 256 bits, with a correspondingly larger bound
-    /// (26: down to 2^-80, at most 2^-26). The MPFR tiers keep 40 bits.
+    /// (26: down to 2^-80, at most 2^-26). The MPFR tiers keep 40 bits, and
+    /// [`Self::partial_rescue`] keeps its 2^-66 subset gate whatever this
+    /// headroom. Values of 106 and above are clamped to 105: the tier then
+    /// accepts only estimates of at least 2^-1, so almost every gate-refused
+    /// lane goes on to 256 bits.
     pub double_double_headroom_bits: u32,
 }
 

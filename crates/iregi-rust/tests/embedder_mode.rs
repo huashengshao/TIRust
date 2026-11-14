@@ -243,6 +243,12 @@ fn a_smaller_double_double_headroom_keeps_deeper_lanes_in_double_double() {
     let error = array_error(&basis, n, 1000.0, &dd, &mpfr);
     println!("deep pentagon: double-double (headroom 26) against 256 bits E/A {error:e}");
     assert!(error <= 2f64.powi(-40), "E/A = {error:e}");
+    // A headroom of 106 or more is clamped to 105 (limit 2^-1): the lane goes
+    // to 256 bits and gives the default's values.
+    for headroom in [105, 106, u32::MAX] {
+        let (values, route, _) = run(headroom);
+        assert_eq!((route, &values), (LaneRoute::Tier(256), &mpfr), "headroom {headroom}");
+    }
 }
 
 #[test]
