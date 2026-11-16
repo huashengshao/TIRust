@@ -48,7 +48,19 @@ pub enum InvariantInput {
     /// Cartesian shifts still determine the tensor components and the vector
     /// geometry of the moment recursions. Values are authoritative: they are
     /// neither recomputed nor snapped (the caller supplies consistent
-    /// kinematics; a mismatch of order delta moves results at order delta).
+    /// kinematics; a mismatch of order delta moves results at order delta,
+    /// times what a Gram system applied to the shifts amplifies it by).
+    ///
+    /// The direct engine measures each lane's mismatch with its shifts
+    /// (relative to each invariant's input size). Where it exceeds the working
+    /// precision's rounding, as in double-double or MPFR for invariants cast
+    /// from binary64 momenta with exact on-shell entries, a triangle or box
+    /// Gram system is used only if it is also regular in the shifts, and the
+    /// pentagon's moment recursion only while it amplifies the mismatch to at
+    /// most what its gate admits for rounding, or 2^-33 where that is
+    /// smaller. Other lanes are refused, or reduced by their affine relation:
+    /// an exactly planar pentagon by its partial fraction into boxes. Inputs
+    /// consistent to the rounding are unaffected.
     SuppliedInvariants,
 }
 
