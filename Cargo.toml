@@ -15,7 +15,7 @@ repository = "https://github.com/huashengshao/TIRust"
 
 [workspace.dependencies]
 symbolica = { version = "3.0", default-features = false, features = ["integer-gmp", "float-mpfr", "native_code_generation", "bincode", "serde"] }
-oneloop = { git = "https://github.com/alphal00p/oneloopmaster.git", rev = "2e7afabb5903814196d7ab39c695ed9cac777aa4", default-features = false, features = ["generated-evaluators", "rust-codegen"] }
+oneloop = { git = "https://github.com/alphal00p/oneloopmaster.git", rev = "07fc754f656c4744c9464f7c0f47d00b708b37e6", default-features = false, features = ["generated-evaluators", "rust-codegen"] }
 feynkit-graph = { git = "https://github.com/ValentinHirschi/gammaloop", rev = "6ef9ab3a426844c89cd2c15962ce4a274bb2e43c" }
 feynkit-model = { git = "https://github.com/ValentinHirschi/gammaloop", rev = "6ef9ab3a426844c89cd2c15962ce4a274bb2e43c", features = ["native"] }
 feynkit-generator = { git = "https://github.com/ValentinHirschi/gammaloop", rev = "6ef9ab3a426844c89cd2c15962ce4a274bb2e43c" }
@@ -31,13 +31,13 @@ iregi-rust = { path = "crates/iregi-rust" }
 iregi-prepare = { path = "crates/iregi-prepare" }
 
 [patch.crates-io]
-# Symbolica: symbolica-dev/symbolica `community` 0e2ad04c, the one revision shared with
+# Symbolica: symbolica-dev/symbolica `community` d0424f9e, the one revision shared with
 # pyAmpliCol, NinjaRS and oneloopmaster. Crates require symbolica = "3.0" so that an
 # embedding workspace's own patch decides the revision.
 # Needed Symbolica changes go upstream, never into a vendored or modified copy here.
-symbolica = { git = "https://github.com/symbolica-dev/symbolica.git", rev = "0e2ad04c4f281e28bd29d5ad8b1bebf2764379b7" }
-numerica = { git = "https://github.com/symbolica-dev/symbolica.git", rev = "0e2ad04c4f281e28bd29d5ad8b1bebf2764379b7" }
-graphica = { git = "https://github.com/symbolica-dev/symbolica.git", rev = "0e2ad04c4f281e28bd29d5ad8b1bebf2764379b7" }
+symbolica = { git = "https://github.com/symbolica-dev/symbolica.git", rev = "d0424f9e414d3007889f8a98b404a1b1a91b37a7" }
+numerica = { git = "https://github.com/symbolica-dev/symbolica.git", rev = "d0424f9e414d3007889f8a98b404a1b1a91b37a7" }
+graphica = { git = "https://github.com/symbolica-dev/symbolica.git", rev = "d0424f9e414d3007889f8a98b404a1b1a91b37a7" }
 symbolica-typst-plugin = { git = "https://github.com/symbolica-dev/symbolica-typst-plugin", rev = "57b7455b37c30f4f87353c0073e49f5225e937ab" }
 
 [profile.release]
