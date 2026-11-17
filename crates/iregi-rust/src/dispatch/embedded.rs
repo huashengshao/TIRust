@@ -15,7 +15,11 @@
 //!    Passarino-Veltman estimate exceeds the request, or that their gate
 //!    refuses, by the small-Gram expansions or the alternative PV reduction).
 //!    Unchecked here: the lanes are flagged ([`TensorWorkspace::last_lane_routes`])
-//!    for the host's own check;
+//!    for the host's own check. That check must be able to see form-factor
+//!    errors: a comparison of the two loop directions (MadLoop's) cannot, as
+//!    the form factors depend only on the invariants and both directions
+//!    repeat the same error. Such hosts turn the method choice off and the
+//!    precision tiers on (see [`EmbedderOptions::method_choice`]);
 //! 2. *partial rescue* (binary64 only, off by default): boxes and triangles a
 //!    gate refuses inside a binary64 lane are computed in double-double;
 //! 3. *precision tiers* (binary64 only, off by default): lanes still refused
@@ -50,6 +54,17 @@ use crate::{
 pub struct EmbedderOptions {
     /// Gate-refused lanes get COLLIER's a priori method choice (unchecked,
     /// flagged per lane). Default `true`.
+    ///
+    /// Its small-Gram expansions stop at a relative change of
+    /// [`EXPANSION_TOLERANCE`](crate::direct::EXPANSION_TOLERANCE) (2^-30), and the
+    /// higher-rank triangles they read add their own rounding; no per-lane
+    /// estimate is reported. A host whose check cannot see form-factor errors
+    /// (a comparison of the two loop directions repeats them) sets `false`
+    /// with [`Self::precision_tiers`], so that each tier's gate bounds the
+    /// error. Measured in MadLoop with the method choice: Zggg tensors up to
+    /// 7e-6 from the tiers' values, and forward e+e- > mu+mu- at a scattering
+    /// angle of 5e-4 2.8e-5 off in the matrix element, while the direction
+    /// check reported 1e-15.
     pub method_choice: bool,
     /// Binary64 workspaces: boxes and triangles refused inside a lane are
     /// computed in double-double. Default `false`. Their double-double gate
