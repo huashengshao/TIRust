@@ -15,8 +15,8 @@ use symbolica::{domains::float::Complex, evaluate::EvaluationDomain};
 
 use super::{
     numeric::{
-        C, L4, cadd, cfma, cfma_real, cinv, cmul, cnorm2, cscale, csub, czero, div_dimension, lfma,
-        lfma_slots, lzero, mul_dimension, real_lfma_slots, solve_in_place,
+        C, L4, SolveQuality, cadd, cfma, cfma_real, cinv, cmul, cnorm2, cscale, csub, czero, div_dimension,
+        lfma, lfma_slots, lzero, mul_dimension, real_lfma_slots, solve_in_place,
     },
     plan::{DirectPlanData, Gather, Instruction, NO_GEOMETRY, PostOp, Subset, SubsetKind, SubsetMask, Term, members},
     shared::{MASTER_KEY_WORDS, SharedValue, SubsetStore},
@@ -296,6 +296,11 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     /// `8 * 2^-precision`: a squared distance below this multiple of its
     /// sum of squared components is zero within its own rounding.
     rounding: T,
+    /// Supplied invariants of the current lane: their largest distance from
+    /// the invariants of its shifts, relative to each invariant's input size
+    /// (`invariant_size`), where it exceeds `rounding`; `None` for inputs
+    /// consistent to the working precision's rounding (and from shifts).
+    input_mismatch: Option<T>,
     profiling: bool,
     profile: DirectProfile,
     /// Partial-rescue executor: only the top subset's coefficients are read,
@@ -520,6 +525,7 @@ where
                 let half = prototype.one() / &prototype.from_usize(2);
                 (0..prototype.get_precision()).fold(prototype.from_usize(8), |acc, _| acc * &half)
             },
+            input_mismatch: None,
             profiling: false,
             profile: DirectProfile::default(),
             coefficients_only: false,
@@ -639,6 +645,7 @@ where
     }
 
     fn read_lane(&mut self, batch: &KinematicsBatch<T>, row: usize) -> Result<(), String> {
+        self.input_mismatch = None;
         let n = self.plan.settings.propagators;
         let width = self.layout.width();
         let values = &batch.values[row * width..(row + 1) * width];
@@ -679,6 +686,7 @@ where
                     self.distances[i * n + j] = value;
                 }
             }
+            self.input_mismatch = self.supplied_mismatch();
             return Ok(());
         }
         // Upper triangle only: d(j, i) equals d(i, j) bit for bit (the
@@ -1510,6 +1518,69 @@ where
         Ok((support, homogeneous))
     }
 
+    /// The supplied invariants' largest distance from those of the shifts,
+    /// `|s_ij - (q_i - q_j)^2| / invariant_size(i, j)` over the pairs, where
+    /// it exceeds the working precision's rounding (`self.rounding`, the
+    /// tolerance within which the engine's own invariants of these shifts are
+    /// zero); `None` otherwise. Supplied invariants within the inputs' rounding
+    /// of the shifts (pyAmpliCol's at binary64) give `None`; at a higher
+    /// precision the same inputs, cast from binary64 momenta with exact
+    /// on-shell entries, give their binary64 mismatch.
+    fn supplied_mismatch(&self) -> Option<T> {
+        let n = self.plan.settings.propagators;
+        let mut worst = self.prototype.zero();
+        for i in 0..n {
+            for j in i + 1..n {
+                let size = self.invariant_size(i, j);
+                if size.is_zero() {
+                    continue;
+                }
+                let mut value = self.zero.clone();
+                for a in 0..4 {
+                    let delta = csub(&self.shifts[i][a], &self.shifts[j][a]);
+                    let square = cmul(&delta, &delta);
+                    value = if a == 0 { cadd(&value, &square) } else { csub(&value, &square) };
+                }
+                let distance = cnorm2(&csub(&self.distances[i * n + j], &value)).sqrt() / &size;
+                if distance > worst {
+                    worst = distance;
+                }
+            }
+        }
+        (worst > self.rounding).then_some(worst)
+    }
+
+    /// Conditioning of the PV Gram system of `members` (its first `size >= 2`
+    /// momenta) formed from the shifts instead of the supplied invariants,
+    /// on the scale of `scale`: the measure the Gram gate applies, for lanes
+    /// whose invariants are mismatched (`input_mismatch`). Where the shifts
+    /// are (nearly) affinely dependent and the invariants are not, the
+    /// invariants' Gram system is regular only through the mismatch, and its
+    /// inverse applied to the shifts is wrong at O(1).
+    fn shift_gram_condition(&self, members: &[usize], size: usize, scale: &T) -> T {
+        let origin = members[0];
+        let p: Vec<[C<T>; 4]> = (0..size)
+            .map(|i| std::array::from_fn(|a| csub(&self.shifts[members[i + 1]][a], &self.shifts[origin][a])))
+            .collect();
+        let mut matrix = Vec::with_capacity(size * size);
+        let mut rhs = Vec::with_capacity(size * size);
+        for i in 0..size {
+            for j in 0..size {
+                let mut dot = self.zero.clone();
+                for a in 0..4 {
+                    let product = cmul(&p[i][a], &p[j][a]);
+                    dot = if a == 0 { cadd(&dot, &product) } else { csub(&dot, &product) };
+                }
+                matrix.push(cadd(&dot, &dot));
+                rhs.push(if i == j { self.one.clone() } else { self.zero.clone() });
+            }
+        }
+        match solve_in_place(&mut matrix, &mut rhs, size, size) {
+            Some(quality) => gram_condition(&quality, size, scale, &self.prototype),
+            None => self.prototype.zero(),
+        }
+    }
+
     /// The size of the inputs of the invariant `d(i, j)`, as in the distances'
     /// rounding test: `sum_a |delta_a|^2 + 2 |delta_a| (|q_ia| + |q_ja|)`
     /// with `delta = q_i - q_j`. Their working-precision rounding moves
@@ -1840,21 +1911,22 @@ where
                         }
                         let quality = quality?;
                         let power = subset.coefficient_rank as u64;
-                        // Hadamard-relative and scale-relative conditioning:
-                        // |det Z|^(1/n) against the recursion's kinematic scale.
-                        let mut scaled = quality.determinant.clone();
-                        for _ in 1..size {
-                            scaled = scaled.sqrt();
+                        let mut condition = gram_condition(&quality, size, &scale, &self.prototype);
+                        if size >= 2 && self.input_mismatch.is_some() {
+                            // Mismatched supplied invariants (issue #40): the
+                            // moments combine the coefficients with several
+                            // shift momenta, so the system must be regular in
+                            // the shifts too. A bubble's moments are p^mu
+                            // times functions of the supplied p^2 alone, with
+                            // nothing to cancel, whatever the shifts' own p^2
+                            // (tests/lightlike_rule.rs supplies a
+                            // near-lightlike p^2 for lightlike shifts).
+                            // Consistent inputs never reach this.
+                            let shifted = self.shift_gram_condition(members, size, &scale);
+                            if shifted < condition {
+                                condition = shifted;
+                            }
                         }
-                        if size == 3 {
-                            scaled = quality.determinant.clone().powf(&(self.prototype.one() / &self.prototype.from_usize(3)));
-                        }
-                        let scaled = if scale.is_zero() { scale.clone() } else { scaled / &scale };
-                        let condition = if scaled < quality.relative_determinant {
-                            scaled
-                        } else {
-                            quality.relative_determinant.clone()
-                        };
                         if condition.clone().pow(power) < threshold {
                             if gram && (2..=3).contains(&size) {
                                 // Small-Gram expansion (box or triangle), injected in the lane loop
@@ -2088,6 +2160,40 @@ where
                     "ill-conditioned pentagon Gram matrix for {members:?}: condition number {:e}",
                     kappa
                 )));
+            }
+            if let Some(mismatch) = &self.input_mismatch {
+                // Mismatched supplied invariants (issue #40): Z^-1 is applied
+                // to the shifts, so the recursion amplifies their mismatch
+                // like rounding, by kappa^p for its p ranks above the
+                // Gram-free ones (measured on g g > H g g
+                // pentagons tilted out of a plane: the error grows like
+                // kappa at rank 6 and kappa^1.5 at rank 7, the same in every
+                // precision). At an exactly planar point the shifts span
+                // three dimensions, Z is singular but for the mismatch, and
+                // the moments are wrong at O(1). Admitted: what the gate
+                // admits for rounding (rounding 2^-7 / threshold), or 2^-33
+                // where that is smaller; a gate set for far finer rounding
+                // than the inputs' would otherwise refuse every such lane.
+                // Refused as singular, so an exactly planar lane takes its
+                // affine relation (partial fractions into boxes).
+                let power = (subset.moment_rank - geometry.dd_rank.max(0)) as u64;
+                let amplified = mismatch.clone() * &kappa.clone().pow(power);
+                let floor = self.binary_tolerance(33);
+                let refused = if threshold.is_zero() {
+                    false
+                } else {
+                    let admitted = self.rounding.clone() * &pentagon_calibration / &threshold;
+                    let bound = if admitted > floor { admitted } else { floor };
+                    !(amplified <= bound)
+                };
+                if refused {
+                    self.failed_condition = Some((condition.clone() * &self.rounding / mismatch).to_f64());
+                    return Err(GeometryFailure::Singular(subset.mask, format!(
+                        "pentagon Gram matrix for {members:?} decided only by the supplied invariants' \
+                         mismatch {:e} with the shifts: condition number {:e}",
+                        mismatch, kappa
+                    )));
+                }
             }
             for mu in 0..4 {
                 let mut a = csub(&self.zero, &self.shifts[origin][mu]);
@@ -4172,6 +4278,25 @@ where
         evaluator.set_handwritten_negative_kallen_c0(true);
     }
     Ok(evaluator)
+}
+
+/// The PV Gram gate's conditioning of a solved `size x size` Gram system:
+/// the smaller of its Hadamard-relative determinant and `|det Z|^(1/size)`
+/// against the recursion's kinematic `scale`.
+fn gram_condition<T: NativeFloat>(quality: &SolveQuality<T>, size: usize, scale: &T, prototype: &T) -> T {
+    let mut scaled = quality.determinant.clone();
+    for _ in 1..size {
+        scaled = scaled.sqrt();
+    }
+    if size == 3 {
+        scaled = quality.determinant.clone().powf(&(prototype.one() / &prototype.from_usize(3)));
+    }
+    let scaled = if scale.is_zero() { scale.clone() } else { scaled / scale };
+    if scaled < quality.relative_determinant {
+        scaled
+    } else {
+        quality.relative_determinant.clone()
+    }
 }
 
 /// `2^-(bits - margin)` in the domain of `prototype`.
