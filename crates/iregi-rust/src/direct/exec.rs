@@ -1523,9 +1523,9 @@ where
     /// it exceeds the working precision's rounding (`self.rounding`, the
     /// tolerance within which the engine's own invariants of these shifts are
     /// zero); `None` otherwise. Supplied invariants within the inputs' rounding
-    /// of the shifts (pyAmpliCol's at binary64) give `None`; at a higher
-    /// precision the same inputs, cast from binary64 momenta with exact
-    /// on-shell entries, give their binary64 mismatch.
+    /// of the shifts give `None`. Invariants of momenta rounded to binary64,
+    /// with exact on-shell entries, give their binary64 mismatch at a higher
+    /// precision.
     fn supplied_mismatch(&self) -> Option<T> {
         let n = self.plan.settings.propagators;
         let mut worst = self.prototype.zero();
@@ -2171,8 +2171,8 @@ where
                 // precision). At an exactly planar point the shifts span
                 // three dimensions, Z is singular but for the mismatch, and
                 // the moments are wrong at O(1). Admitted: what the gate
-                // admits for rounding (rounding 2^-7 / threshold), or 2^-33
-                // where that is smaller; a gate set for far finer rounding
+                // admits for rounding (rounding 2^-7 / threshold) or 2^-33,
+                // whichever is larger; a gate set for far finer rounding
                 // than the inputs' would otherwise refuse every such lane.
                 // Refused as singular, so an exactly planar lane takes its
                 // affine relation (partial fractions into boxes).

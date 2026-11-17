@@ -1,20 +1,21 @@
 //! Supplied invariants that disagree with the shifts beyond the working
 //! precision's rounding (issue #40).
 //!
-//! pyAmpliCol hands every carrier the shifts and invariants of binary64
-//! momenta, cast once from their exact sums, with the on-shell entries the
-//! legs' squared masses exactly. In double-double and MPFR these inputs
-//! disagree at binary64's rounding. At an exactly planar 2 -> 3 point the
-//! shifts span three dimensions while the invariants' pentagon Gram matrix
-//! is regular only through that mismatch; above the Gram-free ranks (6 and
-//! up) its inverse, applied to the shifts, gave moments wrong at O(1) with
-//! status success, in every precision whose gate admitted it. Near-planar
-//! points amplify the mismatch by the Gram matrix's condition number.
+//! Every carrier receives the shifts and invariants of momenta rounded to
+//! binary64, cast once from their exact sums, with the on-shell entries the
+//! legs' squared masses exactly (pyAmpliCol's inputs with its kinematics
+//! improvement off). In double-double and MPFR these inputs disagree at
+//! binary64's rounding. At an exactly planar 2 -> 3 point the shifts span
+//! three dimensions while the invariants' pentagon Gram matrix is regular
+//! only through that mismatch; above the Gram-free ranks (6 and up) its
+//! inverse, applied to the shifts, gave moments wrong at O(1) with status
+//! success, in every precision whose gate admitted it. Near-planar points
+//! amplify the mismatch by the Gram matrix's condition number.
 //!
 //! Here: g g > H g g pentagons in exact rational kinematics, the inputs
-//! formed as pyAmpliCol forms them, each carrier at pyAmpliCol's gate
-//! 1e-12^(bits/53). The truth: the 512-bit value at the exact point. Every
-//! lane is refused or within 1e-10 of it.
+//! formed that way, each carrier at pyAmpliCol's gate 1e-12^(bits/53). The
+//! truth: the 512-bit value at the exact point. Every lane is refused or
+//! within 1e-10 of it.
 use iregi_masters::NativeFloat;
 use iregi_rust::{
     Convention, DirectReductionPlan, InvariantInput, KinematicsBatch, LaneStatus,
