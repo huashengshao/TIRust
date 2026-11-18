@@ -63,7 +63,7 @@ pub struct EmbedderOptions {
     /// with [`Self::precision_tiers`], so that each tier's gate bounds the
     /// error. Measured in MadLoop with the method choice: Zggg tensors up to
     /// 7e-6 from the tiers' values, and forward e+e- > mu+mu- at a scattering
-    /// angle of 5e-4 2.8e-5 off in the matrix element, while the direction
+    /// angle of 5e-4, 2.8e-5 off in the matrix element, while the direction
     /// check reported 1e-15.
     pub method_choice: bool,
     /// Binary64 workspaces: boxes and triangles refused inside a lane are

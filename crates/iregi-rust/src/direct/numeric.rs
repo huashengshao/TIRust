@@ -11,7 +11,7 @@
 use std::any::Any;
 
 use iregi_masters::NativeFloat;
-use symbolica::domains::float::{Complex, DoubleFloat};
+use symbolica::domains::float::{Complex, DoubleFloat, Float};
 
 pub(crate) type C<T> = Complex<T>;
 /// `[UV single, IR single, IR double, finite]` coefficients.
@@ -54,8 +54,100 @@ fn as_double_real<T: NativeFloat>(x: &T) -> Option<&DoubleFloat> {
     if T::FIXED_BITS == Some(106) { (x as &dyn Any).downcast_ref() } else { None }
 }
 
+/// Arbitrary-precision kernels at a fixed precision. Symbolica's `Float`
+/// operators track significance: a sum or difference is rounded to the bits
+/// that survive its cancellation, and a product to its less precise factor,
+/// so one cancellation lowers the precision of everything computed from it.
+/// The engine's gates bound rounding at the working precision (backward
+/// stable solves, `2^-p` per operation), which binary64 and double-double
+/// satisfy; tracked rounding breaks that bound where cancellations are large
+/// but correlated, as in the Gram systems of nearly planar pentagons (issue
+/// #40). These kernels round every result once, at the larger operand
+/// precision, as MPFR does at a fixed precision: through the backend's own
+/// operations, whose result takes the precision of their left operand, with
+/// that operand lifted first (exactly) where it is the less precise.
+mod fixed {
+    use symbolica::domains::{backend::float::MultiPrecisionFloat, float::Float};
+
+    /// The backend value of the more precise operand's precision to operate
+    /// on (`a` lifted where needed) and the other operand.
+    #[inline(always)]
+    fn operands<'a>(a: &'a Float, b: &'a Float) -> (MultiPrecisionFloat, &'a MultiPrecisionFloat) {
+        let (pa, pb) = (a.prec(), b.prec());
+        let mut x = a.as_raw().clone();
+        if pa < pb {
+            x.set_prec(pb);
+        }
+        (x, b.as_raw())
+    }
+
+    #[inline(always)]
+    pub(super) fn add(a: &Float, b: &Float) -> Float {
+        let (x, y) = operands(a, b);
+        Float::from_raw(x + y)
+    }
+
+    #[inline(always)]
+    pub(super) fn sub(a: &Float, b: &Float) -> Float {
+        let (x, y) = operands(a, b);
+        Float::from_raw(x - y)
+    }
+
+    #[inline(always)]
+    pub(super) fn mul(a: &Float, b: &Float) -> Float {
+        let (x, y) = operands(a, b);
+        Float::from_raw(x * y)
+    }
+}
+
+/// The arbitrary-precision view of a generic complex value (`T = Float`).
+#[inline(always)]
+fn as_float<T: NativeFloat>(z: &C<T>) -> Option<&C<Float>> {
+    if T::FIXED_BITS.is_none() { (z as &dyn Any).downcast_ref() } else { None }
+}
+
+#[inline(always)]
+fn as_float_mut<T: NativeFloat>(z: &mut C<T>) -> Option<&mut C<Float>> {
+    if T::FIXED_BITS.is_none() { (z as &mut dyn Any).downcast_mut() } else { None }
+}
+
+#[inline(always)]
+fn as_float_real<T: NativeFloat>(x: &T) -> Option<&Float> {
+    if T::FIXED_BITS.is_none() { (x as &dyn Any).downcast_ref() } else { None }
+}
+
+/// `value` as a `C<T>` where `T = Float`.
+#[inline(always)]
+fn from_float<T: NativeFloat>(value: C<Float>) -> Option<C<T>> {
+    let mut slot: Option<C<T>> = None;
+    let target = (&mut slot as &mut dyn Any).downcast_mut::<Option<C<Float>>>()?;
+    *target = Some(value);
+    slot
+}
+
+#[inline(always)]
+fn from_float_real<T: NativeFloat>(value: Float) -> Option<T> {
+    let mut slot: Option<T> = None;
+    let target = (&mut slot as &mut dyn Any).downcast_mut::<Option<Float>>()?;
+    *target = Some(value);
+    slot
+}
+
+#[inline(always)]
+fn float_mul(x: &C<Float>, y: &C<Float>) -> C<Float> {
+    C::new(
+        fixed::sub(&fixed::mul(&x.re, &y.re), &fixed::mul(&x.im, &y.im)),
+        fixed::add(&fixed::mul(&x.re, &y.im), &fixed::mul(&x.im, &y.re)),
+    )
+}
+
 #[inline(always)]
 pub(crate) fn cmul<T: NativeFloat>(a: &C<T>, b: &C<T>) -> C<T> {
+    if let (Some(x), Some(y)) = (as_float(a), as_float(b)) {
+        if let Some(out) = from_float(float_mul(x, y)) {
+            return out;
+        }
+    }
     if let (Some(x), Some(y)) = (as_double(a), as_double(b)) {
         // Real factors (real kinematics): half the products.
         let product = if dd::is_zero(&y.im) {
@@ -79,17 +171,35 @@ pub(crate) fn cmul<T: NativeFloat>(a: &C<T>, b: &C<T>) -> C<T> {
 
 #[inline(always)]
 pub(crate) fn cadd<T: NativeFloat>(a: &C<T>, b: &C<T>) -> C<T> {
+    if let (Some(x), Some(y)) = (as_float(a), as_float(b)) {
+        if let Some(out) = from_float(C::new(fixed::add(&x.re, &y.re), fixed::add(&x.im, &y.im))) {
+            return out;
+        }
+    }
     C::new(a.re.clone() + &b.re, a.im.clone() + &b.im)
 }
 
 #[inline(always)]
 pub(crate) fn csub<T: NativeFloat>(a: &C<T>, b: &C<T>) -> C<T> {
+    if let (Some(x), Some(y)) = (as_float(a), as_float(b)) {
+        if let Some(out) = from_float(C::new(fixed::sub(&x.re, &y.re), fixed::sub(&x.im, &y.im))) {
+            return out;
+        }
+    }
     C::new(a.re.clone() - &b.re, a.im.clone() - &b.im)
 }
 
 /// `acc += a * b`.
 #[inline(always)]
 pub(crate) fn cfma<T: NativeFloat>(acc: &mut C<T>, a: &C<T>, b: &C<T>) {
+    if let (Some(x), Some(y)) = (as_float(a), as_float(b)) {
+        let product = float_mul(x, y);
+        if let Some(total) = as_float_mut(acc) {
+            total.re = fixed::add(&total.re, &product.re);
+            total.im = fixed::add(&total.im, &product.im);
+            return;
+        }
+    }
     if let (Some(x), Some(y)) = (as_double(a), as_double(b)) {
         if let Some(total) = as_double_mut(acc) {
             if dd::is_zero(&x.im) {
@@ -106,6 +216,11 @@ pub(crate) fn cfma<T: NativeFloat>(acc: &mut C<T>, a: &C<T>, b: &C<T>) {
 
 #[inline(always)]
 pub(crate) fn cscale<T: NativeFloat>(a: &C<T>, s: &T) -> C<T> {
+    if let (Some(x), Some(factor)) = (as_float(a), as_float_real(s)) {
+        if let Some(out) = from_float(C::new(fixed::mul(&x.re, factor), fixed::mul(&x.im, factor))) {
+            return out;
+        }
+    }
     if let (Some(x), Some(factor)) = (as_double(a), as_double_real(s)) {
         let product = dd::real_scale(&dd::factor(factor), x);
         let mut out = a.clone();
@@ -131,6 +246,11 @@ pub(crate) fn cfma_real<T: NativeFloat>(acc: &mut C<T>, value: &C<T>, s: &T) {
 
 #[inline(always)]
 pub(crate) fn cnorm2<T: NativeFloat>(a: &C<T>) -> T {
+    if let Some(x) = as_float(a) {
+        if let Some(out) = from_float_real(fixed::add(&fixed::mul(&x.re, &x.re), &fixed::mul(&x.im, &x.im))) {
+            return out;
+        }
+    }
     if let Some(x) = as_double(a) {
         let norm = dd::mul(&x.re, &x.re) + dd::mul(&x.im, &x.im);
         let mut out = a.re.clone();
@@ -395,6 +515,44 @@ mod tests {
                 assert!((sum.re - expected).abs() < 1e-14 && sum.im.abs() < 1e-14);
             }
         }
+    }
+
+    #[test]
+    fn arbitrary_precision_kernels_keep_the_working_precision() {
+        // (1 + 2^-100) - 1 cancels 100 of 128 bits: Symbolica's operators
+        // round the difference to the 28 that survive, and its product with
+        // 1/3 to those; the kernels keep 128 bits, as the gates assume.
+        let bits = 128;
+        let real = |x: Float| C::new(x, Float::new(bits));
+        let half = |x: Float, times: u32| (0..times).fold(x, |x, _| x / &Float::with_val(bits, 2));
+        let tiny = half(Float::with_val(bits, 1), 100);
+        let a = real(Float::with_val(bits, 1) + &tiny);
+        let one = real(Float::with_val(bits, 1));
+        let third = real(Float::with_val(bits, 1) / &Float::with_val(bits, 3));
+        let tracked = (a.re.clone() - &one.re) * &third.re;
+        assert!(tracked.prec() < 40, "{}", tracked.prec());
+        let difference = csub(&a, &one);
+        assert_eq!(difference.re.prec(), bits);
+        assert_eq!(difference.re, tiny);
+        let mut product = cmul(&difference, &third);
+        let mut accumulated = real(Float::new(bits));
+        cfma(&mut accumulated, &difference, &third);
+        let scaled = cscale(&difference, &third.re);
+        let expected = tiny.clone() / &Float::with_val(bits, 3);
+        // Within two units of 2^-128 of the exact tiny / 3.
+        let bound = half(expected.clone(), bits - 1);
+        for value in [&mut product, &mut accumulated, &mut scaled.clone()] {
+            assert_eq!(value.re.prec(), bits);
+            let error = value.re.clone() - &expected;
+            assert!(error.clone() * &error < bound.clone() * &bound, "{error}");
+        }
+        assert_eq!(cnorm2(&difference).prec(), bits);
+        // A less precise left operand is lifted, not the result rounded to it.
+        let coarse = real(Float::with_val(64, 1));
+        let sum = cadd(&coarse, &real(tiny.clone()));
+        assert_eq!(sum.re.prec(), bits);
+        assert_eq!(csub(&sum, &coarse).re, tiny);
+        assert_eq!(cmul(&coarse, &third).re, third.re);
     }
 
     #[test]
