@@ -143,6 +143,7 @@ python3 benchmarks/onia/amplitude.py target/onia/families.json target/onia/ampli
 python3 benchmarks/onia/make_fixture.py target/onia/points.json target/onia/affine target/onia/coulomb.json crates/iregi-rust/tests/fixtures/onia-swave.json
 python3 benchmarks/onia/make_dotted_lightlike.py
 python3 benchmarks/onia/make_two_onium_fixture.py
+python3 benchmarks/onia/make_collinear_fixture.py
 ```
 
 The physical S-wave amplitudes:
@@ -809,6 +810,11 @@ Two fixtures cover P-wave's dotted integrals (rank R+1, one line doubled):
   two pentagons of e+ e- > J/psi eta_c at v = 0 whose Coulomb partial
   fractions reach a soft triangle. TIRust must agree with original IREGI's
   quad IBP arrays to 1e-12.
+- `tests/fixtures/onia-collinear.json` (`make_collinear_fixture.py`): scalars
+  of a generic triangle, box and pentagon sharing a collinear pair (two
+  massless lines with a vanishing invariant), one line doubled, from original
+  IREGI's quad scalar API with powers. TIRust must agree to 1e-13 (binary64)
+  and 1e-15 (256 bits), and refuse the pentagon with a pair member doubled.
 
 The test file's other cases need no fixture:
 - the #32 review's cases: mixed batches, the planar pentagon, and the
@@ -842,6 +848,7 @@ The test file's other cases need no fixture:
 | `make_swave_fixture.py` | the S-wave amplitude test's fixture |
 | `make_dotted_lightlike.py` | the dotted lightlike-bubble fixture (mpmath) |
 | `make_two_onium_fixture.py` | the two-onium pentagon fixture (quad IREGI) |
+| `make_collinear_fixture.py` | the collinear-pair fixture (quad IREGI scalars with powers) |
 | `merge_swave.py` | concatenates onia_swave outputs over point ranges |
 | `crates/iregi-prepare/examples/onia_diagrams.rs` | FeynKit diagram generation (DOT files) |
 | `crates/iregi-prepare/examples/onia_swave.rs` | S-wave projection and numerator coefficients per point and polarization |

@@ -1128,3 +1128,57 @@ fn two_onium_pentagons_with_soft_coulomb_triangles_match_quad_iregi() {
         }
     }
 }
+
+/// Collinear pairs (two massless lines whose invariant vanishes): a triangle
+/// with one has a singular Cayley matrix that no soft line empties, and its
+/// null vector's IBP identity reduces it (main refuses it, "singular Cayley
+/// matrix"). A generic triangle and box sharing the pair, either pair member
+/// doubled, and a pentagon with its massive line doubled, against original
+/// IREGI's quad scalars with powers (benchmarks/onia/make_collinear_fixture.py).
+/// The pentagon with a pair member doubled is refused: its Cayley reduction
+/// drops a (D + 2)-dimensional term whose mass derivative keeps a collinear
+/// pole (1e-4 of the integral here).
+#[test]
+fn collinear_pairs_reduce_dotted_triangles_and_refuse_unreduced_pentagons() {
+    let fixture: Value = serde_json::from_str(include_str!("fixtures/onia-collinear.json")).unwrap();
+    let shifts: Vec<[f64; 4]> = fixture["shifts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|q| std::array::from_fn(|a| q[a].as_f64().unwrap()))
+        .collect();
+    let masses: Vec<f64> = fixture["masses_squared"].as_array().unwrap().iter().map(|m| m.as_f64().unwrap()).collect();
+    let mu = fixture["mu"].as_f64().unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let (n, dotted) = (case["n"].as_u64().unwrap() as usize, case["dotted"].as_u64().unwrap() as usize);
+        let reference: Vec<Complex<f64>> = case["reference"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|z| Complex::new(z[0].as_str().unwrap().parse().unwrap(), z[1].as_str().unwrap().parse().unwrap()))
+            .collect();
+        let mut settings = ReductionSettings::new(n, 0);
+        settings.powers[dotted] = 2;
+        let lane = coulomb_lane(&shifts[..n], &masses[..n], mu);
+        for (what, (status, values)) in
+            [("direct", direct_lanes_with(settings.clone(), &lane)), ("facade", facade_lane(settings.clone(), &lane))]
+        {
+            assert_eq!(status, LaneStatus::Success, "n={n}, D{dotted} doubled, {what}");
+            let ea = relative_difference(&values, &reference);
+            assert!(ea <= 1e-13, "n={n}, D{dotted} doubled, {what}: E/A {ea:e} against quad IREGI");
+        }
+        let (status, values) = direct256(settings, &lane);
+        assert_eq!(status, LaneStatus::Success, "n={n}, D{dotted} doubled, 256 bits");
+        let ea = relative_difference(&values, &reference);
+        assert!(ea <= 1e-15, "n={n}, D{dotted} doubled, 256 bits: E/A {ea:e} against quad IREGI");
+    }
+    for dotted in [0, 1] {
+        let mut settings = ReductionSettings::new(5, 0);
+        settings.powers[dotted] = 2;
+        let (status, _) = direct_lanes_with(settings, &coulomb_lane(&shifts, &masses, mu));
+        assert!(
+            matches!(&status, LaneStatus::Unstable(e) if e.contains("collinear pair of pentagon")),
+            "pentagon, D{dotted} doubled: {status:?}"
+        );
+    }
+}

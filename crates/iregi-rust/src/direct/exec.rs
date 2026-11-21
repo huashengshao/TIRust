@@ -2053,6 +2053,38 @@ where
         for i in 0..5 {
             self.geometry[geometry.b as usize + i] = self.rhs[i].clone();
         }
+        // A dotted massless line in a collinear pair of this pentagon. The
+        // reduction J5 = sum_i b_i J4^(i) + (4 - D) B J5^(D+2), B = sum_i b_i,
+        // drops its last term; in 6 - 2 eps dimensions the doubled line keeps
+        // a collinear pole, so the dropped part of the mass derivative is of
+        // order B, not eps (a generic pentagon is 1e-4 off). Only a B that
+        // vanishes to the inputs' rounding (a degenerate Gram determinant)
+        // lets it go. (Quarkonium's pentagons at v = 0 take their exact
+        // denominator identity instead.)
+        if let Some((dotted, _)) = self.plan.jet {
+            let massless = |i: usize| self.masses[i].re.is_zero() && self.masses[i].im.is_zero();
+            let collinear = members.contains(&dotted)
+                && massless(dotted)
+                && members.iter().any(|&e| {
+                    e != dotted
+                        && massless(e)
+                        && cnorm2(d(dotted, e)).sqrt() <= self.invariant_size(dotted, e) * &self.input_rounding
+                });
+            if collinear {
+                let mut sum = self.zero.clone();
+                let mut size = self.prototype.zero();
+                for i in 0..5 {
+                    sum = cadd(&sum, &self.rhs[i]);
+                    size += &cnorm2(&self.rhs[i]).sqrt();
+                }
+                if cnorm2(&sum).sqrt() > size * &self.input_rounding {
+                    return Err(GeometryFailure::Unstable(format!(
+                        "dotted massless line {dotted} in a collinear pair of pentagon {members:?}: \
+                         its (D + 2)-dimensional term is not reduced"
+                    )));
+                }
+            }
+        }
         if geometry.dd_rank >= 1 {
             // Gram-free coefficients: momenta and origin for the
             // gather, X^-1 of X = [[2 m0^2, f^T], [f, Z]] and the
@@ -3075,6 +3107,15 @@ where
                 return Ok(sum);
             }
         }
+        // A collinear pair a, b of a triangle (massless, lightlike to the
+        // inputs' rounding): rows a and b of the Cayley matrix are
+        // (0, 0, R_ac) and (0, 0, R_bc), so it is singular (`collinear_ibp`).
+        if let Some(triple) = self.collinear_pair(&active) {
+            if let Some(value) = self.collinear_ibp(triple, l, powers)? {
+                self.ibp_memo.insert(powers, value.clone());
+                return Ok(value);
+            }
+        }
         let inverse = self.cayley_inverse(mask)?;
         let local_l = active.iter().position(|&i| i == l).unwrap();
         let w = powers - ibp_unit(bits, l);
@@ -3121,6 +3162,115 @@ where
                     gap <= (cnorm2(m2).sqrt() + &self.invariant_size(j, k)) * &self.input_rounding
                 })
         })
+    }
+
+    /// A collinear pair of a triangle `active`: two massless members `a`, `b`
+    /// whose invariant vanishes to the inputs' rounding, with the third line
+    /// `c`, as `(a, b, c)`. (A soft line, which a massless triangle with two
+    /// lightlike legs has, comes first.)
+    fn collinear_pair(&self, active: &[usize]) -> Option<(usize, usize, usize)> {
+        let &[x, y, w] = active else {
+            return None;
+        };
+        let n = self.plan.settings.propagators;
+        let massless = |z: &C<T>| z.re.is_zero() && z.im.is_zero();
+        [(x, y, w), (x, w, y), (y, w, x)].into_iter().find(|&(a, b, _)| {
+            massless(&self.masses[a])
+                && massless(&self.masses[b])
+                && cnorm2(&self.distances[a * n + b]).sqrt() <= self.invariant_size(a, b) * &self.input_rounding
+        })
+    }
+
+    /// `J(v)` of a triangle with a collinear pair `(a, b)` and third line `c`
+    /// (`collinear_pair`), `v_l >= 2`, or `None` when this relation does not
+    /// determine it. With `mu = v - e_l`, `T = |v|` and `Y_i = mu_i J(mu + e_i)`,
+    /// the IBP identity of `(l + r_k)` at `mu`, `sum_i R_ki Y_i = rhs_k =
+    /// sum_i mu_i J(mu + e_i - e_k) - (D - |mu|) J(mu)`, gives `Y_c` from row
+    /// `a` (or `b`) and `R_ca Y_a + R_cb Y_b = u = rhs_c - R_cc Y_c` from row
+    /// `c`. The null vector `z = (R_cb, -R_ca, 0)`, `Z = R_cb - R_ca`, makes
+    /// the identities' combination at `mu + e_a`
+    /// `[(D - T) Z - z_a (mu_a + 1) - z_b mu_b] J(mu + e_a) = z_a (Y_b + Y_c) + z_b W`,
+    /// `W = (mu_a + 1) J(mu + 2 e_a - e_b) + mu_c J(mu + e_a + e_c - e_b)`
+    /// (a lower power of `b`, down to its pinch), so that
+    /// `(Z / mu_a) (A - 2 eps) Y_a = u + R_cb Y_c - R_ca W`, with
+    /// `A = [(4 - T) Z - R_cb (mu_a + 1) + R_ca (mu_a + mu_b)] / Z`
+    /// (`-2` for a single dot). Symmetric legs (`Z = 0`) or `A = 0` leave it
+    /// to the Cayley inverse, which refuses the singular matrix.
+    fn collinear_ibp(
+        &mut self,
+        (a, b, c): (usize, usize, usize),
+        l: usize,
+        powers: u64,
+    ) -> Result<Option<L4<T>>, String> {
+        let n = self.plan.settings.propagators;
+        let bits = self.ibp_bits;
+        let power = |packed: u64, i: usize| ibp_power(packed, bits, i);
+        let unit = |i: usize| ibp_unit(bits, i);
+        let entry = |i: usize, j: usize| csub(&csub(&self.distances[i * n + j], &self.masses[i]), &self.masses[j]);
+        let (r_ac, r_bc, r_ca, r_cb, r_cc) = (entry(a, c), entry(b, c), entry(c, a), entry(c, b), entry(c, c));
+        let z = csub(&r_cb, &r_ca);
+        let scale = cnorm2(&r_ca).sqrt() + &cnorm2(&r_cb).sqrt();
+        if cnorm2(&z).sqrt() <= scale * &self.input_rounding {
+            return Ok(None);
+        }
+        let mu = powers - unit(l);
+        let (mu_a, mu_b, mu_c) = (power(mu, a), power(mu, b), power(mu, c));
+        let total = (mu_a + mu_b + mu_c + 1) as i64;
+        let prototype = self.prototype.clone();
+        let real = move |x: i64| C::new(prototype.from_i64(x), prototype.zero());
+        let numerator_a = csub(
+            &csub(&cmul(&z, &real(4 - total)), &cmul(&r_cb, &real(mu_a as i64 + 1))),
+            &cmul(&r_ca, &real(-((mu_a + mu_b) as i64))),
+        );
+        let coefficient = cmul(&numerator_a, &cinv(&z));
+        if cnorm2(&coefficient).sqrt() <= self.input_rounding.clone() * &self.prototype.from_usize(64) {
+            return Ok(None);
+        }
+        // rhs_k for k = c and for the better row of a, b.
+        let mut dimension = self.ibp(mu)?;
+        mul_dimension(&mut dimension, &self.prototype.from_i64(5 - total));
+        let row = if cnorm2(&r_ac) >= cnorm2(&r_bc) { a } else { b };
+        let mut rhs = [lzero(&self.zero), lzero(&self.zero)];
+        for (slot, k) in [row, c].into_iter().enumerate() {
+            let mut acc: L4<T> = std::array::from_fn(|s| csub(&self.zero, &dimension[s]));
+            for i in [a, b, c] {
+                let value = self.ibp(mu + unit(i) - unit(k))?;
+                lfma(&mut acc, &real(power(mu, i) as i64), &value);
+            }
+            rhs[slot] = acc;
+        }
+        let r_kc = if row == a { &r_ac } else { &r_bc };
+        let mut y_c = lzero(&self.zero);
+        lfma(&mut y_c, &cinv(r_kc), &rhs[0]);
+        let mut u = rhs[1].clone();
+        lfma(&mut u, &csub(&self.zero, &r_cc), &y_c);
+        // W: a lower power of b.
+        let mut w = lzero(&self.zero);
+        let k1 = self.ibp(mu + 2 * unit(a) - unit(b))?;
+        lfma(&mut w, &real(mu_a as i64 + 1), &k1);
+        let k2 = self.ibp(mu + unit(a) + unit(c) - unit(b))?;
+        lfma(&mut w, &real(mu_c as i64), &k2);
+        let mut numerator = u.clone();
+        lfma(&mut numerator, &r_cb, &y_c);
+        lfma(&mut numerator, &csub(&self.zero, &r_ca), &w);
+        // Y_a = (mu_a / Z) numerator / (A - 2 eps).
+        let y_a = {
+            let mut scaled = lzero(&self.zero);
+            lfma(&mut scaled, &cmul(&real(mu_a as i64), &cinv(&z)), &numerator);
+            div_dimension_complex(&scaled, &coefficient)
+        };
+        let mut y_b = u;
+        lfma(&mut y_b, &csub(&self.zero, &r_ca), &y_a);
+        let y_b: L4<T> = std::array::from_fn(|s| cmul(&y_b[s], &cinv(&r_cb)));
+        let (y_l, mu_l) = if l == a {
+            (y_a, mu_a)
+        } else if l == b {
+            (y_b, mu_b)
+        } else {
+            (y_c, mu_c)
+        };
+        let inverse = cinv(&real(mu_l as i64));
+        Ok(Some(std::array::from_fn(|s| cmul(&y_l[s], &inverse))))
     }
 
     /// Closed forms of the IR-singular IBP bases (singular Cayley matrix)
@@ -4716,6 +4866,22 @@ fn tolerance_at<T: NativeFloat>(prototype: &T, bits: u32, margin: i64) -> T {
 /// Width of each propagator's power field in the packed IBP keys of an
 /// `n`-propagator plan: the 64 key bits shared equally (dotted plans have at
 /// most six propagators, so at least 10 bits: powers up to 1023).
+/// `value / (a - 2 eps)` through the finite term for complex `a != 0`: as
+/// `div_dimension` (`1/a + 2 eps/a^2 + 4 eps^2/a^3`).
+fn div_dimension_complex<T: NativeFloat>(value: &L4<T>, a: &C<T>) -> L4<T> {
+    let inverse = cinv(a);
+    let two = inverse.re.from_usize(2);
+    let inverse2 = cscale(&cmul(&inverse, &inverse), &two);
+    let inverse3 = cscale(&cmul(&inverse2, &inverse), &two);
+    let [uv, ir1, ir2, finite] = value;
+    [
+        cmul(uv, &inverse),
+        cadd(&cmul(ir1, &inverse), &cmul(ir2, &inverse2)),
+        cmul(ir2, &inverse),
+        cadd(&cadd(&cmul(finite, &inverse), &cmul(&cadd(uv, ir1), &inverse2)), &cmul(ir2, &inverse3)),
+    ]
+}
+
 pub(crate) fn ibp_field_bits(n: usize) -> u32 {
     u64::BITS / n.max(1) as u32
 }
