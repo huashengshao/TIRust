@@ -1661,9 +1661,14 @@ where
     /// fraction raises: a massless one (the Coulomb gluon), whose doubled
     /// propagator the master jets and their closed form handle.
     fn raised_member(&self, support: SubsetMask) -> Option<usize> {
-        members(support)
-            .into_iter()
-            .find(|&member| self.masses[member].re.is_zero() && self.masses[member].im.is_zero())
+        let massless = |member: usize| self.masses[member].re.is_zero() && self.masses[member].im.is_zero();
+        // A dotted massless member is raised itself: the plan admits a raised
+        // power on the raised member only.
+        let dotted = self.base_plan.settings.powers.iter().position(|&p| p > 1);
+        if let Some(d) = dotted.filter(|&d| support & (1 << d) != 0 && massless(d)) {
+            return Some(d);
+        }
+        members(support).into_iter().find(|&member| massless(member))
     }
 
     /// Partial fraction of a linearly dependent subset (`PostOp::TaylorShift`):

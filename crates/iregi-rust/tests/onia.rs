@@ -1182,3 +1182,52 @@ fn collinear_pairs_reduce_dotted_triangles_and_refuse_unreduced_pentagons() {
         );
     }
 }
+
+/// P-wave phase 2: a Coulomb box with its gluon doubled (MadLoop's P-wave
+/// virtual at threshold; main refuses it, "linearly dependent propagators
+/// with a raised power"). The partial fraction 2 D_g = D_Q + D_Qbar raises
+/// the doubled gluon once more, a Taylor order 2 in its squared mass:
+/// J(X, Q, g^2, Qbar) = [J(X, g^3, Qbar) + J(X, Q, g^3)] / 2, whose
+/// triangles are no longer linearly dependent. Ranks 1 to 4 (P-wave's
+/// R + 1), binary64 directly and through the facade, and 256 bits. (At rank 0
+/// the Coulomb triangle's master jets reach the doubled threshold bubble,
+/// which has no closed form yet, and the lane is refused.)
+#[test]
+fn doubled_coulomb_gluons_take_a_second_taylor_order() {
+    let (mu, m2) = (3.0, 4.0);
+    let (q1, k) = ([3.0, 1.0, -1.0, 2.0], [2.0, 0.0, 0.0, 0.0]);
+    let shifts = vec![[0.0; 4], q1, plus(q1, k, 1.0), plus(q1, k, 2.0)];
+    let masses = vec![1.0, m2, 0.0, m2];
+    let lane = coulomb_lane(&shifts, &masses, mu);
+    let pinch = |drop: usize| {
+        let lines: Vec<usize> = (0..4).filter(|&l| l != drop).collect();
+        let sub: Vec<[f64; 4]> = lines.iter().map(|&l| shifts[l]).collect();
+        let m: Vec<f64> = lines.iter().map(|&l| masses[l]).collect();
+        (lines, coulomb_lane(&sub, &m, mu))
+    };
+    for rank in 1..=4u16 {
+        let mut settings = ReductionSettings::new(4, rank);
+        settings.powers[2] = 2;
+        let mut reference: Vec<Vec<Complex<f64>>> = Vec::new();
+        for drop in [1, 3] {
+            let (lines, sub) = pinch(drop);
+            let mut s = ReductionSettings::new(3, rank);
+            s.powers[lines.iter().position(|&l| l == 2).unwrap()] = 3;
+            let (status, values) = direct256(s, &sub);
+            assert_eq!(status, LaneStatus::Success, "rank {rank}: pinch without line {drop}");
+            reference.push(values);
+        }
+        let reference: Vec<Complex<f64>> =
+            reference[0].iter().zip(&reference[1]).map(|(a, b)| Complex::new((a.re + b.re) / 2.0, (a.im + b.im) / 2.0)).collect();
+        for (what, (status, values)) in [
+            ("direct", direct_lanes_with(settings.clone(), &lane)),
+            ("facade", facade_lane(settings.clone(), &lane)),
+            ("256 bits", direct256(settings.clone(), &lane)),
+        ] {
+            assert_eq!(status, LaneStatus::Success, "rank {rank}, {what}");
+            let ea = relative_difference(&values, &reference);
+            let tolerance = if what == "256 bits" { 1e-14 } else { 1e-11 };
+            assert!(ea <= tolerance, "rank {rank}, {what}: E/A {ea:e} against the partial fraction");
+        }
+    }
+}

@@ -885,7 +885,9 @@ impl DirectPlanData {
         let lambda_shift = settings.dimension_shift as u16;
         let raised = homogeneous.first().map(|&(_, j)| j);
         if let Some(j) = raised {
-            if settings.powers.iter().any(|&p| p != 1) {
+            // A raised power is admitted on the raised member itself (P-wave's
+            // doubled Coulomb gluon): the partial fraction raises it once more.
+            if settings.powers.iter().enumerate().any(|(i, &p)| p != 1 && i != j) {
                 return Err(ReductionError::Unsupported(
                     "direct engine: linearly dependent propagators with a raised power".into(),
                 ));
@@ -896,18 +898,24 @@ impl DirectPlanData {
                 ));
             }
             let mut dotted = settings.clone();
-            dotted.powers[j] = 2;
+            dotted.powers[j] += 1;
             Self::supported(&dotted)?;
         }
+        // The raised member's Taylor length is its power plus one: a partial
+        // fraction's order k reads order k + 1 of its pinches, and the output
+        // is the order of the requested power.
         let jet = match raised {
-            Some(j) => Some((j, 2)),
+            Some(j) => Some((j, usize::from(settings.powers[j]) + 1)),
             None => settings
                 .powers
                 .iter()
                 .position(|&p| p > 1)
                 .map(|d| (d, usize::from(settings.powers[d]))),
         };
-        let output_order = if raised.is_some() { 0 } else { jet.map_or(0, |(_, k)| k - 1) };
+        let output_order = match raised {
+            Some(j) => usize::from(settings.powers[j]) - 1,
+            None => jet.map_or(0, |(_, k)| k - 1),
+        };
         let relation_for = |mask: SubsetMask| -> Option<usize> {
             if mask.count_ones() >= 6 {
                 return None;
