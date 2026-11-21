@@ -1090,8 +1090,15 @@ fn soft_lines_reduce_dotted_ir_divergent_triangles() {
 /// (benchmarks/onia/make_two_onium_fixture.py).
 #[test]
 fn two_onium_pentagons_with_soft_coulomb_triangles_match_quad_iregi() {
-    use iregi_rust::{InvariantInput, ScaleInput};
     let fixture: Value = serde_json::from_str(include_str!("fixtures/onia-two-onium-pentagons.json")).unwrap();
+    supplied_invariant_lanes_match(&fixture, false);
+}
+
+/// The cases of a fixture of MadLoop lanes (supplied invariants and mu^2)
+/// against quad IREGI arrays: binary64 directly and through the facade to
+/// 1e-12, and 256 bits to 1e-15 if `wide`.
+fn supplied_invariant_lanes_match(fixture: &Value, wide: bool) {
+    use iregi_rust::{InvariantInput, ScaleInput};
     for case in fixture["cases"].as_array().unwrap() {
         let label = case["label"].as_str().unwrap();
         let parse = |v: &Value| v.as_str().unwrap().parse::<f64>().unwrap();
@@ -1119,12 +1126,16 @@ fn two_onium_pentagons_with_soft_coulomb_triangles_match_quad_iregi() {
         let mut settings = ReductionSettings::new(n, rank);
         settings.invariants = InvariantInput::SuppliedInvariants;
         settings.scale_input = ScaleInput::MuSquared;
-        for (what, (status, values)) in
-            [("direct", direct_lanes_with(settings.clone(), &lane)), ("facade", facade_lane(settings.clone(), &lane))]
-        {
+        let mut runs =
+            vec![("direct", direct_lanes_with(settings.clone(), &lane)), ("facade", facade_lane(settings.clone(), &lane))];
+        if wide {
+            runs.push(("256 bits", direct256(settings.clone(), &lane)));
+        }
+        for (what, (status, values)) in runs {
             assert_eq!(status, LaneStatus::Success, "{label}, {what}");
             let ea = relative_difference(&values, &reference);
-            assert!(ea <= 1e-12, "{label}, {what}: E/A {ea:e} against quad IREGI");
+            let tolerance = if what == "256 bits" { 1e-15 } else { 1e-12 };
+            assert!(ea <= tolerance, "{label}, {what}: E/A {ea:e} against quad IREGI");
         }
     }
 }
@@ -1190,8 +1201,10 @@ fn collinear_pairs_reduce_dotted_triangles_and_refuse_unreduced_pentagons() {
 /// J(X, Q, g^2, Qbar) = [J(X, g^3, Qbar) + J(X, Q, g^3)] / 2, whose
 /// triangles are no longer linearly dependent. Ranks 1 to 4 (P-wave's
 /// R + 1), binary64 directly and through the facade, and 256 bits. (At rank 0
-/// the Coulomb triangle's master jets reach the doubled threshold bubble,
-/// which has no closed form yet, and the lane is refused.)
+/// the box is a scalar master, with no Gram check to detect the linear
+/// dependence (benchmarks/onia/README.md, Limits): the IBP of its raised
+/// power inverts the box's Cayley matrix, singular at v = 0, and the lane is
+/// refused. Its partial-fraction triangles are served at rank 0 too.)
 #[test]
 fn doubled_coulomb_gluons_take_a_second_taylor_order() {
     let (mu, m2) = (3.0, 4.0);
@@ -1230,4 +1243,61 @@ fn doubled_coulomb_gluons_take_a_second_taylor_order() {
             assert!(ea <= tolerance, "rank {rank}, {what}: E/A {ea:e} against the partial fraction");
         }
     }
+}
+
+/// Dotted threshold bubbles (equal masses at p^2 = 4 m^2): their Cayley
+/// matrix is singular, and the IBP base is the closed form of
+/// Delta = m^2 (1 - 2x)^2, finite in dimensional regularization (main
+/// refuses them). The bubble with raised powers and a triangle containing it
+/// with each line doubled, against original IREGI's quad scalars with powers
+/// (benchmarks/onia/make_threshold_fixture.py): binary64 directly and
+/// through the facade, and 256 bits.
+#[test]
+fn dotted_threshold_bubbles_take_their_closed_form() {
+    let fixture: Value = serde_json::from_str(include_str!("fixtures/onia-threshold-bubbles.json")).unwrap();
+    let shifts: Vec<[f64; 4]> = fixture["shifts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|q| std::array::from_fn(|a| q[a].as_f64().unwrap()))
+        .collect();
+    let masses: Vec<f64> = fixture["masses_squared"].as_array().unwrap().iter().map(|m| m.as_f64().unwrap()).collect();
+    let mu = fixture["mu"].as_f64().unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let powers: Vec<u16> = case["powers"].as_array().unwrap().iter().map(|p| p.as_u64().unwrap() as u16).collect();
+        let n = powers.len();
+        let reference: Vec<Complex<f64>> = case["reference"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|z| Complex::new(z[0].as_str().unwrap().parse().unwrap(), z[1].as_str().unwrap().parse().unwrap()))
+            .collect();
+        let mut settings = ReductionSettings::new(n, 0);
+        settings.powers = powers.clone();
+        let lane = coulomb_lane(&shifts[..n], &masses[..n], mu);
+        for (what, (status, values)) in [
+            ("direct", direct_lanes_with(settings.clone(), &lane)),
+            ("facade", facade_lane(settings.clone(), &lane)),
+            ("256 bits", direct256(settings.clone(), &lane)),
+        ] {
+            assert_eq!(status, LaneStatus::Success, "powers {powers:?}, {what}");
+            let ea = relative_difference(&values, &reference);
+            assert!(ea <= 1e-13, "powers {powers:?}, {what}: E/A {ea:e} against quad IREGI");
+        }
+    }
+}
+
+/// Two-onium boxes of onia_loop's e+ e- > J/psi eta_c trace at v = 0
+/// (binary64, MadLoop's supplied invariants), rank 3: a Coulomb triple and
+/// two heavy pairs at p^2 = 4 m^2. The partial fraction doubles the gluon,
+/// and the doubled triangles reduce to threshold bubbles with raised powers
+/// (main refuses the lanes). Reference: original IREGI's quad IBP arrays
+/// with the heavy pairs exactly on threshold
+/// (benchmarks/onia/make_two_onium_box_fixture.py). From the binary64
+/// shifts, off threshold by their rounding, IREGI moves by up to 9e-9: an
+/// integral with a threshold pair depends on sqrt(1 - 4 m^2 / p^2).
+#[test]
+fn two_onium_boxes_with_threshold_pairs_match_quad_iregi() {
+    let fixture: Value = serde_json::from_str(include_str!("fixtures/onia-two-onium-boxes.json")).unwrap();
+    supplied_invariant_lanes_match(&fixture, true);
 }

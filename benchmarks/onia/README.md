@@ -144,6 +144,8 @@ python3 benchmarks/onia/make_fixture.py target/onia/points.json target/onia/affi
 python3 benchmarks/onia/make_dotted_lightlike.py
 python3 benchmarks/onia/make_two_onium_fixture.py
 python3 benchmarks/onia/make_collinear_fixture.py
+python3 benchmarks/onia/make_threshold_fixture.py
+python3 benchmarks/onia/make_two_onium_box_fixture.py
 ```
 
 The physical S-wave amplitudes:
@@ -799,7 +801,8 @@ Each case holds its distinct loop integrals with contracted coefficients.
 TIRust's amplitude must agree with the reference to 1e-9. Its poles must
 match the Born predictions: double and UV poles to 1e-10, single to 1e-9.
 
-Two fixtures cover P-wave's dotted integrals (rank R+1, one line doubled):
+These fixtures cover P-wave's dotted integrals (rank R+1, one line doubled)
+and the S-wave lanes whose reduction reaches one:
 - `tests/fixtures/onia-dotted-lightlike.json` (`make_dotted_lightlike.py`,
   mpmath): the PV coefficients of two-point integrals at p^2 = 0 with one
   line doubled, ranks 0 to 4, from their d-dimensional Feynman-parameter
@@ -815,6 +818,18 @@ Two fixtures cover P-wave's dotted integrals (rank R+1, one line doubled):
   massless lines with a vanishing invariant), one line doubled, from original
   IREGI's quad scalar API with powers. TIRust must agree to 1e-13 (binary64)
   and 1e-15 (256 bits), and refuse the pentagon with a pair member doubled.
+- `tests/fixtures/onia-threshold-bubbles.json` (`make_threshold_fixture.py`):
+  scalars of the equal-mass bubble at p^2 = 4 m^2 with raised powers, and of
+  a triangle containing it with each line doubled, from original IREGI's
+  quad scalar API with powers. TIRust must agree to 1e-13.
+- `tests/fixtures/onia-two-onium-boxes.json` (`make_two_onium_box_fixture.py`):
+  two rank-3 boxes of e+ e- > J/psi eta_c at v = 0 with a Coulomb triple and
+  two heavy pairs at p^2 = 4 m^2, whose doubled triangles reduce to threshold
+  bubbles with raised powers. The reference is original IREGI's quad IBP
+  arrays with the pairs exactly on threshold: IREGI takes its invariants from
+  the shifts, and the binary64 shifts, off threshold by their rounding, move
+  it by up to 9e-9. TIRust, with MadLoop's supplied invariants, must agree to
+  1e-12 (binary64) and 1e-15 (256 bits).
 
 The test file's other cases need no fixture:
 - the #32 review's cases: mixed batches, the planar pentagon, and the
@@ -849,6 +864,8 @@ The test file's other cases need no fixture:
 | `make_dotted_lightlike.py` | the dotted lightlike-bubble fixture (mpmath) |
 | `make_two_onium_fixture.py` | the two-onium pentagon fixture (quad IREGI) |
 | `make_collinear_fixture.py` | the collinear-pair fixture (quad IREGI scalars with powers) |
+| `make_threshold_fixture.py` | the dotted threshold-bubble fixture (quad IREGI scalars with powers) |
+| `make_two_onium_box_fixture.py` | the two-onium box fixture (quad IREGI, pairs exactly on threshold) |
 | `merge_swave.py` | concatenates onia_swave outputs over point ranges |
 | `crates/iregi-prepare/examples/onia_diagrams.rs` | FeynKit diagram generation (DOT files) |
 | `crates/iregi-prepare/examples/onia_swave.rs` | S-wave projection and numerator coefficients per point and polarization |

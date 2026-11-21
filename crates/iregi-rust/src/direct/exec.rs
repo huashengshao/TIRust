@@ -3169,6 +3169,23 @@ where
         })
     }
 
+    /// Whether `a`, `b` form a threshold bubble: equal real positive squared
+    /// masses and `d_ab = 4 m^2`, both to the inputs' rounding.
+    fn threshold_pair(&self, a: usize, b: usize) -> bool {
+        let n = self.plan.settings.propagators;
+        let (ma, mb) = (&self.masses[a], &self.masses[b]);
+        if !ma.im.is_zero() || !mb.im.is_zero() || !(ma.re > ma.re.zero()) {
+            return false;
+        }
+        let scale = cnorm2(ma).sqrt() + &cnorm2(mb).sqrt();
+        if cnorm2(&csub(ma, mb)).sqrt() > scale.clone() * &self.input_rounding {
+            return false;
+        }
+        let four = cscale(ma, &self.prototype.from_usize(4));
+        let gap = cnorm2(&csub(&self.distances[a * n + b], &four)).sqrt();
+        gap <= (scale * &self.prototype.from_usize(2) + &self.invariant_size(a, b)) * &self.input_rounding
+    }
+
     /// A collinear pair of a triangle `active`: two massless members `a`, `b`
     /// whose invariant vanishes to the inputs' rounding, with the third line
     /// `c`, as `(a, b, c)`. (A soft line, which a massless triangle with two
@@ -3332,6 +3349,46 @@ where
                 let half = self.prototype.one() / &self.prototype.from_usize(2);
                 let value = cscale(&cinv(&self.masses[a]), &(self.prototype.zero() - &half));
                 Some([self.zero.clone(), self.zero.clone(), self.zero.clone(), value])
+            }
+            // A threshold bubble of equal masses, p^2 = 4 m^2 to the inputs'
+            // rounding, total power nu >= 3: Delta = m^2 (1 - 2x)^2, and with
+            // x = (1 - t)/2 and P(t) = x^(nu_b - 1) (1 - x)^(nu_a - 1) =
+            // sum_n c_n t^n, J = (-1)^nu Gamma(nu - 2 + eps) / (Gamma(nu_a)
+            // Gamma(nu_b)) (m^2)^(2 - nu - eps) sum_(n even) c_n / (5 - 2 nu + n
+            // - 2 eps). It is finite (5 - 2 nu + n is odd): dimensional
+            // regularization removes the power-like Coulomb singularity of the
+            // 4-dimensional mass derivative.
+            &[a, b] if power(a) + power(b) >= 3 && self.threshold_pair(a, b) => {
+                let (nu_a, nu_b) = (power(a) as usize, power(b) as usize);
+                let nu = nu_a + nu_b;
+                let one = self.prototype.one();
+                let half = one.clone() / &self.prototype.from_usize(2);
+                // P(t) as real coefficients, ascending.
+                let mut poly = vec![one.clone()];
+                for (count, sign) in [(nu_b - 1, -1i64), (nu_a - 1, 1)] {
+                    for _ in 0..count {
+                        let mut next = vec![self.prototype.zero(); poly.len() + 1];
+                        for (i, c) in poly.iter().enumerate() {
+                            next[i] += &(c.clone() * &half);
+                            next[i + 1] += &(c.clone() * &half * &self.prototype.from_i64(sign));
+                        }
+                        poly = next;
+                    }
+                }
+                let mut sum = self.prototype.zero();
+                for (n, c) in poly.iter().enumerate().step_by(2) {
+                    sum += &(c.clone() / &self.prototype.from_i64(5 - 2 * nu as i64 + n as i64));
+                }
+                let factorial = |k: usize| (1..=k).fold(one.clone(), |f, i| f * &self.prototype.from_usize(i));
+                let mut value = sum * &factorial(nu - 3) / &(factorial(nu_a - 1) * &factorial(nu_b - 1));
+                if nu % 2 == 1 {
+                    value = -value;
+                }
+                let m2 = self.masses[a].re.clone();
+                for _ in 0..nu - 2 {
+                    value = value / &m2;
+                }
+                Some([self.zero.clone(), self.zero.clone(), self.zero.clone(), real(value)])
             }
             &[a, b] => {
                 let (g, h) = if massless(&self.masses[a]) { (a, b) } else { (b, a) };
