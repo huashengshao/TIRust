@@ -1301,3 +1301,228 @@ fn two_onium_boxes_with_threshold_pairs_match_quad_iregi() {
     let fixture: Value = serde_json::from_str(include_str!("fixtures/onia-two-onium-boxes.json")).unwrap();
     supplied_invariant_lanes_match(&fixture, true);
 }
+
+/// MadLoop's supplied invariants in binary64 (BUILD_KINEMATIC_MATRIX of
+/// CT_interface.inc, then S + m_i^2 + m_j^2 as TIRUST_interface.inc): the
+/// squared shift differences, projected on shell or to zero within
+/// OSThres = 1e-8, never to 4 m^2. Column-major, n x n.
+fn madloop_invariants(shifts: &[[f64; 4]], masses: &[f64]) -> Vec<f64> {
+    let n = shifts.len();
+    let mut s = vec![0.0; n * n];
+    for i in 0..n {
+        for j in 0..n {
+            if i == j {
+                continue;
+            }
+            let mut d = (shifts[i][0] - shifts[j][0]).powi(2);
+            for k in 1..4 {
+                d -= (shifts[i][k] - shifts[j][k]).powi(2);
+            }
+            let mut entry = d - masses[i] - masses[j];
+            if masses[i] != 0.0 && ((d - masses[i]) / masses[i]).abs() < 1e-8 {
+                entry = -masses[j];
+            }
+            if masses[j] != 0.0 && ((d - masses[j]) / masses[j]).abs() < 1e-8 {
+                entry = -masses[i];
+            }
+            let reference = ((shifts[i][0].abs() + shifts[j][0].abs()) / 2.0).powi(2);
+            if reference != 0.0 && (d / reference).abs() < 1e-8 {
+                entry = -(masses[i] + masses[j]);
+            }
+            s[i + n * j] = entry + masses[i] + masses[j];
+        }
+    }
+    s
+}
+
+/// A supplied-invariant lane: shifts, the packed strict upper triangle of
+/// the column-major invariants, masses and mu^2.
+fn supplied_lane(shifts: &[[f64; 4]], invariants: &[f64], masses: &[f64], mu2: f64) -> Vec<Complex<f64>> {
+    let n = shifts.len();
+    let mut lane: Vec<Complex<f64>> = shifts.iter().flatten().map(|&x| Complex::new(x, 0.0)).collect();
+    for i in 0..n {
+        for j in i + 1..n {
+            lane.push(Complex::new(invariants[i + n * j], 0.0));
+        }
+    }
+    lane.extend(masses.iter().map(|&m| Complex::new(m, 0.0)));
+    lane.push(Complex::new(mu2, 0.0));
+    lane
+}
+
+/// The frame-independent contractions of a rank-`rank` array (ML5
+/// components): the integrals of (q.u)^r, r = 0 to `rank`, each with its
+/// four components.
+fn contractions(values: &[Complex<f64>], rank: u16, u: [f64; 4]) -> Vec<Complex<f64>> {
+    let factorial = |m: usize| (1..=m).product::<usize>() as f64;
+    let eta = [1.0, -1.0, -1.0, -1.0];
+    let mut out = vec![Complex::new(0.0, 0.0); 4 * (usize::from(rank) + 1)];
+    for (k, monomial) in iregi_rust::basis::tensor_basis(rank).iter().enumerate() {
+        let r = monomial.rank();
+        let mut weight = factorial(r);
+        for mu in 0..4 {
+            let a = usize::from(monomial.0[mu]);
+            weight *= (eta[mu] * u[mu]).powi(a as i32) / factorial(a);
+        }
+        for c in 0..4 {
+            let z = &values[4 * k + c];
+            out[4 * r + c] = Complex::new(out[4 * r + c].re + weight * z.re, out[4 * r + c].im + weight * z.im);
+        }
+    }
+    out
+}
+
+fn lorentz_apply(lambda: &[[f64; 4]; 4], p: &[f64; 4]) -> [f64; 4] {
+    std::array::from_fn(|i| (0..4).map(|k| lambda[i][k] * p[k]).sum())
+}
+
+fn rotation(axis: [f64; 3], angle: f64) -> [[f64; 4]; 4] {
+    let norm = axis.iter().map(|x| x * x).sum::<f64>().sqrt();
+    let [x, y, z] = axis.map(|v| v / norm);
+    let (c, s) = (angle.cos(), angle.sin());
+    let t = 1.0 - c;
+    [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, c + x * x * t, x * y * t - z * s, x * z * t + y * s],
+        [0.0, y * x * t + z * s, c + y * y * t, y * z * t - x * s],
+        [0.0, z * x * t - y * s, z * y * t + x * s, c + z * z * t],
+    ]
+}
+
+fn boost(direction: [f64; 3], beta: f64) -> [[f64; 4]; 4] {
+    let norm = direction.iter().map(|x| x * x).sum::<f64>().sqrt();
+    let n = direction.map(|v| v / norm);
+    let gamma = 1.0 / (1.0 - beta * beta).sqrt();
+    let mut lambda = [[0.0; 4]; 4];
+    lambda[0][0] = gamma;
+    for i in 0..3 {
+        lambda[0][i + 1] = -gamma * beta * n[i];
+        lambda[i + 1][0] = -gamma * beta * n[i];
+        for j in 0..3 {
+            lambda[i + 1][j + 1] = f64::from(u8::from(i == j)) + (gamma - 1.0) * n[i] * n[j];
+        }
+    }
+    lambda
+}
+
+/// A two-onium box (the first case of onia-two-onium-boxes.json) in rotated
+/// and boosted frames, with the invariants MadLoop supplies there (its DP
+/// stability check rotates the momenta). Rounded in binary64, they put the
+/// threshold pairs up to about 1e-13 off 4 m^2 (the frame and the
+/// arithmetic decide how far), inside the inputs' rounding: every frame is
+/// served, and its frame-independent contractions stay within 2 beta of the
+/// original frame's, beta = sqrt(|s - 4 m^2| / 4 m^2) (the integral's own
+/// sensitivity to those inputs; measured up to 3.4e-8), plus 1e-10 for the
+/// rounding of a boosted rank-3 array.
+#[test]
+fn two_onium_boxes_are_served_in_rotated_and_boosted_frames() {
+    use iregi_rust::{InvariantInput, ScaleInput};
+    let fixture: Value = serde_json::from_str(include_str!("fixtures/onia-two-onium-boxes.json")).unwrap();
+    let case = &fixture["cases"][0];
+    let parse = |v: &Value| v.as_str().unwrap().parse::<f64>().unwrap();
+    let shifts: Vec<[f64; 4]> =
+        case["shifts"].as_array().unwrap().iter().map(|q| std::array::from_fn(|a| parse(&q[a]))).collect();
+    let masses: Vec<f64> = case["masses_squared"].as_array().unwrap().iter().map(parse).collect();
+    let mu2 = parse(&case["mu_squared"]);
+    let rank = case["rank"].as_u64().unwrap() as u16;
+    let threshold = 4.0 * masses[0];
+    let mut settings = ReductionSettings::new(shifts.len(), rank);
+    settings.invariants = InvariantInput::SuppliedInvariants;
+    settings.scale_input = ScaleInput::MuSquared;
+    let us = [[1.3, 0.4, -0.7, 0.2], [0.5, -1.1, 0.3, 0.9], [2.0, 0.1, 0.6, -0.8]];
+    let lane = supplied_lane(&shifts, &madloop_invariants(&shifts, &masses), &masses, mu2);
+    let (status, base) = direct_lanes_with(settings.clone(), &lane);
+    assert_eq!(status, LaneStatus::Success, "original frame");
+    let base: Vec<Complex<f64>> = us.iter().flat_map(|&u| contractions(&base, rank, u)).collect();
+    let product = |a: [[f64; 4]; 4], b: [[f64; 4]; 4]| -> [[f64; 4]; 4] {
+        std::array::from_fn(|i| std::array::from_fn(|j| (0..4).map(|k| a[i][k] * b[k][j]).sum()))
+    };
+    let mut offsets = Vec::new();
+    for (name, lambda) in [
+        ("rotation", rotation([-0.9, 0.2, 0.4], 2.1)),
+        ("boost", boost([0.2, 0.7, -0.4], 0.6)),
+        ("rotated boost", product(rotation([0.1, 0.9, 0.3], 1.3), boost([-0.6, 0.1, 0.5], 0.95))),
+    ] {
+        let moved: Vec<[f64; 4]> = shifts.iter().map(|p| lorentz_apply(&lambda, p)).collect();
+        let invariants = madloop_invariants(&moved, &masses);
+        let offset = invariants.iter().map(|s| (s - threshold).abs()).filter(|&d| d < 1e-6).fold(0.0, f64::max);
+        offsets.push(offset);
+        let lane = supplied_lane(&moved, &invariants, &masses, mu2);
+        for (what, (status, values)) in
+            [("direct", direct_lanes_with(settings.clone(), &lane)), ("facade", facade_lane(settings.clone(), &lane))]
+        {
+            assert_eq!(status, LaneStatus::Success, "{name}, {what}");
+            let moved: Vec<Complex<f64>> =
+                us.iter().flat_map(|u| contractions(&values, rank, lorentz_apply(&lambda, u))).collect();
+            let ea = relative_difference(&moved, &base);
+            let tolerance = 2.0 * (offset / threshold).sqrt() + 1e-10;
+            eprintln!("{name}, {what}: threshold pairs off 4 m^2 by up to {offset:e}, E/A {ea:e} against the original frame");
+            assert!(ea <= tolerance, "{name}, {what}: E/A {ea:e} against the original frame (offset {offset:e})");
+        }
+    }
+    assert!(offsets.iter().any(|&o| o > 0.0), "no frame moved a threshold pair off 4 m^2: {offsets:?}");
+}
+
+/// The threshold gate against the exact inputs: the first two-onium box
+/// with only the cross-onium pair moved, s_23 = 4 m^2 + delta (not in the
+/// Coulomb triple, so the integral is regular in delta and moves like
+/// beta = sqrt(|delta| / 4 m^2)). Inside the inputs' rounding the binary64
+/// lane takes the threshold bubbles' closed form, and stays within beta of
+/// the integral of its exact inputs (256 bits; measured 0.26 beta), at 256
+/// bits too when the inputs are declared binary64. Beyond the rounding,
+/// binary64 refuses (an ill-conditioned Cayley matrix) and 256 bits with
+/// binary64 inputs agree with the exact inputs.
+#[test]
+fn threshold_pairs_within_the_rounding_stay_within_beta_of_the_exact_inputs() {
+    use iregi_rust::{InvariantInput, ScaleInput};
+    let fixture: Value = serde_json::from_str(include_str!("fixtures/onia-two-onium-boxes.json")).unwrap();
+    let case = &fixture["cases"][0];
+    let parse = |v: &Value| v.as_str().unwrap().parse::<f64>().unwrap();
+    let shifts: Vec<[f64; 4]> =
+        case["shifts"].as_array().unwrap().iter().map(|q| std::array::from_fn(|a| parse(&q[a]))).collect();
+    let supplied: Vec<f64> = case["invariants"].as_array().unwrap().iter().map(parse).collect();
+    let masses: Vec<f64> = case["masses_squared"].as_array().unwrap().iter().map(parse).collect();
+    let mu2 = parse(&case["mu_squared"]);
+    let rank = case["rank"].as_u64().unwrap() as u16;
+    let (n, threshold) = (shifts.len(), 4.0 * masses[0]);
+    assert_eq!(supplied[2 + n * 3], threshold);
+    let mut settings = ReductionSettings::new(n, rank);
+    settings.invariants = InvariantInput::SuppliedInvariants;
+    settings.scale_input = ScaleInput::MuSquared;
+    // 256 bits with the inputs declared binary64 (MadLoop's QP rescue of a
+    // DP lane): the same rounding, and so the same gate, as binary64.
+    let rounded256 = |settings: ReductionSettings, lane: &[Complex<f64>]| {
+        let mut workspace = DirectReductionPlan::new(settings).unwrap().workspace(Float::new(BITS)).unwrap();
+        workspace.set_stability_threshold(Float::with_val(BITS, 2f64.powi(-(BITS as i32 - 40))));
+        workspace.set_input_precision(53);
+        let values = lane.iter().map(|z| Complex::new(Float::with_val(BITS, z.re), Float::with_val(BITS, z.im))).collect();
+        let result = workspace.reduce_batch(&KinematicsBatch { rows: 1, components: 1, values }).unwrap();
+        (result.statuses[0].clone(), to_f64(result.lane(0).unwrap_or_default()))
+    };
+    for (s23, inside) in [(threshold + 1.8e-15, true), (threshold - 1.1e-13, true), (threshold + 1e-12, false)] {
+        let delta = s23 - threshold;
+        let mut invariants = supplied.clone();
+        invariants[2 + n * 3] = s23;
+        invariants[3 + n * 2] = s23;
+        let lane = supplied_lane(&shifts, &invariants, &masses, mu2);
+        let (status, exact) = direct256(settings.clone(), &lane);
+        assert_eq!(status, LaneStatus::Success, "s_23 - 4 m^2 = {delta:e}, exact inputs");
+        let beta = (delta.abs() / threshold).sqrt();
+        let (status, values) = direct_lanes_with(settings.clone(), &lane);
+        if inside {
+            assert_eq!(status, LaneStatus::Success, "s_23 - 4 m^2 = {delta:e}, binary64");
+            let ea = relative_difference(&values, &exact);
+            assert!(ea <= beta, "s_23 - 4 m^2 = {delta:e}, binary64: E/A {ea:e} against the exact inputs (beta {beta:e})");
+        } else {
+            assert!(
+                matches!(&status, LaneStatus::Unstable(e) if e.contains("Cayley matrix for [2, 3]")),
+                "s_23 - 4 m^2 = {delta:e}, binary64: {status:?}"
+            );
+        }
+        let (status, values) = rounded256(settings.clone(), &lane);
+        assert_eq!(status, LaneStatus::Success, "s_23 - 4 m^2 = {delta:e}, 256 bits with binary64 inputs");
+        let ea = relative_difference(&values, &exact);
+        let tolerance = if inside { beta } else { 1e-14 };
+        assert!(ea <= tolerance, "s_23 - 4 m^2 = {delta:e}, 256 bits with binary64 inputs: E/A {ea:e} against the exact inputs");
+    }
+}

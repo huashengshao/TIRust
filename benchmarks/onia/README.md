@@ -829,7 +829,13 @@ and the S-wave lanes whose reduction reaches one:
   arrays with the pairs exactly on threshold: IREGI takes its invariants from
   the shifts, and the binary64 shifts, off threshold by their rounding, move
   it by up to 9e-9. TIRust, with MadLoop's supplied invariants, must agree to
-  1e-12 (binary64) and 1e-15 (256 bits).
+  1e-12 (binary64) and 1e-15 (256 bits). Two more tests take its first box
+  into rotated and boosted frames, with the invariants MadLoop supplies there
+  (up to 2.3e-14 off 4 m^2), and move its cross-onium pair off threshold.
+  Inside the inputs' rounding every lane is served and stays within
+  beta = sqrt(|s - 4 m^2| / 4 m^2) of the integral of its exact inputs,
+  which is the integral's own sensitivity to them. Beyond the rounding,
+  binary64 refuses and 256 bits agree with the exact inputs.
 
 The test file's other cases need no fixture:
 - the #32 review's cases: mixed batches, the planar pentagon, and the
