@@ -141,6 +141,8 @@ python3 benchmarks/onia/affine_reference.py target/onia/families.json target/oni
 python3 benchmarks/onia/coulomb_check.py target/onia/families.json target/onia/family-coulomb.json --workers 32
 python3 benchmarks/onia/amplitude.py target/onia/families.json target/onia/amplitude --affine target/onia/family-affine --coulomb target/onia/family-coulomb.json --workers 24
 python3 benchmarks/onia/make_fixture.py target/onia/points.json target/onia/affine target/onia/coulomb.json crates/iregi-rust/tests/fixtures/onia-swave.json
+python3 benchmarks/onia/make_dotted_lightlike.py
+python3 benchmarks/onia/make_two_onium_fixture.py
 ```
 
 The physical S-wave amplitudes:
@@ -796,6 +798,18 @@ Each case holds its distinct loop integrals with contracted coefficients.
 TIRust's amplitude must agree with the reference to 1e-9. Its poles must
 match the Born predictions: double and UV poles to 1e-10, single to 1e-9.
 
+Two fixtures cover P-wave's dotted integrals (rank R+1, one line doubled):
+- `tests/fixtures/onia-dotted-lightlike.json` (`make_dotted_lightlike.py`,
+  mpmath): the PV coefficients of two-point integrals at p^2 = 0 with one
+  line doubled, ranks 0 to 4, from their d-dimensional Feynman-parameter
+  representation: massless doubled lines (soft poles), massive ones and
+  scaleless pairs. TIRust must agree to 1e-13 in binary64 and through the
+  facade, and to 1e-30 at 256 bits.
+- `tests/fixtures/onia-two-onium-pentagons.json` (`make_two_onium_fixture.py`):
+  two pentagons of e+ e- > J/psi eta_c at v = 0 whose Coulomb partial
+  fractions reach a soft triangle. TIRust must agree with original IREGI's
+  quad IBP arrays to 1e-12.
+
 The test file's other cases need no fixture:
 - the #32 review's cases: mixed batches, the planar pentagon, and the
   Coulomb triangle and box at every rank;
@@ -805,7 +819,11 @@ The test file's other cases need no fixture:
   |delta| from 2e-16 to 1.5e-14, and to 1e-13 translated), also at a
   stability threshold of zero, refused or the v = 0 value;
 - dotted plans that reach the closed-form bases, against the closed forms or
-  the mass derivative of the undotted integral.
+  the mass derivative of the undotted integral;
+- triangles and a box whose lightlike pairs contain the doubled line, against
+  the mass derivative of the undotted integral;
+- IR-divergent triangles with a doubled line, which the soft-line recursion
+  reduces, against the IBP rows it does not use.
 
 ## Files
 
@@ -822,6 +840,8 @@ The test file's other cases need no fixture:
 | `amplitude.py` | families as amplitudes: TIRust `AmplitudeWorkspace` against IREGI, contracted amplitudes, timing |
 | `swave.py` | physical S-wave amplitudes (1S0 of g g > c c~; 3S1, 1S0[8] and 3S1[8] of g g > c c~ g): contraction, Born, pole and Ward checks |
 | `make_swave_fixture.py` | the S-wave amplitude test's fixture |
+| `make_dotted_lightlike.py` | the dotted lightlike-bubble fixture (mpmath) |
+| `make_two_onium_fixture.py` | the two-onium pentagon fixture (quad IREGI) |
 | `merge_swave.py` | concatenates onia_swave outputs over point ranges |
 | `crates/iregi-prepare/examples/onia_diagrams.rs` | FeynKit diagram generation (DOT files) |
 | `crates/iregi-prepare/examples/onia_swave.rs` | S-wave projection and numerator coefficients per point and polarization |
