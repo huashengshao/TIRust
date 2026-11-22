@@ -320,7 +320,8 @@ to 2e-10 off the integral of its own inputs, and the P-wave sum amplifies
 that by about 1e8 (at 20 GeV MadLoop's results are good to 8e-8). With
 `EmbedderOptions::relation_tiers`, binary64 lanes served through a relation
 are evaluated again from the double-double tier up. The tiers declare the
-binary64 inputs as such, so the relations still hold there. All 40 pentagon
+binary64 inputs as such, so the relations still hold there; a lane every
+tier refuses is refused, not returned from binary64. All 40 pentagon
 calls of the onia_loop reproducer are then within 6.8e-17 of 512 bits. A
 1 ulp shift of the invariants (MadLoop's check pass) moves the exact
 integrals by 1e-15 at most, so both passes agree. The option is off by

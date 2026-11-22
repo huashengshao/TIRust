@@ -114,7 +114,10 @@ pub struct EmbedderOptions {
     /// high energy, K = 4 m^2 against s) cancels its pinches by about s/K,
     /// which no gate sees. The tiers declare the binary64 inputs as such
     /// (`set_input_precision(53)`), so they find the same relations. A lane
-    /// every tier refuses keeps its first-pass value. Meant for hosts that
+    /// every tier refuses is refused (`Unstable`), not returned from its
+    /// first pass: that value is the one the option replaces. (A lane the
+    /// first pass serves meets every double-double gate at the same input
+    /// precision, so only a tier's master failure could refuse it.) Meant for hosts that
     /// amplify these lanes' rounding, such as MadLoop's P-wave quarkonium
     /// sums over raised-power calls: measured on u u~ > chi_c0 g at
     /// sqrt(s) = 1 TeV, binary64 pentagons 2e-10 off, double-double 1e-22.
@@ -306,13 +309,14 @@ where
             self.method_choice(batch, &refused, &mut result, &mut conditions, &mut profile)?;
             refused.retain(|&lane| result.statuses[lane] != LaneStatus::Success && conditions[lane].is_some());
         }
+        let mut relation_lanes = Vec::new();
         if self.options.precision_tiers && self.options.relation_tiers {
             // Served through an affine relation: from the double-double tier
-            // up (an estimate of 1 starts there), keeping the first-pass value
-            // if every tier refuses.
+            // up (an estimate of 1 starts there).
             let relation = self.direct.last_relation_lanes();
             for lane in 0..batch.rows {
                 if result.statuses[lane] == LaneStatus::Success && relation.get(lane).copied().unwrap_or(false) {
+                    relation_lanes.push(lane);
                     refused.push(lane);
                     conditions[lane] = Some(1.0);
                     self.diagnostics[lane].push("direct engine: served through an affine relation (relation_tiers)".into());
@@ -322,6 +326,16 @@ where
         }
         if self.options.precision_tiers && !refused.is_empty() {
             self.precision_tiers(batch, &refused, &conditions, &mut result, &mut profile)?;
+        }
+        // A relation lane no tier accepted is refused: its first-pass value is
+        // the one the option replaces (the host rescues it or reports it).
+        for &lane in &relation_lanes {
+            if self.routes[lane] == LaneRoute::Direct {
+                result.statuses[lane] =
+                    LaneStatus::Unstable("served through an affine relation, refused by every precision tier (relation_tiers)".into());
+                self.routes[lane] = LaneRoute::Refused;
+                self.last.direct_successes -= 1;
+            }
         }
         if let Some(started) = started {
             profile.total = started.elapsed();
