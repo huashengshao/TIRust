@@ -1526,3 +1526,207 @@ fn threshold_pairs_within_the_rounding_stay_within_beta_of_the_exact_inputs() {
         assert!(ea <= tolerance, "s_23 - 4 m^2 = {delta:e}, 256 bits with binary64 inputs: E/A {ea:e} against the exact inputs");
     }
 }
+
+/// The direct engine at `bits` on one lane, its inputs declared
+/// `input_bits` wide (53: MadLoop's QP rescue of a DP lane; `None`: exact).
+fn direct_with_inputs(
+    bits: u32,
+    settings: ReductionSettings,
+    lane: &[Complex<f64>],
+    input_bits: Option<u32>,
+) -> (LaneStatus, Vec<Complex<Float>>) {
+    let mut workspace = DirectReductionPlan::new(settings).unwrap().workspace(Float::new(bits)).unwrap();
+    workspace.set_stability_threshold(Float::with_val(bits, 2f64.powi(-(bits as i32 - 40))));
+    if let Some(input_bits) = input_bits {
+        workspace.set_input_precision(input_bits);
+    }
+    let values = lane.iter().map(|z| Complex::new(Float::with_val(bits, z.re), Float::with_val(bits, z.im))).collect();
+    let result = workspace.reduce_batch(&KinematicsBatch { rows: 1, components: 1, values }).unwrap();
+    (result.statuses[0].clone(), result.lane(0).map(<[_]>::to_vec).unwrap_or_default())
+}
+
+/// Whole-array E/A of two multiprecision arrays.
+fn relative_difference_float(values: &[Complex<Float>], reference: &[Complex<Float>]) -> f64 {
+    assert_eq!(values.len(), reference.len());
+    let (mut error, mut amplitude) = (0.0f64, 0.0f64);
+    for (z, r) in values.iter().zip(reference) {
+        let (dr, di) = ((z.re.clone() - &r.re).to_f64(), (z.im.clone() - &r.im).to_f64());
+        error = error.max(dr.hypot(di));
+        amplitude = amplitude.max(r.re.to_f64().hypot(r.im.to_f64()));
+    }
+    error / amplitude
+}
+
+/// A supplied-invariant lane's integral with its lightlike equal-mass pairs
+/// (s_ij = 0, m_i^2 = m_j^2 != 0) moved off the light cone, to
+/// s_ij = (1 + k/8) m_i^2 2^-e for the k-th pair, at e and e + 1, and
+/// extrapolated linearly to zero (inputs `input_bits` wide). The general IBP
+/// (the Cayley inverse) then evaluates the bubbles that the lightlike closed
+/// form takes at s_ij = 0, and the integral is analytic in s_ij there (its
+/// threshold is at 4 m^2). It divides by s_ij more than once, so it runs at
+/// 512 bits.
+fn off_light_cone(
+    settings: &ReductionSettings,
+    shifts: &[[f64; 4]],
+    invariants: &[f64],
+    masses: &[f64],
+    mu2: f64,
+    e: i32,
+    input_bits: Option<u32>,
+) -> Vec<Complex<Float>> {
+    let n = shifts.len();
+    let at = |e: i32| {
+        let mut moved = invariants.to_vec();
+        let mut k = 0;
+        for i in 0..n {
+            for j in i + 1..n {
+                if masses[i] != 0.0 && masses[i] == masses[j] && invariants[i + n * j] == 0.0 {
+                    let s = masses[i] * (1.0 + k as f64 / 8.0) * 2f64.powi(-e);
+                    (moved[i + n * j], moved[j + n * i]) = (s, s);
+                    k += 1;
+                }
+            }
+        }
+        assert!(k > 0, "no lightlike equal-mass pair");
+        let lane = supplied_lane(shifts, &moved, masses, mu2);
+        let (status, values) = direct_with_inputs(512, settings.clone(), &lane, input_bits);
+        assert_eq!(status, LaneStatus::Success, "off the light cone by 2^-{e}");
+        values
+    };
+    let (coarse, fine) = (at(e), at(e + 1));
+    coarse
+        .iter()
+        .zip(&fine)
+        .map(|(c, f)| Complex::new(f.re.clone() + &f.re - &c.re, f.im.clone() + &f.im - &c.im))
+        .collect()
+}
+
+/// Lightlike equal-mass bubbles (p^2 = 0) with higher powers: their Cayley
+/// matrix is singular, and the IBP base is the tadpole of the total power
+/// nu, (-1)^nu (m^2)^(2 - nu) / ((nu - 1) (nu - 2)), finite for nu >= 3
+/// (#51 takes nu = 3 only, and refuses every case below, "singular
+/// Cayley matrix for [0, 1]"). The bubble with one line raised to the third
+/// or fourth power, and a triangle containing it with each line so raised:
+/// - rank 0 against original IREGI's quad scalars with powers
+///   (benchmarks/onia/make_lightlike_powers_fixture.py), binary64 directly
+///   and through the facade, and 256 bits, to 1e-13; quad IREGI's bubbles
+///   are the tadpole;
+/// - ranks 1 to 3 against the lanes with the pair off the light cone
+///   (`off_light_cone`, exact inputs, from 2^-80): binary64 to 1e-12, 256
+///   bits to 1e-40.
+#[test]
+fn lightlike_bubbles_with_higher_powers_take_the_tadpole() {
+    use iregi_rust::{InvariantInput, ScaleInput};
+    let fixture: Value = serde_json::from_str(include_str!("fixtures/onia-lightlike-powers.json")).unwrap();
+    let shifts: Vec<[f64; 4]> = fixture["shifts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|q| std::array::from_fn(|a| q[a].as_f64().unwrap()))
+        .collect();
+    let masses: Vec<f64> = fixture["masses_squared"].as_array().unwrap().iter().map(|m| m.as_f64().unwrap()).collect();
+    let mu = fixture["mu"].as_f64().unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let powers: Vec<u16> = case["powers"].as_array().unwrap().iter().map(|p| p.as_u64().unwrap() as u16).collect();
+        let n = powers.len();
+        let reference: Vec<Complex<f64>> = case["reference"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|z| Complex::new(z[0].as_str().unwrap().parse().unwrap(), z[1].as_str().unwrap().parse().unwrap()))
+            .collect();
+        if n == 2 {
+            // IREGI's native convention: i pi^2 times OneLOop's finite part.
+            let nu = i32::from(powers[0] + powers[1]);
+            let tadpole = (-1f64).powi(nu) * masses[0].powi(2 - nu) / f64::from((nu - 1) * (nu - 2));
+            let expected = std::f64::consts::PI.powi(2) * tadpole;
+            assert!((reference[3].im / expected - 1.0).abs() <= 1e-15, "powers {powers:?}: quad IREGI against the tadpole");
+        }
+        let mut settings = ReductionSettings::new(n, 0);
+        settings.powers = powers.clone();
+        let lane = coulomb_lane(&shifts[..n], &masses[..n], mu);
+        for (what, (status, values)) in [
+            ("direct", direct_lanes_with(settings.clone(), &lane)),
+            ("facade", facade_lane(settings.clone(), &lane)),
+            ("256 bits", direct256(settings.clone(), &lane)),
+        ] {
+            assert_eq!(status, LaneStatus::Success, "powers {powers:?}, {what}");
+            let ea = relative_difference(&values, &reference);
+            assert!(ea <= 1e-13, "powers {powers:?}, {what}: E/A {ea:e} against quad IREGI");
+        }
+        let invariants = madloop_invariants(&shifts[..n], &masses[..n]);
+        let lane = supplied_lane(&shifts[..n], &invariants, &masses[..n], mu * mu);
+        for rank in 1..=3u16 {
+            let mut settings = ReductionSettings::new(n, rank);
+            settings.powers = powers.clone();
+            settings.invariants = InvariantInput::SuppliedInvariants;
+            settings.scale_input = ScaleInput::MuSquared;
+            let reference = off_light_cone(&settings, &shifts[..n], &invariants, &masses[..n], mu * mu, 80, None);
+            let reference64 = to_f64(&reference);
+            for (what, (status, values)) in
+                [("direct", direct_lanes_with(settings.clone(), &lane)), ("facade", facade_lane(settings.clone(), &lane))]
+            {
+                assert_eq!(status, LaneStatus::Success, "powers {powers:?}, rank {rank}, {what}");
+                let ea = relative_difference(&values, &reference64);
+                assert!(ea <= 1e-12, "powers {powers:?}, rank {rank}, {what}: E/A {ea:e} off the light cone");
+            }
+            let (status, values) = direct_with_inputs(BITS, settings.clone(), &lane, None);
+            assert_eq!(status, LaneStatus::Success, "powers {powers:?}, rank {rank}, 256 bits");
+            let ea = relative_difference_float(&values, &reference);
+            assert!(ea <= 1e-40, "powers {powers:?}, rank {rank}, 256 bits: E/A {ea:e} off the light cone");
+        }
+    }
+}
+
+/// The doubled Coulomb gluon in pentagons: onia_loop's g g > chi_c0(3P0[1]) g
+/// at sqrt(s) = 20 GeV, m_c = 1.55 (binary64 momenta, MadLoop's invariants),
+/// rank 5 (P-wave's R + 1), which #51 refuses ("singular Cayley matrix for
+/// [3, 4]" and "[0, 4]"). Every heavy pair across an external gluon is
+/// lightlike with equal masses, and the second Taylor order of the doubled
+/// gluon raises a heavy line to the third power, so the IBP reaches those
+/// bubbles at total power 4. Both layouts of the four refused calls: the
+/// gluon third (MadLoop's loop groups 195 and 197, lines as MadLoop reported
+/// them) and fourth (199 and 200, the incoming gluons first). Against
+/// `off_light_cone` with binary64 inputs (from 2^-30, above the lightlike
+/// gate's 2^-40): binary64 directly and through the facade to 1e-12, and 256
+/// bits with binary64 inputs to 1e-17.
+#[test]
+fn doubled_coulomb_gluons_in_pentagons_reach_lightlike_bubbles() {
+    use iregi_rust::{InvariantInput, ScaleInput};
+    let p1 = [10.0, 0.0, 0.0, 10.0];
+    let p2 = [10.0, 0.0, 0.0, -10.0];
+    let onium = [1.024_024_999_999_999_79e1, -7.422_135_593_064_672_85, 4.207_721_234_534_722_58, -4.739_167_153_953_114_39];
+    let gluon = [9.759_749_999_999_998_59, 7.422_135_593_064_672_85, -4.207_721_234_534_722_58, 4.739_167_153_953_114_39];
+    let half: [f64; 4] = std::array::from_fn(|a| -onium[a] / 2.0);
+    let (m2, mu2) = (1.55f64 * 1.55, 3.1f64 * 3.1);
+    let layouts: [(&str, [[f64; 4]; 4], usize); 2] = [("gluon third", [p1, half, half, p2], 2), ("gluon fourth", [p1, p2, half, half], 3)];
+    for (label, legs, gluon_line) in layouts {
+        let mut shifts = vec![[0.0; 4]];
+        for leg in legs {
+            let last = *shifts.last().unwrap();
+            shifts.push(std::array::from_fn(|a| last[a] + leg[a]));
+        }
+        let closing: [f64; 4] = std::array::from_fn(|a| shifts[0][a] - shifts[4][a]);
+        assert!(closing.iter().zip(&gluon).all(|(x, g)| (x + g).abs() <= 1e-13), "{label}: momentum conservation");
+        let masses: Vec<f64> = (0..5).map(|l| if l == gluon_line { 0.0 } else { m2 }).collect();
+        let invariants = madloop_invariants(&shifts, &masses);
+        let lane = supplied_lane(&shifts, &invariants, &masses, mu2);
+        let mut settings = ReductionSettings::new(5, 5);
+        settings.powers[gluon_line] = 2;
+        settings.invariants = InvariantInput::SuppliedInvariants;
+        settings.scale_input = ScaleInput::MuSquared;
+        let reference = off_light_cone(&settings, &shifts, &invariants, &masses, mu2, 30, Some(53));
+        let reference64 = to_f64(&reference);
+        for (what, (status, values)) in
+            [("direct", direct_lanes_with(settings.clone(), &lane)), ("facade", facade_lane(settings.clone(), &lane))]
+        {
+            assert_eq!(status, LaneStatus::Success, "{label}, {what}");
+            let ea = relative_difference(&values, &reference64);
+            assert!(ea <= 1e-12, "{label}, {what}: E/A {ea:e} off the light cone");
+        }
+        let (status, values) = direct_with_inputs(BITS, settings.clone(), &lane, Some(53));
+        assert_eq!(status, LaneStatus::Success, "{label}, 256 bits with binary64 inputs");
+        let ea = relative_difference_float(&values, &reference);
+        assert!(ea <= 1e-17, "{label}, 256 bits with binary64 inputs: E/A {ea:e} off the light cone");
+    }
+}

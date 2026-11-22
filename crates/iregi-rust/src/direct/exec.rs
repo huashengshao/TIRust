@@ -3300,9 +3300,12 @@ where
     /// normalization (slots `[uv, ir1, ir2, finite]`), first order only:
     /// - a doubled massless tadpole, `int 1/(l^2)^2 = 1/eps_UV - 1/eps_IR`
     ///   (scaleless), and its higher powers, zero;
-    /// - a lightlike (or coincident) bubble of equal masses, total power 3:
-    ///   at `p^2 = 0` the tadpole `int 1/(l^2 - m^2)^3 = -1/(2 m^2)` (finite;
-    ///   zero for `m = 0`, scaleless);
+    /// - a lightlike (or coincident) bubble of equal masses, total power
+    ///   `nu >= 3`: at `p^2 = 0` the tadpole
+    ///   `int 1/(l^2 - m^2)^nu = (-1)^nu (m^2)^(2 - nu) / ((nu - 1) (nu - 2))`
+    ///   (finite, `-1/(2 m^2)` at `nu = 3`; zero for `m = 0`, scaleless);
+    /// - a threshold bubble of equal masses, `p^2 = 4 m^2`, total power
+    ///   `nu >= 3` (below);
     /// - the on-shell bubble `(q_a - q_b)^2 = m^2` (to the working
     ///   precision's rounding of the inputs, real `m^2 > 0`) with a massless
     ///   partner, from
@@ -3330,12 +3333,16 @@ where
             // Higher powers of a massless tadpole are scaleless without a
             // logarithmic divergence: zero.
             &[d] if massless(&self.masses[d]) => Some(lzero(&self.zero)),
-            &[a, b] if power(a) + power(b) == 3 && {
+            &[a, b] if power(a) + power(b) >= 3 && {
                 // A lightlike (or coincident) bubble of equal masses: its
-                // Cayley matrix is singular, and at p^2 = 0 it is the tadpole
-                // int 1/(l^2 - m^2)^3 = (1/2) d B0(0; m, m)/d m^2 = -1/(2 m^2)
-                // (finite; scaleless, hence zero, for m = 0).
-                // Equal masses to the inputs' rounding.
+                // Cayley matrix is singular, and at p^2 = 0, where
+                // Delta = m^2 for every Feynman parameter, it is the tadpole of
+                // total power nu = nu_a + nu_b,
+                // int 1/(l^2 - m^2)^nu = (-1)^nu Gamma(nu - 2 + eps) / Gamma(nu)
+                // (m^2)^(2 - nu - eps), finite for nu >= 3:
+                // (-1)^nu (m^2)^(2 - nu) / ((nu - 1) (nu - 2)), e.g. -1/(2 m^2)
+                // = (1/2) d B0(0; m, m)/d m^2 at nu = 3 (scaleless, hence zero,
+                // for m = 0). Equal masses to the inputs' rounding.
                 let p2 = &self.distances[a * n + b];
                 let scale = cnorm2(&self.masses[a]).sqrt();
                 let equal = cnorm2(&csub(&self.masses[a], &self.masses[b])).sqrt()
@@ -3346,9 +3353,17 @@ where
                 if massless(&self.masses[a]) {
                     return Some(lzero(&self.zero));
                 }
-                let half = self.prototype.one() / &self.prototype.from_usize(2);
-                let value = cscale(&cinv(&self.masses[a]), &(self.prototype.zero() - &half));
-                Some([self.zero.clone(), self.zero.clone(), self.zero.clone(), value])
+                let nu = (power(a) + power(b)) as usize;
+                let inverse = cinv(&self.masses[a]);
+                let mut value = inverse.clone();
+                for _ in 3..nu {
+                    value = cmul(&value, &inverse);
+                }
+                let mut weight = self.prototype.one() / &self.prototype.from_usize((nu - 1) * (nu - 2));
+                if nu % 2 == 1 {
+                    weight = self.prototype.zero() - &weight;
+                }
+                Some([self.zero.clone(), self.zero.clone(), self.zero.clone(), cscale(&value, &weight)])
             }
             // A threshold bubble of equal masses, p^2 = 4 m^2 to the inputs'
             // rounding, total power nu >= 3: Delta = m^2 (1 - 2x)^2, and with

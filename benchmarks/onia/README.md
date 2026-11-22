@@ -146,6 +146,7 @@ python3 benchmarks/onia/make_two_onium_fixture.py
 python3 benchmarks/onia/make_collinear_fixture.py
 python3 benchmarks/onia/make_threshold_fixture.py
 python3 benchmarks/onia/make_two_onium_box_fixture.py
+python3 benchmarks/onia/make_lightlike_powers_fixture.py
 ```
 
 The physical S-wave amplitudes:
@@ -226,7 +227,11 @@ them as follows:
    - J(2,1) = −(1/ε_IR + ln(μ²/m²) − 2)/(2m²) and
      J(1,2) = (1/ε_IR + ln(μ²/m²))/(2m²), for the on-shell bubble
      p² = m² with a massless partner;
-   - ∫ 1/(l² − m²)³ = −1/(2m²), for a lightlike bubble of equal masses;
+   - ∫ 1/(l² − m²)^ν = (−1)^ν (m²)^(2−ν)/((ν − 1)(ν − 2)), for a lightlike
+     bubble of equal masses with total power ν ≥ 3 (−1/(2m²) at ν = 3): at
+     p² = 0 it is the tadpole of power ν;
+   - the closed form of Δ = m² (1 − 2x)², for a threshold bubble of equal
+     masses (p² = 4m²) with total power ν ≥ 3;
    - ∫ 1/(l²)² = 1/ε_UV − 1/ε_IR, for the scaleless doubled massless tadpole.
 4. **Lightlike bubbles under jets.** These are allowed when they do not
    contain the doubled propagator; their jets vanish.
@@ -836,6 +841,15 @@ and the S-wave lanes whose reduction reaches one:
   beta = sqrt(|s - 4 m^2| / 4 m^2) of the integral of its exact inputs,
   which is the integral's own sensitivity to them. Beyond the rounding,
   binary64 refuses and 256 bits agree with the exact inputs.
+- `tests/fixtures/onia-lightlike-powers.json`
+  (`make_lightlike_powers_fixture.py`): scalars of the equal-mass bubble at
+  p^2 = 0 with one line raised to the third or fourth power, and of a
+  triangle containing it with each line so raised, from original IREGI's
+  quad scalar API with powers. The bubbles are the tadpole of their total
+  power. TIRust must agree to 1e-13. The test also takes ranks 1 to 3
+  against the same lanes with the pair moved off the light cone (512 bits,
+  s = 2^-80 m^2 and half that, extrapolated to s = 0), to 1e-12 in binary64
+  and 1e-40 at 256 bits.
 
 The test file's other cases need no fixture:
 - the #32 review's cases: mixed batches, the planar pentagon, and the
@@ -850,7 +864,11 @@ The test file's other cases need no fixture:
 - triangles and a box whose lightlike pairs contain the doubled line, against
   the mass derivative of the undotted integral;
 - IR-divergent triangles with a doubled line, which the soft-line recursion
-  reduces, against the IBP rows it does not use.
+  reduces, against the IBP rows it does not use;
+- the doubled Coulomb gluon in two pentagons of g g > chi_c0 g (rank 5,
+  MadLoop's binary64 invariants), whose IBP reaches lightlike equal-mass
+  bubbles at total power 4, against the same lanes with those pairs moved
+  off the light cone (from 2^-30 m^2, with binary64 inputs).
 
 ## Files
 
@@ -872,6 +890,7 @@ The test file's other cases need no fixture:
 | `make_collinear_fixture.py` | the collinear-pair fixture (quad IREGI scalars with powers) |
 | `make_threshold_fixture.py` | the dotted threshold-bubble fixture (quad IREGI scalars with powers) |
 | `make_two_onium_box_fixture.py` | the two-onium box fixture (quad IREGI, pairs exactly on threshold) |
+| `make_lightlike_powers_fixture.py` | the lightlike equal-mass bubbles with higher powers (quad IREGI scalars with powers) |
 | `merge_swave.py` | concatenates onia_swave outputs over point ranges |
 | `crates/iregi-prepare/examples/onia_diagrams.rs` | FeynKit diagram generation (DOT files) |
 | `crates/iregi-prepare/examples/onia_swave.rs` | S-wave projection and numerator coefficients per point and polarization |
