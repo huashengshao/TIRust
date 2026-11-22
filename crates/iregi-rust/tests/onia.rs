@@ -2077,3 +2077,138 @@ fn low_words_carry_the_double_double_tier_value() {
     assert_eq!((status, route), (LaneStatus::Success, LaneRoute::Direct));
     assert!(low.unwrap().iter().all(|z| z.re == 0.0 && z.im == 0.0), "binary64 lanes have zero low words");
 }
+
+/// A Coulomb triangle (Q, g, Qbar), masses^2 (1, 0, 1), rank 2, through the
+/// bridge's embedder options with `relation_tiers` and `low_words`, as hi + lo
+/// inputs: shifts a, (a + b) / 2, b with a - b = (2 + e, 0, 0, 0) and the
+/// whole lane translated by (t, 0, 0, 0), and the invariants they give
+/// (s_QQbar = (2 + e)^2, s_Qg = s_gQbar = (1 + e / 2)^2). Hi words, lo words.
+fn coulomb_triangle_low_inputs(e: f64, t: f64) -> (Vec<Complex<f64>>, Vec<Complex<f64>>) {
+    let real = |x: f64| Complex::new(x, 0.0);
+    let zero = real(0.0);
+    let (mut hi, mut lo) = (Vec::new(), Vec::new());
+    // e and t are below half an ulp of the hi words (powers of two).
+    for (first, low) in [(3.0, t), (2.0, t - e / 2.0), (1.0, t - e)] {
+        hi.extend([real(first), real(1.0), real(-1.0), real(2.0)]);
+        lo.extend([real(low), zero, zero, zero]);
+    }
+    // s_Qg, s_QQbar, s_gQbar, to 106 bits: (1 + e/2)^2 = 1 + e + e^2/4.
+    for (value, low) in [(1.0, e), (4.0, 4.0 * e), (1.0, e)] {
+        hi.push(real(value));
+        lo.push(real(low));
+    }
+    hi.extend([real(1.0), zero, real(1.0), real(3.0)]);
+    lo.extend([zero, zero, zero, zero]);
+    (hi, lo)
+}
+
+/// `reduce_batch_with_low_inputs` decides at the declared precision of its
+/// inputs, the same exact-threshold and near-threshold points in both modes:
+/// - zero low words reduce bit for bit as `reduce_batch`;
+/// - exactly at threshold but translated by t = 2^-60 (which binary64 cannot
+///   hold), the tiers serve the v = 0 value of hi + lo: 2.1e-32 from 512
+///   bits on the same inputs at 106 bits (bound 1e-25). The binary64 inputs
+///   lose the translation, 7.5e-19;
+/// - off threshold by e = 2^-80 (relative), the binary64 inputs are at
+///   threshold (the v = 0 value). Declared at 106 bits, the offset is beyond
+///   the inputs' rounding, so the v = 0 rule does not apply: refused, as at
+///   512 bits on the same inputs (the gluon's bubbles are in the undecided
+///   window). Declared at 64 bits, it is within the rounding again: the v = 0
+///   value, 9.3e-33 from 512 bits and 6.4e-24 from the binary64 inputs' value.
+/// - with `relation_tiers` off, the binary64 pass serves the hi words at
+///   threshold (route Direct). With low words it keeps no first-pass value:
+///   the tiers decide, so the 2^-80 lane is refused at 106 bits and the v = 0
+///   value at 64 bits, and the translated lane is served from the tier.
+#[test]
+fn low_inputs_decide_thresholds_at_their_declared_precision() {
+    use iregi_rust::{EmbedderOptions, LaneRoute};
+    let settings = bridge_settings(3, 2);
+    let plan = TensorReductionPlan::new(settings.clone()).unwrap();
+    let options = EmbedderOptions { relation_tiers: true, low_words: true, ..bridge_options() };
+    let batch = |values: Vec<Complex<f64>>| KinematicsBatch { rows: 1, components: 1, values };
+    let run_with = |options: EmbedderOptions, hi: &[Complex<f64>], lo: Option<(&[Complex<f64>], u32)>| {
+        let mut workspace = TensorWorkspace::new_embedded(&plan, 0.0f64, options).unwrap();
+        let result = match lo {
+            None => workspace.reduce_batch(&batch(hi.to_vec())),
+            Some((lo, bits)) => workspace.reduce_batch_with_low_inputs(&batch(hi.to_vec()), &batch(lo.to_vec()), bits),
+        }
+        .unwrap();
+        let route = workspace.last_lane_routes().unwrap()[0];
+        let low = workspace.last_low_words().unwrap().to_vec();
+        (result.statuses[0].clone(), route, result.lane(0).map(<[_]>::to_vec).unwrap_or_default(), low)
+    };
+    let run = |hi: &[Complex<f64>], lo: Option<(&[Complex<f64>], u32)>| run_with(options, hi, lo);
+    // 512 bits on hi + lo, declared at `bits`.
+    let exact = |hi: &[Complex<f64>], lo: &[Complex<f64>], bits: u32| {
+        let mut workspace = DirectReductionPlan::new(settings.clone()).unwrap().workspace(Float::new(512)).unwrap();
+        workspace.set_stability_threshold(Float::with_val(512, 2f64.powi(-(512 - 40))));
+        workspace.set_input_precision(bits);
+        let at = |x: f64| Float::with_val(512, x);
+        let values = hi.iter().zip(lo).map(|(h, l)| Complex::new(at(h.re) + &at(l.re), at(h.im) + &at(l.im))).collect();
+        let result = workspace.reduce_batch(&KinematicsBatch { rows: 1, components: 1, values }).unwrap();
+        (result.statuses[0].clone(), result.lane(0).map(<[_]>::to_vec).unwrap_or_default())
+    };
+    let carried = |values: &[Complex<f64>], low: &[Complex<f64>]| -> Vec<Complex<Float>> {
+        let at = |x: f64| Float::with_val(512, x);
+        values.iter().zip(low).map(|(h, l)| Complex::new(at(h.re) + &at(l.re), at(h.im) + &at(l.im))).collect()
+    };
+    // Zero low words: as reduce_batch, bit for bit.
+    let (hi, lo) = coulomb_triangle_low_inputs(0.0, 0.0);
+    assert!(lo.iter().all(|z| z.re == 0.0));
+    let plain = run(&hi, None);
+    assert_eq!(plain.0, LaneStatus::Success);
+    assert_eq!(plain.1, LaneRoute::Tier(106), "a relation lane");
+    let zero = run(&hi, Some((&lo, 106)));
+    assert_eq!((zero.0.clone(), zero.1), (plain.0.clone(), plain.1));
+    assert_eq!((bits(&zero.2), bits(&zero.3)), (bits(&plain.2), bits(&plain.3)), "zero low words");
+    // Exactly at threshold, translated by 2^-60.
+    let t = 2f64.powi(-60);
+    let (hi_t, lo_t) = coulomb_triangle_low_inputs(0.0, t);
+    let (status, route, values, low) = run(&hi_t, Some((&lo_t, 106)));
+    assert_eq!((status, route), (LaneStatus::Success, LaneRoute::Tier(106)), "translated, at threshold");
+    let (reference_status, reference) = exact(&hi_t, &lo_t, 106);
+    assert_eq!(reference_status, LaneStatus::Success);
+    let ea = relative_difference_float(&carried(&values, &low), &reference);
+    assert!(ea <= 1e-25, "translated, at threshold: E/A {ea:e} against 512 bits");
+    let binary64 = relative_difference_float(&carried(&plain.2, &plain.3), &reference);
+    assert!(binary64 >= 1e-20, "the translation, lost by binary64 inputs: E/A {binary64:e}");
+    // Off threshold by 2^-80.
+    let e = 2f64.powi(-80);
+    let (hi_e, lo_e) = coulomb_triangle_low_inputs(e, 0.0);
+    assert_eq!(bits(&hi_e), bits(&hi), "the offset is below binary64's rounding");
+    let (status, ..) = run(&hi_e, Some((&lo_e, 106)));
+    assert!(matches!(status, LaneStatus::Unstable(_)), "at 106 bits, 2^-80 off threshold: {status:?}");
+    let (reference_status, _) = exact(&hi_e, &lo_e, 106);
+    assert!(matches!(reference_status, LaneStatus::Unstable(_)), "512 bits at 106-bit inputs: {reference_status:?}");
+    let (status, route, values, low) = run(&hi_e, Some((&lo_e, 64)));
+    assert_eq!((status, route), (LaneStatus::Success, LaneRoute::Tier(106)), "at 64 bits, within the rounding");
+    let (reference_status, reference) = exact(&hi_e, &lo_e, 64);
+    assert_eq!(reference_status, LaneStatus::Success);
+    let ea = relative_difference_float(&carried(&values, &low), &reference);
+    assert!(ea <= 1e-25, "at 64 bits: E/A {ea:e} against 512 bits");
+    let v0 = relative_difference_float(&carried(&values, &low), &carried(&plain.2, &plain.3));
+    assert!(v0 <= 1e-20, "at 64 bits: the v = 0 value, {v0:e} from the binary64 inputs'");
+    // Without relation_tiers the binary64 pass serves the lane at threshold
+    // (route Direct). With low words, nothing the binary64 pass decided at
+    // its rounding is kept: the tiers decide, with the same answers.
+    let first_pass = EmbedderOptions { relation_tiers: false, ..options };
+    let (status, route, ..) = run_with(first_pass, &hi_e, None);
+    assert_eq!((status, route), (LaneStatus::Success, LaneRoute::Direct), "binary64 inputs: the first pass");
+    let (status, route, ..) = run_with(first_pass, &hi_e, Some((&lo_e, 106)));
+    assert!(matches!(status, LaneStatus::Unstable(_)), "first pass on, 106 bits, 2^-80 off: {status:?}");
+    assert_eq!(route, LaneRoute::Refused);
+    let (status, route, values, low) = run_with(first_pass, &hi_e, Some((&lo_e, 64)));
+    assert_eq!((status, route), (LaneStatus::Success, LaneRoute::Tier(106)), "first pass on, 64 bits");
+    let ea = relative_difference_float(&carried(&values, &low), &reference);
+    assert!(ea <= 1e-25, "first pass on, 64 bits: E/A {ea:e} against 512 bits");
+    let (status, route, values, low) = run_with(first_pass, &hi_t, Some((&lo_t, 106)));
+    assert_eq!((status, route), (LaneStatus::Success, LaneRoute::Tier(106)), "first pass on, translated");
+    let (_, translated) = exact(&hi_t, &lo_t, 106);
+    let ea = relative_difference_float(&carried(&values, &low), &translated);
+    assert!(ea <= 1e-25, "first pass on, translated: E/A {ea:e} against 512 bits");
+    // Invalid declarations.
+    let mut workspace = TensorWorkspace::new_embedded(&plan, 0.0f64, options).unwrap();
+    for bits in [53, 107] {
+        assert!(workspace.reduce_batch_with_low_inputs(&batch(hi_t.clone()), &batch(lo_t.clone()), bits).is_err());
+    }
+}

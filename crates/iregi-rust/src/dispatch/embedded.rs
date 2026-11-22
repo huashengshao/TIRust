@@ -188,9 +188,20 @@ pub(crate) struct EmbeddedWorkspace<T: NativeFloat> {
     choice: Option<Box<DirectWorkspace<T>>>,
     double: Option<Box<DirectWorkspace<DoubleFloat>>>,
     mpfr: [Option<Box<DirectWorkspace<Float>>>; 2],
+    /// The tiers for inputs with low words, at their declared precision
+    /// (bits): their own workspaces, so that nothing decided at binary64
+    /// input rounding is reused, and no shared store.
+    extended_double: Option<(u32, Box<DirectWorkspace<DoubleFloat>>)>,
+    extended_mpfr: [Option<(u32, Box<DirectWorkspace<Float>>)>; 2],
     routes: Vec<LaneRoute>,
     /// [`EmbedderOptions::low_words`]: per entry of the last result.
     low: Vec<Complex<T>>,
+    /// During [`Self::reduce_batch_with_low_inputs`]: the inputs' low words
+    /// (the layout of the batch values), their precision, and which lanes
+    /// have any. Empty otherwise.
+    input_low: Vec<Complex<T>>,
+    input_bits: u32,
+    extended_lanes: Vec<bool>,
     diagnostics: Vec<Vec<String>>,
     last: DirectExecutionStats,
     profiling: bool,
@@ -226,8 +237,13 @@ where
             choice: None,
             double: None,
             mpfr: [None, None],
+            extended_double: None,
+            extended_mpfr: [None, None],
             routes: Vec::new(),
             low: Vec::new(),
+            input_low: Vec::new(),
+            input_bits: 53,
+            extended_lanes: Vec::new(),
             diagnostics: Vec::new(),
             last: DirectExecutionStats::default(),
             profiling: false,
@@ -278,6 +294,51 @@ where
         self.options.low_words.then_some(&self.low[..])
     }
 
+    /// [`Self::reduce_batch`] for inputs given as hi + lo: `batch` holds the
+    /// binary64 hi words, `low` the lo words in the same layout, and
+    /// `input_bits` (54 to 106) the precision hi + lo carries. A lane with
+    /// low words keeps no value of the binary64 pass (on the hi words) or of
+    /// the method choice: the precision tiers evaluate hi + lo at that
+    /// declared precision (relations, thresholds and on-shell decisions at
+    /// its rounding), from double-double up. Lanes whose low words are all
+    /// zero are reduced exactly as by [`Self::reduce_batch`].
+    pub(crate) fn reduce_batch_with_low_inputs(
+        &mut self,
+        batch: &KinematicsBatch<T>,
+        low: &KinematicsBatch<T>,
+        input_bits: u32,
+    ) -> Result<BatchResult<T>, ReductionError> {
+        if low.rows != batch.rows || low.components != batch.components || low.values.len() != batch.values.len() {
+            return Err(ReductionError::InvalidInput("low words need the layout of the batch".into()));
+        }
+        if !(54..=106).contains(&input_bits) {
+            return Err(ReductionError::InvalidInput(format!(
+                "inputs with low words carry 54 to 106 bits, not {input_bits}"
+            )));
+        }
+        if !self.options.precision_tiers {
+            return Err(ReductionError::Unsupported("low words of the inputs are read by the precision tiers".into()));
+        }
+        let width = batch.values.len() / batch.rows.max(1);
+        let extended: Vec<bool> = (0..batch.rows)
+            .map(|lane| {
+                low.values[lane * width..(lane + 1) * width]
+                    .iter()
+                    .any(|z| z.re.to_f64() != 0.0 || z.im.to_f64() != 0.0)
+            })
+            .collect();
+        if !extended.contains(&true) {
+            return self.reduce_batch(batch);
+        }
+        self.input_low.clone_from(&low.values);
+        self.input_bits = input_bits;
+        self.extended_lanes = extended;
+        let result = self.reduce_batch(batch);
+        self.input_low.clear();
+        self.extended_lanes.clear();
+        result
+    }
+
     pub(crate) fn last_execution(&self) -> &DirectExecutionStats {
         &self.last
     }
@@ -324,25 +385,45 @@ where
                 self.diagnostics[lane].push(format!("direct engine: {note}"));
             }
         }
+        // Lanes with low words in their inputs (`reduce_batch_with_low_inputs`)
+        // keep nothing the binary64 pass or the method choice decided at
+        // binary64 rounding: the tiers decide them at the declared precision.
+        let extended = std::mem::take(&mut self.extended_lanes);
+        let low_inputs = |lane: usize| extended.get(lane).copied().unwrap_or(false);
         if self.options.method_choice && !refused.is_empty() {
-            self.method_choice(batch, &refused, &mut result, &mut conditions, &mut profile)?;
+            let choice: Vec<usize> = refused.iter().copied().filter(|&lane| !low_inputs(lane)).collect();
+            if !choice.is_empty() {
+                self.method_choice(batch, &choice, &mut result, &mut conditions, &mut profile)?;
+            }
             refused.retain(|&lane| result.statuses[lane] != LaneStatus::Success && conditions[lane].is_some());
         }
-        let mut relation_lanes = Vec::new();
-        if self.options.precision_tiers && self.options.relation_tiers {
-            // Served through an affine relation: from the double-double tier
-            // up (an estimate of 1 starts there).
+        // (lane, whether its inputs have low words)
+        let mut rerun_lanes = Vec::new();
+        let relation_tiers = self.options.precision_tiers && self.options.relation_tiers;
+        if relation_tiers || extended.contains(&true) {
+            // Served through an affine relation, or by the binary64 pass with
+            // low input words: from the double-double tier up (an estimate of
+            // 1 starts there).
             let relation = self.direct.last_relation_lanes();
             for lane in 0..batch.rows {
-                if result.statuses[lane] == LaneStatus::Success && relation.get(lane).copied().unwrap_or(false) {
-                    relation_lanes.push(lane);
-                    refused.push(lane);
-                    conditions[lane] = Some(1.0);
-                    self.diagnostics[lane].push("direct engine: served through an affine relation (relation_tiers)".into());
+                if result.statuses[lane] != LaneStatus::Success {
+                    continue;
                 }
+                let through_relation = relation_tiers && relation.get(lane).copied().unwrap_or(false);
+                if low_inputs(lane) {
+                    self.diagnostics[lane].push("direct engine: inputs with low words, from the double-double tier".into());
+                } else if through_relation {
+                    self.diagnostics[lane].push("direct engine: served through an affine relation (relation_tiers)".into());
+                } else {
+                    continue;
+                }
+                rerun_lanes.push((lane, low_inputs(lane)));
+                refused.push(lane);
+                conditions[lane] = Some(1.0);
             }
             refused.sort_unstable();
         }
+        self.extended_lanes = extended;
         // Zero for every lane no tier serves.
         self.low.clear();
         if self.options.low_words {
@@ -352,12 +433,16 @@ where
         if self.options.precision_tiers && !refused.is_empty() {
             self.precision_tiers(batch, &refused, &conditions, &mut result, &mut profile)?;
         }
-        // A relation lane no tier accepted is refused: its first-pass value is
-        // the one the option replaces (the host rescues it or reports it).
-        for &lane in &relation_lanes {
+        // A relation lane, or a lane with low input words, that no tier
+        // accepted is refused: its first-pass value is the one being replaced
+        // (the host rescues it or reports it).
+        for &(lane, low_inputs) in &rerun_lanes {
             if self.routes[lane] == LaneRoute::Direct {
-                result.statuses[lane] =
-                    LaneStatus::Unstable("served through an affine relation, refused by every precision tier (relation_tiers)".into());
+                result.statuses[lane] = LaneStatus::Unstable(if low_inputs {
+                    "inputs with low words, refused by every precision tier".into()
+                } else {
+                    "served through an affine relation, refused by every precision tier (relation_tiers)".into()
+                });
                 self.routes[lane] = LaneRoute::Refused;
                 self.last.direct_successes -= 1;
             }
@@ -482,32 +567,74 @@ where
             if current.is_empty() {
                 continue;
             }
+            // Lanes with low words in their inputs go to the tiers' extended
+            // workspaces (`reduce_batch_with_low_inputs`).
+            let (extended, plain): (Vec<usize>, Vec<usize>) =
+                current.iter().partition(|&&lane| self.extended_lanes.get(lane).copied().unwrap_or(false));
+            let input_bits = self.input_bits;
+            let mut outcomes = Vec::with_capacity(current.len());
             // Accepted lanes are rounded into `result` by the facade's tier runner.
-            let outcomes = if tier == 0 {
-                if self.double.is_none() {
-                    self.double = Some(prepare_tier::<DoubleFloat>(
-                        self.plan.workspace_with_masters::<DoubleFloat>(DoubleFloat::from(0.0), masters),
-                        DoubleFloat::from(self.tier_limit(bits)),
-                        self.profiling,
-                    )?);
+            if tier == 0 {
+                if !plain.is_empty() {
+                    if self.double.is_none() {
+                        self.double = Some(prepare_tier::<DoubleFloat>(
+                            self.plan.workspace_with_masters::<DoubleFloat>(DoubleFloat::from(0.0), masters),
+                            DoubleFloat::from(self.tier_limit(bits)),
+                            self.profiling,
+                        )?);
+                    }
+                    let workspace = self.double.as_mut().unwrap();
+                    workspace.set_shared_subsets(self.store.clone());
+                    let served = run_tier::<T, DoubleFloat>(workspace, DoubleFloat::from, batch, &plain, &self.prototype, result, None, low_words.then_some(&mut *low), profile, &mut self.last)?;
+                    outcomes.extend(plain.iter().copied().zip(served));
                 }
-                let workspace = self.double.as_mut().unwrap();
-                workspace.set_shared_subsets(self.store.clone());
-                run_tier::<T, DoubleFloat>(workspace, DoubleFloat::from, batch, &current, &self.prototype, result, low_words.then_some(&mut *low), profile, &mut self.last)?
+                if !extended.is_empty() {
+                    if self.extended_double.as_ref().is_none_or(|(declared, _)| *declared != input_bits) {
+                        let mut workspace = prepare_tier::<DoubleFloat>(
+                            self.plan.workspace_with_masters::<DoubleFloat>(DoubleFloat::from(0.0), masters),
+                            DoubleFloat::from(self.tier_limit(bits)),
+                            self.profiling,
+                        )?;
+                        workspace.set_input_precision(input_bits);
+                        self.extended_double = Some((input_bits, workspace));
+                    }
+                    let workspace = &mut self.extended_double.as_mut().unwrap().1;
+                    let served = run_tier::<T, DoubleFloat>(workspace, DoubleFloat::from, batch, &extended, &self.prototype, result, Some(&self.input_low), low_words.then_some(&mut *low), profile, &mut self.last)?;
+                    outcomes.extend(extended.iter().copied().zip(served));
+                }
             } else {
-                let slot = &mut self.mpfr[tier - 1];
-                if slot.is_none() {
-                    *slot = Some(prepare_tier::<Float>(
-                        self.plan.workspace_with_masters::<Float>(Float::new(bits), masters),
-                        Float::with_val(bits, tier_threshold(bits)),
-                        self.profiling,
-                    )?);
+                if !plain.is_empty() {
+                    let slot = &mut self.mpfr[tier - 1];
+                    if slot.is_none() {
+                        *slot = Some(prepare_tier::<Float>(
+                            self.plan.workspace_with_masters::<Float>(Float::new(bits), masters),
+                            Float::with_val(bits, tier_threshold(bits)),
+                            self.profiling,
+                        )?);
+                    }
+                    let workspace = slot.as_mut().unwrap();
+                    let served = run_tier::<T, Float>(workspace, |x| Float::with_val(bits, x), batch, &plain, &self.prototype, result, None, low_words.then_some(&mut *low), profile, &mut self.last)?;
+                    outcomes.extend(plain.iter().copied().zip(served));
                 }
-                let workspace = slot.as_mut().unwrap();
-                run_tier::<T, Float>(workspace, |x| Float::with_val(bits, x), batch, &current, &self.prototype, result, low_words.then_some(&mut *low), profile, &mut self.last)?
-            };
+                if !extended.is_empty() {
+                    let slot = &mut self.extended_mpfr[tier - 1];
+                    if slot.as_ref().is_none_or(|(declared, _)| *declared != input_bits) {
+                        let mut workspace = prepare_tier::<Float>(
+                            self.plan.workspace_with_masters::<Float>(Float::new(bits), masters),
+                            Float::with_val(bits, tier_threshold(bits)),
+                            self.profiling,
+                        )?;
+                        workspace.set_input_precision(input_bits);
+                        *slot = Some((input_bits, workspace));
+                    }
+                    let workspace = &mut slot.as_mut().unwrap().1;
+                    let served = run_tier::<T, Float>(workspace, |x| Float::with_val(bits, x), batch, &extended, &self.prototype, result, Some(&self.input_low), low_words.then_some(&mut *low), profile, &mut self.last)?;
+                    outcomes.extend(extended.iter().copied().zip(served));
+                }
+            }
             let mut successes = 0;
-            for (&lane, (status, condition)) in current.iter().zip(&outcomes) {
+            for (lane, (status, condition)) in &outcomes {
+                let lane = *lane;
                 if *status == LaneStatus::Success {
                     result.statuses[lane] = LaneStatus::Success;
                     result.fallback_used[lane] = true;

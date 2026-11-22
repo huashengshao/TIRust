@@ -339,6 +339,20 @@ off (relative to each call's scale) and value plus low word 2.8e-32 to
 6.9e-23, against 512 bits on the same binary64 inputs. This leaves out the
 rounding of the inputs themselves.
 
+That rounding can be supplied too. `TensorWorkspace::reduce_batch_with_low_inputs`
+takes the inputs as hi + lo words with their declared precision (`input_bits`,
+54 to 106: 64 for x87 extended values, 106 for a split of binary128 ones).
+A lane with low words keeps no value of the binary64 pass, which reads the hi
+words and decides at binary64 rounding: it goes to the tiers from
+double-double up (refused if every tier refuses). The tiers evaluate hi + lo
+and decide relations, thresholds and on-shell conditions at the declared
+rounding, in workspaces of their own. An offset
+that hi + lo resolves is therefore not taken as v = 0. A Coulomb triangle
+2^-80 off threshold is at threshold for its binary64 hi words and for
+64-bit inputs (the v = 0 value), but refused when declared at 106 bits, as at
+512 bits on the same inputs. Lanes whose low words are all zero are reduced
+exactly as without them.
+
 **Limits.**
 - A doubled line outside the Coulomb triple (24 of the coverage scan's
   P-wave lanes) would need two raised lines, which the single-line jets do
@@ -924,6 +938,10 @@ The test file's other cases need no fixture:
 - `low_words`: the same pentagon, whose value plus low word is 3.2e-26 from
   512 bits (the rounded value alone 5.3e-17), with values and routes
   bit-identical to the option off and zero low words on a binary64 route;
+- low inputs: a Coulomb triangle as hi + lo, exactly at threshold but
+  translated by 2^-60 (2.1e-32 from 512 bits at 106-bit inputs, where binary64
+  inputs lose 7.5e-19) and 2^-80 off threshold (refused at 106 bits, the
+  v = 0 value at 64 bits), with zero low words bit-identical;
 - the doubled Coulomb gluon in two pentagons of g g > chi_c0 g (rank 5,
   MadLoop's binary64 invariants), whose IBP reaches lightlike equal-mass
   bubbles at total power 4, against the same lanes with those pairs moved
