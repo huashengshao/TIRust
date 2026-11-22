@@ -901,11 +901,13 @@ impl DirectPlanData {
             dotted.powers[j] += 1;
             Self::supported(&dotted)?;
         }
-        // The raised member's Taylor length is its power plus one: a partial
-        // fraction's order k reads order k + 1 of its pinches, and the output
-        // is the order of the requested power.
+        // The raised member's Taylor length is its power plus one per linearly
+        // dependent set: a partial fraction's order k reads order k + 1 of its
+        // pinches, a pinch may hold another set's partial fraction (two
+        // Coulomb triples sharing their raised heavy line), and the output is
+        // the order of the requested power.
         let jet = match raised {
-            Some(j) => Some((j, usize::from(settings.powers[j]) + 1)),
+            Some(j) => Some((j, usize::from(settings.powers[j]) + homogeneous.len())),
             None => settings
                 .powers
                 .iter()
@@ -1644,12 +1646,12 @@ impl DirectPlanData {
             debug_assert!(i32::from(rank) <= child.moment_rank);
             child.moment_base.unwrap() + index_in_basis(exponents)
         };
-        // Subsets whose Taylor orders above the last one the partial fraction
-        // gives are missing: the linearly dependent subsets (order k from
-        // order k + 1 of their pinches, so the jet's last order is zero) and
-        // every moment recursion that reads one. A partial fraction reading
-        // such a subset would miss that order.
-        let mut truncated: HashSet<SubsetMask> = HashSet::new();
+        // Taylor orders missing at the top of each subset: a linearly
+        // dependent subset gives order k from order k + 1 of its pinches, one
+        // order fewer than they have, and every moment recursion has as many
+        // as the children it reads. The jet holds one order per linearly
+        // dependent set beyond the output's, so the output is complete.
+        let mut truncated: HashMap<SubsetMask, usize> = HashMap::new();
         for subset in &subsets {
             if subset.moment_rank < 0 {
                 continue;
@@ -1672,24 +1674,24 @@ impl DirectPlanData {
                     subset.members.iter().map(|&member| without(subset.mask, member)).collect()
                 }
             };
-            if read.iter().any(|child| truncated.contains(child)) {
-                if let SubsetKind::Homogeneous(_) = subset.kind {
-                    return Err(ReductionError::Unsupported(format!(
-                        "direct engine: linearly dependent propagators {:#b} contain a pinch that needs \
-                         another linearly dependent set's partial fraction",
-                        subset.mask
-                    )));
-                }
-                truncated.insert(subset.mask);
+            let missing = read.iter().filter_map(|child| truncated.get(child)).copied().max().unwrap_or(0);
+            let missing = if let SubsetKind::Homogeneous(_) = subset.kind { missing + 1 } else { missing };
+            if missing > homogeneous_geometry.len() {
+                return Err(ReductionError::Unsupported(format!(
+                    "direct engine: linearly dependent propagators {:#b} need more Taylor orders than their jet holds",
+                    subset.mask
+                )));
+            }
+            if missing > 0 {
+                truncated.insert(subset.mask, missing);
             }
             match subset.kind {
                 SubsetKind::Pv => {}
                 SubsetKind::Homogeneous(h) => {
                     // Partial fraction of a linearly dependent subset, after
-                    // its pinches and before every parent: its order-0
-                    // moments are the order-1 Taylor coefficients of the
-                    // pinches with a doubled massless member.
-                    truncated.insert(subset.mask);
+                    // its pinches and before every parent: its order-k
+                    // moments are the order-(k + 1) Taylor coefficients of
+                    // the pinches with the raised member doubled.
                     let geometry = &homogeneous_geometry[h];
                     let base = subset.moment_base.unwrap();
                     for (index, e) in tensor_basis(subset.moment_rank as u16).iter().enumerate() {
@@ -2073,15 +2075,27 @@ mod tests {
         assert!(written < read, "the relation reads the Coulomb box before its partial fraction");
     }
 
-    /// A partial fraction whose pinch is itself a partial fraction would need
-    /// that pinch's Taylor order 1, which no partial fraction gives: refused.
+    /// A partial fraction whose pinch is itself a partial fraction reads that
+    /// pinch's Taylor order 1: the raised member's jet holds one order per
+    /// linearly dependent set, and the output stays order 0. Sets raising
+    /// different members are refused (one jet).
     #[test]
-    fn nested_partial_fractions_are_refused() {
-        let error = DirectPlanData::with_full_profile(
+    fn nested_partial_fractions_take_one_order_per_relation() {
+        let plan = DirectPlanData::with_full_profile(
             ReductionSettings::new(5, 2),
             &[],
             &[],
             &[(0b00111, 1), (0b01110, 1)],
+            0,
+        )
+        .unwrap();
+        assert_eq!(plan.jet, Some((1, 3)));
+        assert_eq!(plan.output_order, 0);
+        let error = DirectPlanData::with_full_profile(
+            ReductionSettings::new(5, 2),
+            &[],
+            &[],
+            &[(0b00111, 1), (0b01110, 2)],
             0,
         )
         .unwrap_err();

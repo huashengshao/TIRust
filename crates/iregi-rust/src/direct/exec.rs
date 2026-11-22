@@ -1662,13 +1662,38 @@ where
     /// propagator the master jets and their closed form handle.
     fn raised_member(&self, support: SubsetMask) -> Option<usize> {
         let massless = |member: usize| self.masses[member].re.is_zero() && self.masses[member].im.is_zero();
-        // A dotted massless member is raised itself: the plan admits a raised
+        // A dotted member is raised itself, massless or not (P-wave's doubled
+        // Coulomb gluon, or a doubled heavy line): the plan admits a raised
         // power on the raised member only.
         let dotted = self.base_plan.settings.powers.iter().position(|&p| p > 1);
-        if let Some(d) = dotted.filter(|&d| support & (1 << d) != 0 && massless(d)) {
+        if let Some(d) = dotted.filter(|&d| support & (1 << d) != 0) {
             return Some(d);
         }
         members(support).into_iter().find(|&member| massless(member))
+    }
+
+    /// The lane's linearly dependent sets with `support` added, all raising
+    /// one member (the plan's single jet). When their own raised members
+    /// differ, a member every set holds is raised instead: the heavy line
+    /// two Coulomb triples share (e+ e- > J/psi eta_c), or the dotted line
+    /// if they share it. `None` when they share none.
+    fn homogeneous_with(&self, support: SubsetMask, raised: usize) -> Option<Vec<(SubsetMask, usize)>> {
+        let mut profile = self.homogeneous_profile.clone();
+        profile.push((support, raised));
+        if profile.iter().all(|&(_, r)| r == raised) {
+            return Some(profile);
+        }
+        let shared = profile.iter().fold(SubsetMask::MAX, |mask, &(h, _)| mask & h);
+        let dotted = self.base_plan.settings.powers.iter().position(|&p| p > 1);
+        let common = match dotted {
+            Some(d) if shared & (1 << d) != 0 => d,
+            Some(_) => return None,
+            None => members(shared).into_iter().next()?,
+        };
+        for entry in &mut profile {
+            entry.1 = common;
+        }
+        Some(profile)
     }
 
     /// Partial fraction of a linearly dependent subset (`PostOp::TaylorShift`):
@@ -1799,9 +1824,14 @@ where
             let local = relation.members.iter().position(|&m| m == relation.raised).unwrap();
             // A variant reused from another lane (a rotated copy, another
             // labelling) may raise a member that is massive here; then the
-            // lane picks its own variant.
+            // lane picks its own variant. A massive member is the lane's own
+            // choice when it is the dotted line or shared by every linearly
+            // dependent set (`raised_member`, `homogeneous_with`).
             let raised_mass = &self.masses[relation.raised];
-            if !(raised_mass.re.is_zero() && raised_mass.im.is_zero()) {
+            let dotted = self.base_plan.settings.powers.iter().position(|&p| p > 1);
+            let shared = plan.homogeneous.len() >= 2
+                && plan.homogeneous.iter().all(|other| other.members.contains(&relation.raised));
+            if !(raised_mass.re.is_zero() && raised_mass.im.is_zero()) && dotted != Some(relation.raised) && !shared {
                 return Err(GeometryFailure::Relation(format!(
                     "propagator {} of the relation of {:?} is not massless on this lane",
                     relation.raised, relation.members
@@ -4579,7 +4609,14 @@ where
                                     ));
                                     break plan;
                                 };
-                                self.homogeneous_profile.push((support, raised));
+                                let Some(profile) = self.homogeneous_with(support, raised) else {
+                                    failure = Some(format!(
+                                        "{error}; linearly dependent propagator sets {support:#b} and {:?} share no member to raise",
+                                        self.homogeneous_profile.iter().map(|&(h, _)| h).collect::<Vec<_>>()
+                                    ));
+                                    break plan;
+                                };
+                                self.homogeneous_profile = profile;
                                 self.homogeneous_profile.sort_unstable();
                                 if let Err(variant) = self.select_variant() {
                                     self.homogeneous_profile.clear();

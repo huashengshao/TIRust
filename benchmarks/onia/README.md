@@ -147,6 +147,7 @@ python3 benchmarks/onia/make_collinear_fixture.py
 python3 benchmarks/onia/make_threshold_fixture.py
 python3 benchmarks/onia/make_two_onium_box_fixture.py
 python3 benchmarks/onia/make_lightlike_powers_fixture.py
+python3 benchmarks/onia/make_double_coulomb_fixture.py
 ```
 
 The physical S-wave amplitudes:
@@ -216,11 +217,19 @@ them as follows:
    below).
 2. **Partial fraction.** The plan variant (`SubsetKind::Homogeneous`,
    `plan.rs`) reduces every subset that contains such a relation by
-   1 = −Σ_{i≠j} (c_i/c_j) D_i/D_j, where j is the massless member, the gluon.
+   1 = −Σ_{i≠j} (c_i/c_j) D_i/D_j, where j is the raised member:
+   - the massless member, the gluon;
+   - the dotted line, massless or not, when the lane already raises a
+     member of the relation (P-wave's doubled gluon or doubled heavy line);
+   - the heavy line two relations share, for both, when each would raise
+     its own gluon (the double-Coulomb pentagons of e+ e- > J/psi eta_c).
+
    Each moment becomes a sum of the first Taylor coefficients, in m_j², of
-   the pinches without i: the pinches with the gluon doubled. The engine's
+   the pinches without i: the pinches with D_j doubled. The engine's
    existing jets (`master_jets`, `geometry_jets`, `run_program_jets`)
-   compute those, and the variant outputs Taylor order 0.
+   compute those, and the variant outputs Taylor order 0. A pinch may hold
+   another relation's partial fraction, so the jet holds one more order per
+   relation.
 3. **Closed-form bases.** The IBP recursion of the doubled masters ends in
    IR-singular bases whose Cayley matrices are singular, so they come from
    closed forms (`exec.rs::singular_ibp_base`, OneLOop normalization):
@@ -302,6 +311,9 @@ derivative of the undotted integral. Outside these bases TIRust's on-shell
 condition stays exact (see the S-wave finding below).
 
 **Limits.**
+- A doubled line outside the Coulomb triple (24 of the coverage scan's
+  P-wave lanes) would need two raised lines, which the single-line jets do
+  not hold: refused (typed).
 - At rank 0 a Coulomb triangle or box is only a scalar master, with no
   Gram check to detect the linear dependence. On exact inputs oneloopmaster
   returns a nonfinite master and the lane is refused (typed); the facade
@@ -841,6 +853,15 @@ and the S-wave lanes whose reduction reaches one:
   beta = sqrt(|s - 4 m^2| / 4 m^2) of the integral of its exact inputs,
   which is the integral's own sensitivity to them. Beyond the rounding,
   binary64 refuses and 256 bits agree with the exact inputs.
+- `tests/fixtures/onia-double-coulomb.json` (`make_double_coulomb_fixture.py`):
+  the two rank-3 pentagons of e+ e- > J/psi eta_c at v = 0 that hold both
+  onia's Coulomb triples, which share a heavy line. The reference is
+  original IREGI's quad IBP arrays with both onia exactly on threshold.
+  TIRust, with MadLoop's supplied invariants, must agree to 1e-12 in
+  binary64 and to 1e-14 at 256 bits with binary64 inputs (measured 2.8e-14
+  and 5e-15: IREGI's invariants agree with the supplied ones only to their
+  rounding). On IREGI's own binary128 inputs it must agree to 1e-15
+  (measured 1.1e-16, quad IREGI's floor).
 - `tests/fixtures/onia-lightlike-powers.json`
   (`make_lightlike_powers_fixture.py`): scalars of the equal-mass bubble at
   p^2 = 0 with one line raised to the third or fourth power, and of a
@@ -865,6 +886,9 @@ The test file's other cases need no fixture:
   the mass derivative of the undotted integral;
 - IR-divergent triangles with a doubled line, which the soft-line recursion
   reduces, against the IBP rows it does not use;
+- a Coulomb box with a heavy line doubled (P-wave), whose partial fraction
+  raises that line, against the two triangles of the partial fraction at
+  256 bits, ranks 1 to 4;
 - the doubled Coulomb gluon in two pentagons of g g > chi_c0 g (rank 5,
   MadLoop's binary64 invariants), whose IBP reaches lightlike equal-mass
   bubbles at total power 4, against the same lanes with those pairs moved
@@ -891,6 +915,7 @@ The test file's other cases need no fixture:
 | `make_threshold_fixture.py` | the dotted threshold-bubble fixture (quad IREGI scalars with powers) |
 | `make_two_onium_box_fixture.py` | the two-onium box fixture (quad IREGI, pairs exactly on threshold) |
 | `make_lightlike_powers_fixture.py` | the lightlike equal-mass bubbles with higher powers (quad IREGI scalars with powers) |
+| `make_double_coulomb_fixture.py` | the double-Coulomb pentagon fixture (quad IREGI, both onia exactly on threshold) |
 | `merge_swave.py` | concatenates onia_swave outputs over point ranges |
 | `crates/iregi-prepare/examples/onia_diagrams.rs` | FeynKit diagram generation (DOT files) |
 | `crates/iregi-prepare/examples/onia_swave.rs` | S-wave projection and numerator coefficients per point and polarization |

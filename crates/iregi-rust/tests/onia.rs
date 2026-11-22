@@ -1797,3 +1797,143 @@ fn binary64_inputs_keep_their_coulomb_relations_at_512_bits() {
         }
     }
 }
+
+/// Two-onium pentagons of onia_loop's e+ e- > J/psi eta_c trace at v = 0
+/// that hold both onia's Coulomb triples (MadLoop's loop groups 41 and 42;
+/// binary64, MadLoop's supplied invariants), rank 3. The two triples share a
+/// heavy line, so neither gluon can be raised for both: the partial
+/// fractions raise the shared heavy line twice, and the pinch of the first
+/// holds the second's partial fraction (Taylor order 2). The parent refuses
+/// the lanes ("raising different propagators"). Reference: original IREGI's
+/// quad IBP arrays with both onia exactly on threshold
+/// (benchmarks/onia/make_double_coulomb_fixture.py):
+/// - binary64 directly and through the facade to 1e-12, and 256 bits with
+///   the inputs declared binary64 (MadLoop's QP rescue of a DP lane) to
+///   1e-14. IREGI's invariants come from its shifts and agree with the
+///   supplied ones to their rounding, which the pentagon amplifies to 5e-15.
+///   As exact inputs the second triple is refused: its binary64 middle shift
+///   is the rounded midpoint, so the relation does not hold at 256 bits'
+///   rounding.
+/// - 256 bits on IREGI's own inputs (binary128 shifts on threshold, their
+///   squared differences) to 1e-15: 1.1e-16 on both, quad IREGI's floor (as
+///   on the two-onium boxes), while 256 and 512 bits agree to 1e-75.
+#[test]
+fn double_coulomb_pentagons_match_quad_iregi() {
+    use iregi_rust::{InvariantInput, ScaleInput};
+    let fixture: Value = serde_json::from_str(include_str!("fixtures/onia-double-coulomb.json")).unwrap();
+    supplied_invariant_lanes_match(&fixture, false);
+    for case in fixture["cases"].as_array().unwrap() {
+        let label = case["label"].as_str().unwrap();
+        let parse = |v: &Value| v.as_str().unwrap().parse::<f64>().unwrap();
+        let shifts: Vec<[f64; 4]> =
+            case["shifts"].as_array().unwrap().iter().map(|q| std::array::from_fn(|a| parse(&q[a]))).collect();
+        let invariants: Vec<f64> = case["invariants"].as_array().unwrap().iter().map(parse).collect();
+        let masses: Vec<f64> = case["masses_squared"].as_array().unwrap().iter().map(parse).collect();
+        let reference: Vec<Complex<f64>> = case["reference"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|monomial| monomial.as_array().unwrap().iter().map(|z| Complex::new(parse(&z[0]), parse(&z[1]))))
+            .collect();
+        let mut settings = ReductionSettings::new(masses.len(), case["rank"].as_u64().unwrap() as u16);
+        settings.invariants = InvariantInput::SuppliedInvariants;
+        settings.scale_input = ScaleInput::MuSquared;
+        let lane = supplied_lane(&shifts, &invariants, &masses, parse(&case["mu_squared"]));
+        let (status, values) = direct_with_inputs(BITS, settings.clone(), &lane, Some(53));
+        assert_eq!(status, LaneStatus::Success, "{label}, 256 bits with binary64 inputs");
+        let ea = relative_difference(&to_f64(&values), &reference);
+        assert!(ea <= 1e-14, "{label}, 256 bits with binary64 inputs: E/A {ea:e} against quad IREGI");
+        // IREGI's own inputs (binary128 shifts exactly on threshold, and
+        // their squared differences): only the arithmetic differs.
+        let quad = |v: &Value| {
+            let mut x = Float::parse(v.as_str().unwrap(), Some(113)).unwrap();
+            x.set_prec(BITS);
+            Complex::new(x, Float::new(BITS))
+        };
+        let n = masses.len();
+        let threshold_invariants: Vec<&Value> = case["threshold_invariants"].as_array().unwrap().iter().collect();
+        let mut exact: Vec<Complex<Float>> =
+            case["threshold_shifts"].as_array().unwrap().iter().flat_map(|q| q.as_array().unwrap().iter().map(quad)).collect();
+        for i in 0..n {
+            for j in i + 1..n {
+                exact.push(quad(threshold_invariants[i + n * j]));
+            }
+        }
+        exact.extend(lane[4 * n + n * (n - 1) / 2..].iter().map(|z| Complex::new(Float::with_val(BITS, z.re), Float::new(BITS))));
+        let mut workspace = DirectReductionPlan::new(settings).unwrap().workspace(Float::new(BITS)).unwrap();
+        workspace.set_stability_threshold(Float::with_val(BITS, 2f64.powi(-(BITS as i32 - 40))));
+        workspace.set_input_precision(113);
+        let result = workspace.reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: exact }).unwrap();
+        assert_eq!(result.statuses[0], LaneStatus::Success, "{label}, IREGI's binary128 inputs at 256 bits");
+        let quad_reference: Vec<Complex<Float>> = case["reference"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|monomial| {
+                monomial.as_array().unwrap().iter().map(|z| {
+                    let part = |v: &Value| {
+                        let mut x = Float::parse(v.as_str().unwrap().trim(), Some(113)).unwrap();
+                        x.set_prec(BITS);
+                        x
+                    };
+                    Complex::new(part(&z[0]), part(&z[1]))
+                })
+            })
+            .collect();
+        let ea = relative_difference_float(result.lane(0).unwrap(), &quad_reference);
+        assert!(ea <= 1e-15, "{label}, IREGI's binary128 inputs at 256 bits: E/A {ea:e} against quad IREGI");
+    }
+}
+
+/// P-wave's doubled heavy line in a Coulomb triple: the partial fraction
+/// raises the dotted line itself (the parent raised the gluon and refused
+/// the lane, "linearly dependent propagators with a raised power"). The box
+/// (X, Q, g, Qbar) of `doubled_coulomb_gluons_take_a_second_taylor_order`
+/// with Q doubled is, from D_Q + D_Qbar = 2 D_g,
+/// J(X, Q^2, g, Qbar) = 2 J(X, Q^3, Qbar) - J(X, Q^3, g), two triangles
+/// that are not linearly dependent, and with Qbar doubled the same with Q and
+/// Qbar exchanged. Ranks 1 to 4, binary64 directly and through the facade,
+/// and 256 bits, against those triangles at 256 bits. (At rank 0 the box is
+/// a scalar master; README, Limits.)
+#[test]
+fn doubled_heavy_lines_in_coulomb_triples_raise_themselves() {
+    let (mu, m2) = (3.0, 4.0);
+    let (q1, k) = ([3.0, 1.0, -1.0, 2.0], [2.0, 0.0, 0.0, 0.0]);
+    let shifts = vec![[0.0; 4], q1, plus(q1, k, 1.0), plus(q1, k, 2.0)];
+    let masses = vec![1.0, m2, 0.0, m2];
+    let lane = coulomb_lane(&shifts, &masses, mu);
+    let pinch = |lines: [usize; 3], rank: u16, cubed: usize| {
+        let sub: Vec<[f64; 4]> = lines.iter().map(|&l| shifts[l]).collect();
+        let m: Vec<f64> = lines.iter().map(|&l| masses[l]).collect();
+        let mut s = ReductionSettings::new(3, rank);
+        s.powers[lines.iter().position(|&l| l == cubed).unwrap()] = 3;
+        let (status, values) = direct256(s, &coulomb_lane(&sub, &m, mu));
+        assert_eq!(status, LaneStatus::Success, "rank {rank}: pinch {lines:?} with line {cubed} cubed");
+        values
+    };
+    // (doubled line, its partner): 2 J(X, dot^3, partner) - J(X, dot^3, g).
+    for (dotted, partner) in [(1usize, 3usize), (3, 1)] {
+        for rank in 1..=4u16 {
+            let sorted = |mut lines: [usize; 3]| {
+                lines.sort_unstable();
+                lines
+            };
+            let a = pinch(sorted([0, dotted, partner]), rank, dotted);
+            let b = pinch(sorted([0, dotted, 2]), rank, dotted);
+            let reference: Vec<Complex<f64>> =
+                a.iter().zip(&b).map(|(x, y)| Complex::new(2.0 * x.re - y.re, 2.0 * x.im - y.im)).collect();
+            let mut settings = ReductionSettings::new(4, rank);
+            settings.powers[dotted] = 2;
+            for (what, (status, values)) in [
+                ("direct", direct_lanes_with(settings.clone(), &lane)),
+                ("facade", facade_lane(settings.clone(), &lane)),
+                ("256 bits", direct256(settings.clone(), &lane)),
+            ] {
+                assert_eq!(status, LaneStatus::Success, "line {dotted} doubled, rank {rank}, {what}");
+                let ea = relative_difference(&values, &reference);
+                let tolerance = if what == "256 bits" { 1e-14 } else { 1e-11 };
+                assert!(ea <= tolerance, "line {dotted} doubled, rank {rank}, {what}: E/A {ea:e} against the partial fraction");
+            }
+        }
+    }
+}
