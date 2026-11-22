@@ -1730,3 +1730,70 @@ fn doubled_coulomb_gluons_in_pentagons_reach_lightlike_bubbles() {
         assert!(ea <= 1e-17, "{label}, 256 bits with binary64 inputs: E/A {ea:e} off the light cone");
     }
 }
+
+/// Binary64 inputs at 512 bits, as a DP lane in the embedder's last tier
+/// (`set_input_precision(53)`). The Coulomb triangle (heavy, gluon, heavy)
+/// of onia_loop's g g > Upsilon g at sqrt(s) = 9.51 GeV holds its threshold
+/// only to binary64 rounding: s_02 is 2 ulps below 4 m^2, and the origin is
+/// 1.8e-15 off zero. Its Gram system is singular to that rounding, but its
+/// conditioning (5e-68 at depth 2) passes the 512-bit threshold, which
+/// evaluated the off-threshold integral (values of 1e9, 1/v enhanced) where
+/// binary64 and 256 bits take the v = 0 partial fraction. It must agree with
+/// both. The Coulomb vertex of e+ e- > t t~ a 46 ulps above threshold (the
+/// MadLoop bridge's stress point), beyond that rounding, is still evaluated
+/// exactly, 256 and 512 bits alike.
+#[test]
+fn binary64_inputs_keep_their_coulomb_relations_at_512_bits() {
+    use iregi_rust::{Convention, InvariantInput, ScaleInput, TensorWeights};
+    let settings = || {
+        let mut s = ReductionSettings::new(3, 2);
+        s.convention = Convention::MadLoop;
+        s.tensor_weights = TensorWeights::Components;
+        s.invariants = InvariantInput::SuppliedInvariants;
+        s.scale_input = ScaleInput::MuSquared;
+        s
+    };
+    // Shifts, the upper triangle of the supplied invariants (s_01, s_02,
+    // s_12), the squared masses and mu^2, as binary64 bits.
+    let lane = |p: &[u64; 12], s: &[u64; 3], m: &[u64; 3], mu2: u64| -> Vec<Complex<f64>> {
+        let real = |bits: u64| Complex::new(f64::from_bits(bits), 0.0);
+        p.iter().chain(s).chain(m).chain([&mu2]).map(|&b| real(b)).collect()
+    };
+    let upsilon = lane(
+        &[
+            0xbce0000000000000, 0x0000000000000000, 0x0000000000000000, 0x3cb0400000000000,
+            0xc0130000b06aa477, 0x3f63fe1f0447ac1d, 0xbf575928c55a6639, 0x3f70e1b676d4a682,
+            0xc0230000b06aa477, 0x3f73fe1f0447ac1d, 0xbf675928c55a6639, 0x3f80e1b676d4a682,
+        ],
+        &[0x4036900000000000, 0x40568ffffffffffd, 0x4036900000000000],
+        &[0x4036900000000000, 0x0000000000000000, 0x4036900000000000],
+        0x405e400000000000,
+    );
+    let ttxa = lane(
+        &[
+            0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x3d15692f40000000,
+            0xc065a999999999e4, 0x3ef2b440f5517ccb, 0x3ef4242f861f91e8, 0x3edb20b1d08a5fdc,
+            0xc075a999999999c9, 0x3eff4ff39a75e1a6, 0x3ef26d0393420659, 0xbea3ae92954b6860,
+        ],
+        &[0x40dd5438f5c28f5d, 0x40fd5438f5c28f8b, 0x40dd5438f5c28f5d],
+        &[0x40dd5438f5c28f5d, 0x0000000000000000, 0x40dd5438f5c28f5d],
+        0x40fd5439582bf9b6,
+    );
+    for (name, lane, binary64) in [("Upsilon Coulomb triangle", &upsilon, true), ("t t~ a Coulomb vertex", &ttxa, false)] {
+        let (status, at_256) = direct_with_inputs(BITS, settings(), lane, Some(53));
+        assert_eq!(status, LaneStatus::Success, "{name}: 256 bits");
+        let (status, at_512) = direct_with_inputs(512, settings(), lane, Some(53));
+        assert_eq!(status, LaneStatus::Success, "{name}: 512 bits");
+        let ea = relative_difference_float(&at_256, &at_512);
+        assert!(ea <= 1e-60, "{name}: 256 bits E/A {ea:e} against 512 bits");
+        if binary64 {
+            for (what, (status, values)) in
+                [("direct", direct_lanes_with(settings(), lane)), ("facade", facade_lane(settings(), lane))]
+            {
+                assert_eq!(status, LaneStatus::Success, "{name}, {what}");
+                let ea = relative_difference(&values, &to_f64(&at_512));
+                assert!(ea <= 1e-14, "{name}, {what}: E/A {ea:e} against 512 bits");
+            }
+        }
+    }
+}

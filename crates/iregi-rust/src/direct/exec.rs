@@ -1934,6 +1934,29 @@ where
                                 scale = value;
                             }
                         }
+                        // The inputs' rounding moves the system's relative
+                        // determinant by at most sum_i ||delta row_i|| / ||row_i||
+                        // to first order, each entry's rounding that of its
+                        // three invariants (as `cayley_inverse`'s floor).
+                        let gram_floor = {
+                            let mut floor = self.prototype.zero();
+                            for i in 0..size {
+                                let (mut row, mut delta) = (self.prototype.zero(), self.prototype.zero());
+                                for j in 0..size {
+                                    let (mi, mj) = (members[i + 1], members[j + 1]);
+                                    row += &cnorm2(&self.matrix[i * size + j]);
+                                    let mut entry = self.prototype.zero();
+                                    for (a, b) in [(origin, mi), (origin, mj), (mi, mj)] {
+                                        entry += &(cnorm2(d(a, b)).sqrt() + &self.invariant_size(a, b));
+                                    }
+                                    delta += &(entry.clone() * &entry);
+                                }
+                                if !row.is_zero() {
+                                    floor += &(delta.sqrt() / &row.sqrt());
+                                }
+                            }
+                            floor * &self.input_rounding
+                        };
                         let quality = solve_in_place(
                             &mut self.matrix[..size * size],
                             &mut self.rhs[..size * size],
@@ -1990,6 +2013,26 @@ where
                             return Err(GeometryFailure::Singular(subset.mask, format!(
                                 "ill-conditioned Gram matrix for {members:?}: conditioning {:e}",
                                 condition
+                            )));
+                        }
+                        // Singular to the inputs' rounding, which the working
+                        // precision's threshold admits: binary64 inputs at 512
+                        // bits. If its propagators are linearly dependent at
+                        // that rounding (a Coulomb triple at v = 0), the lane
+                        // loop takes their partial fraction, as lower
+                        // precisions do, instead of the reduction resolving the
+                        // inputs' rounding (the off-threshold integral, 1/v
+                        // enhanced). Otherwise the system is reduced as before
+                        // (a Coulomb vertex 46 ulps above threshold is
+                        // evaluated exactly). Binary64 inputs at binary64,
+                        // under the default threshold, are refused first.
+                        if size >= 2
+                            && quality.relative_determinant <= gram_floor
+                            && matches!(self.relation_support(subset.mask), Ok((_, true)))
+                        {
+                            return Err(GeometryFailure::Singular(subset.mask, format!(
+                                "Gram matrix for {members:?} singular to the inputs' rounding: relative determinant {:e}",
+                                quality.relative_determinant
                             )));
                         }
                         for j in 0..size {
