@@ -328,6 +328,17 @@ integrals by 1e-15 at most, so both passes agree. The option is off by
 default; a host sets it where it amplifies these lanes, e.g. MadLoop's
 raised-power entry point.
 
+With `EmbedderOptions::low_words`, a lane that a tier serves also keeps its
+low words (`TensorWorkspace::last_low_words`). These are the tier's value minus
+the returned binary64 value, rounded to binary64, so value plus low word
+carries the tier's value to about 106 bits. This is for a host that
+contracts in more than binary64, such as a P-wave sum in extended precision.
+Values and routes are unchanged, and lanes served in binary64 have zero low
+words. On the 40 reproducer calls the rounded value is 1.2e-17 to 6.8e-17
+off (relative to each call's scale) and value plus low word 2.8e-32 to
+6.9e-23, against 512 bits on the same binary64 inputs. This leaves out the
+rounding of the inputs themselves.
+
 **Limits.**
 - A doubled line outside the Coulomb triple (24 of the coverage scan's
   P-wave lanes) would need two raised lines, which the single-line jets do
@@ -910,6 +921,9 @@ The test file's other cases need no fixture:
 - `relation_tiers`: a P-wave pentagon of u u~ > chi_c0 g at 1 TeV
   (MadLoop's binary64 inputs), 2e-10 off from binary64's first pass and
   within 1e-15 of 512 bits from the double-double tier;
+- `low_words`: the same pentagon, whose value plus low word is 3.2e-26 from
+  512 bits (the rounded value alone 5.3e-17), with values and routes
+  bit-identical to the option off and zero low words on a binary64 route;
 - the doubled Coulomb gluon in two pentagons of g g > chi_c0 g (rank 5,
   MadLoop's binary64 invariants), whose IBP reaches lightlike equal-mass
   bubbles at total power 4, against the same lanes with those pairs moved

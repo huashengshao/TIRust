@@ -962,6 +962,22 @@ where
         }
     }
 
+    /// Embedder mode with [`EmbedderOptions::low_words`]: per entry of the
+    /// most recent result, in the layout of [`BatchResult::values`], the
+    /// residual of the binary64 value of a lane a precision tier served (the
+    /// tier's value minus the returned value, rounded to binary64), so that
+    /// value plus residual carries the tier's value to about 106 bits. Zero
+    /// for lanes served otherwise or without a value
+    /// ([`Self::last_lane_routes`] says which). `None` for other workspaces,
+    /// with the option off, or with regulators set (they apply to the values
+    /// only).
+    pub fn last_low_words(&self) -> Option<&[Complex<T>]> {
+        match &self.engine {
+            WorkspaceEngine::Embedded(workspace) if self.regulators.is_identity() => workspace.last_low_words(),
+            _ => None,
+        }
+    }
+
     pub fn new_dual<D: DualNumberStructure>(
         plan: &TensorReductionPlan,
         prototype: T,

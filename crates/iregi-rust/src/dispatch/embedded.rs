@@ -122,6 +122,16 @@ pub struct EmbedderOptions {
     /// sums over raised-power calls: measured on u u~ > chi_c0 g at
     /// sqrt(s) = 1 TeV, binary64 pentagons 2e-10 off, double-double 1e-22.
     pub relation_tiers: bool,
+    /// Binary64 workspaces with [`Self::precision_tiers`]: also keep, per
+    /// entry of each lane a precision tier served, the residual of its
+    /// binary64 value (the tier's value minus that value, rounded to
+    /// binary64; see [`TensorWorkspace::last_low_words`]). Value plus residual
+    /// carries the tier's value to about 106 bits, for a host that contracts
+    /// in more than binary64. Values, statuses and routes are unchanged.
+    /// Default `false`.
+    ///
+    /// [`TensorWorkspace::last_low_words`]: super::TensorWorkspace::last_low_words
+    pub low_words: bool,
 }
 
 impl Default for EmbedderOptions {
@@ -136,6 +146,7 @@ impl Default for EmbedderOptions {
             tier_margin_bits: RESCUE_MARGIN,
             double_double_headroom_bits: TIER_HEADROOM,
             relation_tiers: false,
+            low_words: false,
         }
     }
 }
@@ -178,6 +189,8 @@ pub(crate) struct EmbeddedWorkspace<T: NativeFloat> {
     double: Option<Box<DirectWorkspace<DoubleFloat>>>,
     mpfr: [Option<Box<DirectWorkspace<Float>>>; 2],
     routes: Vec<LaneRoute>,
+    /// [`EmbedderOptions::low_words`]: per entry of the last result.
+    low: Vec<Complex<T>>,
     diagnostics: Vec<Vec<String>>,
     last: DirectExecutionStats,
     profiling: bool,
@@ -214,6 +227,7 @@ where
             double: None,
             mpfr: [None, None],
             routes: Vec::new(),
+            low: Vec::new(),
             diagnostics: Vec::new(),
             last: DirectExecutionStats::default(),
             profiling: false,
@@ -257,6 +271,11 @@ where
 
     pub(crate) fn last_routes(&self) -> &[LaneRoute] {
         &self.routes
+    }
+
+    /// [`EmbedderOptions::low_words`]: the residuals of the last result.
+    pub(crate) fn last_low_words(&self) -> Option<&[Complex<T>]> {
+        self.options.low_words.then_some(&self.low[..])
     }
 
     pub(crate) fn last_execution(&self) -> &DirectExecutionStats {
@@ -323,6 +342,12 @@ where
                 }
             }
             refused.sort_unstable();
+        }
+        // Zero for every lane no tier serves.
+        self.low.clear();
+        if self.options.low_words {
+            let zero = Complex::new(self.prototype.zero(), self.prototype.zero());
+            self.low.resize(result.values.len(), zero);
         }
         if self.options.precision_tiers && !refused.is_empty() {
             self.precision_tiers(batch, &refused, &conditions, &mut result, &mut profile)?;
@@ -435,6 +460,22 @@ where
             .collect();
         self.last.fallback_rows += pending.len();
         let masters = masters_for(self.options.master_policy);
+        let mut low = std::mem::take(&mut self.low);
+        let outcome = self.run_tiers(batch, &mut pending, result, low.as_mut_slice(), profile, masters);
+        self.low = low;
+        outcome
+    }
+
+    fn run_tiers(
+        &mut self,
+        batch: &KinematicsBatch<T>,
+        pending: &mut Vec<(usize, usize)>,
+        result: &mut BatchResult<T>,
+        low: &mut [Complex<T>],
+        profile: &mut ExecutionProfile,
+        masters: crate::DirectMasters,
+    ) -> Result<(), ReductionError> {
+        let low_words = self.options.low_words;
         for (tier, &bits) in TIER_BITS.iter().enumerate() {
             let current: Vec<usize> =
                 pending.iter().filter(|&&(_, start)| start <= tier).map(|&(lane, _)| lane).collect();
@@ -452,7 +493,7 @@ where
                 }
                 let workspace = self.double.as_mut().unwrap();
                 workspace.set_shared_subsets(self.store.clone());
-                run_tier::<T, DoubleFloat>(workspace, DoubleFloat::from, batch, &current, &self.prototype, result, profile, &mut self.last)?
+                run_tier::<T, DoubleFloat>(workspace, DoubleFloat::from, batch, &current, &self.prototype, result, low_words.then_some(&mut *low), profile, &mut self.last)?
             } else {
                 let slot = &mut self.mpfr[tier - 1];
                 if slot.is_none() {
@@ -463,7 +504,7 @@ where
                     )?);
                 }
                 let workspace = slot.as_mut().unwrap();
-                run_tier::<T, Float>(workspace, |x| Float::with_val(bits, x), batch, &current, &self.prototype, result, profile, &mut self.last)?
+                run_tier::<T, Float>(workspace, |x| Float::with_val(bits, x), batch, &current, &self.prototype, result, low_words.then_some(&mut *low), profile, &mut self.last)?
             };
             let mut successes = 0;
             for (&lane, (status, condition)) in current.iter().zip(&outcomes) {

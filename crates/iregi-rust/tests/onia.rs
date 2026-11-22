@@ -1950,46 +1950,16 @@ fn doubled_heavy_lines_in_coulomb_triples_raise_themselves() {
 /// 512 bits. A lane reduced without a relation keeps its binary64 route.
 #[test]
 fn relation_tiers_take_affine_relation_lanes_to_double_double() {
-    use iregi_rust::{Convention, EmbedderOptions, InvariantInput, LaneRoute, ScaleInput, TensorWeights};
-    let settings = |n: usize, rank: u16| {
-        let mut s = ReductionSettings::new(n, rank);
-        s.convention = Convention::MadLoop;
-        s.tensor_weights = TensorWeights::Components;
-        s.invariants = InvariantInput::SuppliedInvariants;
-        s.scale_input = ScaleInput::MuSquared;
-        s
-    };
-    let real = |bits: u64| Complex::new(f64::from_bits(bits), 0.0);
-    // Shifts, the upper triangle of the supplied invariants, masses^2, mu^2.
-    let pentagon: Vec<Complex<f64>> = [
-        0x0000000000000000u64, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000,
-        0x407f400000000001, 0x0000000000000000, 0x0000000000000000, 0x407f400000000001,
-        0x408f400000000001, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000,
-        0x407f4013ae685db8, 0xc0608e55f47bd8ca, 0x4054a9a3ee72991b, 0xc07daff1547d55d3,
-        0x406f4013ae685db8, 0xc0508e55f47bd8ca, 0x4044a9a3ee72991b, 0xc06daff1547d55d3,
-        0x0000000000000000, 0x412e848000000002, 0x40233851eb850000, 0x40033851eb851eb9, 0x0000000000000000,
-        0xc12dc11f3a183d27, 0xc11dc128d64132e9, 0x0000000000000000, 0x411e847663d70a3f, 0x40033851eb851eb9,
-        0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x40033851eb851eb9,
-        0x412e848000000000,
-    ]
-    .iter()
-    .map(|&b| real(b))
-    .collect();
-    let mut powered = settings(5, 4);
+    use iregi_rust::{EmbedderOptions, LaneRoute};
+    let pentagon = relation_pentagon();
+    let mut powered = bridge_settings(5, 4);
     powered.powers[4] = 2;
     let (status, exact) = direct_with_inputs(512, powered.clone(), &pentagon, Some(53));
     assert_eq!(status, LaneStatus::Success, "512 bits with binary64 inputs");
     let exact = to_f64(&exact);
     let embedded = |settings: ReductionSettings, lane: &[Complex<f64>], relation_tiers: bool| {
         let plan = TensorReductionPlan::new(settings).unwrap();
-        let options = EmbedderOptions {
-            method_choice: false,
-            precision_tiers: true,
-            tier_margin_bits: 0,
-            double_double_headroom_bits: 26,
-            relation_tiers,
-            ..EmbedderOptions::default()
-        };
+        let options = EmbedderOptions { relation_tiers, ..bridge_options() };
         let mut workspace = TensorWorkspace::new_embedded(&plan, 0.0f64, options).unwrap();
         let result = workspace.reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: lane.to_vec() }).unwrap();
         let route = workspace.last_lane_routes().unwrap()[0];
@@ -2011,4 +1981,99 @@ fn relation_tiers_take_affine_relation_lanes_to_double_double() {
     let result = workspace.reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: triangle }).unwrap();
     assert_eq!(result.statuses[0], LaneStatus::Success);
     assert_eq!(workspace.last_lane_routes().unwrap()[0], LaneRoute::Direct, "a lane without a relation");
+}
+
+/// The settings of MadLoop's bridge: supplied invariants, tensor components,
+/// MadLoop's convention, mu^2 as the scale input.
+fn bridge_settings(n: usize, rank: u16) -> ReductionSettings {
+    use iregi_rust::{Convention, InvariantInput, ScaleInput, TensorWeights};
+    let mut s = ReductionSettings::new(n, rank);
+    s.convention = Convention::MadLoop;
+    s.tensor_weights = TensorWeights::Components;
+    s.invariants = InvariantInput::SuppliedInvariants;
+    s.scale_input = ScaleInput::MuSquared;
+    s
+}
+
+/// The bridge's embedder options, without its gate.
+fn bridge_options() -> iregi_rust::EmbedderOptions {
+    iregi_rust::EmbedderOptions {
+        method_choice: false,
+        precision_tiers: true,
+        tier_margin_bits: 0,
+        double_double_headroom_bits: 26,
+        ..iregi_rust::EmbedderOptions::default()
+    }
+}
+
+/// The pentagon of `relation_tiers_take_affine_relation_lanes_to_double_double`
+/// as MadLoop supplied it (heavy line 4, rank 4): shifts, the upper triangle
+/// of the supplied invariants, masses^2, mu^2.
+fn relation_pentagon() -> Vec<Complex<f64>> {
+    let real = |bits: u64| Complex::new(f64::from_bits(bits), 0.0);
+    [
+        0x0000000000000000u64, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000,
+        0x407f400000000001, 0x0000000000000000, 0x0000000000000000, 0x407f400000000001,
+        0x408f400000000001, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000,
+        0x407f4013ae685db8, 0xc0608e55f47bd8ca, 0x4054a9a3ee72991b, 0xc07daff1547d55d3,
+        0x406f4013ae685db8, 0xc0508e55f47bd8ca, 0x4044a9a3ee72991b, 0xc06daff1547d55d3,
+        0x0000000000000000, 0x412e848000000002, 0x40233851eb850000, 0x40033851eb851eb9, 0x0000000000000000,
+        0xc12dc11f3a183d27, 0xc11dc128d64132e9, 0x0000000000000000, 0x411e847663d70a3f, 0x40033851eb851eb9,
+        0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x40033851eb851eb9,
+        0x412e848000000000,
+    ]
+    .iter()
+    .map(|&b| real(b))
+    .collect()
+}
+
+/// `EmbedderOptions::low_words` on the pentagon of
+/// `relation_tiers_take_affine_relation_lanes_to_double_double`: the
+/// double-double tier serves it, and value plus low word is that tier's value:
+/// 3.2e-26 from 512 bits on the same binary64 inputs (the rounded value
+/// alone: 5.3e-17). Values, statuses and routes are bit-identical with the
+/// option off. A lane the binary64 pass serves has zero low words, and
+/// without the option there are none.
+#[test]
+fn low_words_carry_the_double_double_tier_value() {
+    use iregi_rust::{EmbedderOptions, LaneRoute};
+    let pentagon = relation_pentagon();
+    let mut powered = bridge_settings(5, 4);
+    powered.powers[4] = 2;
+    let (status, exact) = direct_with_inputs(512, powered.clone(), &pentagon, Some(53));
+    assert_eq!(status, LaneStatus::Success, "512 bits with binary64 inputs");
+    let run = |settings: ReductionSettings, lane: &[Complex<f64>], relation_tiers: bool, low_words: bool| {
+        let plan = TensorReductionPlan::new(settings).unwrap();
+        let options = EmbedderOptions { relation_tiers, low_words, ..bridge_options() };
+        let mut workspace = TensorWorkspace::new_embedded(&plan, 0.0f64, options).unwrap();
+        let result = workspace.reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: lane.to_vec() }).unwrap();
+        let route = workspace.last_lane_routes().unwrap()[0];
+        let low = workspace.last_low_words().map(<[_]>::to_vec);
+        (result.statuses[0].clone(), route, result.lane(0).map(<[_]>::to_vec).unwrap_or_default(), low)
+    };
+    let (status, route, values, low) = run(powered.clone(), &pentagon, true, true);
+    assert_eq!((status.clone(), route), (LaneStatus::Success, LaneRoute::Tier(106)));
+    let low = low.expect("low words with the option on");
+    assert_eq!(low.len(), values.len());
+    let (_, plain_route, plain, none) = run(powered.clone(), &pentagon, true, false);
+    assert_eq!((plain_route, bits(&plain)), (route, bits(&values)), "values and route with the option off");
+    assert!(none.is_none(), "no low words with the option off");
+    let at = |z: &Complex<f64>| Complex::new(Float::with_val(512, z.re), Float::with_val(512, z.im));
+    let carried: Vec<Complex<Float>> = values
+        .iter()
+        .zip(&low)
+        .map(|(hi, lo)| {
+            let (hi, lo) = (at(hi), at(lo));
+            Complex::new(hi.re + &lo.re, hi.im + &lo.im)
+        })
+        .collect();
+    let rounded: Vec<Complex<Float>> = values.iter().map(at).collect();
+    let (with_low, without) = (relative_difference_float(&carried, &exact), relative_difference_float(&rounded, &exact));
+    assert!(with_low <= 1e-24, "value plus low word: E/A {with_low:e} against 512 bits");
+    assert!(without >= 1e-18, "the rounded value alone: E/A {without:e}");
+    assert!(low.iter().any(|z| z.re != 0.0 || z.im != 0.0), "nonzero low words");
+    // Without relation_tiers the binary64 pass serves it: zero low words.
+    let (status, route, _, low) = run(powered, &pentagon, false, true);
+    assert_eq!((status, route), (LaneStatus::Success, LaneRoute::Direct));
+    assert!(low.unwrap().iter().all(|z| z.re == 0.0 && z.im == 0.0), "binary64 lanes have zero low words");
 }
