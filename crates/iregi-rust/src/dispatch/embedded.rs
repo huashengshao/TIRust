@@ -103,6 +103,22 @@ pub struct EmbedderOptions {
     /// accepts only estimates of at least 2^-1, so almost every gate-refused
     /// lane goes on to 256 bits.
     pub double_double_headroom_bits: u32,
+    /// Binary64 workspaces with [`Self::precision_tiers`]: lanes the first
+    /// pass serves through an affine relation (a constant identity
+    /// sum_i c_i D_i = K, or a partial fraction of linearly dependent
+    /// propagators) are evaluated again from the double-double tier up,
+    /// whatever their conditioning. Default `false`.
+    ///
+    /// The identity's weights are of order 1/K, so a relation whose constant
+    /// is small against the lane's invariants (a heavy-quark threshold at
+    /// high energy, K = 4 m^2 against s) cancels its pinches by about s/K,
+    /// which no gate sees. The tiers declare the binary64 inputs as such
+    /// (`set_input_precision(53)`), so they find the same relations. A lane
+    /// every tier refuses keeps its first-pass value. Meant for hosts that
+    /// amplify these lanes' rounding, such as MadLoop's P-wave quarkonium
+    /// sums over raised-power calls: measured on u u~ > chi_c0 g at
+    /// sqrt(s) = 1 TeV, binary64 pentagons 2e-10 off, double-double 1e-22.
+    pub relation_tiers: bool,
 }
 
 impl Default for EmbedderOptions {
@@ -116,6 +132,7 @@ impl Default for EmbedderOptions {
             master_policy: MasterExecutionPolicy::Default,
             tier_margin_bits: RESCUE_MARGIN,
             double_double_headroom_bits: TIER_HEADROOM,
+            relation_tiers: false,
         }
     }
 }
@@ -288,6 +305,20 @@ where
         if self.options.method_choice && !refused.is_empty() {
             self.method_choice(batch, &refused, &mut result, &mut conditions, &mut profile)?;
             refused.retain(|&lane| result.statuses[lane] != LaneStatus::Success && conditions[lane].is_some());
+        }
+        if self.options.precision_tiers && self.options.relation_tiers {
+            // Served through an affine relation: from the double-double tier
+            // up (an estimate of 1 starts there), keeping the first-pass value
+            // if every tier refuses.
+            let relation = self.direct.last_relation_lanes();
+            for lane in 0..batch.rows {
+                if result.statuses[lane] == LaneStatus::Success && relation.get(lane).copied().unwrap_or(false) {
+                    refused.push(lane);
+                    conditions[lane] = Some(1.0);
+                    self.diagnostics[lane].push("direct engine: served through an affine relation (relation_tiers)".into());
+                }
+            }
+            refused.sort_unstable();
         }
         if self.options.precision_tiers && !refused.is_empty() {
             self.precision_tiers(batch, &refused, &conditions, &mut result, &mut profile)?;

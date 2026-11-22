@@ -310,6 +310,23 @@ against the closed forms, and triangles and boxes against the mass
 derivative of the undotted integral. Outside these bases TIRust's on-shell
 condition stays exact (see the S-wave finding below).
 
+**Relations at high energy.** An affine relation's identity has weights of
+order 1/K. At a heavy-quark threshold K is about 4 m^2, while the lane's
+invariants are of order s, so the identity cancels its pinches by about s/K
+and binary64 loses that many digits. No gate sees it: the Gram system is
+singular, not ill-conditioned. On MadLoop's P-wave pentagons of
+u u~ > chi_c0 g at sqrt(s) = 1 TeV (rank 4, a line doubled), binary64 is up
+to 2e-10 off the integral of its own inputs, and the P-wave sum amplifies
+that by about 1e8 (at 20 GeV MadLoop's results are good to 8e-8). With
+`EmbedderOptions::relation_tiers`, binary64 lanes served through a relation
+are evaluated again from the double-double tier up. The tiers declare the
+binary64 inputs as such, so the relations still hold there. All 40 pentagon
+calls of the onia_loop reproducer are then within 6.8e-17 of 512 bits. A
+1 ulp shift of the invariants (MadLoop's check pass) moves the exact
+integrals by 1e-15 at most, so both passes agree. The option is off by
+default; a host sets it where it amplifies these lanes, e.g. MadLoop's
+raised-power entry point.
+
 **Limits.**
 - A doubled line outside the Coulomb triple (24 of the coverage scan's
   P-wave lanes) would need two raised lines, which the single-line jets do
@@ -889,6 +906,9 @@ The test file's other cases need no fixture:
 - a Coulomb box with a heavy line doubled (P-wave), whose partial fraction
   raises that line, against the two triangles of the partial fraction at
   256 bits, ranks 1 to 4;
+- `relation_tiers`: a P-wave pentagon of u u~ > chi_c0 g at 1 TeV
+  (MadLoop's binary64 inputs), 2e-10 off from binary64's first pass and
+  within 1e-15 of 512 bits from the double-double tier;
 - the doubled Coulomb gluon in two pentagons of g g > chi_c0 g (rank 5,
   MadLoop's binary64 invariants), whose IBP reaches lightlike equal-mass
   bubbles at total power 4, against the same lanes with those pairs moved

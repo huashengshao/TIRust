@@ -1937,3 +1937,78 @@ fn doubled_heavy_lines_in_coulomb_triples_raise_themselves() {
         }
     }
 }
+
+/// `EmbedderOptions::relation_tiers`: a P-wave pentagon of u u~ > chi_c0 g at
+/// sqrt(s) = 1 TeV (onia_loop, point 7 of its stability profile, MadLoop's
+/// call 76), rank 4, the heavy line doubled, MadLoop's binary64 inputs. It
+/// reduces through the constant identity D_0 + D_3 - 2 D_4 = 4 m^2 = 9.6,
+/// against invariants of 1e6: the identity cancels its pinches by about s/K.
+/// The bridge's binary64 embedder accepts it at its first pass, 2e-10 off the
+/// integral of its inputs; MadLoop's P-wave sum amplifies that by about 1e8.
+/// With `relation_tiers` the lane goes to the double-double tier (inputs
+/// declared binary64, so the relation still holds there): within 1e-15 of
+/// 512 bits. A lane reduced without a relation keeps its binary64 route.
+#[test]
+fn relation_tiers_take_affine_relation_lanes_to_double_double() {
+    use iregi_rust::{Convention, EmbedderOptions, InvariantInput, LaneRoute, ScaleInput, TensorWeights};
+    let settings = |n: usize, rank: u16| {
+        let mut s = ReductionSettings::new(n, rank);
+        s.convention = Convention::MadLoop;
+        s.tensor_weights = TensorWeights::Components;
+        s.invariants = InvariantInput::SuppliedInvariants;
+        s.scale_input = ScaleInput::MuSquared;
+        s
+    };
+    let real = |bits: u64| Complex::new(f64::from_bits(bits), 0.0);
+    // Shifts, the upper triangle of the supplied invariants, masses^2, mu^2.
+    let pentagon: Vec<Complex<f64>> = [
+        0x0000000000000000u64, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000,
+        0x407f400000000001, 0x0000000000000000, 0x0000000000000000, 0x407f400000000001,
+        0x408f400000000001, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000,
+        0x407f4013ae685db8, 0xc0608e55f47bd8ca, 0x4054a9a3ee72991b, 0xc07daff1547d55d3,
+        0x406f4013ae685db8, 0xc0508e55f47bd8ca, 0x4044a9a3ee72991b, 0xc06daff1547d55d3,
+        0x0000000000000000, 0x412e848000000002, 0x40233851eb850000, 0x40033851eb851eb9, 0x0000000000000000,
+        0xc12dc11f3a183d27, 0xc11dc128d64132e9, 0x0000000000000000, 0x411e847663d70a3f, 0x40033851eb851eb9,
+        0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x40033851eb851eb9,
+        0x412e848000000000,
+    ]
+    .iter()
+    .map(|&b| real(b))
+    .collect();
+    let mut powered = settings(5, 4);
+    powered.powers[4] = 2;
+    let (status, exact) = direct_with_inputs(512, powered.clone(), &pentagon, Some(53));
+    assert_eq!(status, LaneStatus::Success, "512 bits with binary64 inputs");
+    let exact = to_f64(&exact);
+    let embedded = |settings: ReductionSettings, lane: &[Complex<f64>], relation_tiers: bool| {
+        let plan = TensorReductionPlan::new(settings).unwrap();
+        let options = EmbedderOptions {
+            method_choice: false,
+            precision_tiers: true,
+            tier_margin_bits: 0,
+            double_double_headroom_bits: 26,
+            relation_tiers,
+            ..EmbedderOptions::default()
+        };
+        let mut workspace = TensorWorkspace::new_embedded(&plan, 0.0f64, options).unwrap();
+        let result = workspace.reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: lane.to_vec() }).unwrap();
+        let route = workspace.last_lane_routes().unwrap()[0];
+        (result.statuses[0].clone(), route, result.lane(0).map(<[_]>::to_vec).unwrap_or_default())
+    };
+    let (status, route, values) = embedded(powered.clone(), &pentagon, false);
+    assert_eq!((status, route), (LaneStatus::Success, LaneRoute::Direct), "without relation_tiers");
+    let ea = relative_difference(&values, &exact);
+    assert!(ea >= 1e-11, "without relation_tiers: E/A {ea:e}, expected the binary64 cancellation");
+    let (status, route, values) = embedded(powered, &pentagon, true);
+    assert_eq!((status, route), (LaneStatus::Success, LaneRoute::Tier(106)), "with relation_tiers");
+    let ea = relative_difference(&values, &exact);
+    assert!(ea <= 1e-15, "with relation_tiers: E/A {ea:e} against 512 bits");
+    // No relation: a generic triangle keeps its first pass.
+    let triangle = coulomb_lane(&[[0.0; 4], [3.0, 1.0, -1.0, 2.0], [-2.0, 0.5, 1.0, -1.0]], &[1.0, 4.0, 0.0], 3.0);
+    let plan = TensorReductionPlan::new(ReductionSettings::new(3, 2)).unwrap();
+    let options = EmbedderOptions { method_choice: false, precision_tiers: true, relation_tiers: true, ..EmbedderOptions::default() };
+    let mut workspace = TensorWorkspace::new_embedded(&plan, 0.0f64, options).unwrap();
+    let result = workspace.reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: triangle }).unwrap();
+    assert_eq!(result.statuses[0], LaneStatus::Success);
+    assert_eq!(workspace.last_lane_routes().unwrap()[0], LaneRoute::Direct, "a lane without a relation");
+}

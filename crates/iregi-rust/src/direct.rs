@@ -470,6 +470,13 @@ where
     pub fn last_estimate_lanes(&self) -> &[bool] {
         self.executor.last_estimate_lanes()
     }
+
+    /// Per lane of the most recent call: its reduction takes an affine
+    /// relation (a constant identity, or a partial fraction of linearly
+    /// dependent propagators).
+    pub(crate) fn last_relation_lanes(&self) -> &[bool] {
+        self.executor.last_relation_lanes()
+    }
 }
 
 #[cfg(test)]

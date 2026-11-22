@@ -303,6 +303,10 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     /// Per lane of the most recent call: some box or triangle exceeds the a
     /// priori estimate (`estimate_flags` only).
     lane_estimate: Vec<bool>,
+    /// Per lane of the most recent call: the lane's plan variant reduces some
+    /// subset by an affine relation (a constant identity or a partial
+    /// fraction of linearly dependent propagators).
+    lane_relation: Vec<bool>,
     /// `8 * 2^-precision`: a squared distance below this multiple of its
     /// sum of squared components is zero within its own rounding.
     rounding: T,
@@ -331,6 +335,7 @@ pub(crate) struct CallRecord {
     conditions: Vec<Option<f64>>,
     gram: Vec<bool>,
     estimate: Vec<bool>,
+    relation: Vec<bool>,
     profile: DirectProfile,
     master_rows: usize,
 }
@@ -532,6 +537,7 @@ where
             lane_conditions: Vec::new(),
             lane_gram: Vec::new(),
             lane_estimate: Vec::new(),
+            lane_relation: Vec::new(),
             rounding: {
                 let half = prototype.one() / &prototype.from_usize(2);
                 (0..prototype.get_precision()).fold(prototype.from_usize(8), |acc, _| acc * &half)
@@ -610,6 +616,7 @@ where
             conditions: std::mem::take(&mut self.lane_conditions),
             gram: std::mem::take(&mut self.lane_gram),
             estimate: std::mem::take(&mut self.lane_estimate),
+            relation: std::mem::take(&mut self.lane_relation),
             profile: self.profile,
             master_rows: self.master_rows,
         }
@@ -621,6 +628,7 @@ where
         self.lane_conditions = first.conditions;
         self.lane_gram = first.gram;
         self.lane_estimate = first.estimate;
+        self.lane_relation = first.relation;
         self.master_rows += first.master_rows;
         let (a, b) = (&mut self.profile, first.profile);
         a.geometry += b.geometry;
@@ -651,6 +659,10 @@ where
 
     pub(crate) fn last_estimate_lanes(&self) -> &[bool] {
         &self.lane_estimate
+    }
+
+    pub(crate) fn last_relation_lanes(&self) -> &[bool] {
+        &self.lane_relation
     }
 
     fn timer(&self) -> Option<Instant> {
@@ -4532,6 +4544,8 @@ where
         self.lane_gram.resize(batch.rows, false);
         self.lane_estimate.clear();
         self.lane_estimate.resize(batch.rows, false);
+        self.lane_relation.clear();
+        self.lane_relation.resize(batch.rows, false);
         for row in 0..batch.rows {
             let lane_values = values.len();
             values.resize(lane_values + basis_len * 4, self.zero.clone());
@@ -4634,6 +4648,7 @@ where
                 }
             };
             self.lane_estimate[row] = self.estimate_tripped;
+            self.lane_relation[row] = !self.relation_profile.is_empty() || !self.homogeneous_profile.is_empty();
             if let Some(error) = failure {
                 self.lane_conditions[row] = self.failed_condition;
                 statuses.push(LaneStatus::Unstable(error));
