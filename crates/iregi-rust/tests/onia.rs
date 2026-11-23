@@ -2493,3 +2493,95 @@ fn linearly_dependent_sets_without_a_common_member_return() {
     let (status, _) = direct_lanes_with(settings, &lane);
     assert!(matches!(status, LaneStatus::Unstable(_)), "{status:?}");
 }
+
+/// The pole slots of the two-dotted lanes' tensors (onia-two-dotted.json),
+/// which `two_dotted_lanes_match_their_reference_and_their_relabelling`
+/// references only in their scalar components. A numerator factor
+/// D_i = q^2 + 2 q.p_i + p_i^2 - m_i^2 cancels a power of line i:
+///   sum_mu eta_mu M(e + 2 e_mu) + 2 sum_mu eta_mu p_i^mu M(e + e_mu)
+///     + (p_i^2 - m_i^2) M(e) = M'(e),  |e| <= R - 2,
+/// with M' the lane with line i's power lowered (a pinch at power 1). The
+/// (D - 4)-dimensional part of q^2 adds finite rational terms only, so the
+/// UV and IR slots satisfy it exactly. For a doubled line M' is the
+/// single-dotted array (one jet variable); otherwise it is a smaller
+/// two-dotted integral. At 256 bits, inputs declared binary64. Measured:
+/// 1e-10 of the pole slots' scale at most, 4e-15 on e+ e- > chic0 hc
+/// (against the larger of both sides' scales: a pinch may have no poles).
+#[test]
+fn two_dotted_pole_slots_satisfy_the_cancellation_identity() {
+    use iregi_rust::{InvariantInput, ScaleInput, basis::tensor_basis};
+    let fixture: Value = serde_json::from_str(include_str!("fixtures/onia-two-dotted.json")).unwrap();
+    let parse = |v: &Value| v.as_str().unwrap().parse::<f64>().unwrap();
+    let eta = [1.0, -1.0, -1.0, -1.0];
+    let mut relations = 0;
+    for case in fixture["cases"].as_array().unwrap() {
+        let label = case["label"].as_str().unwrap();
+        let shifts: Vec<[f64; 4]> = case["shifts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|q| std::array::from_fn(|a| parse(&q.as_array().unwrap()[a])))
+            .collect();
+        let invariants: Vec<f64> = case["invariants"].as_array().unwrap().iter().map(parse).collect();
+        let masses: Vec<f64> = case["masses_squared"].as_array().unwrap().iter().map(parse).collect();
+        let powers: Vec<u16> = case["powers"].as_array().unwrap().iter().map(|p| p.as_u64().unwrap() as u16).collect();
+        let mu2 = parse(&case["mu_squared"]);
+        let (n, rank) = (masses.len(), case["rank"].as_u64().unwrap() as u16);
+        // The lane of `lines` (the same routing) with `powers` at `rank`.
+        let run = |lines: &[usize], powers: Vec<u16>, rank: u16| {
+            let m = lines.len();
+            let s: Vec<[f64; 4]> = lines.iter().map(|&k| shifts[k]).collect();
+            let ms: Vec<f64> = lines.iter().map(|&k| masses[k]).collect();
+            let mut inv = vec![0.0; m * m];
+            for a in 0..m {
+                for b in 0..m {
+                    inv[a + m * b] = invariants[lines[a] + n * lines[b]];
+                }
+            }
+            let mut settings = ReductionSettings::new(m, rank);
+            settings.invariants = InvariantInput::SuppliedInvariants;
+            settings.scale_input = ScaleInput::MuSquared;
+            settings.powers = powers;
+            let (status, values) = direct_with_inputs(256, settings, &supplied_lane(&s, &inv, &ms, mu2), Some(53));
+            assert_eq!(status, LaneStatus::Success, "{label}: lines {lines:?}");
+            to_f64(&values)
+        };
+        let all: Vec<usize> = (0..n).collect();
+        let lhs = run(&all, powers.clone(), rank);
+        // The size of the lane's own pole slots (a pinch may have none).
+        let lhs_scale = lhs.chunks(4).flat_map(|z| z[..3].iter()).map(|z| z.re.hypot(z.im)).fold(0.0f64, f64::max);
+        let basis = tensor_basis(rank);
+        let index = |e: [u16; 4]| basis.iter().position(|m| m.0 == e).unwrap();
+        for i in 0..n {
+            let rhs = if powers[i] > 1 {
+                let mut lower = powers.clone();
+                lower[i] -= 1;
+                run(&all, lower, rank - 2)
+            } else {
+                let keep: Vec<usize> = all.iter().copied().filter(|&k| k != i).collect();
+                run(&keep, keep.iter().map(|&k| powers[k]).collect(), rank - 2)
+            };
+            let p = shifts[i];
+            let p2: f64 = (0..4).map(|mu| eta[mu] * p[mu] * p[mu]).sum();
+            let (mut worst, mut scale) = (0.0f64, 0.0f64);
+            for (k, m) in tensor_basis(rank - 2).iter().enumerate() {
+                for slot in 0..3 {
+                    let mut acc = lhs[4 * index(m.0) + slot] * Complex::new(p2 - masses[i], 0.0);
+                    for mu in 0..4 {
+                        let (mut e2, mut e1) = (m.0, m.0);
+                        e2[mu] += 2;
+                        e1[mu] += 1;
+                        acc = acc + lhs[4 * index(e2) + slot] * Complex::new(eta[mu], 0.0);
+                        acc = acc + lhs[4 * index(e1) + slot] * Complex::new(2.0 * eta[mu] * p[mu], 0.0);
+                    }
+                    let r = rhs[4 * k + slot];
+                    worst = worst.max((acc.re - r.re).hypot(acc.im - r.im));
+                    scale = scale.max(r.re.hypot(r.im));
+                }
+            }
+            assert!(worst <= 1e-9 * scale.max(lhs_scale), "{label}, line {i}: pole slots {worst:e} off, scale {scale:e}");
+            relations += 1;
+        }
+    }
+    assert_eq!(relations, 224);
+}
