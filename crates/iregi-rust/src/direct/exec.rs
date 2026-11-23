@@ -2676,7 +2676,8 @@ where
             }
             // Taylor orders in the squared mass of the jet variable whose
             // propagator is a member. Mixed orders of two members (both
-            // lines jet variables) have no closed form here.
+            // lines jet variables) have a closed form here only when the
+            // bubble is scaleless.
             if let Some(jet) = plan.jet.as_ref() {
                 let inside: Vec<usize> =
                     (0..jet.variables.len()).filter(|&v| members.contains(&jet.variables[v].0)).collect();
@@ -2693,9 +2694,13 @@ where
                         }
                         self.lightlike_jets(local, &targets, entries, [&a, &b, &end], &l_values, &log_mu2)?;
                     }
+                    [v, u] if a_zero && b_zero => {
+                        let by_member = if jet.variables[v].0 == members[0] { [v, u] } else { [u, v] };
+                        self.scaleless_lightlike_jets(jet, by_member, entries);
+                    }
                     _ => {
                         return Err(format!(
-                            "lightlike bubble {members:?} with both lines differentiated (two jet variables)"
+                            "lightlike bubble {members:?} with massive lines, both differentiated (two jet variables)"
                         ));
                     }
                 }
@@ -2907,6 +2912,46 @@ where
             self.values_jet[targets[order - 1] - 1][index as usize] = value;
         }
         Ok(())
+    }
+
+    /// Every jet order of a scaleless lightlike bubble (both lines massless)
+    /// whose two lines are jet variables, `variables[i]` holding member
+    /// `i`'s line. The order `(j0, j1)` in those variables raises the lines
+    /// to `1 + j0` and `1 + j1`. The bubble stays scaleless: it vanishes, but
+    /// for the logarithmically divergent `j0 + j1 = lambda`, whose cancelling
+    /// poles `c (1/eps_UV - 1/eps_IR)` carry the massive case's UV residue
+    /// `c`, the order `(j0, j1)` of `C(lambda, k)`'s `normalization int x^k
+    /// (D + delta0 (1 - x) + delta1 x)^lambda`:
+    /// `c = (-1)^k (k + j1)! / (2^lambda j1! (k + lambda + 1)!)`
+    /// (`lambda!/(j0! j1!) int x^(k + j1) (1 - x)^j0`). With one digit zero
+    /// this is `lightlike_jets`' scaleless residue. Orders with a digit in
+    /// another variable vanish: the bubble does not depend on that mass.
+    fn scaleless_lightlike_jets(&mut self, jet: &Jet, variables: [usize; 2], entries: &[(u16, u16, u32)]) {
+        let prototype = self.prototype.clone();
+        let one = prototype.one();
+        let integer = |n: usize| prototype.from_usize(n);
+        let factorial = |n: usize| (1..=n).fold(one.clone(), |f, i| f * &integer(i));
+        for order in 1..jet.len {
+            let digits = jet.digits(order);
+            let own = digits.iter().enumerate().all(|(u, &digit)| digit == 0 || variables.contains(&u));
+            let (j0, j1) = (digits[variables[0]], digits[variables[1]]);
+            for &(lambda, k, index) in entries {
+                let (lambda, k) = (usize::from(lambda), usize::from(k));
+                let mut value = lzero(&self.zero);
+                if own && j0 + j1 == lambda {
+                    let mut residue = factorial(k + j1) / &(factorial(j1) * &factorial(k + lambda + 1));
+                    for _ in 0..lambda {
+                        residue = residue / &integer(2);
+                    }
+                    if k % 2 == 1 {
+                        residue = -residue;
+                    }
+                    value[1] = C::new(-residue.clone(), prototype.zero());
+                    value[0] = C::new(residue, prototype.zero());
+                }
+                self.values_jet[order - 1][index as usize] = value;
+            }
+        }
     }
 
     /// `N[m - 1][n] = int_0^1 x^n (a + b x)^-m` for `1 <= m <= m_max` and

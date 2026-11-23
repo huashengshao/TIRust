@@ -370,6 +370,11 @@ order is a multi-index in a box, closed under the recurrences' products.
   raised member's Taylor length grows by that power.
 - **One variable** is the former single jet, whose paths are unchanged (the
   previously served e+ e- calls are bit for bit those MadLoop recorded).
+- **Scaleless lightlike bubbles.** Two doubled gluon lines with a lightlike
+  difference (g g > chi_c0 chi_c0 at rank 6: a massless box and pentagons)
+  form a scaleless bubble with both lines differentiated. Its orders vanish
+  but for the logarithmically divergent ones, whose cancelling UV and IR
+  poles carry the massive case's UV residue.
 
 On onia_loop's fixtures every call TIRust refused is served, in both passes:
 53 per e+ e- point and pass (46 with two doubled lines) and 667 per g g pass
@@ -385,10 +390,20 @@ On onia_loop's fixtures every call TIRust refused is served, in both passes:
   thresholds to their rounding) with a reference from exact partial fractions
   down to integrals without dependent subsets, from quad IREGI. IREGI's direct
   value is wrong on six of these lanes (mre/, item 5).
+- **Exact identities.** The 50 lanes' tensors satisfy the cancellation
+  identity (a numerator `D_i` lowers line `i`) in their pole slots. For the
+  scaleless bubbles (no reference evaluates them), the massless box and
+  pentagon also satisfy `2 q.(p_i - p_j) = D_i - D_j + const` in every slot,
+  and the bubble alone with powers (2, 2) and (2, 3) both identities in
+  every slot, to 4e-16. The cancellation identity's single pole and finite
+  part miss the `(-2 eps)`-dimensional part of `q^2`, which has a single
+  pole when a doubled massless line lies between an on-shell heavy leg and
+  a lightlike one (the same pentagon with only that line doubled, one jet
+  variable, misses by 9%).
 
 **Limits.**
-- A lightlike bubble whose two lines are both jet variables has no closed
-  form here: refused (typed).
+- A lightlike bubble with a massive line, whose two lines are both jet
+  variables, has no closed form here: refused (typed).
 - At rank 0 a Coulomb triangle or box is only a scalar master, with no
   Gram check to detect the linear dependence. On exact inputs oneloopmaster
   returns a nonfinite master and the lane is refused (typed); the facade

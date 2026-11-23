@@ -2585,3 +2585,217 @@ fn two_dotted_pole_slots_satisfy_the_cancellation_identity() {
     }
     assert_eq!(relations, 224);
 }
+
+/// Two doubled gluon lines with a lightlike difference: a scaleless bubble
+/// whose two lines are both jet variables (g g > chic0 chic0 at 20 GeV,
+/// MadLoop's binary64 lanes at rank 6: a massless box with powers
+/// (1, 1, 2, 2) and a pentagon with one heavy line, (1, 1, 1, 2, 2); TIRust
+/// refused both before), and that bubble alone with powers (2, 2) and
+/// (2, 3). The box and pentagon read only orders of the bubble that vanish
+/// (not logarithmically divergent): doubling the residue of the others
+/// leaves them bit-identical. The bubbles alone read that residue.
+///
+/// No reference evaluates these tensors. At 256 bits, inputs declared
+/// binary64, they are checked against binary64, against themselves with
+/// their lines reversed, and against smaller integrals by two exact
+/// identities:
+/// - `2 q.(p_i - p_j) = D_i - D_j - (p_i^2 - m_i^2) + (p_j^2 - m_j^2)`, in
+///   every slot (`q.p` has no `(-2 eps)`-dimensional part), for every pair of
+///   lines and the components up to rank 5. For the two doubled lines, the
+///   smaller integrals have one doubled line;
+/// - the cancellation identity of
+///   `two_dotted_pole_slots_satisfy_the_cancellation_identity` (`q^2` from
+///   the four-dimensional components), up to rank 4, in the UV and double
+///   pole slots, and in every slot for the bubbles alone. The `(-2 eps)`-
+///   dimensional part of `q^2` adds the same tensor to every line's identity;
+///   it vanishes for a scaleless bubble. When a doubled massless line lies
+///   between an on-shell heavy leg and a lightlike one (the pentagon's line
+///   3), its soft region gives it a single pole: the pentagon with only that
+///   line doubled, one jet variable, misses the identity by 9% in that slot,
+///   as this pentagon does by 8%.
+///
+/// The box and pentagon are UV finite (`4 + 6 - 2 sum nu < 0`): their UV slot
+/// vanishes. Measured: binary64 8.1e-10 from 256 bits (the pentagon; the
+/// others 1.3e-14 at most); identities 3.7e-16 of their terms at most;
+/// reversed lines 2e-74.
+#[test]
+fn two_doubled_lines_of_a_scaleless_bubble_satisfy_exact_identities() {
+    use iregi_rust::{InvariantInput, ScaleInput, basis::tensor_basis};
+    const BOX_S: [[u64; 4]; 4] = [
+        [0x0000000000000000, 0x0000000000000000, 0xc058fffffffffffe, 0x4058fffffffffffe],
+        [0x0000000000000000, 0x0000000000000000, 0x4058fffffffffffe, 0xc058fffffffffffe],
+        [0xc058fffffffffffe, 0x4058fffffffffffe, 0x0000000000000000, 0x0000000000000000],
+        [0x4058fffffffffffe, 0xc058fffffffffffe, 0x0000000000000000, 0x0000000000000000],
+    ];
+    const BOX_P: [[u64; 4]; 4] = [
+        [0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000],
+        [0x4023ffffffffffff, 0x0000000000000000, 0x0000000000000000, 0x4023ffffffffffff],
+        [0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x4023ffffffffffff],
+        [0x4023ffffffffffff, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000],
+    ];
+    const PENTAGON_M2: [u64; 5] = [0, 0, 0x40033851eb851eb9, 0, 0];
+    const PENTAGON_S: [[u64; 5]; 5] = [
+        [0x0000000000000000, 0x0000000000000000, 0xc0609be8cd135c43, 0xc058fffffffffffe, 0x4058fffffffffffe],
+        [0x0000000000000000, 0x0000000000000000, 0x40033851eb851eb9, 0x4058fffffffffffe, 0xc058fffffffffffe],
+        [0xc0609be8cd135c43, 0x40033851eb851eb9, 0x0000000000000000, 0x40033851eb851eb9, 0xc0609be8cd135c43],
+        [0xc058fffffffffffe, 0x4058fffffffffffe, 0x40033851eb851eb9, 0x0000000000000000, 0x0000000000000000],
+        [0x4058fffffffffffe, 0xc058fffffffffffe, 0xc0609be8cd135c43, 0x0000000000000000, 0x0000000000000000],
+    ];
+    const PENTAGON_P: [[u64; 4]; 5] = [
+        [0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000],
+        [0x4023ffffffffffff, 0x0000000000000000, 0x0000000000000000, 0x4023ffffffffffff],
+        [0x4013ffffffffffff, 0xc00e2fb56247673b, 0x4002541aee163b5a, 0x40278708109ac098],
+        [0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x4023ffffffffffff],
+        [0x4023ffffffffffff, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000],
+    ];
+    const MU2: u64 = 0x4079000000000000;
+    let f = f64::from_bits;
+    let eta = [1.0, -1.0, -1.0, -1.0];
+    let rank = 6u16;
+    let norm = |z: Complex<f64>| z.re.hypot(z.im);
+    let square = |p: [f64; 4]| (0..4).map(|mu| eta[mu] * p[mu] * p[mu]).sum::<f64>();
+    let box_shifts: Vec<[f64; 4]> = BOX_P.iter().map(|q| q.map(f)).collect();
+    // (label, powers, squared masses, invariants, shifts)
+    let cases: [(&str, Vec<u16>, Vec<f64>, Vec<f64>, Vec<[f64; 4]>); 4] = [
+        ("box", vec![1, 1, 2, 2], vec![0.0; 4], BOX_S.iter().flatten().map(|&x| f(x)).collect(), box_shifts.clone()),
+        (
+            "pentagon",
+            vec![1, 1, 1, 2, 2],
+            PENTAGON_M2.map(f).to_vec(),
+            PENTAGON_S.iter().flatten().map(|&x| f(x)).collect(),
+            PENTAGON_P.iter().map(|q| q.map(f)).collect(),
+        ),
+        ("bubble (2, 2)", vec![2, 2], vec![0.0; 2], vec![0.0; 4], vec![box_shifts[2], box_shifts[3]]),
+        ("bubble (2, 3)", vec![2, 3], vec![0.0; 2], vec![0.0; 4], vec![box_shifts[2], box_shifts[3]]),
+    ];
+    let (mut relations, mut measured) = (0, [0.0f64; 3]);
+    for (label, powers, masses, invariants, shifts) in &cases {
+        let n = masses.len();
+        // The settings and lane of `lines` (the same routing) with `powers`
+        // at `rank`.
+        let input = |lines: &[usize], powers: Vec<u16>, rank: u16| {
+            let m = lines.len();
+            let s: Vec<[f64; 4]> = lines.iter().map(|&k| shifts[k]).collect();
+            let ms: Vec<f64> = lines.iter().map(|&k| masses[k]).collect();
+            let mut inv = vec![0.0; m * m];
+            for a in 0..m {
+                for b in 0..m {
+                    inv[a + m * b] = invariants[lines[a] + n * lines[b]];
+                }
+            }
+            let mut settings = ReductionSettings::new(m, rank);
+            settings.invariants = InvariantInput::SuppliedInvariants;
+            settings.scale_input = ScaleInput::MuSquared;
+            settings.powers = powers;
+            (settings, supplied_lane(&s, &inv, &ms, f(MU2)))
+        };
+        let run = |lines: &[usize], powers: Vec<u16>, rank: u16| {
+            let (settings, lane) = input(lines, powers, rank);
+            let (status, values) = direct_with_inputs(256, settings, &lane, Some(53));
+            assert_eq!(status, LaneStatus::Success, "{label}: lines {lines:?}");
+            to_f64(&values)
+        };
+        let all: Vec<usize> = (0..n).collect();
+        // The lane with line `i` lowered by one power (dropped at power 1).
+        let lowered = |i: usize, rank: u16| {
+            if powers[i] > 1 {
+                let mut lower = powers.clone();
+                lower[i] -= 1;
+                run(&all, lower, rank)
+            } else {
+                let keep: Vec<usize> = all.iter().copied().filter(|&k| k != i).collect();
+                run(&keep, keep.iter().map(|&k| powers[k]).collect(), rank)
+            }
+        };
+        let full = run(&all, powers.clone(), rank);
+        let scale = full.iter().map(|&z| norm(z)).fold(0.0f64, f64::max);
+        let (settings, lane) = input(&all, powers.clone(), rank);
+        let (status, binary64) = direct_lanes_with(settings, &lane);
+        assert_eq!(status, LaneStatus::Success, "{label}: binary64");
+        let ea = relative_difference(&binary64, &full);
+        assert!(ea <= 1e-8, "{label}: binary64 {ea:e} from 256 bits");
+        let bubble = n == 2;
+        if !bubble {
+            let uv = full.chunks(4).map(|z| norm(z[0])).fold(0.0f64, f64::max);
+            assert!(uv <= 1e-30 * scale, "{label}: UV slot {uv:e} of a UV-finite integral");
+        }
+        let basis = tensor_basis(rank);
+        let index = |e: [u16; 4]| basis.iter().position(|m| m.0 == e).unwrap();
+        // 2 q.(p_i - p_j).
+        let reduced: Vec<Vec<Complex<f64>>> = (0..n).map(|i| lowered(i, rank - 1)).collect();
+        for i in 0..n {
+            for j in i + 1..n {
+                let d: [f64; 4] = std::array::from_fn(|mu| shifts[i][mu] - shifts[j][mu]);
+                let delta = square(shifts[i]) - masses[i] - square(shifts[j]) + masses[j];
+                for slot in 0..4 {
+                    let (mut worst, mut terms_scale) = (0.0f64, 0.0f64);
+                    for (k, m) in tensor_basis(rank - 1).iter().enumerate() {
+                        let mut terms = vec![
+                            reduced[i][4 * k + slot],
+                            -reduced[j][4 * k + slot],
+                            -full[4 * index(m.0) + slot] * Complex::new(delta, 0.0),
+                        ];
+                        for mu in 0..4 {
+                            let mut e = m.0;
+                            e[mu] += 1;
+                            terms.push(full[4 * index(e) + slot] * Complex::new(-2.0 * eta[mu] * d[mu], 0.0));
+                        }
+                        let sum = terms.iter().fold(Complex::new(0.0, 0.0), |a, &t| a + t);
+                        worst = worst.max(norm(sum));
+                        terms_scale = terms.iter().fold(terms_scale, |s, &t| s.max(norm(t)));
+                    }
+                    assert!(
+                        worst <= 1e-9 * terms_scale,
+                        "{label}, lines {i}, {j}, slot {slot}: {worst:e} off, terms {terms_scale:e}"
+                    );
+                    if terms_scale > 0.0 {
+                        measured[0] = measured[0].max(worst / terms_scale);
+                    }
+                }
+                relations += 1;
+            }
+        }
+        // q^2 = sum_mu eta_mu (q^mu)^2 + (-2 eps)-dimensional part.
+        let slots: &[usize] = if bubble { &[0, 1, 2, 3] } else { &[0, 2] };
+        for i in 0..n {
+            let rhs = lowered(i, rank - 2);
+            let p = shifts[i];
+            for &slot in slots {
+                let (mut worst, mut terms_scale) = (0.0f64, 0.0f64);
+                for (k, m) in tensor_basis(rank - 2).iter().enumerate() {
+                    let mut terms = vec![
+                        full[4 * index(m.0) + slot] * Complex::new(square(p) - masses[i], 0.0),
+                        -rhs[4 * k + slot],
+                    ];
+                    for mu in 0..4 {
+                        let (mut e2, mut e1) = (m.0, m.0);
+                        e2[mu] += 2;
+                        e1[mu] += 1;
+                        terms.push(full[4 * index(e2) + slot] * Complex::new(eta[mu], 0.0));
+                        terms.push(full[4 * index(e1) + slot] * Complex::new(2.0 * eta[mu] * p[mu], 0.0));
+                    }
+                    let sum = terms.iter().fold(Complex::new(0.0, 0.0), |a, &t| a + t);
+                    worst = worst.max(norm(sum));
+                    terms_scale = terms.iter().fold(terms_scale, |s, &t| s.max(norm(t)));
+                }
+                assert!(
+                    worst <= 1e-9 * terms_scale,
+                    "{label}, line {i}, slot {slot}: {worst:e} off, terms {terms_scale:e}"
+                );
+                if terms_scale > 0.0 {
+                    measured[1] = measured[1].max(worst / terms_scale);
+                }
+            }
+            relations += 1;
+        }
+        // The lines in reverse order.
+        let reversed: Vec<usize> = all.iter().rev().copied().collect();
+        let relabelled = run(&reversed, reversed.iter().map(|&k| powers[k]).collect(), rank);
+        let worst = full.iter().zip(&relabelled).map(|(&a, &b)| norm(a - b)).fold(0.0f64, f64::max);
+        assert!(worst <= 1e-12 * scale, "{label} reversed: {worst:e} off, scale {scale:e}");
+        measured[2] = measured[2].max(worst / scale);
+        eprintln!("{label}: binary64 {ea:e}");
+    }
+    eprintln!("identities and reversal: {measured:?}");
+    assert_eq!(relations, (6 + 4) + (10 + 5) + 2 * (1 + 2));
+}
