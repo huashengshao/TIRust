@@ -1699,9 +1699,20 @@ where
         let shared = profile.iter().fold(SubsetMask::MAX, |mask, &(h, _)| mask & h);
         let powers = &self.base_plan.settings.powers;
         let dotted = members(shared).into_iter().find(|&d| powers[d] > 1);
-        if let Some(common) = dotted.or_else(|| members(shared).into_iter().next()) {
-            for entry in &mut profile {
-                entry.1 = common;
+        match dotted.or_else(|| members(shared).into_iter().next()) {
+            Some(common) => {
+                for entry in &mut profile {
+                    entry.1 = common;
+                }
+            }
+            // Each set raises its own member again: a member made common to
+            // the earlier sets may be massive, and is not shared by this one.
+            None => {
+                for entry in &mut profile {
+                    if let Some(own) = self.raised_member(entry.0) {
+                        entry.1 = own;
+                    }
+                }
             }
         }
         profile
@@ -4875,6 +4886,9 @@ where
             // hold here, restart from the base plan. Each affinely dependent
             // subset the geometry discovers switches to a relation variant.
             let mut failure = None;
+            // A relation that fails after the restart fails the lane: the
+            // restart would repeat the same profile.
+            let mut restarted = false;
             // The lane's plan, cloned once (an atomic increment and
             // decrement) and lent to every step below.
             let plan = loop {
@@ -4882,13 +4896,15 @@ where
                 match self.geometry(&plan) {
                     Ok(()) => break plan,
                     Err(GeometryFailure::Relation(error)) => {
-                        if self.relation_profile.is_empty()
-                            && self.lightlike_profile.is_empty()
-                            && self.homogeneous_profile.is_empty()
+                        if restarted
+                            || (self.relation_profile.is_empty()
+                                && self.lightlike_profile.is_empty()
+                                && self.homogeneous_profile.is_empty())
                         {
                             failure = Some(error);
                             break plan;
                         }
+                        restarted = true;
                         self.relation_profile.clear();
                         self.lightlike_profile.clear();
                         self.homogeneous_profile.clear();

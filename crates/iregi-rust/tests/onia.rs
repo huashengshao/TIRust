@@ -2451,3 +2451,45 @@ fn two_dotted_members_of_a_coulomb_triple_do_not_depend_on_their_labels() {
         }
     }
 }
+
+/// A g g > chic0 chic0 hexagon (unit powers, rank 4, MadLoop's binary64
+/// inputs at sqrt(s) = 20 GeV) with three linearly dependent sets, two of
+/// which share a heavy line that the third does not hold. 59aee45 raised
+/// the shared heavy line in the first two and kept it when the third came,
+/// so the geometry rejected the massive raised member, the lane restarted
+/// from the base plan, and it built the same profile again, forever. Each
+/// set now raises its own member again when no member is common to all,
+/// and a lane restarts at most once. The lane returns (refused, as on
+/// d17085a, where sets without a common member were refused).
+#[test]
+fn linearly_dependent_sets_without_a_common_member_return() {
+    use iregi_rust::{InvariantInput, ScaleInput};
+    const HANG_M2: [u64; 6] = [0x40033851eb851eb9, 0x40033851eb851eb9, 0x40033851eb851eb9, 0x0000000000000000, 0x40033851eb851eb9, 0x0000000000000000];
+    const HANG_S: [[u64; 6]; 6] = [
+        [0x0000000000000000, 0x0000000000000000, 0x4079000000000000, 0x40694ce147ae1479, 0x40233851eb851ec4, 0x40033851eb851eb9],
+        [0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0xc0609be8cd135c44, 0xc0704f07856547c8, 0xc0609be8cd135c43],
+        [0x4079000000000000, 0x0000000000000000, 0x0000000000000000, 0x40033851eb851eb9, 0x40233851eb851ed4, 0x40694ce147ae147b],
+        [0x40694ce147ae1479, 0xc0609be8cd135c44, 0x40033851eb851eb9, 0x0000000000000000, 0x40033851eb851eb9, 0x4059000000000000],
+        [0x40233851eb851ec4, 0xc0704f07856547c8, 0x40233851eb851ed4, 0x40033851eb851eb9, 0x0000000000000000, 0x40033851eb851eb9],
+        [0x40033851eb851eb9, 0xc0609be8cd135c43, 0x40694ce147ae147b, 0x4059000000000000, 0x40033851eb851eb9, 0x0000000000000000],
+    ];
+    const HANG_P: [[u64; 4]; 6] = [
+        [0xbce0000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000],
+        [0x4023ffffffffffff, 0x0000000000000000, 0x0000000000000000, 0x4023ffffffffffff],
+        [0x4033ffffffffffff, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000],
+        [0x402dfffffffffffe, 0x400e2fb56247673b, 0xc002541aee163b5a, 0xbffc384084d604c8],
+        [0x4023fffffffffffe, 0x401e2fb56247673b, 0xc012541aee163b5a, 0xc00c384084d604c8],
+        [0x4013fffffffffffd, 0x400e2fb56247673b, 0xc002541aee163b5a, 0xbffc384084d604c8],
+    ];
+    const HANG_MU2: u64 = 0x4079000000000000;
+    let f = f64::from_bits;
+    let shifts: Vec<[f64; 4]> = HANG_P.iter().map(|q| q.map(f)).collect();
+    let invariants: Vec<f64> = (0..36).map(|k| f(HANG_S[k % 6][k / 6])).collect();
+    let masses: Vec<f64> = HANG_M2.iter().map(|&m| f(m)).collect();
+    let lane = supplied_lane(&shifts, &invariants, &masses, f(HANG_MU2));
+    let mut settings = ReductionSettings::new(6, 4);
+    settings.invariants = InvariantInput::SuppliedInvariants;
+    settings.scale_input = ScaleInput::MuSquared;
+    let (status, _) = direct_lanes_with(settings, &lane);
+    assert!(matches!(status, LaneStatus::Unstable(_)), "{status:?}");
+}
