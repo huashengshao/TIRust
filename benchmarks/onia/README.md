@@ -353,10 +353,42 @@ that hi + lo resolves is therefore not taken as v = 0. A Coulomb triangle
 512 bits on the same inputs. Lanes whose low words are all zero are reduced
 exactly as without them.
 
+**Two P-wave states.** A virtual with two P-wave bound states (onia_loop's
+e+ e- > chi_c0 h_c and g g > chi_c0 chi_c0) differentiates in both relative
+momenta, so its integrals have two doubled lines, and a doubled line can lie
+outside a Coulomb triple, whose partial fraction raises another member. The
+direct engine's mass-derivative jets now have one Taylor variable per dotted
+line and per raised member of a linearly dependent set (at most four); an
+order is a multi-index in a box, closed under the recurrences' products.
+- **Geometry.** Every mass-dependent entry is linear in the squared masses
+  or solves a system linear in them, so its orders are those of one
+  variable, summed over the variables an order lowers.
+- **Masters.** Their orders are the scalar IBP's integrals with those powers.
+- **Two dotted members of one linearly dependent set.** The partial
+  fraction raising one keeps the other's line: its term is the set's own
+  order with a power moved to the raised member, evaluated first. The
+  raised member's Taylor length grows by that power.
+- **One variable** is the former single jet, whose paths are unchanged (the
+  previously served e+ e- calls are bit for bit those MadLoop recorded).
+
+On onia_loop's fixtures every call TIRust refused is served, in both passes:
+53 per e+ e- point and pass (46 with two doubled lines) and 667 per g g pass
+(634). Validation:
+- **Generic massive lines.** Against the mass derivative of the same
+  integral with one line fewer doubled, at 512 bits (central difference with
+  a Richardson step), to 1e-30, and in binary64 to 1e-8.
+- **Exact inputs.** Two dotted members of a Coulomb triple (box and
+  pentagon) give the same array at 512 bits, to 1e-60, when the lines are
+  reversed, which raises the other member.
+- **MadLoop's lanes.** The scalar components of 50 refused lanes agree to
+  2.3e-9 (binary64 and 256 bits alike: MadLoop's invariants hold the
+  thresholds to their rounding) with a reference from exact partial fractions
+  down to integrals without dependent subsets, from quad IREGI. IREGI's direct
+  value is wrong on six of these lanes (mre/, item 5).
+
 **Limits.**
-- A doubled line outside the Coulomb triple (24 of the coverage scan's
-  P-wave lanes) would need two raised lines, which the single-line jets do
-  not hold: refused (typed).
+- A lightlike bubble whose two lines are both jet variables has no closed
+  form here: refused (typed).
 - At rank 0 a Coulomb triangle or box is only a scalar master, with no
   Gram check to detect the linear dependence. On exact inputs oneloopmaster
   returns a nonfinite master and the lane is refused (typed); the facade
@@ -905,6 +937,15 @@ and the S-wave lanes whose reduction reaches one:
   and 5e-15: IREGI's invariants agree with the supplied ones only to their
   rounding). On IREGI's own binary128 inputs it must agree to 1e-15
   (measured 1.1e-16, quad IREGI's floor).
+- `tests/fixtures/onia-two-dotted.json` (`make_two_dotted_fixture.py`): 50
+  lanes of onia_loop's two-P-wave outputs (e+ e- > chi_c0 h_c,
+  g g > chi_c0 chi_c0) that TIRust refused before, at MadLoop's rank. The
+  reference is their scalar, from exact partial fractions of the lanes'
+  linearly dependent subsets down to integrals without one, from quad IREGI
+  with its heavy pairs exactly on threshold. TIRust's scalar components must
+  agree to 1e-8 in binary64 and at 256 bits (measured 2.3e-9 at both), and
+  the whole array must agree with the reversed lines to 1e-8 (measured
+  8.6e-10: the inputs' consistency).
 - `tests/fixtures/onia-lightlike-powers.json`
   (`make_lightlike_powers_fixture.py`): scalars of the equal-mass bubble at
   p^2 = 0 with one line raised to the third or fourth power, and of a
@@ -942,6 +983,11 @@ The test file's other cases need no fixture:
   translated by 2^-60 (2.1e-32 from 512 bits at 106-bit inputs, where binary64
   inputs lose 7.5e-19) and 2^-80 off threshold (refused at 106 bits, the
   v = 0 value at 64 bits), with zero low words bit-identical;
+- two doubled lines and doubled lines outside a Coulomb triple: a generic
+  box and pentagon, and a Coulomb box and pentagon, against the mass
+  derivative of the integral with one line fewer doubled at 512 bits
+  (1e-30), and two dotted members of a Coulomb triple on exact inputs
+  against the reversed lines (1e-60 at 512 bits);
 - the doubled Coulomb gluon in two pentagons of g g > chi_c0 g (rank 5,
   MadLoop's binary64 invariants), whose IBP reaches lightlike equal-mass
   bubbles at total power 4, against the same lanes with those pairs moved
@@ -969,6 +1015,7 @@ The test file's other cases need no fixture:
 | `make_two_onium_box_fixture.py` | the two-onium box fixture (quad IREGI, pairs exactly on threshold) |
 | `make_lightlike_powers_fixture.py` | the lightlike equal-mass bubbles with higher powers (quad IREGI scalars with powers) |
 | `make_double_coulomb_fixture.py` | the double-Coulomb pentagon fixture (quad IREGI, both onia exactly on threshold) |
+| `make_two_dotted_fixture.py` | the two-P-wave fixture (exact partial fractions to regular integrals, quad IREGI scalars with powers) |
 | `merge_swave.py` | concatenates onia_swave outputs over point ranges |
 | `crates/iregi-prepare/examples/onia_diagrams.rs` | FeynKit diagram generation (DOT files) |
 | `crates/iregi-prepare/examples/onia_swave.rs` | S-wave projection and numerator coefficients per point and polarization |

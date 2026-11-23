@@ -2212,3 +2212,242 @@ fn low_inputs_decide_thresholds_at_their_declared_precision() {
         assert!(workspace.reduce_batch_with_low_inputs(&batch(hi_t.clone()), &batch(lo_t.clone()), bits).is_err());
     }
 }
+
+/// The direct engine at 512 bits on one lane with `powers`.
+fn direct512_powers(n: usize, rank: u16, powers: &[u16], lane: &[Complex<f64>]) -> (LaneStatus, Vec<Complex<Float>>) {
+    let mut settings = ReductionSettings::new(n, rank);
+    settings.powers = powers.to_vec();
+    direct_with_inputs(512, settings, lane, None)
+}
+
+/// The mass derivative of the 512-bit lane with `powers`, in the squared
+/// mass of `line` (massive, and analytic there): a central difference with
+/// one Richardson step at `h = 2^-40 m^2`, exact binary64 offsets of the
+/// dyadic masses. That is the integral with `line`'s power raised by one,
+/// to about `h^4`.
+fn mass_derivative512(
+    shifts: &[[f64; 4]],
+    masses: &[f64],
+    mu: f64,
+    rank: u16,
+    powers: &[u16],
+    line: usize,
+) -> Vec<Complex<Float>> {
+    let n = shifts.len();
+    let at = |offset: f64| {
+        let mut moved = masses.to_vec();
+        moved[line] += offset;
+        let (status, values) = direct512_powers(n, rank, powers, &coulomb_lane(shifts, &moved, mu));
+        assert_eq!(status, LaneStatus::Success, "powers {powers:?}, m^2 offset {offset:e}");
+        values
+    };
+    let central = |h: f64| -> Vec<Complex<Float>> {
+        let (up, down) = (at(h), at(-h));
+        let scale = Float::with_val(512, 2.0 * h);
+        up.iter()
+            .zip(&down)
+            .map(|(a, b)| Complex::new((a.re.clone() - &b.re) / &scale, (a.im.clone() - &b.im) / &scale))
+            .collect()
+    };
+    let h = masses[line] * 2f64.powi(-40);
+    let (coarse, fine) = (central(h), central(h / 2.0));
+    let (four, three) = (Float::with_val(512, 4.0), Float::with_val(512, 3.0));
+    coarse
+        .iter()
+        .zip(&fine)
+        .map(|(c, f)| {
+            Complex::new((f.re.clone() * &four - &c.re) / &three, (f.im.clone() * &four - &c.im) / &three)
+        })
+        .collect()
+}
+
+/// Two P-wave states (onia_loop's two-P-wave virtuals): integrals with two
+/// doubled lines, and with a doubled line outside a Coulomb triple, whose
+/// jets have two or three Taylor variables (the dotted lines and the
+/// triple's raised gluon). Each against the mass derivative of the same
+/// integral with one line fewer doubled, at 512 bits, where that line is
+/// massive and outside every Coulomb triple; and in binary64.
+/// - A generic massive box and pentagon with two doubled lines.
+/// - A box of a Coulomb triple (Q, g, Qbar at threshold) and a massive line
+///   doubled outside it, against the unit-power box, which main reduces.
+/// - A pentagon of a Coulomb triple and two massive lines, one or both
+///   doubled: the first against the unit-power pentagon, the second against
+///   the first.
+#[test]
+fn two_doubled_lines_match_the_mass_derivative_of_one() {
+    let mu = 3.0;
+    let (k, q2, q3, q4) = ([3.0, 0.0, 0.0, 3.0], [3.0, 1.0, -1.0, 2.0], [-2.0, 0.5, 1.0, -1.0], [1.5, -1.0, 0.5, 0.25]);
+    let (kc, q1) = ([5.0, 0.0, 0.0, 4.0], [1.0, 2.0, -1.0, 0.5]);
+    let triple = [q1, plus(q1, kc, 1.0), plus(q1, kc, 2.0)];
+    let generic_box = vec![[0.0; 4], k, q2, q3];
+    let generic_pentagon = vec![[0.0; 4], k, q2, q3, q4];
+    let coulomb_box = vec![[0.0; 4], triple[0], triple[1], triple[2]];
+    let coulomb_pentagon = vec![[0.0; 4], triple[0], triple[1], triple[2], q4];
+    // (label, shifts, masses, powers, derivative line, ranks, binary64 E/A bound)
+    type Case = (&'static str, Vec<[f64; 4]>, Vec<f64>, Vec<u16>, usize, std::ops::RangeInclusive<u16>, f64);
+    let cases: Vec<Case> = vec![
+        ("generic box, lines 1 and 2", generic_box.clone(), vec![1.25, 2.0, 0.75, 1.5], vec![1, 2, 2, 1], 2, 0..=4, 1e-10),
+        ("generic box, lines 0 and 3", generic_box, vec![1.25, 2.0, 0.75, 1.5], vec![2, 1, 1, 2], 3, 0..=4, 1e-10),
+        ("generic pentagon, lines 1 and 3", generic_pentagon, vec![1.25, 2.0, 0.75, 1.5, 1.0], vec![1, 2, 1, 2, 1], 3, 0..=5, 1e-9),
+        ("Coulomb box, line 0 outside the triple", coulomb_box, vec![2.0, 9.0, 0.0, 9.0], vec![2, 1, 1, 1], 0, 1..=4, 1e-9),
+        ("Coulomb pentagon, line 4 outside", coulomb_pentagon.clone(), vec![2.0, 9.0, 0.0, 9.0, 1.5], vec![1, 1, 1, 1, 2], 4, 1..=5, 1e-8),
+        ("Coulomb pentagon, lines 0 and 4 outside", coulomb_pentagon, vec![2.0, 9.0, 0.0, 9.0, 1.5], vec![2, 1, 1, 1, 2], 0, 1..=5, 1e-8),
+    ];
+    for (label, shifts, masses, powers, line, ranks, bound) in cases {
+        let n = shifts.len();
+        let lane = coulomb_lane(&shifts, &masses, mu);
+        let mut lower = powers.clone();
+        lower[line] -= 1;
+        for rank in ranks {
+            let reference = mass_derivative512(&shifts, &masses, mu, rank, &lower, line);
+            let (status, values) = direct512_powers(n, rank, &powers, &lane);
+            assert_eq!(status, LaneStatus::Success, "{label}, rank {rank}, 512 bits");
+            let ea = relative_difference_float(&values, &reference);
+            assert!(ea <= 1e-30, "{label}, rank {rank}: 512 bits {ea:e} from d/dm^2");
+            let mut settings = ReductionSettings::new(n, rank);
+            settings.powers = powers.clone();
+            let (status, values) = direct_lanes_with(settings, &lane);
+            assert_eq!(status, LaneStatus::Success, "{label}, rank {rank}, binary64");
+            let ea = relative_difference(&values, &to_f64(&reference));
+            assert!(ea <= bound, "{label}, rank {rank}: binary64 {ea:e} from d/dm^2");
+        }
+    }
+}
+
+/// Two P-wave states at v = 0: MadLoop's lanes of e+ e- > chic0 hc and
+/// g g > chic0 chic0 (one per propagator count, rank, powers and massive
+/// lines) that TIRust refused before, two doubled lines or a doubled line
+/// outside a Coulomb triple (benchmarks/onia/make_two_dotted_fixture.py).
+/// - Their scalar components at MadLoop's rank, in binary64 and at 256 bits
+///   (inputs declared binary64), against the reference: exact partial
+///   fractions of the lane's linearly dependent subsets down to integrals
+///   without one, from original IREGI's quad scalars with powers. IREGI's
+///   direct value is wrong on six of these lanes (by 2.1e-6 to 5.6); its
+///   tensor API with powers stops on them. Measured: 2.3e-9 at both
+///   precisions, where MadLoop's supplied invariants and the reference's
+///   shifts differ by their rounding near threshold.
+/// - The whole array against that of the lines in reverse order, which
+///   raises the other dotted member of a linearly dependent set holding both
+///   and changes every origin: 8.6e-10 in binary64, 7.9e-10 at 256 bits, the
+///   same inputs' consistency (exact inputs:
+///   `two_dotted_members_of_a_coulomb_triple_do_not_depend_on_their_labels`).
+#[test]
+fn two_dotted_lanes_match_their_reference_and_their_relabelling() {
+    use iregi_rust::{InvariantInput, ScaleInput};
+    let fixture: Value = serde_json::from_str(include_str!("fixtures/onia-two-dotted.json")).unwrap();
+    let parse = |v: &Value| v.as_str().unwrap().parse::<f64>().unwrap();
+    let (mut largest, mut largest_wide, mut largest_relabelled, mut largest_relabelled_wide) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
+    for case in fixture["cases"].as_array().unwrap() {
+        let label = case["label"].as_str().unwrap();
+        let shifts: Vec<[f64; 4]> = case["shifts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|q| std::array::from_fn(|a| parse(&q.as_array().unwrap()[a])))
+            .collect();
+        let invariants: Vec<f64> = case["invariants"].as_array().unwrap().iter().map(parse).collect();
+        let masses: Vec<f64> = case["masses_squared"].as_array().unwrap().iter().map(parse).collect();
+        let powers: Vec<u16> = case["powers"].as_array().unwrap().iter().map(|p| p.as_u64().unwrap() as u16).collect();
+        let mu2 = parse(&case["mu_squared"]);
+        let reference: Vec<Complex<f64>> =
+            case["reference"][0].as_array().unwrap().iter().map(|z| Complex::new(parse(&z[0]), parse(&z[1]))).collect();
+        let n = masses.len();
+        let rank = case["rank"].as_u64().unwrap() as u16;
+        let settings_for = |powers: Vec<u16>| {
+            let mut settings = ReductionSettings::new(n, rank);
+            settings.invariants = InvariantInput::SuppliedInvariants;
+            settings.scale_input = ScaleInput::MuSquared;
+            settings.powers = powers;
+            settings
+        };
+        let settings = settings_for(powers.clone());
+        let lane = supplied_lane(&shifts, &invariants, &masses, mu2);
+        let binary64 = direct_lanes_with(settings.clone(), &lane);
+        // At 256 bits with the inputs declared binary64, as MadLoop's tiers.
+        let wide = direct_with_inputs(256, settings, &lane, Some(53));
+        for (what, (status, values)) in [("binary64", binary64.clone()), ("256 bits", (wide.0.clone(), to_f64(&wide.1)))] {
+            assert_eq!(status, LaneStatus::Success, "{label}, {what}");
+            let ea = relative_difference(&values[..4], &reference);
+            let worst = if what == "binary64" { &mut largest } else { &mut largest_wide };
+            *worst = worst.max(ea);
+            assert!(ea <= 1e-8, "{label}, {what}: E/A {ea:e} against the reference");
+        }
+        let reversed: Vec<usize> = (0..n).rev().collect();
+        let moved_shifts: Vec<[f64; 4]> = reversed.iter().map(|&i| shifts[i]).collect();
+        let moved_masses: Vec<f64> = reversed.iter().map(|&i| masses[i]).collect();
+        let mut moved = vec![0.0; n * n];
+        for a in 0..n {
+            for b in 0..n {
+                moved[a + n * b] = invariants[reversed[a] + n * reversed[b]];
+            }
+        }
+        let lane = supplied_lane(&moved_shifts, &moved, &moved_masses, mu2);
+        let moved_settings = settings_for(reversed.iter().map(|&i| powers[i]).collect());
+        let (status, values) = direct_lanes_with(moved_settings.clone(), &lane);
+        assert_eq!(status, LaneStatus::Success, "{label}, reversed lines");
+        let ea = relative_difference(&values, &binary64.1);
+        largest_relabelled = largest_relabelled.max(ea);
+        assert!(ea <= 1e-8, "{label}: binary64 E/A {ea:e} against the reversed lines");
+        // The same inputs at 256 bits agree only to the inputs' own
+        // consistency: MadLoop's invariants hold the thresholds to their
+        // rounding (2e-15 here), and the labellings raise different members
+        // and read different invariants. Exact inputs: the dyadic Coulomb
+        // lanes of `two_dotted_members_of_a_coulomb_triple_do_not_depend_on_their_labels`.
+        let (status, values) = direct_with_inputs(256, moved_settings, &lane, Some(53));
+        assert_eq!(status, LaneStatus::Success, "{label}, reversed lines, 256 bits");
+        let ea = relative_difference_float(&values, &wide.1);
+        largest_relabelled_wide = largest_relabelled_wide.max(ea);
+        assert!(ea <= 1e-8, "{label}: 256-bit E/A {ea:e} against the reversed lines");
+    }
+    eprintln!(
+        "two-dotted lanes: scalars against the reference, binary64 {largest:e}, 256 bits {largest_wide:e}; \
+         reversed lines, binary64 {largest_relabelled:e}, 256 bits {largest_relabelled_wide:e}"
+    );
+}
+
+/// Two dotted members of one Coulomb triple (Q, g, Qbar at threshold), on
+/// exact dyadic inputs: the partial fraction raises the first dotted member
+/// and keeps the other's line (the set's own order with a power moved to
+/// the raised member). Reversing the lines raises the other member, so both
+/// routes must give the same array at 512 bits; and in binary64. A box (a
+/// massive line and the triple) and a pentagon (two massive lines and the
+/// triple), each with the heavy line and the gluon, or both heavy lines,
+/// doubled.
+#[test]
+fn two_dotted_members_of_a_coulomb_triple_do_not_depend_on_their_labels() {
+    let mu = 3.0;
+    let (kc, q1, q4) = ([5.0, 0.0, 0.0, 4.0], [1.0, 2.0, -1.0, 0.5], [1.5, -1.0, 0.5, 0.25]);
+    let triple = [q1, plus(q1, kc, 1.0), plus(q1, kc, 2.0)];
+    let coulomb_box = vec![[0.0; 4], triple[0], triple[1], triple[2]];
+    let coulomb_pentagon = vec![[0.0; 4], triple[0], triple[1], triple[2], q4];
+    type Case = (&'static str, Vec<[f64; 4]>, Vec<f64>, Vec<u16>, std::ops::RangeInclusive<u16>);
+    let cases: Vec<Case> = vec![
+        ("box, heavy line and gluon", coulomb_box.clone(), vec![2.0, 9.0, 0.0, 9.0], vec![1, 2, 2, 1], 1..=4),
+        ("box, both heavy lines", coulomb_box, vec![2.0, 9.0, 0.0, 9.0], vec![1, 2, 1, 2], 1..=4),
+        ("pentagon, gluon and heavy line", coulomb_pentagon.clone(), vec![2.0, 9.0, 0.0, 9.0, 1.5], vec![1, 1, 2, 2, 1], 1..=5),
+        ("pentagon, both heavy lines", coulomb_pentagon, vec![2.0, 9.0, 0.0, 9.0, 1.5], vec![1, 2, 1, 2, 1], 1..=5),
+    ];
+    for (label, shifts, masses, powers, ranks) in cases {
+        let n = shifts.len();
+        let lane = coulomb_lane(&shifts, &masses, mu);
+        let reversed: Vec<usize> = (0..n).rev().collect();
+        let moved_shifts: Vec<[f64; 4]> = reversed.iter().map(|&i| shifts[i]).collect();
+        let moved_masses: Vec<f64> = reversed.iter().map(|&i| masses[i]).collect();
+        let moved_powers: Vec<u16> = reversed.iter().map(|&i| powers[i]).collect();
+        let moved = coulomb_lane(&moved_shifts, &moved_masses, mu);
+        for rank in ranks {
+            let (status, values) = direct512_powers(n, rank, &powers, &lane);
+            assert_eq!(status, LaneStatus::Success, "{label}, rank {rank}, 512 bits");
+            let (status, other) = direct512_powers(n, rank, &moved_powers, &moved);
+            assert_eq!(status, LaneStatus::Success, "{label}, rank {rank}, 512 bits, reversed");
+            let ea = relative_difference_float(&other, &values);
+            assert!(ea <= 1e-60, "{label}, rank {rank}: 512 bits {ea:e} against the reversed lines");
+            let mut settings = ReductionSettings::new(n, rank);
+            settings.powers = powers.clone();
+            let (status, binary64) = direct_lanes_with(settings, &lane);
+            assert_eq!(status, LaneStatus::Success, "{label}, rank {rank}, binary64");
+            let ea = relative_difference(&binary64, &to_f64(&values));
+            assert!(ea <= 1e-8, "{label}, rank {rank}: binary64 {ea:e} from 512 bits");
+        }
+    }
+}

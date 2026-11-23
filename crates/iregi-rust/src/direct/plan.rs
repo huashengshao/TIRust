@@ -94,7 +94,10 @@ pub struct DirectCapabilities {
     /// Largest tensor rank: monomial and value indices are `u32`, so
     /// C(R + 4, 4) <= u32::MAX.
     pub max_rank: u16,
-    /// Propagators that may carry a raised power (one Taylor variable).
+    /// Propagators that may carry a raised power: each is a variable of
+    /// the mass-derivative jets ([`MAX_JET_VARIABLES`] with the raised
+    /// members of linearly dependent sets). Two is the validated domain:
+    /// P-wave pairs of bound states.
     pub max_dotted_propagators: usize,
     /// Largest number of propagators with a raised power (the seven-point
     /// thin system has no mass-derivative jets).
@@ -123,7 +126,7 @@ impl DirectCapabilities {
             carrier_bits,
             max_propagators: SubsetMask::BITS as usize,
             max_rank: max_rank as u16,
-            max_dotted_propagators: 1,
+            max_dotted_propagators: 2,
             max_dotted_points: 6,
             max_coefficient_rank: u16::MAX,
             max_shifted_points: 4,
@@ -171,7 +174,10 @@ impl DirectCapabilities {
         let dotted = settings.powers.iter().filter(|&&p| p > 1).count();
         if dotted > self.max_dotted_propagators {
             return Err(ReductionError::Unsupported(
-                "direct engine handles at most one raised propagator power (one Taylor variable)".into(),
+                format!(
+                    "direct engine handles raised powers on at most {} propagators",
+                    self.max_dotted_propagators
+                ),
             ));
         }
         if dotted > 0 && n > self.max_dotted_points {
@@ -370,9 +376,145 @@ pub(crate) enum PostOp {
     DivideDimension { inverse: u32 },
     /// Partial fraction of a linearly dependent subset (moment programs with
     /// a Taylor jet only): Taylor order `k` of the destination is the terms
-    /// applied to order `k + 1` of their sources, and the jet's last order
-    /// is zero.
-    TaylorShift,
+    /// applied to order `k + e_v` of their sources, `v` the jet variable of
+    /// the set's raised member, and the jet's last orders in `v` are zero.
+    /// A dotted member `i` other than the raised one (two dotted lines in
+    /// one set) keeps its line in its term: `w_i` times the destination's
+    /// own order `k - e_i + e_v`, for the entries `own` of
+    /// `DirectPlanData::taylor_own`.
+    TaylorShift { variable: u16, own: (u32, u32) },
+}
+
+/// Largest number of jet variables: dotted propagators and raised members of
+/// linearly dependent sets.
+pub(crate) const MAX_JET_VARIABLES: usize = 4;
+
+/// Taylor jets in the squared masses of a plan's dotted propagators and of
+/// the members its linearly dependent sets raise: one variable `v` per such
+/// propagator, with Taylor length `K_v`. An order is a multi-index `o` with
+/// `o_v < K_v` (a box, closed under the products of the recurrences),
+/// stored at `sum_v o_v stride_v`, `stride_0 = 1`; order 0 is the value.
+/// One variable is the single jet of a dotted line (or of a Coulomb
+/// exchange's raised member), whose orders are `0..K`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Jet {
+    /// `(propagator, K_v)` per variable, by propagator.
+    pub variables: Vec<(usize, usize)>,
+    /// Number of orders, `prod_v K_v`.
+    pub len: usize,
+    /// Per order `a`: every order `b` with `a + b` in the box, as
+    /// `(b, a + b)`.
+    pub sums: Vec<Vec<(u32, u32)>>,
+    /// Per variable `v` and order `b`: the order `b + e_v`, `u32::MAX` past
+    /// the box.
+    pub raise: Vec<Vec<u32>>,
+    /// Per variable `v` and order `o`: `o - e_v`, `u32::MAX` when `o_v = 0`.
+    pub lower: Vec<Vec<u32>>,
+    /// Per variable `v`: every order, by the sum of its other variables'
+    /// digits (then by index), so that `o - e_i + e_v` precedes `o`.
+    pub by_others: Vec<Vec<u32>>,
+}
+
+impl Jet {
+    pub(crate) const NONE: u32 = u32::MAX;
+
+    pub fn new(variables: Vec<(usize, usize)>) -> Self {
+        debug_assert!(variables.iter().all(|&(_, k)| k >= 1));
+        let len = variables.iter().map(|&(_, k)| k).product();
+        let strides: Vec<usize> = variables
+            .iter()
+            .scan(1, |stride, &(_, k)| {
+                let current = *stride;
+                *stride *= k;
+                Some(current)
+            })
+            .collect();
+        let multi = |order: usize| -> Vec<usize> {
+            variables.iter().zip(&strides).map(|(&(_, k), &stride)| order / stride % k).collect()
+        };
+        let index = |digits: &[usize]| -> Option<usize> {
+            let mut order = 0;
+            for ((&(_, k), &stride), &digit) in variables.iter().zip(&strides).zip(digits) {
+                if digit >= k {
+                    return None;
+                }
+                order += digit * stride;
+            }
+            Some(order)
+        };
+        let sums = (0..len)
+            .map(|a| {
+                let da = multi(a);
+                (0..len)
+                    .filter_map(|b| {
+                        let sum: Vec<usize> = da.iter().zip(multi(b)).map(|(x, y)| x + y).collect();
+                        index(&sum).map(|c| (b as u32, c as u32))
+                    })
+                    .collect()
+            })
+            .collect();
+        let step = |delta: i64| -> Vec<Vec<u32>> {
+            (0..variables.len())
+                .map(|v| {
+                    (0..len)
+                        .map(|order| {
+                            let mut digits = multi(order);
+                            let digit = digits[v] as i64 + delta;
+                            if digit < 0 {
+                                return Self::NONE;
+                            }
+                            digits[v] = digit as usize;
+                            index(&digits).map_or(Self::NONE, |o| o as u32)
+                        })
+                        .collect()
+                })
+                .collect()
+        };
+        let (raise, lower) = (step(1), step(-1));
+        let by_others = (0..variables.len())
+            .map(|v| {
+                let mut orders: Vec<u32> = (0..len as u32).collect();
+                orders.sort_by_key(|&order| {
+                    let digits = multi(order as usize);
+                    (digits.iter().enumerate().filter(|&(u, _)| u != v).map(|(_, d)| d).sum::<usize>(), order)
+                });
+                orders
+            })
+            .collect();
+        Self { variables, len, sums, raise, lower, by_others }
+    }
+
+    /// The order of the multi-index `digits` (one per variable).
+    pub fn order(&self, digits: &[usize]) -> Option<usize> {
+        let mut order = 0;
+        let mut stride = 1;
+        for (&(_, k), &digit) in self.variables.iter().zip(digits) {
+            if digit >= k {
+                return None;
+            }
+            order += digit * stride;
+            stride *= k;
+        }
+        Some(order)
+    }
+
+    /// The multi-index of `order`.
+    pub fn digits(&self, order: usize) -> Vec<usize> {
+        let mut rest = order;
+        self.variables
+            .iter()
+            .map(|&(_, k)| {
+                let digit = rest % k;
+                rest /= k;
+                digit
+            })
+            .collect()
+    }
+
+    /// The single variable's Taylor length, for a one-variable jet.
+    pub fn univariate(&self) -> Option<usize> {
+        (self.variables.len() == 1).then(|| self.variables[0].1)
+    }
 }
 
 /// Instructions and values of a Gram-free pentagon's coefficients.
@@ -592,17 +734,23 @@ pub(crate) struct DirectPlanData {
     pub relations: Vec<RelationGeometry>,
     /// Minimal linearly dependent subsets of this variant (Coulomb exchange).
     pub homogeneous: Vec<HomogeneousGeometry>,
+    /// The dotted members of linearly dependent sets other than their
+    /// raised ones, as (weight geometry offset, jet variable): see
+    /// [`PostOp::TaylorShift`].
+    pub taylor_own: Vec<(u32, u16)>,
     /// Lightlike bubbles: `(subset, [(lambda, k, value index)])` excluding
     /// the master `(0, 0)`.
     pub lightlike: Vec<(usize, Vec<(u16, u16, u32)>)>,
     pub output: Vec<u32>,
     pub gather_scratch: usize,
-    /// Differentiated propagator and Taylor length `K` (its power). The
-    /// output is the order-`K-1` Taylor coefficient in its squared mass,
-    /// except in a Coulomb-exchange variant (see `output_order`).
-    pub jet: Option<(usize, usize)>,
-    /// Taylor order of the output: `K - 1` for a raised power, 0 otherwise
-    /// (a Coulomb-exchange variant differentiates its pinches only).
+    /// Taylor jets in the squared masses of the dotted propagators and of
+    /// the raised members of linearly dependent sets ([`Jet`]). A dotted
+    /// propagator's Taylor length is its power, plus one per linearly
+    /// dependent set raising it.
+    pub jet: Option<Jet>,
+    /// Jet order of the output: power - 1 in every variable (a raised
+    /// member that is not dotted contributes 0: a Coulomb-exchange variant
+    /// differentiates its pinches only).
     pub output_order: usize,
     /// Gathers read `C(lambda + h, kappa)` and scale by `(-2)^h`.
     pub lambda_shift: u16,
@@ -883,40 +1031,46 @@ impl DirectPlanData {
     ) -> Result<Self, ReductionError> {
         Self::supported(&settings)?;
         let lambda_shift = settings.dimension_shift as u16;
-        let raised = homogeneous.first().map(|&(_, j)| j);
-        if let Some(j) = raised {
-            // A raised power is admitted on the raised member itself (P-wave's
-            // doubled Coulomb gluon): the partial fraction raises it once more.
-            if settings.powers.iter().enumerate().any(|(i, &p)| p != 1 && i != j) {
-                return Err(ReductionError::Unsupported(
-                    "direct engine: linearly dependent propagators with a raised power".into(),
-                ));
-            }
-            if homogeneous.iter().any(|&(_, r)| r != j) {
-                return Err(ReductionError::Unsupported(
-                    "direct engine: linearly dependent propagator sets raising different propagators".into(),
-                ));
-            }
-            let mut dotted = settings.clone();
-            dotted.powers[j] += 1;
-            Self::supported(&dotted)?;
-        }
-        // The raised member's Taylor length is its power plus one per linearly
-        // dependent set: a partial fraction's order k reads order k + 1 of its
-        // pinches, a pinch may hold another set's partial fraction (two
+        // Jet variables: every dotted propagator and every member a linearly
+        // dependent set raises (P-wave's doubled Coulomb gluon is both). A
+        // variable's Taylor length is its power plus, per set raising it, one
+        // order and the extra powers of the set's other members: a partial
+        // fraction's order k reads order k + e_v of its pinches, and order
+        // k - e_i + e_v of itself for another dotted member i (its line
+        // stays); a pinch may hold another set's partial fraction (two
         // Coulomb triples sharing their raised heavy line), and the output is
-        // the order of the requested power.
-        let jet = match raised {
-            Some(j) => Some((j, usize::from(settings.powers[j]) + homogeneous.len())),
-            None => settings
-                .powers
-                .iter()
-                .position(|&p| p > 1)
-                .map(|d| (d, usize::from(settings.powers[d]))),
+        // the order of the requested powers.
+        let n = settings.propagators;
+        let set_orders = |mask: SubsetMask, raised: usize| -> usize {
+            1 + members(mask).into_iter().filter(|&i| i != raised).map(|i| usize::from(settings.powers[i]) - 1).sum::<usize>()
         };
-        let output_order = match raised {
-            Some(j) => usize::from(settings.powers[j]) - 1,
-            None => jet.map_or(0, |(_, k)| k - 1),
+        let variables: Vec<(usize, usize)> = (0..n)
+            .filter_map(|line| {
+                let raising: Vec<usize> =
+                    homogeneous.iter().filter(|&&(_, j)| j == line).map(|&(mask, j)| set_orders(mask, j)).collect();
+                let power = usize::from(settings.powers[line]);
+                (power > 1 || !raising.is_empty()).then_some((line, power + raising.iter().sum::<usize>()))
+            })
+            .collect();
+        if variables.len() > MAX_JET_VARIABLES {
+            return Err(ReductionError::Unsupported(format!(
+                "direct engine: {} Taylor variables (dotted propagators and raised members of linearly dependent sets) exceed its {MAX_JET_VARIABLES}",
+                variables.len()
+            )));
+        }
+        let largest = DirectCapabilities::of_representation(53).max_power(n);
+        if let Some(&(line, _)) = variables.iter().find(|&&(_, k)| k > usize::from(largest)) {
+            return Err(ReductionError::Unsupported(format!(
+                "direct engine: the partial fractions raise propagator {line} beyond power {largest}"
+            )));
+        }
+        let (jet, output_order) = if variables.is_empty() {
+            (None, 0)
+        } else {
+            let digits: Vec<usize> = variables.iter().map(|&(line, _)| usize::from(settings.powers[line]) - 1).collect();
+            let jet = Jet::new(variables);
+            let output = jet.order(&digits).expect("the output order lies in the jet");
+            (Some(jet), output)
         };
         let relation_for = |mask: SubsetMask| -> Option<usize> {
             if mask.count_ones() >= 6 {
@@ -1033,10 +1187,11 @@ impl DirectPlanData {
         }
 
         // Mass derivatives of a master reach every pinch of it by IBP.
-        if let Some((dotted, _)) = jet {
+        if let Some(jet) = &jet {
+            let lines: SubsetMask = jet.variables.iter().fold(0, |mask, &(line, _)| mask | (1 << line));
             let parents: Vec<SubsetMask> = coefficient_need
                 .iter()
-                .filter(|&(&mask, &need)| need >= 0 && mask & (1 << dotted) != 0)
+                .filter(|&(&mask, &need)| need >= 0 && mask & lines != 0)
                 .map(|(&mask, _)| mask)
                 .collect();
             for parent in parents {
@@ -1646,12 +1801,37 @@ impl DirectPlanData {
             debug_assert!(i32::from(rank) <= child.moment_rank);
             child.moment_base.unwrap() + index_in_basis(exponents)
         };
-        // Taylor orders missing at the top of each subset: a linearly
-        // dependent subset gives order k from order k + 1 of its pinches, one
-        // order fewer than they have, and every moment recursion has as many
-        // as the children it reads. The jet holds one order per linearly
-        // dependent set beyond the output's, so the output is complete.
-        let mut truncated: HashMap<SubsetMask, usize> = HashMap::new();
+        // Taylor orders missing at the top of each subset, per jet variable:
+        // a linearly dependent subset gives order k from order k + e_v of its
+        // pinches (v its raised member's variable), one order fewer in v than
+        // they have, and every moment recursion has as many as the children
+        // it reads. Each variable holds one order per linearly dependent set
+        // raising it beyond the output's, so the output is complete.
+        let jet_lines: Vec<usize> = jet.as_ref().map_or(Vec::new(), |jet| jet.variables.iter().map(|&(line, _)| line).collect());
+        let raised_variable = |h: usize| -> u16 {
+            jet_lines.iter().position(|&line| line == homogeneous_geometry[h].raised).expect("a raised member has a jet variable") as u16
+        };
+        let jet_lengths: Vec<usize> = jet.as_ref().map_or(Vec::new(), |jet| jet.variables.iter().map(|&(_, k)| k).collect());
+        // Each set's dotted members other than its raised one, as
+        // (weight offset, variable) entries of `taylor_own`, and the orders
+        // its partial fraction takes from its raised member's variable.
+        let mut taylor_own: Vec<(u32, u16)> = Vec::new();
+        let mut own_ranges: Vec<(u32, u32)> = Vec::new();
+        let mut set_orders: Vec<usize> = Vec::new();
+        for geometry in &homogeneous_geometry {
+            let start = taylor_own.len() as u32;
+            let mut orders = 1;
+            for (j, &member) in geometry.members.iter().enumerate() {
+                if member != geometry.raised && settings.powers[member] > 1 {
+                    let v = jet_lines.iter().position(|&line| line == member).expect("a dotted member has a jet variable");
+                    taylor_own.push((geometry.weights + j as u32, v as u16));
+                    orders += usize::from(settings.powers[member]) - 1;
+                }
+            }
+            own_ranges.push((start, taylor_own.len() as u32));
+            set_orders.push(orders);
+        }
+        let mut truncated: HashMap<SubsetMask, Vec<usize>> = HashMap::new();
         for subset in &subsets {
             if subset.moment_rank < 0 {
                 continue;
@@ -1674,15 +1854,23 @@ impl DirectPlanData {
                     subset.members.iter().map(|&member| without(subset.mask, member)).collect()
                 }
             };
-            let missing = read.iter().filter_map(|child| truncated.get(child)).copied().max().unwrap_or(0);
-            let missing = if let SubsetKind::Homogeneous(_) = subset.kind { missing + 1 } else { missing };
-            if missing > homogeneous_geometry.len() {
+            let mut missing = vec![0usize; jet_lines.len()];
+            for child in read.iter().filter_map(|child| truncated.get(child)) {
+                for (slot, &value) in missing.iter_mut().zip(child) {
+                    *slot = (*slot).max(value);
+                }
+            }
+            if let SubsetKind::Homogeneous(h) = subset.kind {
+                missing[usize::from(raised_variable(h))] += set_orders[h];
+            }
+            let holds = |v: usize| jet_lengths[v] - usize::from(settings.powers[jet_lines[v]]);
+            if (0..jet_lines.len()).any(|v| missing[v] > holds(v)) {
                 return Err(ReductionError::Unsupported(format!(
                     "direct engine: linearly dependent propagators {:#b} need more Taylor orders than their jet holds",
                     subset.mask
                 )));
             }
-            if missing > 0 {
+            if missing.iter().any(|&value| value > 0) {
                 truncated.insert(subset.mask, missing);
             }
             match subset.kind {
@@ -1690,7 +1878,7 @@ impl DirectPlanData {
                 SubsetKind::Homogeneous(h) => {
                     // Partial fraction of a linearly dependent subset, after
                     // its pinches and before every parent: its order-k
-                    // moments are the order-(k + 1) Taylor coefficients of
+                    // moments are the order-(k + e_v) Taylor coefficients of
                     // the pinches with the raised member doubled.
                     let geometry = &homogeneous_geometry[h];
                     let base = subset.moment_base.unwrap();
@@ -1708,7 +1896,11 @@ impl DirectPlanData {
                                 )
                             })
                             .collect();
-                        moment_program.push(builder.instruction(base + index as u32, terms, PostOp::TaylorShift));
+                        moment_program.push(builder.instruction(
+                            base + index as u32,
+                            terms,
+                            PostOp::TaylorShift { variable: raised_variable(h), own: own_ranges[h] },
+                        ));
                     }
                 }
                 SubsetKind::Relation(relation) => {
@@ -1850,6 +2042,7 @@ impl DirectPlanData {
             masters,
             relations,
             homogeneous: homogeneous_geometry,
+            taylor_own,
             lightlike,
             output,
             gather_scratch,
@@ -2061,7 +2254,7 @@ mod tests {
             .iter()
             .rposition(|instruction| child_moments.contains(&instruction.dst))
             .unwrap();
-        assert!(matches!(plan.moment_program[written].post, PostOp::TaylorShift));
+        assert!(matches!(plan.moment_program[written].post, PostOp::TaylorShift { .. }));
         let read = plan
             .moment_program
             .iter()
@@ -2078,7 +2271,7 @@ mod tests {
     /// A partial fraction whose pinch is itself a partial fraction reads that
     /// pinch's Taylor order 1: the raised member's jet holds one order per
     /// linearly dependent set, and the output stays order 0. Sets raising
-    /// different members are refused (one jet).
+    /// different members give each its own jet variable.
     #[test]
     fn nested_partial_fractions_take_one_order_per_relation() {
         let plan = DirectPlanData::with_full_profile(
@@ -2089,16 +2282,57 @@ mod tests {
             0,
         )
         .unwrap();
-        assert_eq!(plan.jet, Some((1, 3)));
+        assert_eq!(plan.jet.as_ref().map(|jet| jet.variables.clone()), Some(vec![(1, 3)]));
         assert_eq!(plan.output_order, 0);
-        let error = DirectPlanData::with_full_profile(
+        let plan = DirectPlanData::with_full_profile(
             ReductionSettings::new(5, 2),
             &[],
             &[],
             &[(0b00111, 1), (0b01110, 2)],
             0,
         )
-        .unwrap_err();
-        assert!(matches!(error, ReductionError::Unsupported(_)), "{error:?}");
+        .unwrap();
+        let jet = plan.jet.as_ref().unwrap();
+        assert_eq!((jet.variables.clone(), jet.len, plan.output_order), (vec![(1, 2), (2, 2)], 4, 0));
+    }
+
+    /// A jet of two variables, lengths 2 and 3: orders are the box
+    /// `o_0 < 2, o_1 < 3` in `o_0 + 2 o_1`, closed under the sums the
+    /// recurrences form, with `raise` and `lower` along each variable.
+    #[test]
+    fn jet_orders_form_a_box() {
+        let jet = Jet::new(vec![(1, 2), (3, 3)]);
+        assert_eq!((jet.len, jet.univariate()), (6, None));
+        for order in 0..jet.len {
+            let digits = jet.digits(order);
+            assert_eq!(jet.order(&digits), Some(order));
+            for (v, &(_, k)) in jet.variables.iter().enumerate() {
+                let mut up = digits.clone();
+                up[v] += 1;
+                let expected = if up[v] < k { jet.order(&up).unwrap() as u32 } else { Jet::NONE };
+                assert_eq!(jet.raise[v][order], expected);
+                let expected = if digits[v] > 0 {
+                    let mut down = digits.clone();
+                    down[v] -= 1;
+                    jet.order(&down).unwrap() as u32
+                } else {
+                    Jet::NONE
+                };
+                assert_eq!(jet.lower[v][order], expected);
+            }
+            let sums: Vec<(u32, u32)> = (0..jet.len)
+                .filter_map(|b| {
+                    let sum: Vec<usize> = digits.iter().zip(jet.digits(b)).map(|(x, y)| x + y).collect();
+                    jet.order(&sum).map(|c| (b as u32, c as u32))
+                })
+                .collect();
+            assert_eq!(jet.sums[order], sums);
+        }
+        assert_eq!(jet.sums[0].len(), 6);
+        assert_eq!(jet.sums[5], vec![(0, 5)]);
+        // One variable: the orders 0..K of a single jet.
+        let jet = Jet::new(vec![(2, 4)]);
+        assert_eq!(jet.univariate(), Some(4));
+        assert_eq!(jet.sums[1], vec![(0, 1), (1, 2), (2, 3)]);
     }
 }
