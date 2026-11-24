@@ -479,6 +479,41 @@ equals its value in a fresh context exactly, and the 2,666 pairs of the same
 lines agree to 4.1e-9 (the inputs' own floor). The 87 unit-power calls
 still agree with quad IREGI to 2.3e-16.
 
+At a forward angle (onia_loop's point 1 of seed 1, cos theta = −0.985844,
+9.7 degrees from the beam) from 20 GeV on, 08cca00 refused 49 and 50 raised
+calls of the two passes, and 12 of the reversed pass at 20 GeV, point 3
+(cos theta = −0.603568): 171 distinct inputs over 20, 50 and 200 GeV, in
+both precisions. Each holds a pentagon whose doubled gluon is in a collinear
+pair. Its reduction `J5 = sum_i b_i J4^(i) + (4 - D) B J5^(D+2)`,
+`B = sum_i b_i`, drops the last term, whose doubled massless line keeps a
+collinear pole, so B must vanish to the inputs' rounding. It does with the
+Gram determinant: the pentagon's external points span three dimensions. The
+test held B to `sum_i |b_i|` times the rounding, which the Cayley system's
+amplification of the inputs' rounding exceeds here: by up to 40 for binary64
+inputs, and by up to 2.1 for binary128 inputs at 50 and 200 GeV. B is now
+held to the rounding's first-order effect: with
+`Y b = 1`, the inputs' rounding moves B by `-b^T dY b`, at most the
+rounding times `sum_ij |b_i| |b_j| y_ij`, with `y_ij` the size of `Y_ij`'s
+inputs (`cayley_inverse`'s). The measured B is at most 0.026 of that for
+binary64 inputs and 0.0024 for binary128 inputs. The new bound is never
+below the old one, and a generic pentagon (1e-4 off) is still refused.
+
+In binary64 these calls' boxes have Gram conditioning 1e-3 at rank 5 and 6
+(9.7 degrees from the beam), so the bridge's relation tier takes them to
+double-double, whose pentagon test refused them as well. They are now
+served there (route 2), within 4.1e-9 of 256 bits on the same inputs. The
+binary128 inputs of the exact kinematics (shifts quarters of p1, p2 and a
+constituent, rounded once; MadLoop's lightlike and on-shell invariants
+exact) are served at 256 bits. Their scalars agree with exact partial
+fractions to 4,340 regular integrals from quad IREGI's scalars with powers
+to 2.1e-16. MadLoop's binary64 inputs move these integrals by up to 2.4e-7
+(a scalar at 50 GeV). Quad IREGI's own direct value is off by up to 3.1 on
+18 hexagons at 200 GeV. Binary64 inputs widened to binary128 and declared
+so (a replay of MadLoop's DP records through the QP entry) remain refused:
+they are consistent only to binary64, so the threshold triples are
+dependent only beyond their declared rounding, and B is 3e13 to 1e16
+times its bound.
+
 **Limits.**
 - A lightlike bubble of a massless and a massive line, both jet variables,
   has no closed form here: refused (typed).
@@ -1054,6 +1089,20 @@ and the S-wave lanes whose reduction reaches one:
   to 1e-15 (measured 1.9e-16), and, on MadLoop's binary64 inputs, to 1e-10
   against 256 bits on the same inputs (5.4e-11) and to 1e-8 against the
   reference (7.8e-9: the inputs' distance from the exact kinematics).
+- `tests/fixtures/onia-two-onium-forward.json`
+  (`make_two_onium_forward_fixture.py`): 8 of the 171 raised calls of
+  g g > chi_c0 chi_c0 that 08cca00 refused at a forward angle (20, 50 and
+  200 GeV, rank 5 and 6, one or two doubled lines), pentagons and hexagons
+  holding a flat pentagon with a doubled gluon in a collinear pair. The
+  reference is their scalar on the exact kinematics, from exact partial
+  fractions to regular integrals from quad IREGI's scalars with powers.
+  MadLoop's binary64 inputs through the bridge's embedder must be served by
+  the double-double tier, within 1e-8 of 256 bits on the same inputs
+  (measured: equal once rounded to binary64); the exact kinematics as
+  binary128 inputs at 256 bits must give the scalar to 1e-15 (measured
+  1.7e-16). At 512 bits a pentagon and two hexagons must satisfy
+  `2 q.(p_i - p_j) = D_i - D_j + const` in every slot (3.1e-16 of the
+  terms), and give the same array with their lines reversed.
 - `tests/fixtures/onia-lightlike-powers.json`
   (`make_lightlike_powers_fixture.py`): scalars of the equal-mass bubble at
   p^2 = 0 with one line raised to the third or fourth power, and of a
@@ -1136,6 +1185,7 @@ The test file's other cases need no fixture:
 | `make_double_coulomb_fixture.py` | the double-Coulomb pentagon fixture (quad IREGI, both onia exactly on threshold) |
 | `make_two_dotted_fixture.py` | the two-P-wave fixture (exact partial fractions to regular integrals, quad IREGI scalars with powers) |
 | `make_two_onium_gg_fixture.py` | the g g > chi_c0 chi_c0 unit-power fixture (quad IREGI on exact kinematics) |
+| `make_two_onium_forward_fixture.py` | the g g > chi_c0 chi_c0 forward-angle fixture (flat pentagons with a doubled collinear gluon; exact partial fractions, quad IREGI scalars with powers) |
 | `merge_swave.py` | concatenates onia_swave outputs over point ranges |
 | `crates/iregi-prepare/examples/onia_diagrams.rs` | FeynKit diagram generation (DOT files) |
 | `crates/iregi-prepare/examples/onia_swave.rs` | S-wave projection and numerator coefficients per point and polarization |

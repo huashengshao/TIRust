@@ -2230,33 +2230,49 @@ where
         // drops its last term; in 6 - 2 eps dimensions the doubled line keeps
         // a collinear pole, so the dropped part of the mass derivative is of
         // order B, not eps (a generic pentagon is 1e-4 off). Only a B that
-        // vanishes to the inputs' rounding (a degenerate Gram determinant)
-        // lets it go. (Quarkonium's pentagons at v = 0 take their exact
-        // denominator identity instead.)
+        // vanishes to the inputs' rounding (a degenerate Gram determinant:
+        // the flat pentagons of two onia in a 2 -> 2 process) lets it go.
+        // (Quarkonium's pentagons at v = 0 take their exact denominator
+        // identity instead.) With Y b = 1, the inputs' rounding moves
+        // B = 1^T b by -b^T dY b to first order: at most the rounding times
+        // sum_ij |b_i| |b_j| y_ij, y_ij the size of Y_ij's inputs
+        // (`cayley_inverse`'s: the invariant's, its cancellation's and both
+        // masses'). Held to sum_i |b_i| times the rounding instead, such
+        // pentagons were refused once the Cayley system amplified it (g g >
+        // chi_c0 chi_c0 9.7 degrees from the beam: up to 40 times for binary64
+        // inputs, 2.1 for binary128 ones; B is at most 0.026 of this bound).
         let jet_lines: Vec<usize> =
             self.plan.jet.as_ref().map_or(Vec::new(), |jet| jet.variables.iter().map(|&(line, _)| line).collect());
-        for dotted in jet_lines {
-            let massless = |i: usize| self.masses[i].re.is_zero() && self.masses[i].im.is_zero();
-            let collinear = members.contains(&dotted)
+        let massless = |i: usize| self.masses[i].re.is_zero() && self.masses[i].im.is_zero();
+        let collinear = jet_lines.iter().find(|&&dotted| {
+            members.contains(&dotted)
                 && massless(dotted)
                 && members.iter().any(|&e| {
                     e != dotted
                         && massless(e)
                         && cnorm2(d(dotted, e)).sqrt() <= self.invariant_size(dotted, e) * &self.input_rounding
-                });
-            if collinear {
-                let mut sum = self.zero.clone();
-                let mut size = self.prototype.zero();
-                for i in 0..5 {
-                    sum = cadd(&sum, &self.rhs[i]);
-                    size += &cnorm2(&self.rhs[i]).sqrt();
+                })
+        });
+        if let Some(&dotted) = collinear {
+            let mut sum = self.zero.clone();
+            let mut bound = self.prototype.zero();
+            for i in 0..5 {
+                sum = cadd(&sum, &self.rhs[i]);
+                let size = cnorm2(&self.rhs[i]).sqrt();
+                for j in 0..5 {
+                    let (mi, mj) = (members[i], members[j]);
+                    let entry = cnorm2(d(mi, mj)).sqrt()
+                        + &self.invariant_size(mi, mj)
+                        + &cnorm2(&self.masses[mi]).sqrt()
+                        + &cnorm2(&self.masses[mj]).sqrt();
+                    bound += size.clone() * &cnorm2(&self.rhs[j]).sqrt() * &entry;
                 }
-                if cnorm2(&sum).sqrt() > size * &self.input_rounding {
-                    return Err(GeometryFailure::Unstable(format!(
-                        "dotted massless line {dotted} in a collinear pair of pentagon {members:?}: \
-                         its (D + 2)-dimensional term is not reduced"
-                    )));
-                }
+            }
+            if cnorm2(&sum).sqrt() > bound * &self.input_rounding {
+                return Err(GeometryFailure::Unstable(format!(
+                    "dotted massless line {dotted} in a collinear pair of pentagon {members:?}: \
+                     its (D + 2)-dimensional term is not reduced"
+                )));
             }
         }
         if geometry.dd_rank >= 1 {

@@ -3261,3 +3261,255 @@ fn overlapping_linearly_dependent_sets_do_not_depend_on_line_or_call_order() {
     assert!(worst[2] <= 1e-8, "binary64 {:e} from 512 bits", worst[2]);
     eprintln!("line orders at 512 bits, 2 q.(p_i - p_j), binary64 from 512 bits: {worst:?}");
 }
+
+/// Exact kinematics of a case of `onia-two-onium-forward.json`, at `build`
+/// bits: shifts (quarters of p1, p2 and p_c, from the case's `basis`) and the
+/// n x n invariants of those shifts, with MadLoop's lightlike and on-shell
+/// entries (exactly 0 or a mass^2 among its supplied invariants) exact.
+fn two_onium_exact(case: &Value, build: u32) -> (Vec<Vec<Float>>, Vec<Float>) {
+    use symbolica::domains::float::Real;
+    let parse = |v: &Value| v.as_str().unwrap().parse::<f64>().unwrap();
+    let wide = |x: f64| Float::with_val(build, x);
+    let zero = wide(0.0);
+    let basis = &case["basis"];
+    let energy = wide(parse(&basis["energy"]));
+    let m2 = wide(parse(&basis["constituent_mass_squared"]));
+    let direction: Vec<Float> = basis["direction"].as_array().unwrap().iter().map(|x| wide(parse(x))).collect();
+    let norm = direction.iter().fold(zero.clone(), |sum, x| sum + &(x.clone() * x)).sqrt();
+    let momentum = (energy.clone() * &energy - &(m2 * &wide(4.0))).sqrt();
+    let mut p_c = vec![energy.clone() / &wide(2.0)];
+    p_c.extend(direction.iter().map(|x| momentum.clone() / &wide(2.0) * x / &norm));
+    let momenta = [
+        vec![energy.clone(), zero.clone(), zero.clone(), energy.clone()],
+        vec![energy.clone(), zero.clone(), zero.clone(), -energy.clone()],
+        p_c,
+    ];
+    let shifts: Vec<Vec<Float>> = case["coefficients"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| {
+            (0..4)
+                .map(|a| {
+                    let quarters = |k: usize| wide(c[k].as_i64().unwrap() as f64);
+                    (0..3).fold(zero.clone(), |sum, k| sum + &(momenta[k][a].clone() * &quarters(k))) / &wide(4.0)
+                })
+                .collect()
+        })
+        .collect();
+    let supplied: Vec<f64> = case["invariants"].as_array().unwrap().iter().map(parse).collect();
+    let masses: Vec<f64> = case["masses_squared"].as_array().unwrap().iter().map(parse).collect();
+    let n = shifts.len();
+    let mut invariants = Vec::with_capacity(n * n);
+    for i in 0..n {
+        for j in 0..n {
+            let delta: Vec<Float> = (0..4).map(|a| shifts[i][a].clone() - &shifts[j][a]).collect();
+            let square = delta[0].clone() * &delta[0]
+                - &(delta[1].clone() * &delta[1])
+                - &(delta[2].clone() * &delta[2])
+                - &(delta[3].clone() * &delta[3]);
+            let s = supplied[i * n + j];
+            invariants.push(if s == 0.0 || masses.contains(&s) { wide(s) } else { square });
+        }
+    }
+    (shifts, invariants)
+}
+
+/// g g > chi_c0 chi_c0 at a forward angle (onia_loop's point 1 of seed 1,
+/// 9.7 degrees from the beam, at 20, 50 and 200 GeV, and its point 3 at
+/// 20 GeV): MadLoop's raised-power calls 08cca00 refused, rank 5 and 6, one
+/// or two doubled lines (benchmarks/onia/make_two_onium_forward_fixture.py).
+/// Each holds a pentagon whose doubled gluon is in a collinear pair. Its
+/// reduction J5 = sum_i b_i J4^(i) drops (4 - D) B J5^(D+2), whose doubled
+/// line keeps a collinear pole, so B = sum_i b_i must vanish; it does with
+/// the Gram determinant, as the external points of two onia in a 2 -> 2
+/// process span three dimensions. The test held B to sum_i |b_i| times the
+/// inputs' rounding, which the Cayley system's amplification of that
+/// rounding exceeds here (by up to 40 for binary64 inputs, and 2.1 for
+/// binary128 inputs at 50 and 200 GeV). It now holds B to the rounding's
+/// first-order effect, |b^T dY b| (Y b = 1), of which B is at most 0.026.
+/// A generic pentagon is still refused
+/// (`collinear_pairs_reduce_dotted_triangles_and_refuse_unreduced_pentagons`).
+/// - MadLoop's binary64 inputs through the bridge's embedder (relation
+///   tiers): served by the double-double tier, within 1e-8 of 256 bits on the
+///   same inputs (declared binary64; equal once rounded, measured).
+/// - The exact kinematics as binary128 inputs at 256 bits, as the bridge's
+///   QP entry takes them: the scalar within 1e-15 of exact partial fractions
+///   of the dependent subsets down to integrals without one, from quad
+///   original IREGI's scalars with powers (1.7e-16 measured; IREGI's direct
+///   value is 3e-2 off on call 134). MadLoop's binary64 inputs move these
+///   integrals by up to 2.4e-7.
+/// - At 512 bits on the exact kinematics, for a pentagon and two hexagons:
+///   `2 q.(p_i - p_j) = D_i - D_j - (p_i^2 - m_i^2 - p_j^2 + m_j^2)` in every
+///   slot for every pair of lines, against the integrals with line i or j
+///   lowered; and the lines in reverse order give the same array.
+#[test]
+fn flat_pentagons_with_a_doubled_collinear_gluon_match_exact_partial_fractions() {
+    use iregi_rust::{EmbedderOptions, InvariantInput, LaneRoute, ScaleInput};
+    let fixture: Value = serde_json::from_str(include_str!("fixtures/onia-two-onium-forward.json")).unwrap();
+    let parse = |v: &Value| v.as_str().unwrap().parse::<f64>().unwrap();
+    let eta = [1.0, -1.0, -1.0, -1.0];
+    let norm = |z: Complex<f64>| z.re.hypot(z.im);
+    // Values at `bits` of the exact lane of `lines`, rounded once to `input` bits.
+    let exact_lane = |exact: &(Vec<Vec<Float>>, Vec<Float>),
+                      masses: &[f64],
+                      mu2: f64,
+                      lines: &[usize],
+                      input: u32,
+                      bits: u32| {
+        let (shifts, invariants) = exact;
+        let n = shifts.len();
+        let round = |x: &Float| {
+            let mut y = x.clone();
+            y.set_prec(input);
+            y.set_prec(bits);
+            Complex::new(y, Float::new(bits))
+        };
+        let mut values: Vec<Complex<Float>> = lines.iter().flat_map(|&i| shifts[i].iter().map(round)).collect();
+        for (a, &i) in lines.iter().enumerate() {
+            for &j in &lines[a + 1..] {
+                values.push(round(&invariants[i * n + j]));
+            }
+        }
+        values.extend(lines.iter().map(|&i| round(&Float::with_val(bits, masses[i]))));
+        values.push(round(&Float::with_val(bits, mu2)));
+        values
+    };
+    let settings_of = |n: usize, rank: u16, powers: &[u16]| {
+        let mut settings = ReductionSettings::new(n, rank);
+        settings.powers = powers.to_vec();
+        settings.invariants = InvariantInput::SuppliedInvariants;
+        settings.scale_input = ScaleInput::MuSquared;
+        settings
+    };
+    let run = |settings: ReductionSettings, values: Vec<Complex<Float>>, bits: u32, input: u32| {
+        let mut workspace = DirectReductionPlan::new(settings).unwrap().workspace(Float::new(bits)).unwrap();
+        workspace.set_stability_threshold(Float::with_val(bits, 2f64.powi(-(bits as i32 - 40))));
+        workspace.set_input_precision(input);
+        let result = workspace.reduce_batch(&KinematicsBatch { rows: 1, components: 1, values }).unwrap();
+        (result.statuses[0].clone(), result.lane(0).map(<[_]>::to_vec).unwrap_or_default())
+    };
+    // Worst: embedder against 256 bits on its inputs, binary128 scalar
+    // against the reference, binary64 scalar against it, momentum identity.
+    let mut worst = [0.0f64; 4];
+    let mut relations = 0;
+    for case in fixture["cases"].as_array().unwrap() {
+        let call = case["call"].as_u64().unwrap();
+        let label = format!("call {call}, {}", case["label"].as_str().unwrap());
+        let rank = case["rank"].as_u64().unwrap() as u16;
+        let powers: Vec<u16> = case["powers"].as_array().unwrap().iter().map(|p| p.as_u64().unwrap() as u16).collect();
+        let masses: Vec<f64> = case["masses_squared"].as_array().unwrap().iter().map(parse).collect();
+        let n = masses.len();
+        let shifts: Vec<[f64; 4]> = case["shifts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|q| std::array::from_fn(|a| parse(&q[a])))
+            .collect();
+        let invariants: Vec<f64> = case["invariants"].as_array().unwrap().iter().map(parse).collect();
+        let mu2 = parse(&case["mu_squared"]);
+        let reference: Vec<Complex<f64>> =
+            case["reference"].as_array().unwrap().iter().map(|z| Complex::new(parse(&z[0]), parse(&z[1]))).collect();
+        let settings = settings_of(n, rank, &powers);
+        // MadLoop's binary64 inputs, through the bridge's embedder.
+        let lane = supplied_lane(&shifts, &invariants, &masses, mu2);
+        let plan = TensorReductionPlan::new(settings.clone()).unwrap();
+        let options = EmbedderOptions { relation_tiers: true, ..bridge_options() };
+        let mut workspace = TensorWorkspace::new_embedded(&plan, 0.0f64, options).unwrap();
+        let result = workspace.reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: lane.clone() }).unwrap();
+        assert_eq!(result.statuses[0], LaneStatus::Success, "{label}: binary64 inputs");
+        assert_eq!(workspace.last_lane_routes().unwrap()[0], LaneRoute::Tier(106), "{label}: binary64 inputs");
+        let embedded = result.lane(0).unwrap().to_vec();
+        let (status, same) = direct_with_inputs(256, settings.clone(), &lane, Some(53));
+        assert_eq!(status, LaneStatus::Success, "{label}: 256 bits, binary64 inputs");
+        let same = to_f64(&same);
+        let own = relative_difference(&embedded, &same);
+        assert!(own <= 1e-8, "{label}: embedder {own:e} from 256 bits on its inputs");
+        let input = relative_difference(&same[..4], &reference);
+        assert!(input <= 1e-6, "{label}: binary64 inputs' scalar {input:e} from the reference");
+        // The exact kinematics as binary128 inputs at 256 bits.
+        let exact = two_onium_exact(case, 1024);
+        let exact_shifts = &exact.0;
+        let all: Vec<usize> = (0..n).collect();
+        let values = exact_lane(&exact, &masses, mu2, &all, 113, 256);
+        let (status, quad) = run(settings.clone(), values, 256, 113);
+        assert_eq!(status, LaneStatus::Success, "{label}: 256 bits, binary128 inputs");
+        let ea = relative_difference(&to_f64(&quad[..4]), &reference);
+        assert!(ea <= 1e-15, "{label}: binary128 inputs' scalar {ea:e} from the reference");
+        for (slot, value) in worst.iter_mut().zip([own, ea, input]) {
+            *slot = slot.max(value);
+        }
+        if ![1, 4, 134].contains(&call) {
+            continue;
+        }
+        // 512 bits on the exact kinematics: 2 q.(p_i - p_j) at the lane's
+        // rank against one rank lower, and the lines reversed.
+        let at512 = |lines: &[usize], rank: u16, powers: &[u16]| {
+            let values = exact_lane(&exact, &masses, mu2, lines, 512, 512);
+            let (status, values) = run(settings_of(lines.len(), rank, powers), values, 512, 512);
+            assert_eq!(
+                status,
+                LaneStatus::Success,
+                "{label}: 512 bits, lines {lines:?}, powers {powers:?}, rank {rank}"
+            );
+            values
+        };
+        let wide = at512(&all, rank, &powers);
+        let full = to_f64(&wide);
+        let lowered = |i: usize| {
+            if powers[i] > 1 {
+                let mut lower = powers.clone();
+                lower[i] -= 1;
+                to_f64(&at512(&all, rank - 1, &lower))
+            } else {
+                let keep: Vec<usize> = (0..n).filter(|&k| k != i).collect();
+                let p: Vec<u16> = keep.iter().map(|&k| powers[k]).collect();
+                to_f64(&at512(&keep, rank - 1, &p))
+            }
+        };
+        let reduced: Vec<Vec<Complex<f64>>> = (0..n).map(lowered).collect();
+        let basis = iregi_rust::basis::tensor_basis(rank);
+        let index = |e: [u16; 4]| basis.iter().position(|m| m.0 == e).unwrap();
+        let square = |p: &[Float]| {
+            p[0].clone() * &p[0] - &(p[1].clone() * &p[1]) - &(p[2].clone() * &p[2]) - &(p[3].clone() * &p[3])
+        };
+        for i in 0..n {
+            let shifts_i = &exact_shifts[i];
+            for j in i + 1..n {
+                let d: [f64; 4] = std::array::from_fn(|mu| (shifts_i[mu].clone() - &exact_shifts[j][mu]).to_f64());
+                let delta = (square(&exact_shifts[i]) - &Float::with_val(1024, masses[i]) - &square(&exact_shifts[j])
+                    + &Float::with_val(1024, masses[j]))
+                    .to_f64();
+                for slot in 0..4 {
+                    let (mut off, mut scale) = (0.0f64, 0.0f64);
+                    for (k, m) in iregi_rust::basis::tensor_basis(rank - 1).iter().enumerate() {
+                        let mut terms = vec![
+                            reduced[i][4 * k + slot],
+                            -reduced[j][4 * k + slot],
+                            -full[4 * index(m.0) + slot] * Complex::new(delta, 0.0),
+                        ];
+                        for mu in 0..4 {
+                            let mut e = m.0;
+                            e[mu] += 1;
+                            terms.push(full[4 * index(e) + slot] * Complex::new(-2.0 * eta[mu] * d[mu], 0.0));
+                        }
+                        let sum = terms.iter().fold(Complex::new(0.0, 0.0), |a, &t| a + t);
+                        off = off.max(norm(sum));
+                        scale = terms.iter().fold(scale, |s, &t| s.max(norm(t)));
+                    }
+                    assert!(off <= 1e-12 * scale, "{label}, lines {i}, {j}, slot {slot}: {off:e} off, terms {scale:e}");
+                    if scale > 0.0 {
+                        worst[3] = worst[3].max(off / scale);
+                    }
+                }
+                relations += 1;
+            }
+        }
+        let reversed: Vec<usize> = (0..n).rev().collect();
+        let p: Vec<u16> = reversed.iter().map(|&k| powers[k]).collect();
+        let ea = relative_difference_float(&at512(&reversed, rank, &p), &wide);
+        assert!(ea <= 1e-60, "{label}: reversed lines {ea:e} off");
+    }
+    assert_eq!(relations, 10 + 15 + 15);
+    eprintln!("embedder against 256 bits, binary128 scalar, binary64 scalar, 2 q.(p_i - p_j): {worst:?}");
+}
