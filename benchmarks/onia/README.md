@@ -454,6 +454,31 @@ bits (boxes, a pentagon, and the bubble alone to rank 6), and satisfy
 `2 q.(p_i - p_j) = D_i - D_j + const` in every slot (also for a hexagon,
 whose doubled lines border soft gluons, so no mass derivative applies).
 
+Two defects made the binary64 arrays of these 5- and 6-line raised calls
+depend on the order of the lines and on the calls before them (onia_loop's
+replay, 24 November: 97 of 3,480 pass-1/pass-2 pairs of the same lines more
+than 1e-6 apart, 79 more than 0.1), while their scalars agreed:
+- **A member another set raises.** Sets that share no common member raise
+  their own (8305f8b), so a partial fraction can hold a line another set
+  raises. When that set holds this one, the line is at a nonzero Taylor
+  order there, and its term must keep the line one power lower (the set's
+  own order `o - e_i + e_v`), as a dotted member's does; it was dropped.
+  Which set a flat hexagon takes first follows the line order, so the
+  arrays did too (up to 3 apart). The term is now kept for every jet member
+  of a set, and each such member's Taylor length is added to the raised
+  member's (the least solution of those equations; sets raising members of
+  each other are refused).
+- **Stale jet orders.** A lightlike bubble holding one of several jet
+  variables wrote only that variable's orders and kept the rest from the
+  previous lane or plan variant at those indices. Its orders now start at
+  zero.
+
+On the same replay with both fixed (all 6,960 calls through the bridge's
+DP entry, in order through one context, cache on or off), every array
+equals its value in a fresh context exactly, and the 2,666 pairs of the same
+lines agree to 4.1e-9 (the inputs' own floor). The 87 unit-power calls
+still agree with quad IREGI to 2.3e-16.
+
 **Limits.**
 - A lightlike bubble of a massless and a massive line, both jet variables,
   has no closed form here: refused (typed).
@@ -1040,6 +1065,11 @@ and the S-wave lanes whose reduction reaches one:
   and 1e-40 at 256 bits.
 
 The test file's other cases need no fixture:
+- flat hexagons whose linearly dependent sets overlap without a common
+  member, a line doubled (exact dyadic kinematics, 512 bits): every
+  rotation and reversal of the lines gives the same array (3e-144) and
+  satisfies `2 q.(p_i - p_j)` in every slot, and lanes of two kinematics in
+  turn through one workspace each equal their value alone exactly;
 - two doubled heavy lines of a lightlike bubble inside a set of four heavy
   lines (box, pentagon, flat hexagon and the bubble alone, exact dyadic
   kinematics, 512 bits), against the mass derivative of the integral with

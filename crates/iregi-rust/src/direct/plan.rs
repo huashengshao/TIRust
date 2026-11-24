@@ -1067,24 +1067,42 @@ impl DirectPlanData {
         // Jet variables: every dotted propagator and every member a linearly
         // dependent set raises (P-wave's doubled Coulomb gluon is both). A
         // variable's Taylor length is its power plus, per set raising it, one
-        // order and the extra powers of the set's other members: a partial
+        // order and the orders of the set's other jet members: a partial
         // fraction's order k reads order k + e_v of its pinches, and order
-        // k - e_i + e_v of itself for another dotted member i (its line
-        // stays); a pinch may hold another set's partial fraction (two
-        // Coulomb triples sharing their raised heavy line), and the output is
-        // the order of the requested powers.
+        // k - e_i + e_v of itself for another member i at a nonzero order
+        // (its line stays, one power lower), which a dotted member is at its
+        // power and a member another set raises is when that set holds this
+        // one; a pinch may hold another set's partial fraction (two Coulomb
+        // triples sharing their raised heavy line), and the output is the
+        // order of the requested powers. The lengths are the least solution
+        // of these equations; sets raising each other's members have none.
         let n = settings.propagators;
-        let set_orders = |mask: SubsetMask, raised: usize| -> usize {
-            1 + members(mask).into_iter().filter(|&i| i != raised).map(|i| usize::from(settings.powers[i]) - 1).sum::<usize>()
-        };
-        let variables: Vec<(usize, usize)> = (0..n)
-            .filter_map(|line| {
-                let raising: Vec<usize> =
-                    homogeneous.iter().filter(|&&(_, j)| j == line).map(|&(mask, j)| set_orders(mask, j)).collect();
-                let power = usize::from(settings.powers[line]);
-                (power > 1 || !raising.is_empty()).then_some((line, power + raising.iter().sum::<usize>()))
-            })
-            .collect();
+        let jet_line = |line: usize| settings.powers[line] > 1 || homogeneous.iter().any(|&(_, j)| j == line);
+        let mut lengths: Vec<usize> = (0..n).map(|line| usize::from(settings.powers[line])).collect();
+        let mut settled = false;
+        for _ in 0..homogeneous.len() + 2 {
+            let set_orders = |mask: SubsetMask, raised: usize| -> usize {
+                1 + members(mask).into_iter().filter(|&i| i != raised).map(|i| lengths[i] - 1).sum::<usize>()
+            };
+            let next: Vec<usize> = (0..n)
+                .map(|line| {
+                    usize::from(settings.powers[line])
+                        + homogeneous.iter().filter(|&&(_, j)| j == line).map(|&(mask, j)| set_orders(mask, j)).sum::<usize>()
+                })
+                .collect();
+            if next == lengths {
+                settled = true;
+                break;
+            }
+            lengths = next;
+        }
+        if !settled {
+            return Err(ReductionError::Unsupported(
+                "direct engine: linearly dependent sets raise members of each other".into(),
+            ));
+        }
+        let variables: Vec<(usize, usize)> =
+            (0..n).filter(|&line| jet_line(line)).map(|line| (line, lengths[line])).collect();
         if variables.len() > MAX_JET_VARIABLES {
             return Err(ReductionError::Unsupported(format!(
                 "direct engine: {} Taylor variables (dotted propagators and raised members of linearly dependent sets) exceed its {MAX_JET_VARIABLES}",
@@ -1845,9 +1863,10 @@ impl DirectPlanData {
             jet_lines.iter().position(|&line| line == homogeneous_geometry[h].raised).expect("a raised member has a jet variable") as u16
         };
         let jet_lengths: Vec<usize> = jet.as_ref().map_or(Vec::new(), |jet| jet.variables.iter().map(|&(_, k)| k).collect());
-        // Each set's dotted members other than its raised one, as
-        // (weight offset, variable) entries of `taylor_own`, and the orders
-        // its partial fraction takes from its raised member's variable.
+        // Each set's jet members other than its raised one (dotted, or
+        // raised by another set), as (weight offset, variable) entries of
+        // `taylor_own`, and the orders its partial fraction takes from its
+        // raised member's variable: one, and each such member's own.
         let mut taylor_own: Vec<(u32, u16)> = Vec::new();
         let mut own_ranges: Vec<(u32, u32)> = Vec::new();
         let mut set_orders: Vec<usize> = Vec::new();
@@ -1855,10 +1874,12 @@ impl DirectPlanData {
             let start = taylor_own.len() as u32;
             let mut orders = 1;
             for (j, &member) in geometry.members.iter().enumerate() {
-                if member != geometry.raised && settings.powers[member] > 1 {
-                    let v = jet_lines.iter().position(|&line| line == member).expect("a dotted member has a jet variable");
+                if member == geometry.raised {
+                    continue;
+                }
+                if let Some(v) = jet_lines.iter().position(|&line| line == member) {
                     taylor_own.push((geometry.weights + j as u32, v as u16));
-                    orders += usize::from(settings.powers[member]) - 1;
+                    orders += jet_lengths[v] - 1;
                 }
             }
             own_ranges.push((start, taylor_own.len() as u32));
@@ -2329,7 +2350,10 @@ mod tests {
     /// A partial fraction whose pinch is itself a partial fraction reads that
     /// pinch's Taylor order 1: the raised member's jet holds one order per
     /// linearly dependent set, and the output stays order 0. Sets raising
-    /// different members give each its own jet variable.
+    /// different members give each its own jet variable. A set holding the
+    /// member another set raises takes that member's orders too; two sets
+    /// raising members of each other have no jet lengths and are refused
+    /// (the lane loop raises a common member of sets that share one).
     #[test]
     fn nested_partial_fractions_take_one_order_per_relation() {
         let plan = DirectPlanData::with_full_profile(
@@ -2346,12 +2370,34 @@ mod tests {
             ReductionSettings::new(5, 2),
             &[],
             &[],
-            &[(0b00111, 1), (0b01110, 2)],
+            &[(0b00111, 1), (0b11100, 4)],
             0,
         )
         .unwrap();
         let jet = plan.jet.as_ref().unwrap();
-        assert_eq!((jet.variables.clone(), jet.len, plan.output_order), (vec![(1, 2), (2, 2)], 4, 0));
+        assert_eq!((jet.variables.clone(), jet.len, plan.output_order), (vec![(1, 2), (4, 2)], 4, 0));
+        // {0, 1, 2} raising 1 holds line 2, which {1, 2, 3} raises, and the
+        // other way round: no lengths.
+        let plan = DirectPlanData::with_full_profile(
+            ReductionSettings::new(5, 2),
+            &[],
+            &[],
+            &[(0b00111, 1), (0b01110, 2), (0b11000, 4)],
+            0,
+        );
+        assert!(matches!(plan, Err(ReductionError::Unsupported(_))), "{{0,1,2}} and {{1,2,3}} raise members of each other");
+        // {1, 2} raising 2 holds line 1, which {0, 1} raises: line 2's jet
+        // takes line 1's orders as well (1 + 1 + (2 - 1)).
+        let plan = DirectPlanData::with_full_profile(
+            ReductionSettings::new(5, 2),
+            &[],
+            &[],
+            &[(0b00011, 1), (0b00110, 2)],
+            0,
+        )
+        .unwrap();
+        let jet = plan.jet.as_ref().unwrap();
+        assert_eq!(jet.variables.clone(), vec![(1, 2), (2, 3)]);
     }
 
     /// A jet of two variables, lengths 2 and 3: orders are the box

@@ -2735,6 +2735,18 @@ where
             if let Some(jet) = plan.jet.as_ref() {
                 let inside: Vec<usize> =
                     (0..jet.variables.len()).filter(|&v| members.contains(&jet.variables[v].0)).collect();
+                // Every order starts at zero: the master jets keep this
+                // bubble's orders as written here, and one variable writes
+                // only its own (the bubble does not depend on the others'
+                // masses). Unwritten, they would keep an earlier lane's or
+                // variant's values at these indices.
+                if !inside.is_empty() {
+                    for order in &mut self.values_jet[..jet.len - 1] {
+                        for &(_, _, index) in entries {
+                            order[index as usize] = lzero(&self.zero);
+                        }
+                    }
+                }
                 match inside[..] {
                     [] => {}
                     [v] => {
