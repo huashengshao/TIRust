@@ -18,7 +18,7 @@ use super::{
         C, L4, SolveQuality, cadd, cfma, cfma_real, cinv, cmul, cnorm2, cscale, csub, czero, div_dimension,
         lfma, lfma_slots, lzero, mul_dimension, real_lfma_slots, solve_in_place,
     },
-    plan::{DirectPlanData, Gather, Instruction, NO_GEOMETRY, PostOp, Subset, SubsetKind, SubsetMask, Term, members},
+    plan::{DirectPlanData, Gather, Instruction, Jet, NO_GEOMETRY, PostOp, Subset, SubsetKind, SubsetMask, Term, members},
     shared::{MASTER_KEY_WORDS, SharedValue, SubsetStore},
 };
 use crate::{
@@ -196,12 +196,19 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     plan: Arc<DirectPlanData>,
     base_plan: Arc<DirectPlanData>,
     /// Variants keyed by their minimal degenerate subsets.
-    variants: HashMap<(Vec<SubsetMask>, Vec<SubsetMask>, Vec<(SubsetMask, usize)>), (Arc<DirectPlanData>, Arc<Vec<T>>)>,
+    variants: HashMap<
+        (Vec<SubsetMask>, Vec<SubsetMask>, Vec<(SubsetMask, usize)>, Vec<SubsetMask>),
+        (Arc<DirectPlanData>, Arc<Vec<T>>),
+    >,
     lightlike_profile: Vec<SubsetMask>,
     base_constants: Arc<Vec<T>>,
     relation_profile: Vec<SubsetMask>,
     /// Linearly dependent subsets of the lane and their raised member.
     homogeneous_profile: Vec<(SubsetMask, usize)>,
+    /// Subsets of six or more points whose external points span three
+    /// dimensions: reduced by the identities of the profiles above, as no
+    /// six-point coordinate system exists.
+    flat_profile: Vec<SubsetMask>,
     prototype: T,
     zero: C<T>,
     one: C<T>,
@@ -417,7 +424,7 @@ where
         for _ in 0..plan.lambda_shift {
             gather_scale *= &prototype.from_i64(-2);
         }
-        let jet_orders = plan.jet.map_or(0, |(_, k)| k - 1);
+        let jet_orders = plan.jet.as_ref().map_or(0, |jet| jet.len - 1);
         let gather_degree = plan.basis.len();
         let max_size = plan.subsets.iter().map(|s| s.members.len()).max().unwrap_or(1);
         let stability_threshold = prototype.from_rational(&symbolica::domains::rational::Rational::from((
@@ -552,6 +559,7 @@ where
             variants: HashMap::new(),
             relation_profile: Vec::new(),
             homogeneous_profile: Vec::new(),
+            flat_profile: Vec::new(),
             lightlike_profile: Vec::new(),
             constants,
             evaluators,
@@ -1671,41 +1679,56 @@ where
 
     /// The member of a linearly dependent set whose power the partial
     /// fraction raises: a massless one (the Coulomb gluon), whose doubled
-    /// propagator the master jets and their closed form handle.
+    /// propagator the master jets and their closed form handle. A set
+    /// without one raises its first member: four heavy lines of equal mass
+    /// with D_0 + D_1 = D_2 + D_3 (g g > onium onium: offsets 0, p_1 and
+    /// (p_1 -+ p_2) / 2 of a closed quark loop, or a heavy line through it),
+    /// whose integral is regular and whose pinches are not degenerate. The
+    /// doubled line's jets are then the mass derivatives of those pinches.
     fn raised_member(&self, support: SubsetMask) -> Option<usize> {
         let massless = |member: usize| self.masses[member].re.is_zero() && self.masses[member].im.is_zero();
         // A dotted member is raised itself, massless or not (P-wave's doubled
-        // Coulomb gluon, or a doubled heavy line): the plan admits a raised
-        // power on the raised member only.
-        let dotted = self.base_plan.settings.powers.iter().position(|&p| p > 1);
-        if let Some(d) = dotted.filter(|&d| support & (1 << d) != 0) {
+        // Coulomb gluon, or a doubled heavy line): it is a jet variable
+        // already.
+        let powers = &self.base_plan.settings.powers;
+        if let Some(d) = members(support).into_iter().find(|&d| powers[d] > 1) {
             return Some(d);
         }
-        members(support).into_iter().find(|&member| massless(member))
+        members(support).into_iter().find(|&member| massless(member)).or_else(|| members(support).into_iter().next())
     }
 
-    /// The lane's linearly dependent sets with `support` added, all raising
-    /// one member (the plan's single jet). When their own raised members
-    /// differ, a member every set holds is raised instead: the heavy line
-    /// two Coulomb triples share (e+ e- > J/psi eta_c), or the dotted line
-    /// if they share it. `None` when they share none.
-    fn homogeneous_with(&self, support: SubsetMask, raised: usize) -> Option<Vec<(SubsetMask, usize)>> {
+    /// The lane's linearly dependent sets with `support` added. When their
+    /// own raised members differ, a member every set holds is raised
+    /// instead, so that they share one jet variable: the dotted line if
+    /// they share it, else the heavy line two Coulomb triples share (e+ e-
+    /// > J/psi eta_c). Sets that share no member keep their own raised
+    /// members, each a jet variable (two P-wave states).
+    fn homogeneous_with(&self, support: SubsetMask, raised: usize) -> Vec<(SubsetMask, usize)> {
         let mut profile = self.homogeneous_profile.clone();
         profile.push((support, raised));
         if profile.iter().all(|&(_, r)| r == raised) {
-            return Some(profile);
+            return profile;
         }
         let shared = profile.iter().fold(SubsetMask::MAX, |mask, &(h, _)| mask & h);
-        let dotted = self.base_plan.settings.powers.iter().position(|&p| p > 1);
-        let common = match dotted {
-            Some(d) if shared & (1 << d) != 0 => d,
-            Some(_) => return None,
-            None => members(shared).into_iter().next()?,
-        };
-        for entry in &mut profile {
-            entry.1 = common;
+        let powers = &self.base_plan.settings.powers;
+        let dotted = members(shared).into_iter().find(|&d| powers[d] > 1);
+        match dotted.or_else(|| members(shared).into_iter().next()) {
+            Some(common) => {
+                for entry in &mut profile {
+                    entry.1 = common;
+                }
+            }
+            // Each set raises its own member again: a member made common to
+            // the earlier sets may be massive, and is not shared by this one.
+            None => {
+                for entry in &mut profile {
+                    if let Some(own) = self.raised_member(entry.0) {
+                        entry.1 = own;
+                    }
+                }
+            }
         }
-        Some(profile)
+        profile
     }
 
     /// Partial fraction of a linearly dependent subset (`PostOp::TaylorShift`):
@@ -1738,14 +1761,67 @@ where
         }
     }
 
+    /// [`Self::taylor_shift`] on a jet of several variables: order `c` of the
+    /// destination accumulates the weights times order `c + e_v` of the
+    /// pinches, `v` the raised member's variable, and, for each dotted member
+    /// `i` other than the raised one (`own`), its weight times the
+    /// destination's own order `c - e_i + e_v`, which `by_others` puts first.
+    /// The orders whose `c + e_v` leaves the jet are zero, as the univariate
+    /// jet's last order. The weights have no Taylor orders: the relation
+    /// holds at the lane's masses for every power.
+    fn taylor_shift_jet<const FULL: bool>(
+        &mut self,
+        plan: &DirectPlanData,
+        instruction: &Instruction,
+        variable: usize,
+        own: (u32, u32),
+    ) {
+        let jet = plan.jet.as_ref().expect("a partial fraction has a Taylor jet");
+        let raise = &jet.raise[variable];
+        let dst = instruction.dst as usize;
+        let terms = &plan.terms[instruction.terms.0 as usize..instruction.terms.1 as usize];
+        let own = &plan.taylor_own[own.0 as usize..own.1 as usize];
+        for &order in &jet.by_others[variable] {
+            let c = order as usize;
+            let mut acc = lzero(&self.zero);
+            if raise[c] != Jet::NONE {
+                let source = raise[c] as usize;
+                for term in terms {
+                    debug_assert_ne!(term.geometry, NO_GEOMETRY, "partial-fraction weights are geometry");
+                    let factor = cscale(&self.geometry[term.geometry as usize], &self.constants[term.constant as usize]);
+                    lfma_slots::<T, FULL>(&mut acc, &factor, &self.values_jet[source - 1][term.src as usize]);
+                }
+                for &(weight, member) in own {
+                    let lower = jet.lower[usize::from(member)][c];
+                    if lower == Jet::NONE || raise[lower as usize] == Jet::NONE {
+                        continue;
+                    }
+                    let shifted = raise[lower as usize] as usize;
+                    let value = if shifted == 0 { self.values[dst].clone() } else { self.values_jet[shifted - 1][dst].clone() };
+                    let factor = self.geometry[weight as usize].clone();
+                    lfma_slots::<T, FULL>(&mut acc, &factor, &value);
+                }
+            }
+            if c == 0 {
+                self.values[dst] = acc;
+            } else {
+                self.values_jet[c - 1][dst] = acc;
+            }
+        }
+    }
+
     /// Switch the lane to the plan variant of `relation_profile`.
     fn select_variant(&mut self) -> Result<(), ReductionError> {
         let key = (
             self.relation_profile.clone(),
             self.lightlike_profile.clone(),
             self.homogeneous_profile.clone(),
+            self.flat_profile.clone(),
         );
-        if self.relation_profile.is_empty() && self.lightlike_profile.is_empty() && self.homogeneous_profile.is_empty()
+        if self.relation_profile.is_empty()
+            && self.lightlike_profile.is_empty()
+            && self.homogeneous_profile.is_empty()
+            && self.flat_profile.is_empty()
         {
             self.plan = self.base_plan.clone();
             self.constants = self.base_constants.clone();
@@ -1753,8 +1829,12 @@ where
             self.plan = plan.clone();
             self.constants = constants.clone();
         } else {
-            let plan =
-                self.base_plan.variant(&self.relation_profile, &self.lightlike_profile, &self.homogeneous_profile)?;
+            let plan = self.base_plan.flat_variant(
+                &self.relation_profile,
+                &self.lightlike_profile,
+                &self.homogeneous_profile,
+                &self.flat_profile,
+            )?;
             let constants: Arc<Vec<T>> = Arc::new(
                 plan.constants
                     .iter()
@@ -1774,7 +1854,7 @@ where
         }
         let (value_count, geometry_count) = (plan.value_count, plan.geometry_count);
         // A Coulomb-exchange variant carries jets its base plan has not.
-        let orders = plan.jet.map_or(0, |(_, k)| k - 1);
+        let orders = plan.jet.as_ref().map_or(0, |jet| jet.len - 1);
         while self.values_jet.len() < orders {
             self.values_jet.push(vec![lzero(&self.zero); value_count]);
         }
@@ -1837,13 +1917,15 @@ where
             // A variant reused from another lane (a rotated copy, another
             // labelling) may raise a member that is massive here; then the
             // lane picks its own variant. A massive member is the lane's own
-            // choice when it is the dotted line or shared by every linearly
-            // dependent set (`raised_member`, `homogeneous_with`).
-            let raised_mass = &self.masses[relation.raised];
-            let dotted = self.base_plan.settings.powers.iter().position(|&p| p > 1);
+            // choice when it is a dotted line, shared by every linearly
+            // dependent set, or of a set without a massless member
+            // (`raised_member`, `homogeneous_with`).
+            let dotted = self.base_plan.settings.powers[relation.raised] > 1;
             let shared = plan.homogeneous.len() >= 2
                 && plan.homogeneous.iter().all(|other| other.members.contains(&relation.raised));
-            if !(raised_mass.re.is_zero() && raised_mass.im.is_zero()) && dotted != Some(relation.raised) && !shared {
+            let massless = |m: usize| self.masses[m].re.is_zero() && self.masses[m].im.is_zero();
+            let all_massive = !relation.members.iter().any(|&m| massless(m));
+            if !massless(relation.raised) && !dotted && !shared && !all_massive {
                 return Err(GeometryFailure::Relation(format!(
                     "propagator {} of the relation of {:?} is not massless on this lane",
                     relation.raised, relation.members
@@ -2148,31 +2230,49 @@ where
         // drops its last term; in 6 - 2 eps dimensions the doubled line keeps
         // a collinear pole, so the dropped part of the mass derivative is of
         // order B, not eps (a generic pentagon is 1e-4 off). Only a B that
-        // vanishes to the inputs' rounding (a degenerate Gram determinant)
-        // lets it go. (Quarkonium's pentagons at v = 0 take their exact
-        // denominator identity instead.)
-        if let Some((dotted, _)) = self.plan.jet {
-            let massless = |i: usize| self.masses[i].re.is_zero() && self.masses[i].im.is_zero();
-            let collinear = members.contains(&dotted)
+        // vanishes to the inputs' rounding (a degenerate Gram determinant:
+        // the flat pentagons of two onia in a 2 -> 2 process) lets it go.
+        // (Quarkonium's pentagons at v = 0 take their exact denominator
+        // identity instead.) With Y b = 1, the inputs' rounding moves
+        // B = 1^T b by -b^T dY b to first order: at most the rounding times
+        // sum_ij |b_i| |b_j| y_ij, y_ij the size of Y_ij's inputs
+        // (`cayley_inverse`'s: the invariant's, its cancellation's and both
+        // masses'). Held to sum_i |b_i| times the rounding instead, such
+        // pentagons were refused once the Cayley system amplified it (g g >
+        // chi_c0 chi_c0 9.7 degrees from the beam: up to 40 times for binary64
+        // inputs, 2.1 for binary128 ones; B is at most 0.026 of this bound).
+        let jet_lines: Vec<usize> =
+            self.plan.jet.as_ref().map_or(Vec::new(), |jet| jet.variables.iter().map(|&(line, _)| line).collect());
+        let massless = |i: usize| self.masses[i].re.is_zero() && self.masses[i].im.is_zero();
+        let collinear = jet_lines.iter().find(|&&dotted| {
+            members.contains(&dotted)
                 && massless(dotted)
                 && members.iter().any(|&e| {
                     e != dotted
                         && massless(e)
                         && cnorm2(d(dotted, e)).sqrt() <= self.invariant_size(dotted, e) * &self.input_rounding
-                });
-            if collinear {
-                let mut sum = self.zero.clone();
-                let mut size = self.prototype.zero();
-                for i in 0..5 {
-                    sum = cadd(&sum, &self.rhs[i]);
-                    size += &cnorm2(&self.rhs[i]).sqrt();
+                })
+        });
+        if let Some(&dotted) = collinear {
+            let mut sum = self.zero.clone();
+            let mut bound = self.prototype.zero();
+            for i in 0..5 {
+                sum = cadd(&sum, &self.rhs[i]);
+                let size = cnorm2(&self.rhs[i]).sqrt();
+                for j in 0..5 {
+                    let (mi, mj) = (members[i], members[j]);
+                    let entry = cnorm2(d(mi, mj)).sqrt()
+                        + &self.invariant_size(mi, mj)
+                        + &cnorm2(&self.masses[mi]).sqrt()
+                        + &cnorm2(&self.masses[mj]).sqrt();
+                    bound += size.clone() * &cnorm2(&self.rhs[j]).sqrt() * &entry;
                 }
-                if cnorm2(&sum).sqrt() > size * &self.input_rounding {
-                    return Err(GeometryFailure::Unstable(format!(
-                        "dotted massless line {dotted} in a collinear pair of pentagon {members:?}: \
-                         its (D + 2)-dimensional term is not reduced"
-                    )));
-                }
+            }
+            if cnorm2(&sum).sqrt() > bound * &self.input_rounding {
+                return Err(GeometryFailure::Unstable(format!(
+                    "dotted massless line {dotted} in a collinear pair of pentagon {members:?}: \
+                     its (D + 2)-dimensional term is not reduced"
+                )));
             }
         }
         if geometry.dd_rank >= 1 {
@@ -2404,7 +2504,7 @@ where
             let ripple = drop + low;
             drop = (((ripple ^ drop) >> 2) / low) | ripple;
         }
-        let mut best: Option<(T, Vec<C<T>>, u128)> = None;
+        let mut best: Option<(T, Vec<C<T>>, u128, T)> = None;
         for drop in drops {
             let chosen: Vec<usize> = (0..size).filter(|&k| drop & (1 << k) == 0).collect();
             let origin = members[chosen[0]];
@@ -2431,26 +2531,57 @@ where
                     };
                 }
             }
+            // The inputs' rounding moves the relative determinant by at most
+            // sum_i ||delta row_i|| / ||row_i|| to first order (as the Gram
+            // floor): a momentum row's entries by that of both shifts'
+            // components, the f row's by that of d(origin, j) and both
+            // masses.
+            let mut floor = self.prototype.zero();
+            for row in 0..5 {
+                let (mut norm, mut delta) = (self.prototype.zero(), self.prototype.zero());
+                for column in 0..5 {
+                    let member = members[chosen[column + 1]];
+                    norm += &cnorm2(&self.matrix[row * 5 + column]);
+                    let size = if row < 4 {
+                        cnorm2(&self.shifts[member][row]).sqrt() + &cnorm2(&self.shifts[origin][row]).sqrt()
+                    } else {
+                        self.invariant_size(origin, member)
+                            + &cnorm2(&self.masses[member]).sqrt()
+                            + &cnorm2(&self.masses[origin]).sqrt()
+                    };
+                    delta += &(size.clone() * &size);
+                }
+                if !norm.is_zero() {
+                    floor += delta.sqrt() / &norm.sqrt();
+                }
+            }
+            let floor = floor * &self.input_rounding;
             let Some(quality) = solve_in_place(&mut self.matrix[..25], &mut self.rhs[..25], 5, 5) else {
                 continue;
             };
-            if best.as_ref().is_none_or(|(relative, _, _)| quality.relative_determinant > *relative) {
-                best = Some((quality.relative_determinant, self.rhs[..25].to_vec(), drop));
+            if best.as_ref().is_none_or(|(relative, _, _, _)| quality.relative_determinant > *relative) {
+                best = Some((quality.relative_determinant, self.rhs[..25].to_vec(), drop, floor));
             }
         }
-        let Some((relative, solution, drop)) = best else {
+        // A singular system, to the working precision or to the inputs'
+        // rounding, is `Singular`: six points spanning three dimensions (two
+        // onia at p_Q = p_Qbar in a 2 -> 2 process) or linearly dependent
+        // propagators. The lane loop then takes the identity of their
+        // relation (`flat_profile`).
+        let Some((relative, solution, drop, floor)) = best else {
             // Exactly singular pivot: conditioning zero.
             self.failed_condition = Some(0.0);
-            return Err(GeometryFailure::Unstable(format!(
-                "singular six-point coordinate system for {members:?}"
-            )));
+            return Err(GeometryFailure::Singular(
+                subset.mask,
+                format!("singular six-point coordinate system for {members:?}"),
+            ));
         };
-        if relative < threshold {
+        if relative < threshold || relative <= floor {
             self.failed_condition = Some(relative.to_f64());
-            return Err(GeometryFailure::Unstable(format!(
-                "ill-conditioned six-point coordinate system: relative determinant {:e}",
-                relative
-            )));
+            return Err(GeometryFailure::Singular(
+                subset.mask,
+                format!("ill-conditioned six-point coordinate system for {members:?}: relative determinant {:e}", relative),
+            ));
         }
         let chosen: Vec<usize> = (0..size).filter(|&k| drop & (1 << k) == 0).collect();
         for column in 0..5 {
@@ -2613,18 +2744,58 @@ where
                 }
                 self.values[index as usize] = value;
             }
-            // Taylor orders in the dotted squared mass when the dotted line
-            // is a member.
-            if let Some((dotted, k_len)) = plan.jet {
-                if let Some(local) = members.iter().position(|&member| member == dotted) {
-                    self.lightlike_jets(local, k_len, entries, [&a, &b, &end], &l_values, &log_mu2)?;
+            // Taylor orders in the squared mass of the jet variable whose
+            // propagator is a member. Mixed orders of two members (both
+            // lines jet variables) have a closed form here when the bubble
+            // is scaleless or both its lines are massive.
+            if let Some(jet) = plan.jet.as_ref() {
+                let inside: Vec<usize> =
+                    (0..jet.variables.len()).filter(|&v| members.contains(&jet.variables[v].0)).collect();
+                // Every order starts at zero: the master jets keep this
+                // bubble's orders as written here, and one variable writes
+                // only its own (the bubble does not depend on the others'
+                // masses). Unwritten, they would keep an earlier lane's or
+                // variant's values at these indices.
+                if !inside.is_empty() {
+                    for order in &mut self.values_jet[..jet.len - 1] {
+                        for &(_, _, index) in entries {
+                            order[index as usize] = lzero(&self.zero);
+                        }
+                    }
+                }
+                match inside[..] {
+                    [] => {}
+                    [v] => {
+                        let (line, k_len) = jet.variables[v];
+                        let local = members.iter().position(|&member| member == line).unwrap();
+                        let mut targets = Vec::with_capacity(k_len - 1);
+                        let mut order = 0;
+                        for _ in 1..k_len {
+                            order = jet.raise[v][order] as usize;
+                            targets.push(order);
+                        }
+                        self.lightlike_jets(local, &targets, entries, [&a, &b, &end], &l_values, &log_mu2)?;
+                    }
+                    [v, u] if a_zero && b_zero => {
+                        let by_member = if jet.variables[v].0 == members[0] { [v, u] } else { [u, v] };
+                        self.scaleless_lightlike_jets(jet, by_member, entries);
+                    }
+                    [v, u] if !a_zero && !end_zero => {
+                        let by_member = if jet.variables[v].0 == members[0] { [v, u] } else { [u, v] };
+                        self.massive_lightlike_jets(jet, by_member, entries, [&a, &b, &end], &l_values, &log_mu2);
+                    }
+                    _ => {
+                        return Err(format!(
+                            "lightlike bubble {members:?} with a massless and a massive line, both differentiated (two jet variables)"
+                        ));
+                    }
                 }
             }
         }
         Ok(())
     }
 
-    /// Taylor orders `1..k_len` in the dotted squared mass of a lightlike
+    /// Taylor orders `1..k_len` (the jet orders `targets`) in the dotted squared mass of a lightlike
     /// bubble's coefficients `C(lambda, k)` (`lightlike_coefficients`), with
     /// `D(x) = a + b x`, `end = a + b`, and member `local` (0 or 1) dotted:
     /// `m^2 -> m^2 + delta` adds `delta w(x)` to `D`, `w = 1 - x` or `x`.
@@ -2654,13 +2825,15 @@ where
     fn lightlike_jets(
         &mut self,
         local: usize,
-        k_len: usize,
+        targets: &[usize],
         entries: &[(u16, u16, u32)],
         [a, b, end]: [&C<T>; 3],
         l_values: &[C<T>],
         log_mu2: &C<T>,
     ) -> Result<(), String> {
         use oneloop::rust_codegen::runtime::primitives::log;
+        // Univariate orders 1..k_len, stored at the jet orders `targets`.
+        let k_len = targets.len() + 1;
         let is_zero = |z: &C<T>| z.re.is_zero() && z.im.is_zero();
         let (dotted_mass, partner_mass) = if local == 0 { (a, end) } else { (end, a) };
         let (dotted_massless, scaleless) = (is_zero(dotted_mass), is_zero(dotted_mass) && is_zero(partner_mass));
@@ -2822,9 +2995,169 @@ where
             }
         }
         for (order, index, value) in jets {
-            self.values_jet[order - 1][index as usize] = value;
+            self.values_jet[targets[order - 1] - 1][index as usize] = value;
         }
         Ok(())
+    }
+
+    /// Every jet order of a scaleless lightlike bubble (both lines massless)
+    /// whose two lines are jet variables, `variables[i]` holding member
+    /// `i`'s line. The order `(j0, j1)` in those variables raises the lines
+    /// to `1 + j0` and `1 + j1`. The bubble stays scaleless: it vanishes, but
+    /// for the logarithmically divergent `j0 + j1 = lambda`, whose cancelling
+    /// poles `c (1/eps_UV - 1/eps_IR)` carry the massive case's UV residue
+    /// `c`, the order `(j0, j1)` of `C(lambda, k)`'s `normalization int x^k
+    /// (D + delta0 (1 - x) + delta1 x)^lambda`:
+    /// `c = (-1)^k (k + j1)! / (2^lambda j1! (k + lambda + 1)!)`
+    /// (`lambda!/(j0! j1!) int x^(k + j1) (1 - x)^j0`). With one digit zero
+    /// this is `lightlike_jets`' scaleless residue. Orders with a digit in
+    /// another variable vanish: the bubble does not depend on that mass.
+    fn scaleless_lightlike_jets(&mut self, jet: &Jet, variables: [usize; 2], entries: &[(u16, u16, u32)]) {
+        let prototype = self.prototype.clone();
+        let one = prototype.one();
+        let integer = |n: usize| prototype.from_usize(n);
+        let factorial = |n: usize| (1..=n).fold(one.clone(), |f, i| f * &integer(i));
+        for order in 1..jet.len {
+            let digits = jet.digits(order);
+            let own = digits.iter().enumerate().all(|(u, &digit)| digit == 0 || variables.contains(&u));
+            let (j0, j1) = (digits[variables[0]], digits[variables[1]]);
+            for &(lambda, k, index) in entries {
+                let (lambda, k) = (usize::from(lambda), usize::from(k));
+                let mut value = lzero(&self.zero);
+                if own && j0 + j1 == lambda {
+                    let mut residue = factorial(k + j1) / &(factorial(j1) * &factorial(k + lambda + 1));
+                    for _ in 0..lambda {
+                        residue = residue / &integer(2);
+                    }
+                    if k % 2 == 1 {
+                        residue = -residue;
+                    }
+                    value[1] = C::new(-residue.clone(), prototype.zero());
+                    value[0] = C::new(residue, prototype.zero());
+                }
+                self.values_jet[order - 1][index as usize] = value;
+            }
+        }
+    }
+
+    /// Every jet order of a lightlike bubble whose two lines are massive jet
+    /// variables, `variables[i]` holding member `i`'s line: two heavy lines
+    /// doubled together (two P-wave states, whose doubled lines differ by a
+    /// gluon momentum). Moving both squared masses moves `D = a + b x` by
+    /// `delta0 (1 - x) + delta1 x`, so the order `(j0, j1)` of a function of
+    /// `D` is its `j`-th derivative, `j = j0 + j1`, times `(1 - x)^j0 x^j1 /
+    /// (j0! j1!)`: `lightlike_jets`' massive orders with `w^j / j!` so
+    /// replaced, of `C(lambda, k) = normalization [I0/eps_UV + H_lambda I0 -
+    /// I1]`:
+    /// - `j <= lambda`: `lambda! / ((lambda - j)! j0! j1!) x^k D^(lambda - j)
+    ///   (1 - x)^j0 x^j1` against 1 (`I0`) and `log(D/mu^2) + H_lambda -
+    ///   H_(lambda - j)` (`I1`);
+    /// - `j > lambda`, UV finite: `I1`'s order alone, `(-1)^(m-1) lambda!
+    ///   (m-1)! / (j0! j1!) x^k (1 - x)^j0 x^j1 D^-m`, `m = j - lambda`
+    ///   (`D` has no zero on `[0, 1]`: both masses are nonzero).
+    /// With one digit zero this is `lightlike_jets`' order. Orders with a
+    /// digit in another variable vanish: the bubble does not depend on that
+    /// mass.
+    fn massive_lightlike_jets(
+        &mut self,
+        jet: &Jet,
+        variables: [usize; 2],
+        entries: &[(u16, u16, u32)],
+        [a, b, end]: [&C<T>; 3],
+        l_values: &[C<T>],
+        log_mu2: &C<T>,
+    ) {
+        let largest = variables.iter().map(|&v| jet.variables[v].1 - 1).sum::<usize>();
+        let max_k = entries.iter().map(|&(_, k, _)| usize::from(k)).max().unwrap_or(0);
+        let moments = self.inverse_power_moments(a, b, end, largest, max_k + largest);
+        let (zero, unit, prototype) = (self.zero.clone(), self.one.clone(), self.prototype.clone());
+        let one = prototype.one();
+        let integer = |n: usize| prototype.from_usize(n);
+        let harmonic = |n: usize| (1..=n).fold(prototype.zero(), |h, i| h + &(one.clone() / &integer(i)));
+        let factorial = |n: usize| (1..=n).fold(one.clone(), |f, i| f * &integer(i));
+        // Polynomials in x, ascending coefficients: times (1 - x), x and D.
+        let times_w0 = |p: &[C<T>]| -> Vec<C<T>> {
+            let mut out = vec![zero.clone(); p.len() + 1];
+            for (i, c) in p.iter().enumerate() {
+                out[i] = cadd(&out[i], c);
+                out[i + 1] = csub(&out[i + 1], c);
+            }
+            out
+        };
+        let times_w1 = |p: &[C<T>]| -> Vec<C<T>> {
+            let mut out = vec![zero.clone(); p.len() + 1];
+            for (i, c) in p.iter().enumerate() {
+                out[i + 1] = cadd(&out[i + 1], c);
+            }
+            out
+        };
+        let times_d = |p: &[C<T>]| -> Vec<C<T>> {
+            let mut out = vec![zero.clone(); p.len() + 1];
+            for (i, c) in p.iter().enumerate() {
+                out[i] = cadd(&out[i], &cmul(c, a));
+                out[i + 1] = cadd(&out[i + 1], &cmul(c, b));
+            }
+            out
+        };
+        for order in 1..jet.len {
+            let digits = jet.digits(order);
+            let own = digits.iter().enumerate().all(|(u, &digit)| digit == 0 || variables.contains(&u));
+            let (j0, j1) = (digits[variables[0]], digits[variables[1]]);
+            let j = j0 + j1;
+            for &(lambda, k, index) in entries {
+                let (lambda, k) = (usize::from(lambda), usize::from(k));
+                let mut value = lzero(&zero);
+                if own {
+                    let mut normalization = one.clone();
+                    for i in 1..=lambda {
+                        normalization = normalization / &integer(2 * i);
+                    }
+                    if k % 2 == 1 {
+                        normalization = -normalization;
+                    }
+                    // (1 - x)^j0 x^j1, times D^(lambda - j) below lambda.
+                    let mut poly = vec![unit.clone()];
+                    for _ in 0..j0 {
+                        poly = times_w0(&poly);
+                    }
+                    for _ in 0..j1 {
+                        poly = times_w1(&poly);
+                    }
+                    let multinomial = factorial(j0) * &factorial(j1);
+                    if j <= lambda {
+                        for _ in 0..lambda - j {
+                            poly = times_d(&poly);
+                        }
+                        let (mut s0, mut s1) = (zero.clone(), zero.clone());
+                        for (i, c) in poly.iter().enumerate() {
+                            let n = k + i;
+                            let inverse = one.clone() / &integer(n + 1);
+                            s0 = cadd(&s0, &cscale(c, &inverse));
+                            s1 = cadd(&s1, &cmul(c, &csub(&l_values[n], &cscale(log_mu2, &inverse))));
+                        }
+                        let coefficient = factorial(lambda) / &(factorial(lambda - j) * &multinomial);
+                        let h_lambda = harmonic(lambda);
+                        let shift = h_lambda.clone() - &harmonic(lambda - j);
+                        let i0 = cscale(&s0, &coefficient);
+                        let i1 = cscale(&cadd(&s1, &cscale(&s0, &shift)), &coefficient);
+                        value[0] = cscale(&i0, &normalization);
+                        value[3] = cscale(&csub(&cscale(&i0, &h_lambda), &i1), &normalization);
+                    } else {
+                        let m = j - lambda;
+                        let mut integral = zero.clone();
+                        for (i, c) in poly.iter().enumerate() {
+                            integral = cadd(&integral, &cmul(c, &moments[m - 1][k + i]));
+                        }
+                        let mut weight = factorial(lambda) * &factorial(m - 1) / &multinomial * &normalization;
+                        if m % 2 == 1 {
+                            weight = -weight;
+                        }
+                        value[3] = cscale(&integral, &weight);
+                    }
+                }
+                self.values_jet[order - 1][index as usize] = value;
+            }
+        }
     }
 
     /// `N[m - 1][n] = int_0^1 x^n (a + b x)^-m` for `1 <= m <= m_max` and
@@ -2910,9 +3243,18 @@ where
     /// matrices of pentagons, the six-point `f` row and relation constants.
     #[inline(never)]
     fn geometry_jets(&mut self) -> Result<(), String> {
-        let Some((dotted, k_len)) = self.plan.jet else {
-            return Ok(());
-        };
+        let plan = self.plan.clone();
+        match plan.jet.as_ref() {
+            None => Ok(()),
+            Some(jet) => match jet.univariate() {
+                Some(k_len) => self.geometry_jets_univariate(jet.variables[0].0, k_len),
+                None => self.geometry_jets_multivariate(jet),
+            },
+        }
+    }
+
+    /// [`Self::geometry_jets`] for one variable, the squared mass of `dotted`.
+    fn geometry_jets_univariate(&mut self, dotted: usize, k_len: usize) -> Result<(), String> {
         let plan = self.plan.clone();
         let n = plan.settings.propagators;
         for order in &mut self.geometry_jet {
@@ -3058,6 +3400,218 @@ where
                                 self.geometry_jet[order][weights + 6 * column + i + 1] = value;
                             }
                             self.geometry_jet[order][weights + 6 * column] = csub(&self.zero, &sum);
+                        }
+                    }
+                }
+                SubsetKind::Relation(_) | SubsetKind::Homogeneous(_) => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// [`Self::geometry_jets`] for several variables `v`, the squared masses
+    /// of `line_v`. Every mass-dependent entry is linear in them, or solves a
+    /// system linear in them, `(A0 + sum_v delta_v A_v) X = c`, whose orders
+    /// are `X_o = -A0^-1 sum_v A_v X_(o - e_v)`: one variable's formulas of
+    /// [`Self::geometry_jets_univariate`], summed over the variables an order
+    /// lowers.
+    fn geometry_jets_multivariate(&mut self, jet: &Jet) -> Result<(), String> {
+        let plan = self.plan.clone();
+        let n = plan.settings.propagators;
+        let variables = jet.variables.len();
+        for order in &mut self.geometry_jet {
+            for value in order.iter_mut().take(plan.geometry_count) {
+                *value = self.zero.clone();
+            }
+        }
+        let real = |value: T| C::new(value, self.prototype.zero());
+        // The order e_v of each variable.
+        let first: Vec<usize> = (0..variables).map(|v| jet.raise[v][0] as usize).collect();
+        for relation in &plan.relations {
+            // w(delta) = w0 / (1 + sum_v t_v delta_v), t_v = sum_j w0_j df_j(v):
+            // w_o = -sum_v t_v w_(o - e_v).
+            let base = relation.weights as usize;
+            let origin = relation.members[0];
+            let t: Vec<C<T>> = jet
+                .variables
+                .iter()
+                .map(|&(line, _)| {
+                    let mut t = self.zero.clone();
+                    for (j, &member) in relation.members.iter().enumerate().skip(1) {
+                        let df = self.f_derivative(origin, member, line);
+                        t = cadd(&t, &cscale(&self.geometry[base + j], &df));
+                    }
+                    t
+                })
+                .collect();
+            for j in 0..relation.members.len() {
+                for order in 1..jet.len {
+                    let mut value = self.zero.clone();
+                    for (v, t) in t.iter().enumerate() {
+                        let lower = jet.lower[v][order];
+                        if lower == Jet::NONE {
+                            continue;
+                        }
+                        let previous =
+                            if lower == 0 { &self.geometry[base + j] } else { &self.geometry_jet[lower as usize - 1][base + j] };
+                        value = csub(&value, &cmul(previous, t));
+                    }
+                    self.geometry_jet[order - 1][base + j] = value;
+                }
+            }
+        }
+        for subset in &plan.subsets {
+            let members = &subset.members;
+            let origin = members[0];
+            match subset.kind {
+                SubsetKind::Pv => {
+                    let geometry = subset.pv.unwrap();
+                    for (v, &(line, _)) in jet.variables.iter().enumerate() {
+                        let order = first[v] - 1;
+                        if origin == line {
+                            self.geometry_jet[order][geometry.m0 as usize] = self.one.clone();
+                        }
+                        let mut df = Vec::with_capacity(geometry.n);
+                        for i in 0..geometry.n {
+                            let value = self.f_derivative(origin, members[i + 1], line);
+                            self.geometry_jet[order][geometry.f as usize + i] = real(value.clone());
+                            df.push(value);
+                        }
+                        // A lightlike bubble has no Gram inverse (its closed
+                        // forms supply its jets).
+                        if subset.coefficient_rank >= 1 && geometry.n > 0 && !subset.lightlike {
+                            for j in 0..geometry.n {
+                                let mut zf = self.zero.clone();
+                                for i in 0..geometry.n {
+                                    let zinv = &self.geometry[geometry.zinv as usize + j * geometry.n + i];
+                                    zf = cadd(&zf, &cscale(zinv, &df[i]));
+                                }
+                                self.geometry_jet[order][geometry.zf as usize + j] = zf;
+                            }
+                        }
+                    }
+                }
+                SubsetKind::Pentagon => {
+                    let geometry = subset.pentagon.unwrap();
+                    let locals: Vec<Option<usize>> =
+                        jet.variables.iter().map(|&(line, _)| members.iter().position(|&m| m == line)).collect();
+                    // R(delta) = R0 - sum_v delta_v E_v, (E_v)_ij = [i=d_v] + [j=d_v]:
+                    // b_o = R0^-1 sum_v E_v b_(o - e_v).
+                    for order in 1..jet.len {
+                        let mut contributes = false;
+                        for i in 0..5 {
+                            self.rhs[i] = self.zero.clone();
+                        }
+                        for (v, local) in locals.iter().enumerate() {
+                            let (Some(local), lower) = (*local, jet.lower[v][order]) else {
+                                continue;
+                            };
+                            if lower == Jet::NONE {
+                                continue;
+                            }
+                            contributes = true;
+                            let previous: Vec<C<T>> = (0..5)
+                                .map(|i| {
+                                    if lower == 0 {
+                                        self.geometry[geometry.b as usize + i].clone()
+                                    } else {
+                                        self.geometry_jet[lower as usize - 1][geometry.b as usize + i].clone()
+                                    }
+                                })
+                                .collect();
+                            let mut sum = self.zero.clone();
+                            for value in &previous {
+                                sum = cadd(&sum, value);
+                            }
+                            for i in 0..5 {
+                                let mut e = previous[local].clone();
+                                if i == local {
+                                    e = cadd(&e, &sum);
+                                }
+                                self.rhs[i] = cadd(&self.rhs[i], &e);
+                            }
+                        }
+                        if !contributes {
+                            continue;
+                        }
+                        for i in 0..5 {
+                            for j in 0..5 {
+                                let (mi, mj) = (members[i], members[j]);
+                                self.matrix[i * 5 + j] =
+                                    csub(&csub(&self.distances[mi * n + mj], &self.masses[mi]), &self.masses[mj]);
+                            }
+                        }
+                        solve_in_place(&mut self.matrix[..25], &mut self.rhs[..5], 5, 1)
+                            .ok_or_else(|| "singular pentagon Cayley jet system".to_string())?;
+                        for i in 0..5 {
+                            self.geometry_jet[order - 1][geometry.b as usize + i] = self.rhs[i].clone();
+                        }
+                    }
+                    if subset.moment_rank >= 1 {
+                        for (v, &(line, _)) in jet.variables.iter().enumerate() {
+                            for mu in 0..4 {
+                                let mut a = self.zero.clone();
+                                for j in 0..4 {
+                                    let df = self.f_derivative(origin, members[j + 1], line);
+                                    let w = &self.geometry[geometry.w as usize + 4 * mu + j];
+                                    a = csub(&a, &cscale(w, &df));
+                                }
+                                self.geometry_jet[first[v] - 1][geometry.a as usize + mu] = a;
+                            }
+                        }
+                    }
+                }
+                SubsetKind::Hexagon => {
+                    // A(delta) = A0 + sum_v delta_v A_v, A_v only in the f row:
+                    // X_o = y (-sum_v a_v . X_(o - e_v)), y = A0^-1 e_4.
+                    let weights = subset.hexagon.unwrap() as usize;
+                    let a1: Vec<Vec<T>> = jet
+                        .variables
+                        .iter()
+                        .map(|&(line, _)| (0..5).map(|c| self.f_derivative(origin, members[c + 1], line)).collect())
+                        .collect();
+                    if a1.iter().flatten().all(|value| value.is_zero()) {
+                        continue;
+                    }
+                    for column in 0..5 {
+                        let member = members[column + 1];
+                        for mu in 0..4 {
+                            self.matrix[mu * 5 + column] = csub(&self.shifts[member][mu], &self.shifts[origin][mu]);
+                        }
+                        self.matrix[4 * 5 + column] =
+                            cadd(&csub(&self.distances[origin * n + member], &self.masses[member]), &self.masses[origin]);
+                    }
+                    for row in 0..5 {
+                        self.rhs[row] = if row == 4 { self.one.clone() } else { self.zero.clone() };
+                    }
+                    solve_in_place(&mut self.matrix[..25], &mut self.rhs[..5], 5, 1)
+                        .ok_or_else(|| "singular six-point jet system".to_string())?;
+                    let y: Vec<C<T>> = self.rhs[..5].to_vec();
+                    for order in 1..jet.len {
+                        for column in 0..5 {
+                            let mut r = self.zero.clone();
+                            for (v, a1) in a1.iter().enumerate() {
+                                let lower = jet.lower[v][order];
+                                if lower == Jet::NONE {
+                                    continue;
+                                }
+                                for c in 0..5 {
+                                    let index = weights + 6 * column + c + 1;
+                                    let previous = if lower == 0 {
+                                        &self.geometry[index]
+                                    } else {
+                                        &self.geometry_jet[lower as usize - 1][index]
+                                    };
+                                    r = csub(&r, &cscale(previous, &a1[c]));
+                                }
+                            }
+                            let mut sum = self.zero.clone();
+                            for i in 0..5 {
+                                let value = cmul(&y[i], &r);
+                                sum = cadd(&sum, &value);
+                                self.geometry_jet[order - 1][weights + 6 * column + i + 1] = value;
+                            }
+                            self.geometry_jet[order - 1][weights + 6 * column] = csub(&self.zero, &sum);
                         }
                     }
                 }
@@ -3526,22 +4080,25 @@ where
         }
     }
 
-    /// Taylor coefficients `J(1_S + k e_d)` of every master containing `d`.
+    /// Taylor coefficients `J(1_S + o)` of every master `S` containing a jet
+    /// variable's propagator, for the orders `o` whose variables all lie in
+    /// `S` (the others vanish: `S` does not depend on those masses).
     fn master_jets(&mut self) -> Result<(), String> {
-        let Some((dotted, k_len)) = self.plan.jet else {
+        let plan = self.plan.clone();
+        let Some(jet) = plan.jet.as_ref() else {
             return Ok(());
         };
         self.ibp_memo.clear();
         self.rinv_memo.clear();
-        let plan = self.plan.clone();
+        let lines: SubsetMask = jet.variables.iter().fold(0, |mask, &(line, _)| mask | (1 << line));
         // `lightlike_coefficients` (which runs first) wrote the jets of the
-        // lightlike bubbles containing `d`: keep them.
+        // lightlike bubbles containing a variable's propagator: keep them.
         let kept: Vec<(usize, usize, L4<T>)> = plan
             .lightlike
             .iter()
-            .filter(|(subset, _)| plan.subsets[*subset].mask & (1 << dotted) != 0)
+            .filter(|(subset, _)| plan.subsets[*subset].mask & lines != 0)
             .flat_map(|(_, entries)| entries.iter().map(|&(_, _, index)| index as usize))
-            .flat_map(|index| (0..k_len - 1).map(move |order| (order, index)))
+            .flat_map(|index| (0..jet.len - 1).map(move |order| (order, index)))
             .map(|(order, index)| (order, index, self.values_jet[order][index].clone()))
             .collect();
         for order in &mut self.values_jet {
@@ -3552,42 +4109,56 @@ where
         for (order, index, value) in kept {
             self.values_jet[order][index] = value;
         }
+        let bits = self.ibp_bits;
         for family in &plan.masters {
             for &(subset, index) in family {
                 let mask = plan.subsets[subset].mask;
-                if mask & (1 << dotted) == 0 {
+                if mask & lines == 0 {
                     continue;
                 }
-                let bits = self.ibp_bits;
                 let (mut unit, mut rest) = (0u64, mask);
                 while rest != 0 {
                     unit += ibp_unit(bits, rest.trailing_zeros() as usize);
                     rest &= rest - 1;
                 }
-                for order in 1..k_len {
-                    let value = self.ibp(unit + order as u64 * ibp_unit(bits, dotted))?;
-                    self.values_jet[order - 1][index as usize] = value;
+                for order in 1..jet.len {
+                    let mut powers = unit;
+                    let mut inside = true;
+                    for (&(line, _), digit) in jet.variables.iter().zip(jet.digits(order)) {
+                        if digit > 0 {
+                            inside &= mask & (1 << line) != 0;
+                            powers += digit as u64 * ibp_unit(bits, line);
+                        }
+                    }
+                    if inside {
+                        let value = self.ibp(powers)?;
+                        self.values_jet[order - 1][index as usize] = value;
+                    }
                 }
             }
         }
         Ok(())
     }
 
-    /// Recurrence program on Taylor jets: order k accumulates
-    /// `sum_(a+b=k) geometry_a constant value_b`.
+    /// Recurrence program on Taylor jets of any shape: order `c` accumulates
+    /// `sum_(a+b=c) geometry_a constant value_b` over the jet's box.
     #[inline(never)]
     fn run_program_jets(&mut self, plan: &DirectPlanData, program_is_moments: bool) {
-        let k_len = plan.jet.map_or(1, |(_, k)| k);
+        let jet = plan.jet.as_ref().expect("a jet program has a Taylor jet");
+        let len = jet.len;
         let program = if program_is_moments {
             &plan.moment_program
         } else {
             &plan.coefficient_program
         };
-        let mut accumulator = vec![lzero(&self.zero); k_len];
-        let mut factors = vec![self.zero.clone(); k_len];
+        let mut accumulator = vec![lzero(&self.zero); len];
+        let mut factors = vec![self.zero.clone(); len];
         for instruction in program {
-            if let PostOp::TaylorShift = instruction.post {
-                self.taylor_shift::<true>(plan, instruction, k_len);
+            if let PostOp::TaylorShift { variable, own } = instruction.post {
+                match jet.univariate() {
+                    Some(k_len) => self.taylor_shift::<true>(plan, instruction, k_len),
+                    None => self.taylor_shift_jet::<true>(plan, instruction, usize::from(variable), own),
+                }
                 continue;
             }
             for value in &mut accumulator {
@@ -3601,23 +4172,23 @@ where
                 } else {
                     let g = term.geometry as usize;
                     factors[0] = cscale(&self.geometry[g], constant);
-                    for a in 1..k_len {
+                    for a in 1..len {
                         factors[a] = cscale(&self.geometry_jet[a - 1][g], constant);
                     }
-                    k_len
+                    len
                 };
                 let src = term.src as usize;
                 for a in 0..orders {
                     if factors[a].re.is_zero() && factors[a].im.is_zero() {
                         continue;
                     }
-                    for b in 0..k_len - a {
+                    for &(b, c) in &jet.sums[a] {
                         let value = if b == 0 {
                             &self.values[src]
                         } else {
-                            &self.values_jet[b - 1][src]
+                            &self.values_jet[b as usize - 1][src]
                         };
-                        lfma(&mut accumulator[a + b], &factors[a], value);
+                        lfma(&mut accumulator[c as usize], &factors[a], value);
                     }
                 }
             }
@@ -3628,7 +4199,7 @@ where
             }
             let dst = instruction.dst as usize;
             self.values[dst] = accumulator[0].clone();
-            for order in 1..k_len {
+            for order in 1..len {
                 self.values_jet[order - 1][dst] = accumulator[order].clone();
             }
         }
@@ -3647,15 +4218,17 @@ where
     }
 
     fn run_program(&mut self, plan: &DirectPlanData, program_is_moments: bool) {
-        match (self.plan.jet, self.ir_free) {
-            (Some((_, 2)), true) => self.run_program_jet::<false, 2>(plan, program_is_moments),
-            (Some((_, 2)), false) => self.run_program_jet::<true, 2>(plan, program_is_moments),
-            (Some((_, 3)), true) => self.run_program_jet::<false, 3>(plan, program_is_moments),
-            (Some((_, 3)), false) => self.run_program_jet::<true, 3>(plan, program_is_moments),
-            (Some((_, 4)), true) => self.run_program_jet::<false, 4>(plan, program_is_moments),
-            (Some((_, 4)), false) => self.run_program_jet::<true, 4>(plan, program_is_moments),
-            (Some((_, 5)), true) => self.run_program_jet::<false, 5>(plan, program_is_moments),
-            (Some((_, 5)), false) => self.run_program_jet::<true, 5>(plan, program_is_moments),
+        // One variable of length 2 to 5: the unrolled univariate jets.
+        let shape = self.plan.jet.as_ref().map(Jet::univariate);
+        match (shape, self.ir_free) {
+            (Some(Some(2)), true) => self.run_program_jet::<false, 2>(plan, program_is_moments),
+            (Some(Some(2)), false) => self.run_program_jet::<true, 2>(plan, program_is_moments),
+            (Some(Some(3)), true) => self.run_program_jet::<false, 3>(plan, program_is_moments),
+            (Some(Some(3)), false) => self.run_program_jet::<true, 3>(plan, program_is_moments),
+            (Some(Some(4)), true) => self.run_program_jet::<false, 4>(plan, program_is_moments),
+            (Some(Some(4)), false) => self.run_program_jet::<true, 4>(plan, program_is_moments),
+            (Some(Some(5)), true) => self.run_program_jet::<false, 5>(plan, program_is_moments),
+            (Some(Some(5)), false) => self.run_program_jet::<true, 5>(plan, program_is_moments),
             (Some(_), _) => self.run_program_jets(plan, program_is_moments),
             (None, true) => self.run_program_ordinary::<false>(plan, program_is_moments),
             (None, false) => self.run_program_ordinary::<true>(plan, program_is_moments),
@@ -3672,7 +4245,7 @@ where
             for &(_, index) in family {
                 let value = &self.values[index as usize];
                 free &= zero(&value[1]) && zero(&value[2]);
-                for order in self.values_jet.iter().take(plan.jet.map_or(0, |(_, k)| k - 1)) {
+                for order in self.values_jet.iter().take(plan.jet.as_ref().map_or(0, |jet| jet.len - 1)) {
                     let value = &order[index as usize];
                     free &= zero(&value[1]) && zero(&value[2]);
                 }
@@ -3697,7 +4270,7 @@ where
             &plan.coefficient_program
         };
         for instruction in program {
-            if let PostOp::TaylorShift = instruction.post {
+            if let PostOp::TaylorShift { .. } = instruction.post {
                 self.taylor_shift::<FULL>(plan, instruction, K);
                 continue;
             }
@@ -3895,7 +4468,7 @@ where
                         div_dimension(&mut accumulator, &constants[inverse as usize]);
                     }
                     // Only plans with a Taylor jet have partial fractions.
-                    PostOp::TaylorShift => unreachable!("a partial fraction without a Taylor jet"),
+                    PostOp::TaylorShift { .. } => unreachable!("a partial fraction without a Taylor jet"),
                 }
                 values[instruction.dst as usize] = accumulator;
             }
@@ -4564,6 +5137,9 @@ where
             // hold here, restart from the base plan. Each affinely dependent
             // subset the geometry discovers switches to a relation variant.
             let mut failure = None;
+            // A relation that fails after the restart fails the lane: the
+            // restart would repeat the same profile.
+            let mut restarted = false;
             // The lane's plan, cloned once (an atomic increment and
             // decrement) and lent to every step below.
             let plan = loop {
@@ -4571,16 +5147,20 @@ where
                 match self.geometry(&plan) {
                     Ok(()) => break plan,
                     Err(GeometryFailure::Relation(error)) => {
-                        if self.relation_profile.is_empty()
-                            && self.lightlike_profile.is_empty()
-                            && self.homogeneous_profile.is_empty()
+                        if restarted
+                            || (self.relation_profile.is_empty()
+                                && self.lightlike_profile.is_empty()
+                                && self.homogeneous_profile.is_empty()
+                                && self.flat_profile.is_empty())
                         {
                             failure = Some(error);
                             break plan;
                         }
+                        restarted = true;
                         self.relation_profile.clear();
                         self.lightlike_profile.clear();
                         self.homogeneous_profile.clear();
+                        self.flat_profile.clear();
                         self.select_variant()?;
                     }
                     Err(GeometryFailure::Lightlike(mask)) => {
@@ -4601,39 +5181,49 @@ where
                         break plan;
                     }
                     Err(GeometryFailure::Singular(mask, error)) => {
+                        // A flat subset of six or more points takes the
+                        // identity of its relation, which may be one its
+                        // pinches hold already.
+                        let flat = mask.count_ones() >= 6 && !self.flat_profile.contains(&mask);
                         match self.relation_support(mask) {
                             Ok((support, false))
-                                if !self.relation_profile.contains(&support)
+                                if (flat || !self.relation_profile.contains(&support))
                                     && !(batched_masters && support != 0) =>
                             {
-                                self.relation_profile.push(support);
-                                self.relation_profile.sort_unstable();
+                                if !self.relation_profile.contains(&support) {
+                                    self.relation_profile.push(support);
+                                    self.relation_profile.sort_unstable();
+                                }
+                                if flat {
+                                    self.flat_profile.push(mask);
+                                    self.flat_profile.sort_unstable();
+                                }
                                 self.select_variant()?;
                             }
                             Ok((support, true))
                                 if !batched_masters
-                                    && !self.homogeneous_profile.iter().any(|&(h, _)| h == support) =>
+                                    && (flat || !self.homogeneous_profile.iter().any(|&(h, _)| h == support)) =>
                             {
                                 // Linearly dependent propagators (Coulomb
-                                // exchange): partial fractions with a raised
-                                // massless member.
-                                let Some(raised) = self.raised_member(support) else {
-                                    failure = Some(format!(
-                                        "{error}; linearly dependent propagators {support:#b} without a massless member"
-                                    ));
-                                    break plan;
-                                };
-                                let Some(profile) = self.homogeneous_with(support, raised) else {
-                                    failure = Some(format!(
-                                        "{error}; linearly dependent propagator sets {support:#b} and {:?} share no member to raise",
-                                        self.homogeneous_profile.iter().map(|&(h, _)| h).collect::<Vec<_>>()
-                                    ));
-                                    break plan;
-                                };
-                                self.homogeneous_profile = profile;
-                                self.homogeneous_profile.sort_unstable();
+                                // exchange, or four heavy lines of two onia):
+                                // partial fractions with a raised member.
+                                if !self.homogeneous_profile.iter().any(|&(h, _)| h == support) {
+                                    let Some(raised) = self.raised_member(support) else {
+                                        failure = Some(format!(
+                                            "{error}; linearly dependent propagators {support:#b} without a member to raise"
+                                        ));
+                                        break plan;
+                                    };
+                                    self.homogeneous_profile = self.homogeneous_with(support, raised);
+                                    self.homogeneous_profile.sort_unstable();
+                                }
+                                if flat {
+                                    self.flat_profile.push(mask);
+                                    self.flat_profile.sort_unstable();
+                                }
                                 if let Err(variant) = self.select_variant() {
                                     self.homogeneous_profile.clear();
+                                    self.flat_profile.clear();
                                     failure = Some(format!("{error}; {variant}"));
                                     self.select_variant()?;
                                     break plan;
@@ -4648,7 +5238,9 @@ where
                 }
             };
             self.lane_estimate[row] = self.estimate_tripped;
-            self.lane_relation[row] = !self.relation_profile.is_empty() || !self.homogeneous_profile.is_empty();
+            self.lane_relation[row] = !self.relation_profile.is_empty()
+                || !self.homogeneous_profile.is_empty()
+                || !self.flat_profile.is_empty();
             if let Some(error) = failure {
                 self.lane_conditions[row] = self.failed_condition;
                 statuses.push(LaneStatus::Unstable(error));
@@ -4744,14 +5336,13 @@ where
                 continue;
             }
             let started = self.timer();
-            match self.plan.jet {
+            let (jet_len, output_order) = (self.plan.jet.as_ref().map(|jet| jet.len), self.plan.output_order);
+            match jet_len {
                 None => self.gather(&plan),
                 // Without moment recursions only the requested order is used.
-                Some((_, k_len)) if self.plan.moment_program.is_empty() => {
-                    self.gather_order(&plan, k_len - 1)
-                }
-                Some((_, k_len)) => {
-                    for order in 0..k_len {
+                Some(_) if self.plan.moment_program.is_empty() => self.gather_order(&plan, output_order),
+                Some(len) => {
+                    for order in 0..len {
                         self.gather_order(&plan, order);
                     }
                 }

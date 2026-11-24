@@ -353,10 +353,174 @@ that hi + lo resolves is therefore not taken as v = 0. A Coulomb triangle
 512 bits on the same inputs. Lanes whose low words are all zero are reduced
 exactly as without them.
 
+**Two P-wave states.** A virtual with two P-wave bound states (onia_loop's
+e+ e- > chi_c0 h_c and g g > chi_c0 chi_c0) differentiates in both relative
+momenta, so its integrals have two doubled lines, and a doubled line can lie
+outside a Coulomb triple, whose partial fraction raises another member. The
+direct engine's mass-derivative jets now have one Taylor variable per dotted
+line and per raised member of a linearly dependent set (at most four); an
+order is a multi-index in a box, closed under the recurrences' products.
+- **Geometry.** Every mass-dependent entry is linear in the squared masses
+  or solves a system linear in them, so its orders are those of one
+  variable, summed over the variables an order lowers.
+- **Masters.** Their orders are the scalar IBP's integrals with those powers.
+- **Two dotted members of one linearly dependent set.** The partial
+  fraction raising one keeps the other's line: its term is the set's own
+  order with a power moved to the raised member, evaluated first. The
+  raised member's Taylor length grows by that power.
+- **One variable** is the former single jet, whose paths are unchanged (the
+  previously served e+ e- calls are bit for bit those MadLoop recorded).
+- **Scaleless lightlike bubbles.** Two doubled gluon lines with a lightlike
+  difference (g g > chi_c0 chi_c0 at rank 6: a massless box and pentagons)
+  form a scaleless bubble with both lines differentiated. Its orders vanish
+  but for the logarithmically divergent ones, whose cancelling UV and IR
+  poles carry the massive case's UV residue.
+
+On onia_loop's fixtures every call TIRust refused is served, in both passes:
+53 per e+ e- point and pass (46 with two doubled lines) and 667 per g g pass
+(634). Validation:
+- **Generic massive lines.** Against the mass derivative of the same
+  integral with one line fewer doubled, at 512 bits (central difference with
+  a Richardson step), to 1e-30, and in binary64 to 1e-8.
+- **Exact inputs.** Two dotted members of a Coulomb triple (box and
+  pentagon) give the same array at 512 bits, to 1e-60, when the lines are
+  reversed, which raises the other member.
+- **MadLoop's lanes.** The scalar components of 50 refused lanes agree to
+  2.3e-9 (binary64 and 256 bits alike: MadLoop's invariants hold the
+  thresholds to their rounding) with a reference from exact partial fractions
+  down to integrals without dependent subsets, from quad IREGI. IREGI's direct
+  value is wrong on six of these lanes (mre/, item 5).
+- **Exact identities.** The 50 lanes' tensors satisfy the cancellation
+  identity (a numerator `D_i` lowers line `i`) in their pole slots. For the
+  scaleless bubbles (no reference evaluates them), the massless box and
+  pentagon also satisfy `2 q.(p_i - p_j) = D_i - D_j + const` in every slot,
+  and the bubble alone with powers (2, 2) and (2, 3) both identities in
+  every slot, to 4e-16. The cancellation identity's single pole and finite
+  part miss the `(-2 eps)`-dimensional part of `q^2`, which has a single
+  pole when a doubled massless line lies between an on-shell heavy leg and
+  a lightlike one (the same pentagon with only that line doubled, one jet
+  variable, misses by 9%).
+
+**Two onia in a 2 -> 2 process.** g g > chi_c0 chi_c0 also has unit-power
+integrals at rank 4 that the identities above did not reach (87 per g g
+pass at 20 GeV, refused at every precision):
+- **Four heavy lines without a massless member.** A closed c, b or t loop
+  with offsets 0, p1, (p1 - p2)/2, (p1 + p2)/2 has D_0 + D_1 = D_2 + D_3 for
+  equal masses: linearly dependent, but with no gluon to raise. These boxes,
+  and the pentagons and hexagons holding such a set, now raise a heavy line.
+  The integral is regular (only its reduction is degenerate), and the
+  doubled line's jets are the mass derivatives of pinches that are not.
+- **Flat hexagons.** With p_Q = p_Qbar for both onia, every external point
+  lies in the span of p1, p2 and one onium's momentum: three dimensions, so
+  no six-point coordinate system exists (singular, or singular to the
+  inputs' rounding). Such a hexagon now takes the identity of its relations,
+  as pentagons and boxes do: a constant one, which keeps the rank, or a
+  partial fraction where every relation is linearly dependent (two or three
+  Coulomb triples and heavy sets). Hexagons with a coordinate system are
+  reduced by it as before, whatever relations their pinches hold.
+
+All 87 calls are now served in binary64 and at 256 and 512 bits; quad
+original IREGI reports all of them stable. On the exact
+kinematics (every shift a rational combination of p1, p2 and one
+constituent, rebuilt in 200 digits), TIRust at 256 and 512 bits agrees with
+quad IREGI's arrays to 2.3e-16, IREGI's own accuracy here. MadLoop's binary64
+inputs agree with the exact kinematics to 5e-15, which moves the integral of
+some hexagons by up to 8e-9. On those inputs binary64 is within 5.4e-11 of
+512 bits.
+
+Served, these calls let MadLoop reach the raised calls of the same loop
+groups at rank 6: 26 per pass whose two doubled heavy lines (both onia
+P-wave) belong to such a set of four and differ by a gluon momentum. The
+partial fraction reaches their equal-mass bubble at p^2 = 0 with both lines
+jet variables.
+- **Massive lightlike bubbles with both lines differentiated.** Moving both
+  squared masses moves the Feynman-parameter denominator by
+  `delta0 (1 - x) + delta1 x`, so the order `(j0, j1)` of the bubble's
+  coefficients is the one-variable order `j = j0 + j1` with `w^j / j!`
+  replaced by `(1 - x)^j0 x^j1 / (j0! j1!)`. That holds for the orders up to
+  the coefficient's `lambda` (UV divergent) and for the UV-finite ones
+  beyond. A lightlike bubble of a massless and a massive line, both
+  differentiated, is still refused.
+
+All 52 calls (both passes) are served at 256 and 512 bits, which agree to
+3.5e-70; binary64 serves 44, 2.7e-11 from 512 bits, and refuses 8 on
+ill-conditioned Gram matrices. Their scalar components agree, at 256 bits
+on the exact kinematics, with exact partial fractions down to integrals
+without dependent subsets (`make_two_dotted_fixture.py`'s reducer, 1,000
+integrals from quad IREGI's scalars with powers) to 6.3e-17. Full tensors
+of the same structures on exact dyadic kinematics agree with the mass
+derivative of the integral with one line fewer doubled to 1.4e-41 at 512
+bits (boxes, a pentagon, and the bubble alone to rank 6), and satisfy
+`2 q.(p_i - p_j) = D_i - D_j + const` in every slot (also for a hexagon,
+whose doubled lines border soft gluons, so no mass derivative applies).
+
+Two defects made the binary64 arrays of these 5- and 6-line raised calls
+depend on the order of the lines and on the calls before them (onia_loop's
+replay, 24 November: 97 of 3,480 pass-1/pass-2 pairs of the same lines more
+than 1e-6 apart, 79 more than 0.1), while their scalars agreed:
+- **A member another set raises.** Sets that share no common member raise
+  their own (8305f8b), so a partial fraction can hold a line another set
+  raises. When that set holds this one, the line is at a nonzero Taylor
+  order there, and its term must keep the line one power lower (the set's
+  own order `o - e_i + e_v`), as a dotted member's does; it was dropped.
+  Which set a flat hexagon takes first follows the line order, so the
+  arrays did too (up to 3 apart). The term is now kept for every jet member
+  of a set, and each such member's Taylor length is added to the raised
+  member's (the least solution of those equations; sets raising members of
+  each other are refused).
+- **Stale jet orders.** A lightlike bubble holding one of several jet
+  variables wrote only that variable's orders and kept the rest from the
+  previous lane or plan variant at those indices. Its orders now start at
+  zero.
+
+On the same replay with both fixed (all 6,960 calls through the bridge's
+DP entry, in order through one context, cache on or off), every array
+equals its value in a fresh context exactly, and the 2,666 pairs of the same
+lines agree to 4.1e-9 (the inputs' own floor). The 87 unit-power calls
+still agree with quad IREGI to 2.3e-16.
+
+At a forward angle (onia_loop's point 1 of seed 1, cos theta = −0.985844,
+9.7 degrees from the beam) from 20 GeV on, 08cca00 refused 49 and 50 raised
+calls of the two passes, and 12 of the reversed pass at 20 GeV, point 3
+(cos theta = −0.603568): 171 distinct inputs over 20, 50 and 200 GeV, in
+both precisions. Each holds a pentagon whose doubled gluon is in a collinear
+pair. Its reduction `J5 = sum_i b_i J4^(i) + (4 - D) B J5^(D+2)`,
+`B = sum_i b_i`, drops the last term, whose doubled massless line keeps a
+collinear pole, so B must vanish to the inputs' rounding. It does with the
+Gram determinant: the pentagon's external points span three dimensions. The
+test held B to `sum_i |b_i|` times the rounding, which the Cayley system's
+amplification of the inputs' rounding exceeds here: by up to 40 for binary64
+inputs, and by up to 2.1 for binary128 inputs at 50 and 200 GeV. B is now
+held to the rounding's first-order effect: with
+`Y b = 1`, the inputs' rounding moves B by `-b^T dY b`, at most the
+rounding times `sum_ij |b_i| |b_j| y_ij`, with `y_ij` the size of `Y_ij`'s
+inputs (`cayley_inverse`'s). The measured B is at most 0.026 of that for
+binary64 inputs and 0.0024 for binary128 inputs. The new bound is never
+below the old one, and a generic pentagon (1e-4 off) is still refused.
+
+In binary64 these calls' boxes have Gram conditioning 1e-3 at rank 5 and 6
+(9.7 degrees from the beam), so the bridge's relation tier takes them to
+double-double, whose pentagon test refused them as well. They are now
+served there (route 2), within 4.1e-9 of 256 bits on the same inputs. The
+binary128 inputs of the exact kinematics (shifts quarters of p1, p2 and a
+constituent, rounded once; MadLoop's lightlike and on-shell invariants
+exact) are served at 256 bits. Their scalars agree with exact partial
+fractions to 4,340 regular integrals from quad IREGI's scalars with powers
+to 2.1e-16. MadLoop's binary64 inputs move these integrals by up to 2.4e-7
+(a scalar at 50 GeV). Quad IREGI's own direct value is off by up to 3.1 on
+18 hexagons at 200 GeV. Binary64 inputs widened to binary128 and declared
+so (a replay of MadLoop's DP records through the QP entry) remain refused:
+they are consistent only to binary64, so the threshold triples are
+dependent only beyond their declared rounding, and B is 3e13 to 1e16
+times its bound.
+
 **Limits.**
-- A doubled line outside the Coulomb triple (24 of the coverage scan's
-  P-wave lanes) would need two raised lines, which the single-line jets do
-  not hold: refused (typed).
+- A lightlike bubble of a massless and a massive line, both jet variables,
+  has no closed form here: refused (typed).
+- At rank 0, a box whose external momenta span two dimensions (the closed
+  quark loop above, unit powers) is a scalar master that oneloopmaster's D0
+  does not evaluate (nonfinite): refused (typed), also with its masses
+  split. From rank 1 the Gram check finds the dependence first.
 - At rank 0 a Coulomb triangle or box is only a scalar master, with no
   Gram check to detect the linear dependence. On exact inputs oneloopmaster
   returns a nonfinite master and the lane is refused (typed); the facade
@@ -905,6 +1069,40 @@ and the S-wave lanes whose reduction reaches one:
   and 5e-15: IREGI's invariants agree with the supplied ones only to their
   rounding). On IREGI's own binary128 inputs it must agree to 1e-15
   (measured 1.1e-16, quad IREGI's floor).
+- `tests/fixtures/onia-two-dotted.json` (`make_two_dotted_fixture.py`): 50
+  lanes of onia_loop's two-P-wave outputs (e+ e- > chi_c0 h_c,
+  g g > chi_c0 chi_c0) that TIRust refused before, at MadLoop's rank. The
+  reference is their scalar, from exact partial fractions of the lanes'
+  linearly dependent subsets down to integrals without one, from quad IREGI
+  with its heavy pairs exactly on threshold. TIRust's scalar components must
+  agree to 1e-8 in binary64 and at 256 bits (measured 2.3e-9 at both), and
+  the whole array must agree with the reversed lines to 1e-8 (measured
+  8.6e-10: the inputs' consistency).
+- `tests/fixtures/onia-two-onium-gg.json` (`make_two_onium_gg_fixture.py`):
+  15 of the 87 unit-power calls of g g > chi_c0 chi_c0 at 20 GeV, rank 4,
+  one per pattern of dependent subsets: the c, b and t boxes and the
+  pentagons whose four heavy lines are linearly dependent, and flat
+  hexagons (Coulomb triples, heavy sets, constant relations, and hexagons
+  whose relations are all linearly dependent). The reference is quad
+  original IREGI's arrays on the exact kinematics, which the test rebuilds
+  at 256 bits from the stored rational coefficients. TIRust must agree there
+  to 1e-15 (measured 1.9e-16), and, on MadLoop's binary64 inputs, to 1e-10
+  against 256 bits on the same inputs (5.4e-11) and to 1e-8 against the
+  reference (7.8e-9: the inputs' distance from the exact kinematics).
+- `tests/fixtures/onia-two-onium-forward.json`
+  (`make_two_onium_forward_fixture.py`): 8 of the 171 raised calls of
+  g g > chi_c0 chi_c0 that 08cca00 refused at a forward angle (20, 50 and
+  200 GeV, rank 5 and 6, one or two doubled lines), pentagons and hexagons
+  holding a flat pentagon with a doubled gluon in a collinear pair. The
+  reference is their scalar on the exact kinematics, from exact partial
+  fractions to regular integrals from quad IREGI's scalars with powers.
+  MadLoop's binary64 inputs through the bridge's embedder must be served by
+  the double-double tier, within 1e-8 of 256 bits on the same inputs
+  (measured: equal once rounded to binary64); the exact kinematics as
+  binary128 inputs at 256 bits must give the scalar to 1e-15 (measured
+  1.7e-16). At 512 bits a pentagon and two hexagons must satisfy
+  `2 q.(p_i - p_j) = D_i - D_j + const` in every slot (3.1e-16 of the
+  terms), and give the same array with their lines reversed.
 - `tests/fixtures/onia-lightlike-powers.json`
   (`make_lightlike_powers_fixture.py`): scalars of the equal-mass bubble at
   p^2 = 0 with one line raised to the third or fourth power, and of a
@@ -916,6 +1114,17 @@ and the S-wave lanes whose reduction reaches one:
   and 1e-40 at 256 bits.
 
 The test file's other cases need no fixture:
+- flat hexagons whose linearly dependent sets overlap without a common
+  member, a line doubled (exact dyadic kinematics, 512 bits): every
+  rotation and reversal of the lines gives the same array (3e-144) and
+  satisfies `2 q.(p_i - p_j)` in every slot, and lanes of two kinematics in
+  turn through one workspace each equal their value alone exactly;
+- two doubled heavy lines of a lightlike bubble inside a set of four heavy
+  lines (box, pentagon, flat hexagon and the bubble alone, exact dyadic
+  kinematics, 512 bits), against the mass derivative of the integral with
+  one line fewer doubled (1.4e-41; not the hexagon), the identity
+  `2 q.(p_i - p_j)` for every pair (2.4e-16, the binary64 comparison) and
+  the reversed lines (3e-148);
 - the #32 review's cases: mixed batches, the planar pentagon, and the
   Coulomb triangle and box at every rank;
 - the #33 review's near-dependent lanes, M = 9 (1 + delta) and a point moved
@@ -942,6 +1151,11 @@ The test file's other cases need no fixture:
   translated by 2^-60 (2.1e-32 from 512 bits at 106-bit inputs, where binary64
   inputs lose 7.5e-19) and 2^-80 off threshold (refused at 106 bits, the
   v = 0 value at 64 bits), with zero low words bit-identical;
+- two doubled lines and doubled lines outside a Coulomb triple: a generic
+  box and pentagon, and a Coulomb box and pentagon, against the mass
+  derivative of the integral with one line fewer doubled at 512 bits
+  (1e-30), and two dotted members of a Coulomb triple on exact inputs
+  against the reversed lines (1e-60 at 512 bits);
 - the doubled Coulomb gluon in two pentagons of g g > chi_c0 g (rank 5,
   MadLoop's binary64 invariants), whose IBP reaches lightlike equal-mass
   bubbles at total power 4, against the same lanes with those pairs moved
@@ -969,6 +1183,9 @@ The test file's other cases need no fixture:
 | `make_two_onium_box_fixture.py` | the two-onium box fixture (quad IREGI, pairs exactly on threshold) |
 | `make_lightlike_powers_fixture.py` | the lightlike equal-mass bubbles with higher powers (quad IREGI scalars with powers) |
 | `make_double_coulomb_fixture.py` | the double-Coulomb pentagon fixture (quad IREGI, both onia exactly on threshold) |
+| `make_two_dotted_fixture.py` | the two-P-wave fixture (exact partial fractions to regular integrals, quad IREGI scalars with powers) |
+| `make_two_onium_gg_fixture.py` | the g g > chi_c0 chi_c0 unit-power fixture (quad IREGI on exact kinematics) |
+| `make_two_onium_forward_fixture.py` | the g g > chi_c0 chi_c0 forward-angle fixture (flat pentagons with a doubled collinear gluon; exact partial fractions, quad IREGI scalars with powers) |
 | `merge_swave.py` | concatenates onia_swave outputs over point ranges |
 | `crates/iregi-prepare/examples/onia_diagrams.rs` | FeynKit diagram generation (DOT files) |
 | `crates/iregi-prepare/examples/onia_swave.rs` | S-wave projection and numerator coefficients per point and polarization |
