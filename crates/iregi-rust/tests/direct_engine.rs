@@ -314,6 +314,199 @@ fn degenerate_box_uses_the_constant_one_identity() {
     assert!(error <= 1e-13, "E/A = {error:e}");
 }
 
+/// Shifts `b + t k` on a line (issue #36): `D_t = (q + b + t k)^2 - m_t`, so
+/// `D_0 - 2 D_1 + D_2 = 2 k^2 - (m_0 - 2 m_1 + m_2)` (`k^2 = 9`).
+fn on_a_line(t: f64) -> [f64; 4] {
+    let (b, k) = ([1.5, 0.5, 2.0, -1.0], [5.0, 0.0, 0.0, 4.0]);
+    std::array::from_fn(|a| b[a] + t * k[a])
+}
+
+/// A fourth shift off that line.
+const OFF_THE_LINE: [f64; 4] = [0.3, -1.1, 0.7, 2.2];
+
+type Mp = symbolica::domains::float::Float;
+
+/// The rank-0 scalar `[UV, IR1, IR2, finite]` of `shifts` and squared masses
+/// at 256 bits, mu = 3.
+fn scalar_256(shifts: &[[f64; 4]], masses: &[Mp]) -> Vec<Complex<Mp>> {
+    let zero = Mp::with_val(256, 0.0);
+    let mut values: Vec<Complex<Mp>> = Vec::new();
+    for shift in shifts {
+        values.extend(shift.map(|x| Complex::new(Mp::with_val(256, x), zero.clone())));
+    }
+    values.extend(masses.iter().map(|m| Complex::new(m.clone(), zero.clone())));
+    values.push(Complex::new(Mp::with_val(256, 3.0), zero.clone()));
+    let mut workspace = DirectReductionPlan::new(ReductionSettings::new(shifts.len(), 0))
+        .unwrap()
+        .workspace(Mp::new(256))
+        .unwrap();
+    let result = workspace.reduce_batch(&KinematicsBatch { rows: 1, components: 1, values }).unwrap();
+    assert_eq!(result.statuses[0], LaneStatus::Success, "256-bit scalar of {shifts:?}");
+    result.lane(0).unwrap().to_vec()
+}
+
+/// `d/d m_line` of [`scalar_256`] by a central difference of step 2^-90:
+/// the integral with that propagator doubled (to 1e-50 here).
+fn doubled_256(shifts: &[[f64; 4]], masses: &[f64], line: usize) -> Vec<Complex<Mp>> {
+    let h = Mp::with_val(256, 2f64.powi(-90));
+    let at = |sign: f64| {
+        let masses: Vec<Mp> = masses
+            .iter()
+            .enumerate()
+            .map(|(i, &m)| if i == line { Mp::with_val(256, m) + h.clone() * Mp::with_val(256, sign) } else { Mp::with_val(256, m) })
+            .collect();
+        scalar_256(shifts, &masses)
+    };
+    let (up, down) = (at(1.0), at(-1.0));
+    let two_h = h.clone() + h.clone();
+    up.iter()
+        .zip(&down)
+        .map(|(u, d)| Complex::new((u.re.clone() - d.re.clone()) / two_h.clone(), (u.im.clone() - d.im.clone()) / two_h.clone()))
+        .collect()
+}
+
+/// `max |value - reference| / max |reference|` over the slots.
+fn slot_error<T: Clone + Into<Mp>>(values: &[Complex<T>], reference: &[Complex<Mp>]) -> f64 {
+    use symbolica::domains::float::RealLike;
+    let size = |re: &Mp, im: &Mp| re.to_f64().hypot(im.to_f64());
+    let scale = reference.iter().map(|z| size(&z.re, &z.im)).fold(0.0, f64::max);
+    let worst = values
+        .iter()
+        .zip(reference)
+        .map(|(v, r)| size(&(v.re.clone().into() - r.re.clone()), &(v.im.clone().into() - r.im.clone())))
+        .fold(0.0, f64::max);
+    worst / scale
+}
+
+/// The rank-0 lane of `shifts` and `masses` (mu = 3) in binary64, double-double
+/// and at 256 bits, each through the direct workspace, and in binary64 through
+/// the facade.
+fn rank0_lanes(shifts: &[[f64; 4]], masses: &[f64]) -> [(LaneStatus, Vec<Complex<Mp>>); 4] {
+    use symbolica::domains::float::{DoubleFloat, RealLike};
+    let settings = ReductionSettings::new(shifts.len(), 0);
+    let row = row(shifts, &masses.iter().map(|&m| (m, 0.0)).collect::<Vec<_>>(), 3.0);
+    let up = |z: &Complex<f64>| Complex::new(Mp::with_val(256, z.re), Mp::with_val(256, z.im));
+    let plan = DirectReductionPlan::new(settings.clone()).unwrap();
+    let take = |status: &LaneStatus, lane: Option<Vec<Complex<Mp>>>| (status.clone(), lane.unwrap_or_default());
+    let batch = KinematicsBatch { rows: 1, components: 1, values: row.clone() };
+    let binary64 = plan.workspace(0.0f64).unwrap().reduce_batch(&batch).unwrap();
+    let binary64 = take(&binary64.statuses[0], binary64.lane(0).ok().map(|l| l.iter().map(up).collect()));
+    let dd_row = row.iter().map(|z| Complex::new(DoubleFloat::from(z.re), DoubleFloat::from(z.im))).collect();
+    let dd = plan
+        .workspace(DoubleFloat::from(0.0))
+        .unwrap()
+        .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: dd_row })
+        .unwrap();
+    let dd_lane = dd.lane(0).ok().map(|l| {
+        // Both limbs, exactly.
+        let limbs = |x: &DoubleFloat| Mp::with_val(256, x.to_f64()) + Mp::with_val(256, (x.clone() - DoubleFloat::from(x.to_f64())).to_f64());
+        l.iter().map(|z| Complex::new(limbs(&z.re), limbs(&z.im))).collect()
+    });
+    let dd = take(&dd.statuses[0], dd_lane);
+    let mp_row = row.iter().map(up).collect();
+    let mp = plan
+        .workspace(Mp::new(256))
+        .unwrap()
+        .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: mp_row })
+        .unwrap();
+    let mp = take(&mp.statuses[0], mp.lane(0).ok().map(<[_]>::to_vec));
+    let facade_plan = TensorReductionPlan::new(settings).unwrap();
+    let facade = TensorWorkspace::new(&facade_plan, 0.0f64).unwrap().reduce_batch(&batch).unwrap();
+    let facade = take(&facade.statuses[0], facade.lane(0).ok().map(|l| l.iter().map(up).collect()));
+    [binary64, dd, mp, facade]
+}
+
+/// Issue #36: a rank-0 C0 at shifts on a line with `D_0 - 2 D_1 + D_2 = 0`
+/// (Källén function and Cayley determinant both zero) was returned as
+/// `Success` with oneloopmaster's binary64 value 4.65e15 + 9.92e15 i, 1e15
+/// times too large (double-double: 1e32). Rank 0 has no Gram system, so its
+/// master was evaluated as given; it now takes the partial fraction its Gram
+/// gate gives a higher rank. The reference raises the middle line,
+/// `1/(D_0 D_1 D_2) = [1/(D_1^2 D_2) + 1/(D_0 D_1^2)] / 2`: two bubbles with a
+/// doubled massive line, mass derivatives of regular B0 at 256 bits.
+#[test]
+fn scalar_triangles_with_dependent_propagators_take_their_partial_fraction() {
+    let shifts = [on_a_line(0.0), on_a_line(1.0), on_a_line(2.0)];
+    // Squared masses with m_0 - 2 m_1 + m_2 = 2 k^2: a massless line, and three
+    // massive ones (the issue's cases).
+    for masses in [[0.0, 1.0, 20.0], [1.0, 2.0, 21.0]] {
+        let upper = doubled_256(&shifts[1..], &masses[1..], 0);
+        let lower = doubled_256(&shifts[..2], &masses[..2], 1);
+        let half = Mp::with_val(256, 0.5);
+        let reference: Vec<Complex<Mp>> = upper
+            .iter()
+            .zip(&lower)
+            .map(|(a, b)| Complex::new((a.re.clone() + b.re.clone()) * half.clone(), (a.im.clone() + b.im.clone()) * half.clone()))
+            .collect();
+        let [binary64, dd, mp, facade] = rank0_lanes(&shifts, &masses);
+        for ((label, (status, values)), tolerance) in
+            [("binary64", binary64), ("double-double", dd), ("256 bits", mp), ("facade", facade)]
+                .into_iter()
+                .zip([1e-14, 1e-29, 1e-45, 1e-14])
+        {
+            assert_eq!(status, LaneStatus::Success, "{masses:?}, {label}");
+            let error = slot_error(&values, &reference);
+            assert!(error <= tolerance, "{masses:?}, {label}: E/A {error:e} against the partial fraction");
+        }
+    }
+    // Only nearly dependent (the constant 1e-12, beyond the inputs' rounding):
+    // refused, as at rank 1, instead of oneloopmaster's binary64 value
+    // (1.6e10 times too large; double-double 3e-6 off).
+    let [binary64, dd, mp, _] = rank0_lanes(&shifts, &[0.0, 1.0, 20.0 + 1e-12]);
+    for (label, (status, _)) in [("binary64", binary64), ("double-double", dd), ("256 bits", mp)] {
+        assert!(matches!(status, LaneStatus::Unstable(_)), "nearly dependent, {label}: {status:?}");
+    }
+}
+
+/// Rank-0 boxes with three shifts on a line: with `D_0 - 2 D_1 + D_2 = 1`
+/// oneloopmaster's D0 was wrong at every precision (256 bits included), with
+/// `D_0 - 2 D_1 + D_2 = 0` the lane was refused as nonfinite. They now take
+/// the denominator identity and the partial fraction, against regular
+/// triangles at 256 bits.
+#[test]
+fn scalar_boxes_with_three_points_on_a_line_take_their_identities() {
+    let shifts = [on_a_line(0.0), on_a_line(1.0), on_a_line(2.0), OFF_THE_LINE];
+    let triangle = |members: [usize; 3], masses: &[f64]| -> (Vec<[f64; 4]>, Vec<f64>) {
+        (members.iter().map(|&i| shifts[i]).collect(), members.iter().map(|&i| masses[i]).collect())
+    };
+    let mp = |x: f64| Mp::with_val(256, x);
+    let combine = |terms: Vec<(f64, Vec<Complex<Mp>>)>| -> Vec<Complex<Mp>> {
+        let mut sum = vec![Complex::new(mp(0.0), mp(0.0)); 4];
+        for (weight, values) in terms {
+            for (s, v) in sum.iter_mut().zip(values) {
+                *s = Complex::new(s.re.clone() + v.re * mp(weight), s.im.clone() + v.im * mp(weight));
+            }
+        }
+        sum
+    };
+    // (D_0 - 2 D_1 + D_2) / c = 1 with c = 18 - 17.
+    let identity = [0.0, 1.0, 19.0, 5.0];
+    let regular = |members: [usize; 3]| {
+        let (s, m) = triangle(members, &identity);
+        scalar_256(&s, &m.iter().map(|&x| mp(x)).collect::<Vec<_>>())
+    };
+    let identity_reference = combine(vec![(1.0, regular([1, 2, 3])), (-2.0, regular([0, 2, 3])), (1.0, regular([0, 1, 3]))]);
+    // D_0 - 2 D_1 + D_2 = 0: the middle line raised, as for the triangle.
+    let dependent = [0.0, 1.0, 20.0, 5.0];
+    let doubled = |members: [usize; 3], line: usize| {
+        let (s, m) = triangle(members, &dependent);
+        doubled_256(&s, &m, line)
+    };
+    let dependent_reference = combine(vec![(0.5, doubled([1, 2, 3], 0)), (0.5, doubled([0, 1, 3], 1))]);
+    for (masses, reference) in [(identity, identity_reference), (dependent, dependent_reference)] {
+        let [binary64, dd, mp, facade] = rank0_lanes(&shifts, &masses);
+        for ((label, (status, values)), tolerance) in
+            [("binary64", binary64), ("double-double", dd), ("256 bits", mp), ("facade", facade)]
+                .into_iter()
+                .zip([1e-13, 1e-28, 1e-45, 1e-13])
+        {
+            assert_eq!(status, LaneStatus::Success, "{masses:?}, {label}");
+            let error = slot_error(&values, &reference);
+            assert!(error <= tolerance, "{masses:?}, {label}: E/A {error:e}");
+        }
+    }
+}
+
 /// One batch row from shifts (t,x,y,z), complex squared masses and mu.
 fn row(shifts: &[[f64; 4]], masses: &[(f64, f64)], mu: f64) -> Vec<Complex<f64>> {
     let mut values = Vec::new();
