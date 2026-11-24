@@ -428,9 +428,39 @@ inputs agree with the exact kinematics to 5e-15, which moves the integral of
 some hexagons by up to 8e-9. On those inputs binary64 is within 5.4e-11 of
 512 bits.
 
+Served, these calls let MadLoop reach the raised calls of the same loop
+groups at rank 6: 26 per pass whose two doubled heavy lines (both onia
+P-wave) belong to such a set of four and differ by a gluon momentum. The
+partial fraction reaches their equal-mass bubble at p^2 = 0 with both lines
+jet variables.
+- **Massive lightlike bubbles with both lines differentiated.** Moving both
+  squared masses moves the Feynman-parameter denominator by
+  `delta0 (1 - x) + delta1 x`, so the order `(j0, j1)` of the bubble's
+  coefficients is the one-variable order `j = j0 + j1` with `w^j / j!`
+  replaced by `(1 - x)^j0 x^j1 / (j0! j1!)`. That holds for the orders up to
+  the coefficient's `lambda` (UV divergent) and for the UV-finite ones
+  beyond. A lightlike bubble of a massless and a massive line, both
+  differentiated, is still refused.
+
+All 52 calls (both passes) are served at 256 and 512 bits, which agree to
+3.5e-70; binary64 serves 44, 2.7e-11 from 512 bits, and refuses 8 on
+ill-conditioned Gram matrices. Their scalar components agree, at 256 bits
+on the exact kinematics, with exact partial fractions down to integrals
+without dependent subsets (`make_two_dotted_fixture.py`'s reducer, 1,000
+integrals from quad IREGI's scalars with powers) to 6.3e-17. Full tensors
+of the same structures on exact dyadic kinematics agree with the mass
+derivative of the integral with one line fewer doubled to 1.4e-41 at 512
+bits (boxes, a pentagon, and the bubble alone to rank 6), and satisfy
+`2 q.(p_i - p_j) = D_i - D_j + const` in every slot (also for a hexagon,
+whose doubled lines border soft gluons, so no mass derivative applies).
+
 **Limits.**
-- A lightlike bubble with a massive line, whose two lines are both jet
-  variables, has no closed form here: refused (typed).
+- A lightlike bubble of a massless and a massive line, both jet variables,
+  has no closed form here: refused (typed).
+- At rank 0, a box whose external momenta span two dimensions (the closed
+  quark loop above, unit powers) is a scalar master that oneloopmaster's D0
+  does not evaluate (nonfinite): refused (typed), also with its masses
+  split. From rank 1 the Gram check finds the dependence first.
 - At rank 0 a Coulomb triangle or box is only a scalar master, with no
   Gram check to detect the linear dependence. On exact inputs oneloopmaster
   returns a nonfinite master and the lane is refused (typed); the facade
@@ -1010,6 +1040,12 @@ and the S-wave lanes whose reduction reaches one:
   and 1e-40 at 256 bits.
 
 The test file's other cases need no fixture:
+- two doubled heavy lines of a lightlike bubble inside a set of four heavy
+  lines (box, pentagon, flat hexagon and the bubble alone, exact dyadic
+  kinematics, 512 bits), against the mass derivative of the integral with
+  one line fewer doubled (1.4e-41; not the hexagon), the identity
+  `2 q.(p_i - p_j)` for every pair (2.4e-16, the binary64 comparison) and
+  the reversed lines (3e-148);
 - the #32 review's cases: mixed batches, the planar pentagon, and the
   Coulomb triangle and box at every rank;
 - the #33 review's near-dependent lanes, M = 9 (1 + delta) and a point moved

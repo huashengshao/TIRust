@@ -2730,8 +2730,8 @@ where
             }
             // Taylor orders in the squared mass of the jet variable whose
             // propagator is a member. Mixed orders of two members (both
-            // lines jet variables) have a closed form here only when the
-            // bubble is scaleless.
+            // lines jet variables) have a closed form here when the bubble
+            // is scaleless or both its lines are massive.
             if let Some(jet) = plan.jet.as_ref() {
                 let inside: Vec<usize> =
                     (0..jet.variables.len()).filter(|&v| members.contains(&jet.variables[v].0)).collect();
@@ -2752,9 +2752,13 @@ where
                         let by_member = if jet.variables[v].0 == members[0] { [v, u] } else { [u, v] };
                         self.scaleless_lightlike_jets(jet, by_member, entries);
                     }
+                    [v, u] if !a_zero && !end_zero => {
+                        let by_member = if jet.variables[v].0 == members[0] { [v, u] } else { [u, v] };
+                        self.massive_lightlike_jets(jet, by_member, entries, [&a, &b, &end], &l_values, &log_mu2);
+                    }
                     _ => {
                         return Err(format!(
-                            "lightlike bubble {members:?} with massive lines, both differentiated (two jet variables)"
+                            "lightlike bubble {members:?} with a massless and a massive line, both differentiated (two jet variables)"
                         ));
                     }
                 }
@@ -3002,6 +3006,126 @@ where
                     }
                     value[1] = C::new(-residue.clone(), prototype.zero());
                     value[0] = C::new(residue, prototype.zero());
+                }
+                self.values_jet[order - 1][index as usize] = value;
+            }
+        }
+    }
+
+    /// Every jet order of a lightlike bubble whose two lines are massive jet
+    /// variables, `variables[i]` holding member `i`'s line: two heavy lines
+    /// doubled together (two P-wave states, whose doubled lines differ by a
+    /// gluon momentum). Moving both squared masses moves `D = a + b x` by
+    /// `delta0 (1 - x) + delta1 x`, so the order `(j0, j1)` of a function of
+    /// `D` is its `j`-th derivative, `j = j0 + j1`, times `(1 - x)^j0 x^j1 /
+    /// (j0! j1!)`: `lightlike_jets`' massive orders with `w^j / j!` so
+    /// replaced, of `C(lambda, k) = normalization [I0/eps_UV + H_lambda I0 -
+    /// I1]`:
+    /// - `j <= lambda`: `lambda! / ((lambda - j)! j0! j1!) x^k D^(lambda - j)
+    ///   (1 - x)^j0 x^j1` against 1 (`I0`) and `log(D/mu^2) + H_lambda -
+    ///   H_(lambda - j)` (`I1`);
+    /// - `j > lambda`, UV finite: `I1`'s order alone, `(-1)^(m-1) lambda!
+    ///   (m-1)! / (j0! j1!) x^k (1 - x)^j0 x^j1 D^-m`, `m = j - lambda`
+    ///   (`D` has no zero on `[0, 1]`: both masses are nonzero).
+    /// With one digit zero this is `lightlike_jets`' order. Orders with a
+    /// digit in another variable vanish: the bubble does not depend on that
+    /// mass.
+    fn massive_lightlike_jets(
+        &mut self,
+        jet: &Jet,
+        variables: [usize; 2],
+        entries: &[(u16, u16, u32)],
+        [a, b, end]: [&C<T>; 3],
+        l_values: &[C<T>],
+        log_mu2: &C<T>,
+    ) {
+        let largest = variables.iter().map(|&v| jet.variables[v].1 - 1).sum::<usize>();
+        let max_k = entries.iter().map(|&(_, k, _)| usize::from(k)).max().unwrap_or(0);
+        let moments = self.inverse_power_moments(a, b, end, largest, max_k + largest);
+        let (zero, unit, prototype) = (self.zero.clone(), self.one.clone(), self.prototype.clone());
+        let one = prototype.one();
+        let integer = |n: usize| prototype.from_usize(n);
+        let harmonic = |n: usize| (1..=n).fold(prototype.zero(), |h, i| h + &(one.clone() / &integer(i)));
+        let factorial = |n: usize| (1..=n).fold(one.clone(), |f, i| f * &integer(i));
+        // Polynomials in x, ascending coefficients: times (1 - x), x and D.
+        let times_w0 = |p: &[C<T>]| -> Vec<C<T>> {
+            let mut out = vec![zero.clone(); p.len() + 1];
+            for (i, c) in p.iter().enumerate() {
+                out[i] = cadd(&out[i], c);
+                out[i + 1] = csub(&out[i + 1], c);
+            }
+            out
+        };
+        let times_w1 = |p: &[C<T>]| -> Vec<C<T>> {
+            let mut out = vec![zero.clone(); p.len() + 1];
+            for (i, c) in p.iter().enumerate() {
+                out[i + 1] = cadd(&out[i + 1], c);
+            }
+            out
+        };
+        let times_d = |p: &[C<T>]| -> Vec<C<T>> {
+            let mut out = vec![zero.clone(); p.len() + 1];
+            for (i, c) in p.iter().enumerate() {
+                out[i] = cadd(&out[i], &cmul(c, a));
+                out[i + 1] = cadd(&out[i + 1], &cmul(c, b));
+            }
+            out
+        };
+        for order in 1..jet.len {
+            let digits = jet.digits(order);
+            let own = digits.iter().enumerate().all(|(u, &digit)| digit == 0 || variables.contains(&u));
+            let (j0, j1) = (digits[variables[0]], digits[variables[1]]);
+            let j = j0 + j1;
+            for &(lambda, k, index) in entries {
+                let (lambda, k) = (usize::from(lambda), usize::from(k));
+                let mut value = lzero(&zero);
+                if own {
+                    let mut normalization = one.clone();
+                    for i in 1..=lambda {
+                        normalization = normalization / &integer(2 * i);
+                    }
+                    if k % 2 == 1 {
+                        normalization = -normalization;
+                    }
+                    // (1 - x)^j0 x^j1, times D^(lambda - j) below lambda.
+                    let mut poly = vec![unit.clone()];
+                    for _ in 0..j0 {
+                        poly = times_w0(&poly);
+                    }
+                    for _ in 0..j1 {
+                        poly = times_w1(&poly);
+                    }
+                    let multinomial = factorial(j0) * &factorial(j1);
+                    if j <= lambda {
+                        for _ in 0..lambda - j {
+                            poly = times_d(&poly);
+                        }
+                        let (mut s0, mut s1) = (zero.clone(), zero.clone());
+                        for (i, c) in poly.iter().enumerate() {
+                            let n = k + i;
+                            let inverse = one.clone() / &integer(n + 1);
+                            s0 = cadd(&s0, &cscale(c, &inverse));
+                            s1 = cadd(&s1, &cmul(c, &csub(&l_values[n], &cscale(log_mu2, &inverse))));
+                        }
+                        let coefficient = factorial(lambda) / &(factorial(lambda - j) * &multinomial);
+                        let h_lambda = harmonic(lambda);
+                        let shift = h_lambda.clone() - &harmonic(lambda - j);
+                        let i0 = cscale(&s0, &coefficient);
+                        let i1 = cscale(&cadd(&s1, &cscale(&s0, &shift)), &coefficient);
+                        value[0] = cscale(&i0, &normalization);
+                        value[3] = cscale(&csub(&cscale(&i0, &h_lambda), &i1), &normalization);
+                    } else {
+                        let m = j - lambda;
+                        let mut integral = zero.clone();
+                        for (i, c) in poly.iter().enumerate() {
+                            integral = cadd(&integral, &cmul(c, &moments[m - 1][k + i]));
+                        }
+                        let mut weight = factorial(lambda) * &factorial(m - 1) / &multinomial * &normalization;
+                        if m % 2 == 1 {
+                            weight = -weight;
+                        }
+                        value[3] = cscale(&integral, &weight);
+                    }
                 }
                 self.values_jet[order - 1][index as usize] = value;
             }

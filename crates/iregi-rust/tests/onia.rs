@@ -2929,3 +2929,202 @@ fn heavy_dependent_lines_and_flat_hexagons_of_two_onia_match_quad_iregi() {
     }
     eprintln!("256 bits exact against quad IREGI, binary64 against 256 bits, binary64 against quad IREGI: {worst:?}");
 }
+
+/// Two doubled heavy lines whose offsets differ by a lightlike momentum,
+/// inside a set of four heavy lines with D_0 + D_1 = D_2 + D_3 (g g >
+/// chi_c0 chi_c0 at rank 6, both onia P-wave): the partial fraction reaches
+/// their equal-mass bubble at p^2 = 0 with both lines jet variables. Exact
+/// dyadic kinematics of the same structure (gluons p1, p2, a constituent p_c
+/// on shell): a box of a closed quark loop with either pair doubled, a
+/// pentagon with a gluon between two on-shell heavy legs, and a flat
+/// hexagon with one more gluon, at 512 bits:
+/// - against the derivative in the squared mass of one doubled line of the
+///   integral with that line undoubled (over its power, in general).
+///   Moving that mass breaks the linear
+///   dependence (the set takes its constant relation) and the masses'
+///   equality (the bubble's jets in one variable), so the reference shares
+///   neither path. Central differences at h = 2^-16 m^2 to h/8 with three
+///   Richardson steps (to about h^8), from rank 1 (at rank 0 the undotted
+///   box is a scalar master, whose two-dimensional external momenta
+///   oneloopmaster's D0 does not take). Not for the hexagon: both its
+///   doubled lines border a soft gluon between on-shell heavy legs, which
+///   the moved mass takes off shell (the difference grows as 1/h);
+/// - `2 q.(p_i - p_j) = D_i - D_j - (p_i^2 - m_i^2 - p_j^2 + m_j^2)`, exact
+///   in every slot, for every pair of lines, against the integrals with
+///   line i or j lowered (one doubled line, or two with a line fewer);
+/// - the lines in reverse order, which raises other members and takes
+///   other relations: the same array.
+/// The bubble alone with powers (2, 2), (2, 3) and (3, 2), at ranks up to 6,
+/// reads the orders j0 + j1 <= lambda of its coefficients C(lambda, k),
+/// which the larger integrals' reductions here do not (they read lambda <=
+/// 1); it has no soft region, so its mass derivative is a valid reference.
+/// The bubble alone checks the closed form's scalar: at p^2 = 0 with equal
+/// masses it is the tadpole of the total power, so (2, 2) equals (1, 3) and
+/// (3, 1), which the one-variable jets give. The scalars of MadLoop's 52
+/// calls of this kind (rank 6) agree with exact partial fractions to
+/// integrals without dependent subsets, from quad IREGI's scalars with
+/// powers, to 6.3e-17 (README).
+#[test]
+fn two_doubled_heavy_lines_of_a_lightlike_bubble_match_the_mass_derivative_of_one() {
+    let mu = 2.0;
+    let m2 = 1.75;
+    let eta = [1.0, -1.0, -1.0, -1.0];
+    let (p1, p2, pc) = ([3.0, 0.0, 0.0, 3.0], [3.0, 0.0, 0.0, -3.0], [1.5, 0.5, 0.0, 0.5]);
+    let combination = |a: f64, b: f64, c: f64| -> [f64; 4] { std::array::from_fn(|mu| a * p1[mu] + b * p2[mu] + c * pc[mu]) };
+    let square = |p: [f64; 4]| (0..4).map(|mu| eta[mu] * p[mu] * p[mu]).sum::<f64>();
+    let norm = |z: Complex<f64>| z.re.hypot(z.im);
+    let box_shifts = vec![[0.0; 4], p1, combination(0.5, -0.5, 0.0), combination(0.5, 0.5, 0.0)];
+    let pentagon = vec![[0.0; 4], p1, combination(1.0, 0.0, -1.0), combination(0.5, -0.5, 0.0), combination(0.5, 0.5, 0.0)];
+    let mut hexagon = pentagon.clone();
+    hexagon.push(pc);
+    // (label, shifts, masses, powers, derivative line (None: no derivative), derivative ranks)
+    type Case = (&'static str, Vec<[f64; 4]>, Vec<f64>, Vec<u16>, Option<usize>, Vec<u16>);
+    let cases: Vec<Case> = vec![
+        ("box, lines 2 and 3", box_shifts.clone(), vec![m2; 4], vec![1, 1, 2, 2], Some(3), (1..=6).collect()),
+        ("box, lines 1 and 2", box_shifts, vec![m2; 4], vec![1, 2, 2, 1], Some(1), vec![1, 3, 6]),
+        ("pentagon, lines 3 and 4", pentagon, vec![m2, m2, 0.0, m2, m2], vec![1, 1, 1, 2, 2], Some(4), vec![1, 3, 6]),
+        ("hexagon, lines 3 and 4", hexagon, vec![m2, m2, 0.0, m2, m2, 0.0], vec![1, 1, 1, 2, 2, 1], None, vec![]),
+        // The bubble alone reads its coefficients C(lambda, k) to lambda = 3,
+        // and with it the orders j0 + j1 <= lambda.
+        ("bubble (2, 2)", vec![[0.0; 4], p2], vec![m2, m2], vec![2, 2], Some(1), (1..=6).collect()),
+        ("bubble (2, 3)", vec![[0.0; 4], p2], vec![m2, m2], vec![2, 3], Some(1), (1..=6).collect()),
+        ("bubble (3, 2)", vec![[0.0; 4], p2], vec![m2, m2], vec![3, 2], Some(0), vec![2, 6]),
+    ];
+    let run = |shifts: &[[f64; 4]], masses: &[f64], rank: u16, powers: &[u16]| {
+        let (status, values) = direct512_powers(shifts.len(), rank, powers, &coulomb_lane(shifts, masses, mu));
+        assert_eq!(status, LaneStatus::Success, "powers {powers:?}, masses {masses:?}, rank {rank}");
+        values
+    };
+    let derivative = |shifts: &[[f64; 4]], masses: &[f64], rank: u16, powers: &[u16], line: usize| {
+        let at = |offset: f64| {
+            let mut moved = masses.to_vec();
+            moved[line] += offset;
+            run(shifts, &moved, rank, powers)
+        };
+        let mut table: Vec<Vec<Complex<Float>>> = (0..4)
+            .map(|step| {
+                // d/dm^2 of D^-nu is nu D^-(nu + 1).
+                let h = masses[line] * 2f64.powi(-16 - step);
+                let (up, down) = (at(h), at(-h));
+                let scale = Float::with_val(512, 2.0 * h * f64::from(powers[line]));
+                up.iter()
+                    .zip(&down)
+                    .map(|(a, b)| Complex::new((a.re.clone() - &b.re) / &scale, (a.im.clone() - &b.im) / &scale))
+                    .collect()
+            })
+            .collect();
+        // Richardson: errors in h^2, h^4, h^6.
+        for level in 1..4 {
+            let factor = Float::with_val(512, 4f64.powi(level));
+            let denominator = factor.clone() - &Float::with_val(512, 1.0);
+            table = table
+                .windows(2)
+                .map(|pair| {
+                    pair[0]
+                        .iter()
+                        .zip(&pair[1])
+                        .map(|(c, f)| {
+                            Complex::new(
+                                (f.re.clone() * &factor - &c.re) / &denominator,
+                                (f.im.clone() * &factor - &c.im) / &denominator,
+                            )
+                        })
+                        .collect()
+                })
+                .collect();
+        }
+        table.pop().unwrap()
+    };
+    // Worst: derivative (512 bits), binary64 against it, momentum identity, reversal.
+    let mut worst = [0.0f64; 4];
+    let mut relations = 0;
+    for (label, shifts, masses, powers, line, ranks) in cases {
+        let n = shifts.len();
+        let lane = coulomb_lane(&shifts, &masses, mu);
+        if let Some(line) = line {
+            let mut lower = powers.clone();
+            lower[line] -= 1;
+            for rank in ranks {
+                let reference = derivative(&shifts, &masses, rank, &lower, line);
+                let values = run(&shifts, &masses, rank, &powers);
+                let ea = relative_difference_float(&values, &reference);
+                assert!(ea <= 1e-30, "{label}, rank {rank}: 512 bits {ea:e} from d/dm^2");
+                worst[0] = worst[0].max(ea);
+                let mut settings = ReductionSettings::new(n, rank);
+                settings.powers = powers.clone();
+                let (status, binary64) = direct_lanes_with(settings, &lane);
+                assert_eq!(status, LaneStatus::Success, "{label}, rank {rank}, binary64");
+                let ea = relative_difference(&binary64, &to_f64(&reference));
+                assert!(ea <= 1e-9, "{label}, rank {rank}: binary64 {ea:e} from d/dm^2");
+                worst[1] = worst[1].max(ea);
+            }
+        }
+        // 2 q.(p_i - p_j) at rank 6 against rank 5.
+        let rank = 6u16;
+        let full = to_f64(&run(&shifts, &masses, rank, &powers));
+        let lowered = |i: usize| {
+            if powers[i] > 1 {
+                let mut lower = powers.clone();
+                lower[i] -= 1;
+                to_f64(&run(&shifts, &masses, rank - 1, &lower))
+            } else {
+                let keep: Vec<usize> = (0..n).filter(|&k| k != i).collect();
+                let s: Vec<[f64; 4]> = keep.iter().map(|&k| shifts[k]).collect();
+                let m: Vec<f64> = keep.iter().map(|&k| masses[k]).collect();
+                let p: Vec<u16> = keep.iter().map(|&k| powers[k]).collect();
+                to_f64(&run(&s, &m, rank - 1, &p))
+            }
+        };
+        let reduced: Vec<Vec<Complex<f64>>> = (0..n).map(lowered).collect();
+        let basis = iregi_rust::basis::tensor_basis(rank);
+        let index = |e: [u16; 4]| basis.iter().position(|m| m.0 == e).unwrap();
+        for i in 0..n {
+            for j in i + 1..n {
+                let d: [f64; 4] = std::array::from_fn(|mu| shifts[i][mu] - shifts[j][mu]);
+                let delta = square(shifts[i]) - masses[i] - square(shifts[j]) + masses[j];
+                for slot in 0..4 {
+                    let (mut off, mut scale) = (0.0f64, 0.0f64);
+                    for (k, m) in iregi_rust::basis::tensor_basis(rank - 1).iter().enumerate() {
+                        let mut terms = vec![
+                            reduced[i][4 * k + slot],
+                            -reduced[j][4 * k + slot],
+                            -full[4 * index(m.0) + slot] * Complex::new(delta, 0.0),
+                        ];
+                        for mu in 0..4 {
+                            let mut e = m.0;
+                            e[mu] += 1;
+                            terms.push(full[4 * index(e) + slot] * Complex::new(-2.0 * eta[mu] * d[mu], 0.0));
+                        }
+                        let sum = terms.iter().fold(Complex::new(0.0, 0.0), |a, &t| a + t);
+                        off = off.max(norm(sum));
+                        scale = terms.iter().fold(scale, |s, &t| s.max(norm(t)));
+                    }
+                    assert!(off <= 1e-12 * scale, "{label}, lines {i}, {j}, slot {slot}: {off:e} off, terms {scale:e}");
+                    if scale > 0.0 {
+                        worst[2] = worst[2].max(off / scale);
+                    }
+                }
+                relations += 1;
+            }
+        }
+        // The lines in reverse order.
+        let reversed: Vec<usize> = (0..n).rev().collect();
+        let s: Vec<[f64; 4]> = reversed.iter().map(|&k| shifts[k]).collect();
+        let m: Vec<f64> = reversed.iter().map(|&k| masses[k]).collect();
+        let p: Vec<u16> = reversed.iter().map(|&k| powers[k]).collect();
+        let ea = relative_difference_float(&run(&s, &m, rank, &p), &run(&shifts, &masses, rank, &powers));
+        assert!(ea <= 1e-60, "{label}: reversed lines {ea:e} off");
+        worst[3] = worst[3].max(ea);
+    }
+    assert_eq!(relations, 6 + 6 + 10 + 15 + 3 * 1);
+    // The bubble alone: scalar of (2, 2) against (1, 3) and (3, 1).
+    let bubble = vec![[0.0; 4], p2];
+    for rank in [0u16, 4] {
+        let both = run(&bubble, &[m2, m2], rank, &[2, 2]);
+        for one in [[1u16, 3], [3, 1]] {
+            let ea = relative_difference_float(&both[..4], &run(&bubble, &[m2, m2], rank, &one)[..4]);
+            assert!(ea <= 1e-60, "bubble, rank {rank}: scalar of (2, 2) {ea:e} from {one:?}");
+        }
+    }
+    eprintln!("d/dm^2 at 512 bits, binary64 against it, 2 q.(p_i - p_j), reversed lines: {worst:?}");
+}
