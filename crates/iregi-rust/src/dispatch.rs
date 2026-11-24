@@ -962,6 +962,53 @@ where
         }
     }
 
+    /// Embedder mode with [`EmbedderOptions::low_words`]: per entry of the
+    /// most recent result, in the layout of [`BatchResult::values`], the
+    /// residual of the binary64 value of a lane a precision tier served (the
+    /// tier's value minus the returned value, rounded to binary64), so that
+    /// value plus residual carries the tier's value to about 106 bits. Zero
+    /// for lanes served otherwise or without a value
+    /// ([`Self::last_lane_routes`] says which). `None` for other workspaces,
+    /// with the option off, or with regulators set (they apply to the values
+    /// only).
+    pub fn last_low_words(&self) -> Option<&[Complex<T>]> {
+        match &self.engine {
+            WorkspaceEngine::Embedded(workspace) if self.regulators.is_identity() => workspace.last_low_words(),
+            _ => None,
+        }
+    }
+
+    /// Embedder mode with [`EmbedderOptions::precision_tiers`]:
+    /// [`Self::reduce_batch`] for inputs given as hi + lo words. `batch` holds
+    /// the hi words, `low` the lo words in the same layout, and `input_bits`
+    /// (54 to 106) the precision that hi + lo carries (64 for x87 extended
+    /// values, 106 for a split of binary128 ones).
+    ///
+    /// A lane whose low words are not all zero keeps nothing the binary64
+    /// pass (on the hi words) or the method choice decided at binary64
+    /// rounding: it is evaluated by the precision tiers from double-double
+    /// up, and refused if every tier refuses it. The tiers evaluate hi + lo,
+    /// and decide relations, thresholds, lightlike, equal-mass and on-shell
+    /// conditions and the Cayley and Gram floors at the rounding of
+    /// `input_bits`: an offset that hi + lo resolves is evaluated as such.
+    /// They run in workspaces of their own and share no subintegral store.
+    /// Lanes whose low words are all zero are reduced exactly as by
+    /// [`Self::reduce_batch`].
+    pub fn reduce_batch_with_low_inputs(
+        &mut self,
+        batch: &KinematicsBatch<T>,
+        low: &KinematicsBatch<T>,
+        input_bits: u32,
+    ) -> Result<BatchResult<T>, ReductionError> {
+        let _oem_license = crate::license::unlock();
+        let WorkspaceEngine::Embedded(workspace) = &mut self.engine else {
+            return Err(ReductionError::Unsupported("low words of the inputs are read by embedder-mode workspaces".into()));
+        };
+        let mut result = workspace.reduce_batch_with_low_inputs(batch, low, input_bits)?;
+        self.regulators.apply_with_scale(batch, &mut result, self.scale_input)?;
+        Ok(result)
+    }
+
     pub fn new_dual<D: DualNumberStructure>(
         plan: &TensorReductionPlan,
         prototype: T,

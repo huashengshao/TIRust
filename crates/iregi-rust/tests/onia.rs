@@ -1090,8 +1090,15 @@ fn soft_lines_reduce_dotted_ir_divergent_triangles() {
 /// (benchmarks/onia/make_two_onium_fixture.py).
 #[test]
 fn two_onium_pentagons_with_soft_coulomb_triangles_match_quad_iregi() {
-    use iregi_rust::{InvariantInput, ScaleInput};
     let fixture: Value = serde_json::from_str(include_str!("fixtures/onia-two-onium-pentagons.json")).unwrap();
+    supplied_invariant_lanes_match(&fixture, false);
+}
+
+/// The cases of a fixture of MadLoop lanes (supplied invariants and mu^2)
+/// against quad IREGI arrays: binary64 directly and through the facade to
+/// 1e-12, and 256 bits to 1e-15 if `wide`.
+fn supplied_invariant_lanes_match(fixture: &Value, wide: bool) {
+    use iregi_rust::{InvariantInput, ScaleInput};
     for case in fixture["cases"].as_array().unwrap() {
         let label = case["label"].as_str().unwrap();
         let parse = |v: &Value| v.as_str().unwrap().parse::<f64>().unwrap();
@@ -1119,12 +1126,16 @@ fn two_onium_pentagons_with_soft_coulomb_triangles_match_quad_iregi() {
         let mut settings = ReductionSettings::new(n, rank);
         settings.invariants = InvariantInput::SuppliedInvariants;
         settings.scale_input = ScaleInput::MuSquared;
-        for (what, (status, values)) in
-            [("direct", direct_lanes_with(settings.clone(), &lane)), ("facade", facade_lane(settings.clone(), &lane))]
-        {
+        let mut runs =
+            vec![("direct", direct_lanes_with(settings.clone(), &lane)), ("facade", facade_lane(settings.clone(), &lane))];
+        if wide {
+            runs.push(("256 bits", direct256(settings.clone(), &lane)));
+        }
+        for (what, (status, values)) in runs {
             assert_eq!(status, LaneStatus::Success, "{label}, {what}");
             let ea = relative_difference(&values, &reference);
-            assert!(ea <= 1e-12, "{label}, {what}: E/A {ea:e} against quad IREGI");
+            let tolerance = if what == "256 bits" { 1e-15 } else { 1e-12 };
+            assert!(ea <= tolerance, "{label}, {what}: E/A {ea:e} against quad IREGI");
         }
     }
 }
@@ -1180,5 +1191,1024 @@ fn collinear_pairs_reduce_dotted_triangles_and_refuse_unreduced_pentagons() {
             matches!(&status, LaneStatus::Unstable(e) if e.contains("collinear pair of pentagon")),
             "pentagon, D{dotted} doubled: {status:?}"
         );
+    }
+}
+
+/// P-wave phase 2: a Coulomb box with its gluon doubled (MadLoop's P-wave
+/// virtual at threshold; main refuses it, "linearly dependent propagators
+/// with a raised power"). The partial fraction 2 D_g = D_Q + D_Qbar raises
+/// the doubled gluon once more, a Taylor order 2 in its squared mass:
+/// J(X, Q, g^2, Qbar) = [J(X, g^3, Qbar) + J(X, Q, g^3)] / 2, whose
+/// triangles are no longer linearly dependent. Ranks 1 to 4 (P-wave's
+/// R + 1), binary64 directly and through the facade, and 256 bits. (At rank 0
+/// the box is a scalar master, with no Gram check to detect the linear
+/// dependence (benchmarks/onia/README.md, Limits): the IBP of its raised
+/// power inverts the box's Cayley matrix, singular at v = 0, and the lane is
+/// refused. Its partial-fraction triangles are served at rank 0 too.)
+#[test]
+fn doubled_coulomb_gluons_take_a_second_taylor_order() {
+    let (mu, m2) = (3.0, 4.0);
+    let (q1, k) = ([3.0, 1.0, -1.0, 2.0], [2.0, 0.0, 0.0, 0.0]);
+    let shifts = vec![[0.0; 4], q1, plus(q1, k, 1.0), plus(q1, k, 2.0)];
+    let masses = vec![1.0, m2, 0.0, m2];
+    let lane = coulomb_lane(&shifts, &masses, mu);
+    let pinch = |drop: usize| {
+        let lines: Vec<usize> = (0..4).filter(|&l| l != drop).collect();
+        let sub: Vec<[f64; 4]> = lines.iter().map(|&l| shifts[l]).collect();
+        let m: Vec<f64> = lines.iter().map(|&l| masses[l]).collect();
+        (lines, coulomb_lane(&sub, &m, mu))
+    };
+    for rank in 1..=4u16 {
+        let mut settings = ReductionSettings::new(4, rank);
+        settings.powers[2] = 2;
+        let mut reference: Vec<Vec<Complex<f64>>> = Vec::new();
+        for drop in [1, 3] {
+            let (lines, sub) = pinch(drop);
+            let mut s = ReductionSettings::new(3, rank);
+            s.powers[lines.iter().position(|&l| l == 2).unwrap()] = 3;
+            let (status, values) = direct256(s, &sub);
+            assert_eq!(status, LaneStatus::Success, "rank {rank}: pinch without line {drop}");
+            reference.push(values);
+        }
+        let reference: Vec<Complex<f64>> =
+            reference[0].iter().zip(&reference[1]).map(|(a, b)| Complex::new((a.re + b.re) / 2.0, (a.im + b.im) / 2.0)).collect();
+        for (what, (status, values)) in [
+            ("direct", direct_lanes_with(settings.clone(), &lane)),
+            ("facade", facade_lane(settings.clone(), &lane)),
+            ("256 bits", direct256(settings.clone(), &lane)),
+        ] {
+            assert_eq!(status, LaneStatus::Success, "rank {rank}, {what}");
+            let ea = relative_difference(&values, &reference);
+            let tolerance = if what == "256 bits" { 1e-14 } else { 1e-11 };
+            assert!(ea <= tolerance, "rank {rank}, {what}: E/A {ea:e} against the partial fraction");
+        }
+    }
+}
+
+/// Dotted threshold bubbles (equal masses at p^2 = 4 m^2): their Cayley
+/// matrix is singular, and the IBP base is the closed form of
+/// Delta = m^2 (1 - 2x)^2, finite in dimensional regularization (main
+/// refuses them). The bubble with raised powers and a triangle containing it
+/// with each line doubled, against original IREGI's quad scalars with powers
+/// (benchmarks/onia/make_threshold_fixture.py): binary64 directly and
+/// through the facade, and 256 bits.
+#[test]
+fn dotted_threshold_bubbles_take_their_closed_form() {
+    let fixture: Value = serde_json::from_str(include_str!("fixtures/onia-threshold-bubbles.json")).unwrap();
+    let shifts: Vec<[f64; 4]> = fixture["shifts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|q| std::array::from_fn(|a| q[a].as_f64().unwrap()))
+        .collect();
+    let masses: Vec<f64> = fixture["masses_squared"].as_array().unwrap().iter().map(|m| m.as_f64().unwrap()).collect();
+    let mu = fixture["mu"].as_f64().unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let powers: Vec<u16> = case["powers"].as_array().unwrap().iter().map(|p| p.as_u64().unwrap() as u16).collect();
+        let n = powers.len();
+        let reference: Vec<Complex<f64>> = case["reference"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|z| Complex::new(z[0].as_str().unwrap().parse().unwrap(), z[1].as_str().unwrap().parse().unwrap()))
+            .collect();
+        let mut settings = ReductionSettings::new(n, 0);
+        settings.powers = powers.clone();
+        let lane = coulomb_lane(&shifts[..n], &masses[..n], mu);
+        for (what, (status, values)) in [
+            ("direct", direct_lanes_with(settings.clone(), &lane)),
+            ("facade", facade_lane(settings.clone(), &lane)),
+            ("256 bits", direct256(settings.clone(), &lane)),
+        ] {
+            assert_eq!(status, LaneStatus::Success, "powers {powers:?}, {what}");
+            let ea = relative_difference(&values, &reference);
+            assert!(ea <= 1e-13, "powers {powers:?}, {what}: E/A {ea:e} against quad IREGI");
+        }
+    }
+}
+
+/// Two-onium boxes of onia_loop's e+ e- > J/psi eta_c trace at v = 0
+/// (binary64, MadLoop's supplied invariants), rank 3: a Coulomb triple and
+/// two heavy pairs at p^2 = 4 m^2. The partial fraction doubles the gluon,
+/// and the doubled triangles reduce to threshold bubbles with raised powers
+/// (main refuses the lanes). Reference: original IREGI's quad IBP arrays
+/// with the heavy pairs exactly on threshold
+/// (benchmarks/onia/make_two_onium_box_fixture.py). From the binary64
+/// shifts, off threshold by their rounding, IREGI moves by up to 9e-9: an
+/// integral with a threshold pair depends on sqrt(1 - 4 m^2 / p^2).
+#[test]
+fn two_onium_boxes_with_threshold_pairs_match_quad_iregi() {
+    let fixture: Value = serde_json::from_str(include_str!("fixtures/onia-two-onium-boxes.json")).unwrap();
+    supplied_invariant_lanes_match(&fixture, true);
+}
+
+/// MadLoop's supplied invariants in binary64 (BUILD_KINEMATIC_MATRIX of
+/// CT_interface.inc, then S + m_i^2 + m_j^2 as TIRUST_interface.inc): the
+/// squared shift differences, projected on shell or to zero within
+/// OSThres = 1e-8, never to 4 m^2. Column-major, n x n.
+fn madloop_invariants(shifts: &[[f64; 4]], masses: &[f64]) -> Vec<f64> {
+    let n = shifts.len();
+    let mut s = vec![0.0; n * n];
+    for i in 0..n {
+        for j in 0..n {
+            if i == j {
+                continue;
+            }
+            let mut d = (shifts[i][0] - shifts[j][0]).powi(2);
+            for k in 1..4 {
+                d -= (shifts[i][k] - shifts[j][k]).powi(2);
+            }
+            let mut entry = d - masses[i] - masses[j];
+            if masses[i] != 0.0 && ((d - masses[i]) / masses[i]).abs() < 1e-8 {
+                entry = -masses[j];
+            }
+            if masses[j] != 0.0 && ((d - masses[j]) / masses[j]).abs() < 1e-8 {
+                entry = -masses[i];
+            }
+            let reference = ((shifts[i][0].abs() + shifts[j][0].abs()) / 2.0).powi(2);
+            if reference != 0.0 && (d / reference).abs() < 1e-8 {
+                entry = -(masses[i] + masses[j]);
+            }
+            s[i + n * j] = entry + masses[i] + masses[j];
+        }
+    }
+    s
+}
+
+/// A supplied-invariant lane: shifts, the packed strict upper triangle of
+/// the column-major invariants, masses and mu^2.
+fn supplied_lane(shifts: &[[f64; 4]], invariants: &[f64], masses: &[f64], mu2: f64) -> Vec<Complex<f64>> {
+    let n = shifts.len();
+    let mut lane: Vec<Complex<f64>> = shifts.iter().flatten().map(|&x| Complex::new(x, 0.0)).collect();
+    for i in 0..n {
+        for j in i + 1..n {
+            lane.push(Complex::new(invariants[i + n * j], 0.0));
+        }
+    }
+    lane.extend(masses.iter().map(|&m| Complex::new(m, 0.0)));
+    lane.push(Complex::new(mu2, 0.0));
+    lane
+}
+
+/// The frame-independent contractions of a rank-`rank` array (ML5
+/// components): the integrals of (q.u)^r, r = 0 to `rank`, each with its
+/// four components.
+fn contractions(values: &[Complex<f64>], rank: u16, u: [f64; 4]) -> Vec<Complex<f64>> {
+    let factorial = |m: usize| (1..=m).product::<usize>() as f64;
+    let eta = [1.0, -1.0, -1.0, -1.0];
+    let mut out = vec![Complex::new(0.0, 0.0); 4 * (usize::from(rank) + 1)];
+    for (k, monomial) in iregi_rust::basis::tensor_basis(rank).iter().enumerate() {
+        let r = monomial.rank();
+        let mut weight = factorial(r);
+        for mu in 0..4 {
+            let a = usize::from(monomial.0[mu]);
+            weight *= (eta[mu] * u[mu]).powi(a as i32) / factorial(a);
+        }
+        for c in 0..4 {
+            let z = &values[4 * k + c];
+            out[4 * r + c] = Complex::new(out[4 * r + c].re + weight * z.re, out[4 * r + c].im + weight * z.im);
+        }
+    }
+    out
+}
+
+fn lorentz_apply(lambda: &[[f64; 4]; 4], p: &[f64; 4]) -> [f64; 4] {
+    std::array::from_fn(|i| (0..4).map(|k| lambda[i][k] * p[k]).sum())
+}
+
+fn rotation(axis: [f64; 3], angle: f64) -> [[f64; 4]; 4] {
+    let norm = axis.iter().map(|x| x * x).sum::<f64>().sqrt();
+    let [x, y, z] = axis.map(|v| v / norm);
+    let (c, s) = (angle.cos(), angle.sin());
+    let t = 1.0 - c;
+    [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, c + x * x * t, x * y * t - z * s, x * z * t + y * s],
+        [0.0, y * x * t + z * s, c + y * y * t, y * z * t - x * s],
+        [0.0, z * x * t - y * s, z * y * t + x * s, c + z * z * t],
+    ]
+}
+
+fn boost(direction: [f64; 3], beta: f64) -> [[f64; 4]; 4] {
+    let norm = direction.iter().map(|x| x * x).sum::<f64>().sqrt();
+    let n = direction.map(|v| v / norm);
+    let gamma = 1.0 / (1.0 - beta * beta).sqrt();
+    let mut lambda = [[0.0; 4]; 4];
+    lambda[0][0] = gamma;
+    for i in 0..3 {
+        lambda[0][i + 1] = -gamma * beta * n[i];
+        lambda[i + 1][0] = -gamma * beta * n[i];
+        for j in 0..3 {
+            lambda[i + 1][j + 1] = f64::from(u8::from(i == j)) + (gamma - 1.0) * n[i] * n[j];
+        }
+    }
+    lambda
+}
+
+/// A two-onium box (the first case of onia-two-onium-boxes.json) in rotated
+/// and boosted frames, with the invariants MadLoop supplies there (its DP
+/// stability check rotates the momenta). Rounded in binary64, they put the
+/// threshold pairs up to about 1e-13 off 4 m^2 (the frame and the
+/// arithmetic decide how far), inside the inputs' rounding: every frame is
+/// served, and its frame-independent contractions stay within 2 beta of the
+/// original frame's, beta = sqrt(|s - 4 m^2| / 4 m^2) (the integral's own
+/// sensitivity to those inputs; measured up to 3.4e-8), plus 1e-10 for the
+/// rounding of a boosted rank-3 array.
+#[test]
+fn two_onium_boxes_are_served_in_rotated_and_boosted_frames() {
+    use iregi_rust::{InvariantInput, ScaleInput};
+    let fixture: Value = serde_json::from_str(include_str!("fixtures/onia-two-onium-boxes.json")).unwrap();
+    let case = &fixture["cases"][0];
+    let parse = |v: &Value| v.as_str().unwrap().parse::<f64>().unwrap();
+    let shifts: Vec<[f64; 4]> =
+        case["shifts"].as_array().unwrap().iter().map(|q| std::array::from_fn(|a| parse(&q[a]))).collect();
+    let masses: Vec<f64> = case["masses_squared"].as_array().unwrap().iter().map(parse).collect();
+    let mu2 = parse(&case["mu_squared"]);
+    let rank = case["rank"].as_u64().unwrap() as u16;
+    let threshold = 4.0 * masses[0];
+    let mut settings = ReductionSettings::new(shifts.len(), rank);
+    settings.invariants = InvariantInput::SuppliedInvariants;
+    settings.scale_input = ScaleInput::MuSquared;
+    let us = [[1.3, 0.4, -0.7, 0.2], [0.5, -1.1, 0.3, 0.9], [2.0, 0.1, 0.6, -0.8]];
+    let lane = supplied_lane(&shifts, &madloop_invariants(&shifts, &masses), &masses, mu2);
+    let (status, base) = direct_lanes_with(settings.clone(), &lane);
+    assert_eq!(status, LaneStatus::Success, "original frame");
+    let base: Vec<Complex<f64>> = us.iter().flat_map(|&u| contractions(&base, rank, u)).collect();
+    let product = |a: [[f64; 4]; 4], b: [[f64; 4]; 4]| -> [[f64; 4]; 4] {
+        std::array::from_fn(|i| std::array::from_fn(|j| (0..4).map(|k| a[i][k] * b[k][j]).sum()))
+    };
+    let mut offsets = Vec::new();
+    for (name, lambda) in [
+        ("rotation", rotation([-0.9, 0.2, 0.4], 2.1)),
+        ("boost", boost([0.2, 0.7, -0.4], 0.6)),
+        ("rotated boost", product(rotation([0.1, 0.9, 0.3], 1.3), boost([-0.6, 0.1, 0.5], 0.95))),
+    ] {
+        let moved: Vec<[f64; 4]> = shifts.iter().map(|p| lorentz_apply(&lambda, p)).collect();
+        let invariants = madloop_invariants(&moved, &masses);
+        let offset = invariants.iter().map(|s| (s - threshold).abs()).filter(|&d| d < 1e-6).fold(0.0, f64::max);
+        offsets.push(offset);
+        let lane = supplied_lane(&moved, &invariants, &masses, mu2);
+        for (what, (status, values)) in
+            [("direct", direct_lanes_with(settings.clone(), &lane)), ("facade", facade_lane(settings.clone(), &lane))]
+        {
+            assert_eq!(status, LaneStatus::Success, "{name}, {what}");
+            let moved: Vec<Complex<f64>> =
+                us.iter().flat_map(|u| contractions(&values, rank, lorentz_apply(&lambda, u))).collect();
+            let ea = relative_difference(&moved, &base);
+            let tolerance = 2.0 * (offset / threshold).sqrt() + 1e-10;
+            eprintln!("{name}, {what}: threshold pairs off 4 m^2 by up to {offset:e}, E/A {ea:e} against the original frame");
+            assert!(ea <= tolerance, "{name}, {what}: E/A {ea:e} against the original frame (offset {offset:e})");
+        }
+    }
+    assert!(offsets.iter().any(|&o| o > 0.0), "no frame moved a threshold pair off 4 m^2: {offsets:?}");
+}
+
+/// The threshold gate against the exact inputs: the first two-onium box
+/// with only the cross-onium pair moved, s_23 = 4 m^2 + delta (not in the
+/// Coulomb triple, so the integral is regular in delta and moves like
+/// beta = sqrt(|delta| / 4 m^2)). Inside the inputs' rounding the binary64
+/// lane takes the threshold bubbles' closed form, and stays within beta of
+/// the integral of its exact inputs (256 bits; measured 0.26 beta), at 256
+/// bits too when the inputs are declared binary64. Beyond the rounding,
+/// binary64 refuses (an ill-conditioned Cayley matrix) and 256 bits with
+/// binary64 inputs agree with the exact inputs.
+#[test]
+fn threshold_pairs_within_the_rounding_stay_within_beta_of_the_exact_inputs() {
+    use iregi_rust::{InvariantInput, ScaleInput};
+    let fixture: Value = serde_json::from_str(include_str!("fixtures/onia-two-onium-boxes.json")).unwrap();
+    let case = &fixture["cases"][0];
+    let parse = |v: &Value| v.as_str().unwrap().parse::<f64>().unwrap();
+    let shifts: Vec<[f64; 4]> =
+        case["shifts"].as_array().unwrap().iter().map(|q| std::array::from_fn(|a| parse(&q[a]))).collect();
+    let supplied: Vec<f64> = case["invariants"].as_array().unwrap().iter().map(parse).collect();
+    let masses: Vec<f64> = case["masses_squared"].as_array().unwrap().iter().map(parse).collect();
+    let mu2 = parse(&case["mu_squared"]);
+    let rank = case["rank"].as_u64().unwrap() as u16;
+    let (n, threshold) = (shifts.len(), 4.0 * masses[0]);
+    assert_eq!(supplied[2 + n * 3], threshold);
+    let mut settings = ReductionSettings::new(n, rank);
+    settings.invariants = InvariantInput::SuppliedInvariants;
+    settings.scale_input = ScaleInput::MuSquared;
+    // 256 bits with the inputs declared binary64 (MadLoop's QP rescue of a
+    // DP lane): the same rounding, and so the same gate, as binary64.
+    let rounded256 = |settings: ReductionSettings, lane: &[Complex<f64>]| {
+        let mut workspace = DirectReductionPlan::new(settings).unwrap().workspace(Float::new(BITS)).unwrap();
+        workspace.set_stability_threshold(Float::with_val(BITS, 2f64.powi(-(BITS as i32 - 40))));
+        workspace.set_input_precision(53);
+        let values = lane.iter().map(|z| Complex::new(Float::with_val(BITS, z.re), Float::with_val(BITS, z.im))).collect();
+        let result = workspace.reduce_batch(&KinematicsBatch { rows: 1, components: 1, values }).unwrap();
+        (result.statuses[0].clone(), to_f64(result.lane(0).unwrap_or_default()))
+    };
+    for (s23, inside) in [(threshold + 1.8e-15, true), (threshold - 1.1e-13, true), (threshold + 1e-12, false)] {
+        let delta = s23 - threshold;
+        let mut invariants = supplied.clone();
+        invariants[2 + n * 3] = s23;
+        invariants[3 + n * 2] = s23;
+        let lane = supplied_lane(&shifts, &invariants, &masses, mu2);
+        let (status, exact) = direct256(settings.clone(), &lane);
+        assert_eq!(status, LaneStatus::Success, "s_23 - 4 m^2 = {delta:e}, exact inputs");
+        let beta = (delta.abs() / threshold).sqrt();
+        let (status, values) = direct_lanes_with(settings.clone(), &lane);
+        if inside {
+            assert_eq!(status, LaneStatus::Success, "s_23 - 4 m^2 = {delta:e}, binary64");
+            let ea = relative_difference(&values, &exact);
+            assert!(ea <= beta, "s_23 - 4 m^2 = {delta:e}, binary64: E/A {ea:e} against the exact inputs (beta {beta:e})");
+        } else {
+            assert!(
+                matches!(&status, LaneStatus::Unstable(e) if e.contains("Cayley matrix for [2, 3]")),
+                "s_23 - 4 m^2 = {delta:e}, binary64: {status:?}"
+            );
+        }
+        let (status, values) = rounded256(settings.clone(), &lane);
+        assert_eq!(status, LaneStatus::Success, "s_23 - 4 m^2 = {delta:e}, 256 bits with binary64 inputs");
+        let ea = relative_difference(&values, &exact);
+        let tolerance = if inside { beta } else { 1e-14 };
+        assert!(ea <= tolerance, "s_23 - 4 m^2 = {delta:e}, 256 bits with binary64 inputs: E/A {ea:e} against the exact inputs");
+    }
+}
+
+/// The direct engine at `bits` on one lane, its inputs declared
+/// `input_bits` wide (53: MadLoop's QP rescue of a DP lane; `None`: exact).
+fn direct_with_inputs(
+    bits: u32,
+    settings: ReductionSettings,
+    lane: &[Complex<f64>],
+    input_bits: Option<u32>,
+) -> (LaneStatus, Vec<Complex<Float>>) {
+    let mut workspace = DirectReductionPlan::new(settings).unwrap().workspace(Float::new(bits)).unwrap();
+    workspace.set_stability_threshold(Float::with_val(bits, 2f64.powi(-(bits as i32 - 40))));
+    if let Some(input_bits) = input_bits {
+        workspace.set_input_precision(input_bits);
+    }
+    let values = lane.iter().map(|z| Complex::new(Float::with_val(bits, z.re), Float::with_val(bits, z.im))).collect();
+    let result = workspace.reduce_batch(&KinematicsBatch { rows: 1, components: 1, values }).unwrap();
+    (result.statuses[0].clone(), result.lane(0).map(<[_]>::to_vec).unwrap_or_default())
+}
+
+/// Whole-array E/A of two multiprecision arrays.
+fn relative_difference_float(values: &[Complex<Float>], reference: &[Complex<Float>]) -> f64 {
+    assert_eq!(values.len(), reference.len());
+    let (mut error, mut amplitude) = (0.0f64, 0.0f64);
+    for (z, r) in values.iter().zip(reference) {
+        let (dr, di) = ((z.re.clone() - &r.re).to_f64(), (z.im.clone() - &r.im).to_f64());
+        error = error.max(dr.hypot(di));
+        amplitude = amplitude.max(r.re.to_f64().hypot(r.im.to_f64()));
+    }
+    error / amplitude
+}
+
+/// A supplied-invariant lane's integral with its lightlike equal-mass pairs
+/// (s_ij = 0, m_i^2 = m_j^2 != 0) moved off the light cone, to
+/// s_ij = (1 + k/8) m_i^2 2^-e for the k-th pair, at e and e + 1, and
+/// extrapolated linearly to zero (inputs `input_bits` wide). The general IBP
+/// (the Cayley inverse) then evaluates the bubbles that the lightlike closed
+/// form takes at s_ij = 0, and the integral is analytic in s_ij there (its
+/// threshold is at 4 m^2). It divides by s_ij more than once, so it runs at
+/// 512 bits.
+fn off_light_cone(
+    settings: &ReductionSettings,
+    shifts: &[[f64; 4]],
+    invariants: &[f64],
+    masses: &[f64],
+    mu2: f64,
+    e: i32,
+    input_bits: Option<u32>,
+) -> Vec<Complex<Float>> {
+    let n = shifts.len();
+    let at = |e: i32| {
+        let mut moved = invariants.to_vec();
+        let mut k = 0;
+        for i in 0..n {
+            for j in i + 1..n {
+                if masses[i] != 0.0 && masses[i] == masses[j] && invariants[i + n * j] == 0.0 {
+                    let s = masses[i] * (1.0 + k as f64 / 8.0) * 2f64.powi(-e);
+                    (moved[i + n * j], moved[j + n * i]) = (s, s);
+                    k += 1;
+                }
+            }
+        }
+        assert!(k > 0, "no lightlike equal-mass pair");
+        let lane = supplied_lane(shifts, &moved, masses, mu2);
+        let (status, values) = direct_with_inputs(512, settings.clone(), &lane, input_bits);
+        assert_eq!(status, LaneStatus::Success, "off the light cone by 2^-{e}");
+        values
+    };
+    let (coarse, fine) = (at(e), at(e + 1));
+    coarse
+        .iter()
+        .zip(&fine)
+        .map(|(c, f)| Complex::new(f.re.clone() + &f.re - &c.re, f.im.clone() + &f.im - &c.im))
+        .collect()
+}
+
+/// Lightlike equal-mass bubbles (p^2 = 0) with higher powers: their Cayley
+/// matrix is singular, and the IBP base is the tadpole of the total power
+/// nu, (-1)^nu (m^2)^(2 - nu) / ((nu - 1) (nu - 2)), finite for nu >= 3
+/// (#51 takes nu = 3 only, and refuses every case below, "singular
+/// Cayley matrix for [0, 1]"). The bubble with one line raised to the third
+/// or fourth power, and a triangle containing it with each line so raised:
+/// - rank 0 against original IREGI's quad scalars with powers
+///   (benchmarks/onia/make_lightlike_powers_fixture.py), binary64 directly
+///   and through the facade, and 256 bits, to 1e-13; quad IREGI's bubbles
+///   are the tadpole;
+/// - ranks 1 to 3 against the lanes with the pair off the light cone
+///   (`off_light_cone`, exact inputs, from 2^-80): binary64 to 1e-12, 256
+///   bits to 1e-40.
+#[test]
+fn lightlike_bubbles_with_higher_powers_take_the_tadpole() {
+    use iregi_rust::{InvariantInput, ScaleInput};
+    let fixture: Value = serde_json::from_str(include_str!("fixtures/onia-lightlike-powers.json")).unwrap();
+    let shifts: Vec<[f64; 4]> = fixture["shifts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|q| std::array::from_fn(|a| q[a].as_f64().unwrap()))
+        .collect();
+    let masses: Vec<f64> = fixture["masses_squared"].as_array().unwrap().iter().map(|m| m.as_f64().unwrap()).collect();
+    let mu = fixture["mu"].as_f64().unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let powers: Vec<u16> = case["powers"].as_array().unwrap().iter().map(|p| p.as_u64().unwrap() as u16).collect();
+        let n = powers.len();
+        let reference: Vec<Complex<f64>> = case["reference"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|z| Complex::new(z[0].as_str().unwrap().parse().unwrap(), z[1].as_str().unwrap().parse().unwrap()))
+            .collect();
+        if n == 2 {
+            // IREGI's native convention: i pi^2 times OneLOop's finite part.
+            let nu = i32::from(powers[0] + powers[1]);
+            let tadpole = (-1f64).powi(nu) * masses[0].powi(2 - nu) / f64::from((nu - 1) * (nu - 2));
+            let expected = std::f64::consts::PI.powi(2) * tadpole;
+            assert!((reference[3].im / expected - 1.0).abs() <= 1e-15, "powers {powers:?}: quad IREGI against the tadpole");
+        }
+        let mut settings = ReductionSettings::new(n, 0);
+        settings.powers = powers.clone();
+        let lane = coulomb_lane(&shifts[..n], &masses[..n], mu);
+        for (what, (status, values)) in [
+            ("direct", direct_lanes_with(settings.clone(), &lane)),
+            ("facade", facade_lane(settings.clone(), &lane)),
+            ("256 bits", direct256(settings.clone(), &lane)),
+        ] {
+            assert_eq!(status, LaneStatus::Success, "powers {powers:?}, {what}");
+            let ea = relative_difference(&values, &reference);
+            assert!(ea <= 1e-13, "powers {powers:?}, {what}: E/A {ea:e} against quad IREGI");
+        }
+        let invariants = madloop_invariants(&shifts[..n], &masses[..n]);
+        let lane = supplied_lane(&shifts[..n], &invariants, &masses[..n], mu * mu);
+        for rank in 1..=3u16 {
+            let mut settings = ReductionSettings::new(n, rank);
+            settings.powers = powers.clone();
+            settings.invariants = InvariantInput::SuppliedInvariants;
+            settings.scale_input = ScaleInput::MuSquared;
+            let reference = off_light_cone(&settings, &shifts[..n], &invariants, &masses[..n], mu * mu, 80, None);
+            let reference64 = to_f64(&reference);
+            for (what, (status, values)) in
+                [("direct", direct_lanes_with(settings.clone(), &lane)), ("facade", facade_lane(settings.clone(), &lane))]
+            {
+                assert_eq!(status, LaneStatus::Success, "powers {powers:?}, rank {rank}, {what}");
+                let ea = relative_difference(&values, &reference64);
+                assert!(ea <= 1e-12, "powers {powers:?}, rank {rank}, {what}: E/A {ea:e} off the light cone");
+            }
+            let (status, values) = direct_with_inputs(BITS, settings.clone(), &lane, None);
+            assert_eq!(status, LaneStatus::Success, "powers {powers:?}, rank {rank}, 256 bits");
+            let ea = relative_difference_float(&values, &reference);
+            assert!(ea <= 1e-40, "powers {powers:?}, rank {rank}, 256 bits: E/A {ea:e} off the light cone");
+        }
+    }
+}
+
+/// The doubled Coulomb gluon in pentagons: onia_loop's g g > chi_c0(3P0[1]) g
+/// at sqrt(s) = 20 GeV, m_c = 1.55 (binary64 momenta, MadLoop's invariants),
+/// rank 5 (P-wave's R + 1), which #51 refuses ("singular Cayley matrix for
+/// [3, 4]" and "[0, 4]"). Every heavy pair across an external gluon is
+/// lightlike with equal masses, and the second Taylor order of the doubled
+/// gluon raises a heavy line to the third power, so the IBP reaches those
+/// bubbles at total power 4. Both layouts of the four refused calls: the
+/// gluon third (MadLoop's loop groups 195 and 197, lines as MadLoop reported
+/// them) and fourth (199 and 200, the incoming gluons first). Against
+/// `off_light_cone` with binary64 inputs (from 2^-30, above the lightlike
+/// gate's 2^-40): binary64 directly and through the facade to 1e-12, and 256
+/// bits with binary64 inputs to 1e-17.
+#[test]
+fn doubled_coulomb_gluons_in_pentagons_reach_lightlike_bubbles() {
+    use iregi_rust::{InvariantInput, ScaleInput};
+    let p1 = [10.0, 0.0, 0.0, 10.0];
+    let p2 = [10.0, 0.0, 0.0, -10.0];
+    let onium = [1.024_024_999_999_999_79e1, -7.422_135_593_064_672_85, 4.207_721_234_534_722_58, -4.739_167_153_953_114_39];
+    let gluon = [9.759_749_999_999_998_59, 7.422_135_593_064_672_85, -4.207_721_234_534_722_58, 4.739_167_153_953_114_39];
+    let half: [f64; 4] = std::array::from_fn(|a| -onium[a] / 2.0);
+    let (m2, mu2) = (1.55f64 * 1.55, 3.1f64 * 3.1);
+    let layouts: [(&str, [[f64; 4]; 4], usize); 2] = [("gluon third", [p1, half, half, p2], 2), ("gluon fourth", [p1, p2, half, half], 3)];
+    for (label, legs, gluon_line) in layouts {
+        let mut shifts = vec![[0.0; 4]];
+        for leg in legs {
+            let last = *shifts.last().unwrap();
+            shifts.push(std::array::from_fn(|a| last[a] + leg[a]));
+        }
+        let closing: [f64; 4] = std::array::from_fn(|a| shifts[0][a] - shifts[4][a]);
+        assert!(closing.iter().zip(&gluon).all(|(x, g)| (x + g).abs() <= 1e-13), "{label}: momentum conservation");
+        let masses: Vec<f64> = (0..5).map(|l| if l == gluon_line { 0.0 } else { m2 }).collect();
+        let invariants = madloop_invariants(&shifts, &masses);
+        let lane = supplied_lane(&shifts, &invariants, &masses, mu2);
+        let mut settings = ReductionSettings::new(5, 5);
+        settings.powers[gluon_line] = 2;
+        settings.invariants = InvariantInput::SuppliedInvariants;
+        settings.scale_input = ScaleInput::MuSquared;
+        let reference = off_light_cone(&settings, &shifts, &invariants, &masses, mu2, 30, Some(53));
+        let reference64 = to_f64(&reference);
+        for (what, (status, values)) in
+            [("direct", direct_lanes_with(settings.clone(), &lane)), ("facade", facade_lane(settings.clone(), &lane))]
+        {
+            assert_eq!(status, LaneStatus::Success, "{label}, {what}");
+            let ea = relative_difference(&values, &reference64);
+            assert!(ea <= 1e-12, "{label}, {what}: E/A {ea:e} off the light cone");
+        }
+        let (status, values) = direct_with_inputs(BITS, settings.clone(), &lane, Some(53));
+        assert_eq!(status, LaneStatus::Success, "{label}, 256 bits with binary64 inputs");
+        let ea = relative_difference_float(&values, &reference);
+        assert!(ea <= 1e-17, "{label}, 256 bits with binary64 inputs: E/A {ea:e} off the light cone");
+    }
+}
+
+/// Binary64 inputs at 512 bits, as a DP lane in the embedder's last tier
+/// (`set_input_precision(53)`). The Coulomb triangle (heavy, gluon, heavy)
+/// of onia_loop's g g > Upsilon g at sqrt(s) = 9.51 GeV holds its threshold
+/// only to binary64 rounding: s_02 is 2 ulps below 4 m^2, and the origin is
+/// 1.8e-15 off zero. Its Gram system is singular to that rounding, but its
+/// conditioning (5e-68 at depth 2) passes the 512-bit threshold, which
+/// evaluated the off-threshold integral (values of 1e9, 1/v enhanced) where
+/// binary64 and 256 bits take the v = 0 partial fraction. It must agree with
+/// both. The Coulomb vertex of e+ e- > t t~ a 46 ulps above threshold (the
+/// MadLoop bridge's stress point), beyond that rounding, is still evaluated
+/// exactly, 256 and 512 bits alike.
+#[test]
+fn binary64_inputs_keep_their_coulomb_relations_at_512_bits() {
+    use iregi_rust::{Convention, InvariantInput, ScaleInput, TensorWeights};
+    let settings = || {
+        let mut s = ReductionSettings::new(3, 2);
+        s.convention = Convention::MadLoop;
+        s.tensor_weights = TensorWeights::Components;
+        s.invariants = InvariantInput::SuppliedInvariants;
+        s.scale_input = ScaleInput::MuSquared;
+        s
+    };
+    // Shifts, the upper triangle of the supplied invariants (s_01, s_02,
+    // s_12), the squared masses and mu^2, as binary64 bits.
+    let lane = |p: &[u64; 12], s: &[u64; 3], m: &[u64; 3], mu2: u64| -> Vec<Complex<f64>> {
+        let real = |bits: u64| Complex::new(f64::from_bits(bits), 0.0);
+        p.iter().chain(s).chain(m).chain([&mu2]).map(|&b| real(b)).collect()
+    };
+    let upsilon = lane(
+        &[
+            0xbce0000000000000, 0x0000000000000000, 0x0000000000000000, 0x3cb0400000000000,
+            0xc0130000b06aa477, 0x3f63fe1f0447ac1d, 0xbf575928c55a6639, 0x3f70e1b676d4a682,
+            0xc0230000b06aa477, 0x3f73fe1f0447ac1d, 0xbf675928c55a6639, 0x3f80e1b676d4a682,
+        ],
+        &[0x4036900000000000, 0x40568ffffffffffd, 0x4036900000000000],
+        &[0x4036900000000000, 0x0000000000000000, 0x4036900000000000],
+        0x405e400000000000,
+    );
+    let ttxa = lane(
+        &[
+            0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x3d15692f40000000,
+            0xc065a999999999e4, 0x3ef2b440f5517ccb, 0x3ef4242f861f91e8, 0x3edb20b1d08a5fdc,
+            0xc075a999999999c9, 0x3eff4ff39a75e1a6, 0x3ef26d0393420659, 0xbea3ae92954b6860,
+        ],
+        &[0x40dd5438f5c28f5d, 0x40fd5438f5c28f8b, 0x40dd5438f5c28f5d],
+        &[0x40dd5438f5c28f5d, 0x0000000000000000, 0x40dd5438f5c28f5d],
+        0x40fd5439582bf9b6,
+    );
+    for (name, lane, binary64) in [("Upsilon Coulomb triangle", &upsilon, true), ("t t~ a Coulomb vertex", &ttxa, false)] {
+        let (status, at_256) = direct_with_inputs(BITS, settings(), lane, Some(53));
+        assert_eq!(status, LaneStatus::Success, "{name}: 256 bits");
+        let (status, at_512) = direct_with_inputs(512, settings(), lane, Some(53));
+        assert_eq!(status, LaneStatus::Success, "{name}: 512 bits");
+        let ea = relative_difference_float(&at_256, &at_512);
+        assert!(ea <= 1e-60, "{name}: 256 bits E/A {ea:e} against 512 bits");
+        if binary64 {
+            for (what, (status, values)) in
+                [("direct", direct_lanes_with(settings(), lane)), ("facade", facade_lane(settings(), lane))]
+            {
+                assert_eq!(status, LaneStatus::Success, "{name}, {what}");
+                let ea = relative_difference(&values, &to_f64(&at_512));
+                assert!(ea <= 1e-14, "{name}, {what}: E/A {ea:e} against 512 bits");
+            }
+        }
+    }
+}
+
+/// Two-onium pentagons of onia_loop's e+ e- > J/psi eta_c trace at v = 0
+/// that hold both onia's Coulomb triples (MadLoop's loop groups 41 and 42;
+/// binary64, MadLoop's supplied invariants), rank 3. The two triples share a
+/// heavy line, so neither gluon can be raised for both: the partial
+/// fractions raise the shared heavy line twice, and the pinch of the first
+/// holds the second's partial fraction (Taylor order 2). The parent refuses
+/// the lanes ("raising different propagators"). Reference: original IREGI's
+/// quad IBP arrays with both onia exactly on threshold
+/// (benchmarks/onia/make_double_coulomb_fixture.py):
+/// - binary64 directly and through the facade to 1e-12, and 256 bits with
+///   the inputs declared binary64 (MadLoop's QP rescue of a DP lane) to
+///   1e-14. IREGI's invariants come from its shifts and agree with the
+///   supplied ones to their rounding, which the pentagon amplifies to 5e-15.
+///   As exact inputs the second triple is refused: its binary64 middle shift
+///   is the rounded midpoint, so the relation does not hold at 256 bits'
+///   rounding.
+/// - 256 bits on IREGI's own inputs (binary128 shifts on threshold, their
+///   squared differences) to 1e-15: 1.1e-16 on both, quad IREGI's floor (as
+///   on the two-onium boxes), while 256 and 512 bits agree to 1e-75.
+#[test]
+fn double_coulomb_pentagons_match_quad_iregi() {
+    use iregi_rust::{InvariantInput, ScaleInput};
+    let fixture: Value = serde_json::from_str(include_str!("fixtures/onia-double-coulomb.json")).unwrap();
+    supplied_invariant_lanes_match(&fixture, false);
+    for case in fixture["cases"].as_array().unwrap() {
+        let label = case["label"].as_str().unwrap();
+        let parse = |v: &Value| v.as_str().unwrap().parse::<f64>().unwrap();
+        let shifts: Vec<[f64; 4]> =
+            case["shifts"].as_array().unwrap().iter().map(|q| std::array::from_fn(|a| parse(&q[a]))).collect();
+        let invariants: Vec<f64> = case["invariants"].as_array().unwrap().iter().map(parse).collect();
+        let masses: Vec<f64> = case["masses_squared"].as_array().unwrap().iter().map(parse).collect();
+        let reference: Vec<Complex<f64>> = case["reference"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|monomial| monomial.as_array().unwrap().iter().map(|z| Complex::new(parse(&z[0]), parse(&z[1]))))
+            .collect();
+        let mut settings = ReductionSettings::new(masses.len(), case["rank"].as_u64().unwrap() as u16);
+        settings.invariants = InvariantInput::SuppliedInvariants;
+        settings.scale_input = ScaleInput::MuSquared;
+        let lane = supplied_lane(&shifts, &invariants, &masses, parse(&case["mu_squared"]));
+        let (status, values) = direct_with_inputs(BITS, settings.clone(), &lane, Some(53));
+        assert_eq!(status, LaneStatus::Success, "{label}, 256 bits with binary64 inputs");
+        let ea = relative_difference(&to_f64(&values), &reference);
+        assert!(ea <= 1e-14, "{label}, 256 bits with binary64 inputs: E/A {ea:e} against quad IREGI");
+        // IREGI's own inputs (binary128 shifts exactly on threshold, and
+        // their squared differences): only the arithmetic differs.
+        let quad = |v: &Value| {
+            let mut x = Float::parse(v.as_str().unwrap(), Some(113)).unwrap();
+            x.set_prec(BITS);
+            Complex::new(x, Float::new(BITS))
+        };
+        let n = masses.len();
+        let threshold_invariants: Vec<&Value> = case["threshold_invariants"].as_array().unwrap().iter().collect();
+        let mut exact: Vec<Complex<Float>> =
+            case["threshold_shifts"].as_array().unwrap().iter().flat_map(|q| q.as_array().unwrap().iter().map(quad)).collect();
+        for i in 0..n {
+            for j in i + 1..n {
+                exact.push(quad(threshold_invariants[i + n * j]));
+            }
+        }
+        exact.extend(lane[4 * n + n * (n - 1) / 2..].iter().map(|z| Complex::new(Float::with_val(BITS, z.re), Float::new(BITS))));
+        let mut workspace = DirectReductionPlan::new(settings).unwrap().workspace(Float::new(BITS)).unwrap();
+        workspace.set_stability_threshold(Float::with_val(BITS, 2f64.powi(-(BITS as i32 - 40))));
+        workspace.set_input_precision(113);
+        let result = workspace.reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: exact }).unwrap();
+        assert_eq!(result.statuses[0], LaneStatus::Success, "{label}, IREGI's binary128 inputs at 256 bits");
+        let quad_reference: Vec<Complex<Float>> = case["reference"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|monomial| {
+                monomial.as_array().unwrap().iter().map(|z| {
+                    let part = |v: &Value| {
+                        let mut x = Float::parse(v.as_str().unwrap().trim(), Some(113)).unwrap();
+                        x.set_prec(BITS);
+                        x
+                    };
+                    Complex::new(part(&z[0]), part(&z[1]))
+                })
+            })
+            .collect();
+        let ea = relative_difference_float(result.lane(0).unwrap(), &quad_reference);
+        assert!(ea <= 1e-15, "{label}, IREGI's binary128 inputs at 256 bits: E/A {ea:e} against quad IREGI");
+    }
+}
+
+/// P-wave's doubled heavy line in a Coulomb triple: the partial fraction
+/// raises the dotted line itself (the parent raised the gluon and refused
+/// the lane, "linearly dependent propagators with a raised power"). The box
+/// (X, Q, g, Qbar) of `doubled_coulomb_gluons_take_a_second_taylor_order`
+/// with Q doubled is, from D_Q + D_Qbar = 2 D_g,
+/// J(X, Q^2, g, Qbar) = 2 J(X, Q^3, Qbar) - J(X, Q^3, g), two triangles
+/// that are not linearly dependent, and with Qbar doubled the same with Q and
+/// Qbar exchanged. Ranks 1 to 4, binary64 directly and through the facade,
+/// and 256 bits, against those triangles at 256 bits. (At rank 0 the box is
+/// a scalar master; README, Limits.)
+#[test]
+fn doubled_heavy_lines_in_coulomb_triples_raise_themselves() {
+    let (mu, m2) = (3.0, 4.0);
+    let (q1, k) = ([3.0, 1.0, -1.0, 2.0], [2.0, 0.0, 0.0, 0.0]);
+    let shifts = vec![[0.0; 4], q1, plus(q1, k, 1.0), plus(q1, k, 2.0)];
+    let masses = vec![1.0, m2, 0.0, m2];
+    let lane = coulomb_lane(&shifts, &masses, mu);
+    let pinch = |lines: [usize; 3], rank: u16, cubed: usize| {
+        let sub: Vec<[f64; 4]> = lines.iter().map(|&l| shifts[l]).collect();
+        let m: Vec<f64> = lines.iter().map(|&l| masses[l]).collect();
+        let mut s = ReductionSettings::new(3, rank);
+        s.powers[lines.iter().position(|&l| l == cubed).unwrap()] = 3;
+        let (status, values) = direct256(s, &coulomb_lane(&sub, &m, mu));
+        assert_eq!(status, LaneStatus::Success, "rank {rank}: pinch {lines:?} with line {cubed} cubed");
+        values
+    };
+    // (doubled line, its partner): 2 J(X, dot^3, partner) - J(X, dot^3, g).
+    for (dotted, partner) in [(1usize, 3usize), (3, 1)] {
+        for rank in 1..=4u16 {
+            let sorted = |mut lines: [usize; 3]| {
+                lines.sort_unstable();
+                lines
+            };
+            let a = pinch(sorted([0, dotted, partner]), rank, dotted);
+            let b = pinch(sorted([0, dotted, 2]), rank, dotted);
+            let reference: Vec<Complex<f64>> =
+                a.iter().zip(&b).map(|(x, y)| Complex::new(2.0 * x.re - y.re, 2.0 * x.im - y.im)).collect();
+            let mut settings = ReductionSettings::new(4, rank);
+            settings.powers[dotted] = 2;
+            for (what, (status, values)) in [
+                ("direct", direct_lanes_with(settings.clone(), &lane)),
+                ("facade", facade_lane(settings.clone(), &lane)),
+                ("256 bits", direct256(settings.clone(), &lane)),
+            ] {
+                assert_eq!(status, LaneStatus::Success, "line {dotted} doubled, rank {rank}, {what}");
+                let ea = relative_difference(&values, &reference);
+                let tolerance = if what == "256 bits" { 1e-14 } else { 1e-11 };
+                assert!(ea <= tolerance, "line {dotted} doubled, rank {rank}, {what}: E/A {ea:e} against the partial fraction");
+            }
+        }
+    }
+}
+
+/// `EmbedderOptions::relation_tiers`: a P-wave pentagon of u u~ > chi_c0 g at
+/// sqrt(s) = 1 TeV (onia_loop, point 7 of its stability profile, MadLoop's
+/// call 76), rank 4, the heavy line doubled, MadLoop's binary64 inputs. It
+/// reduces through the constant identity D_0 + D_3 - 2 D_4 = 4 m^2 = 9.6,
+/// against invariants of 1e6: the identity cancels its pinches by about s/K.
+/// The bridge's binary64 embedder accepts it at its first pass, 2e-10 off the
+/// integral of its inputs; MadLoop's P-wave sum amplifies that by about 1e8.
+/// With `relation_tiers` the lane goes to the double-double tier (inputs
+/// declared binary64, so the relation still holds there): within 1e-15 of
+/// 512 bits. A lane reduced without a relation keeps its binary64 route.
+#[test]
+fn relation_tiers_take_affine_relation_lanes_to_double_double() {
+    use iregi_rust::{EmbedderOptions, LaneRoute};
+    let pentagon = relation_pentagon();
+    let mut powered = bridge_settings(5, 4);
+    powered.powers[4] = 2;
+    let (status, exact) = direct_with_inputs(512, powered.clone(), &pentagon, Some(53));
+    assert_eq!(status, LaneStatus::Success, "512 bits with binary64 inputs");
+    let exact = to_f64(&exact);
+    let embedded = |settings: ReductionSettings, lane: &[Complex<f64>], relation_tiers: bool| {
+        let plan = TensorReductionPlan::new(settings).unwrap();
+        let options = EmbedderOptions { relation_tiers, ..bridge_options() };
+        let mut workspace = TensorWorkspace::new_embedded(&plan, 0.0f64, options).unwrap();
+        let result = workspace.reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: lane.to_vec() }).unwrap();
+        let route = workspace.last_lane_routes().unwrap()[0];
+        (result.statuses[0].clone(), route, result.lane(0).map(<[_]>::to_vec).unwrap_or_default())
+    };
+    let (status, route, values) = embedded(powered.clone(), &pentagon, false);
+    assert_eq!((status, route), (LaneStatus::Success, LaneRoute::Direct), "without relation_tiers");
+    let ea = relative_difference(&values, &exact);
+    assert!(ea >= 1e-11, "without relation_tiers: E/A {ea:e}, expected the binary64 cancellation");
+    let (status, route, values) = embedded(powered, &pentagon, true);
+    assert_eq!((status, route), (LaneStatus::Success, LaneRoute::Tier(106)), "with relation_tiers");
+    let ea = relative_difference(&values, &exact);
+    assert!(ea <= 1e-15, "with relation_tiers: E/A {ea:e} against 512 bits");
+    // No relation: a generic triangle keeps its first pass.
+    let triangle = coulomb_lane(&[[0.0; 4], [3.0, 1.0, -1.0, 2.0], [-2.0, 0.5, 1.0, -1.0]], &[1.0, 4.0, 0.0], 3.0);
+    let plan = TensorReductionPlan::new(ReductionSettings::new(3, 2)).unwrap();
+    let options = EmbedderOptions { method_choice: false, precision_tiers: true, relation_tiers: true, ..EmbedderOptions::default() };
+    let mut workspace = TensorWorkspace::new_embedded(&plan, 0.0f64, options).unwrap();
+    let result = workspace.reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: triangle }).unwrap();
+    assert_eq!(result.statuses[0], LaneStatus::Success);
+    assert_eq!(workspace.last_lane_routes().unwrap()[0], LaneRoute::Direct, "a lane without a relation");
+}
+
+/// The settings of MadLoop's bridge: supplied invariants, tensor components,
+/// MadLoop's convention, mu^2 as the scale input.
+fn bridge_settings(n: usize, rank: u16) -> ReductionSettings {
+    use iregi_rust::{Convention, InvariantInput, ScaleInput, TensorWeights};
+    let mut s = ReductionSettings::new(n, rank);
+    s.convention = Convention::MadLoop;
+    s.tensor_weights = TensorWeights::Components;
+    s.invariants = InvariantInput::SuppliedInvariants;
+    s.scale_input = ScaleInput::MuSquared;
+    s
+}
+
+/// The bridge's embedder options, without its gate.
+fn bridge_options() -> iregi_rust::EmbedderOptions {
+    iregi_rust::EmbedderOptions {
+        method_choice: false,
+        precision_tiers: true,
+        tier_margin_bits: 0,
+        double_double_headroom_bits: 26,
+        ..iregi_rust::EmbedderOptions::default()
+    }
+}
+
+/// The pentagon of `relation_tiers_take_affine_relation_lanes_to_double_double`
+/// as MadLoop supplied it (heavy line 4, rank 4): shifts, the upper triangle
+/// of the supplied invariants, masses^2, mu^2.
+fn relation_pentagon() -> Vec<Complex<f64>> {
+    let real = |bits: u64| Complex::new(f64::from_bits(bits), 0.0);
+    [
+        0x0000000000000000u64, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000,
+        0x407f400000000001, 0x0000000000000000, 0x0000000000000000, 0x407f400000000001,
+        0x408f400000000001, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000,
+        0x407f4013ae685db8, 0xc0608e55f47bd8ca, 0x4054a9a3ee72991b, 0xc07daff1547d55d3,
+        0x406f4013ae685db8, 0xc0508e55f47bd8ca, 0x4044a9a3ee72991b, 0xc06daff1547d55d3,
+        0x0000000000000000, 0x412e848000000002, 0x40233851eb850000, 0x40033851eb851eb9, 0x0000000000000000,
+        0xc12dc11f3a183d27, 0xc11dc128d64132e9, 0x0000000000000000, 0x411e847663d70a3f, 0x40033851eb851eb9,
+        0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x40033851eb851eb9,
+        0x412e848000000000,
+    ]
+    .iter()
+    .map(|&b| real(b))
+    .collect()
+}
+
+/// `EmbedderOptions::low_words` on the pentagon of
+/// `relation_tiers_take_affine_relation_lanes_to_double_double`: the
+/// double-double tier serves it, and value plus low word is that tier's value:
+/// 3.2e-26 from 512 bits on the same binary64 inputs (the rounded value
+/// alone: 5.3e-17). Values, statuses and routes are bit-identical with the
+/// option off. A lane the binary64 pass serves has zero low words, and
+/// without the option there are none.
+#[test]
+fn low_words_carry_the_double_double_tier_value() {
+    use iregi_rust::{EmbedderOptions, LaneRoute};
+    let pentagon = relation_pentagon();
+    let mut powered = bridge_settings(5, 4);
+    powered.powers[4] = 2;
+    let (status, exact) = direct_with_inputs(512, powered.clone(), &pentagon, Some(53));
+    assert_eq!(status, LaneStatus::Success, "512 bits with binary64 inputs");
+    let run = |settings: ReductionSettings, lane: &[Complex<f64>], relation_tiers: bool, low_words: bool| {
+        let plan = TensorReductionPlan::new(settings).unwrap();
+        let options = EmbedderOptions { relation_tiers, low_words, ..bridge_options() };
+        let mut workspace = TensorWorkspace::new_embedded(&plan, 0.0f64, options).unwrap();
+        let result = workspace.reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: lane.to_vec() }).unwrap();
+        let route = workspace.last_lane_routes().unwrap()[0];
+        let low = workspace.last_low_words().map(<[_]>::to_vec);
+        (result.statuses[0].clone(), route, result.lane(0).map(<[_]>::to_vec).unwrap_or_default(), low)
+    };
+    let (status, route, values, low) = run(powered.clone(), &pentagon, true, true);
+    assert_eq!((status.clone(), route), (LaneStatus::Success, LaneRoute::Tier(106)));
+    let low = low.expect("low words with the option on");
+    assert_eq!(low.len(), values.len());
+    let (_, plain_route, plain, none) = run(powered.clone(), &pentagon, true, false);
+    assert_eq!((plain_route, bits(&plain)), (route, bits(&values)), "values and route with the option off");
+    assert!(none.is_none(), "no low words with the option off");
+    let at = |z: &Complex<f64>| Complex::new(Float::with_val(512, z.re), Float::with_val(512, z.im));
+    let carried: Vec<Complex<Float>> = values
+        .iter()
+        .zip(&low)
+        .map(|(hi, lo)| {
+            let (hi, lo) = (at(hi), at(lo));
+            Complex::new(hi.re + &lo.re, hi.im + &lo.im)
+        })
+        .collect();
+    let rounded: Vec<Complex<Float>> = values.iter().map(at).collect();
+    let (with_low, without) = (relative_difference_float(&carried, &exact), relative_difference_float(&rounded, &exact));
+    assert!(with_low <= 1e-24, "value plus low word: E/A {with_low:e} against 512 bits");
+    assert!(without >= 1e-18, "the rounded value alone: E/A {without:e}");
+    assert!(low.iter().any(|z| z.re != 0.0 || z.im != 0.0), "nonzero low words");
+    // Without relation_tiers the binary64 pass serves it: zero low words.
+    let (status, route, _, low) = run(powered, &pentagon, false, true);
+    assert_eq!((status, route), (LaneStatus::Success, LaneRoute::Direct));
+    assert!(low.unwrap().iter().all(|z| z.re == 0.0 && z.im == 0.0), "binary64 lanes have zero low words");
+}
+
+/// A Coulomb triangle (Q, g, Qbar), masses^2 (1, 0, 1), rank 2, through the
+/// bridge's embedder options with `relation_tiers` and `low_words`, as hi + lo
+/// inputs: shifts a, (a + b) / 2, b with a - b = (2 + e, 0, 0, 0) and the
+/// whole lane translated by (t, 0, 0, 0), and the invariants they give
+/// (s_QQbar = (2 + e)^2, s_Qg = s_gQbar = (1 + e / 2)^2). Hi words, lo words.
+fn coulomb_triangle_low_inputs(e: f64, t: f64) -> (Vec<Complex<f64>>, Vec<Complex<f64>>) {
+    let real = |x: f64| Complex::new(x, 0.0);
+    let zero = real(0.0);
+    let (mut hi, mut lo) = (Vec::new(), Vec::new());
+    // e and t are below half an ulp of the hi words (powers of two).
+    for (first, low) in [(3.0, t), (2.0, t - e / 2.0), (1.0, t - e)] {
+        hi.extend([real(first), real(1.0), real(-1.0), real(2.0)]);
+        lo.extend([real(low), zero, zero, zero]);
+    }
+    // s_Qg, s_QQbar, s_gQbar, to 106 bits: (1 + e/2)^2 = 1 + e + e^2/4.
+    for (value, low) in [(1.0, e), (4.0, 4.0 * e), (1.0, e)] {
+        hi.push(real(value));
+        lo.push(real(low));
+    }
+    hi.extend([real(1.0), zero, real(1.0), real(3.0)]);
+    lo.extend([zero, zero, zero, zero]);
+    (hi, lo)
+}
+
+/// `reduce_batch_with_low_inputs` decides at the declared precision of its
+/// inputs, the same exact-threshold and near-threshold points in both modes:
+/// - zero low words reduce bit for bit as `reduce_batch`;
+/// - exactly at threshold but translated by t = 2^-60 (which binary64 cannot
+///   hold), the tiers serve the v = 0 value of hi + lo: 2.1e-32 from 512
+///   bits on the same inputs at 106 bits (bound 1e-25). The binary64 inputs
+///   lose the translation, 7.5e-19;
+/// - off threshold by e = 2^-80 (relative), the binary64 inputs are at
+///   threshold (the v = 0 value). Declared at 106 bits, the offset is beyond
+///   the inputs' rounding, so the v = 0 rule does not apply: refused, as at
+///   512 bits on the same inputs (the gluon's bubbles are in the undecided
+///   window). Declared at 64 bits, it is within the rounding again: the v = 0
+///   value, 9.3e-33 from 512 bits and 6.4e-24 from the binary64 inputs' value.
+/// - with `relation_tiers` off, the binary64 pass serves the hi words at
+///   threshold (route Direct). With low words it keeps no first-pass value:
+///   the tiers decide, so the 2^-80 lane is refused at 106 bits and the v = 0
+///   value at 64 bits, and the translated lane is served from the tier.
+#[test]
+fn low_inputs_decide_thresholds_at_their_declared_precision() {
+    use iregi_rust::{EmbedderOptions, LaneRoute};
+    let settings = bridge_settings(3, 2);
+    let plan = TensorReductionPlan::new(settings.clone()).unwrap();
+    let options = EmbedderOptions { relation_tiers: true, low_words: true, ..bridge_options() };
+    let batch = |values: Vec<Complex<f64>>| KinematicsBatch { rows: 1, components: 1, values };
+    let run_with = |options: EmbedderOptions, hi: &[Complex<f64>], lo: Option<(&[Complex<f64>], u32)>| {
+        let mut workspace = TensorWorkspace::new_embedded(&plan, 0.0f64, options).unwrap();
+        let result = match lo {
+            None => workspace.reduce_batch(&batch(hi.to_vec())),
+            Some((lo, bits)) => workspace.reduce_batch_with_low_inputs(&batch(hi.to_vec()), &batch(lo.to_vec()), bits),
+        }
+        .unwrap();
+        let route = workspace.last_lane_routes().unwrap()[0];
+        let low = workspace.last_low_words().unwrap().to_vec();
+        (result.statuses[0].clone(), route, result.lane(0).map(<[_]>::to_vec).unwrap_or_default(), low)
+    };
+    let run = |hi: &[Complex<f64>], lo: Option<(&[Complex<f64>], u32)>| run_with(options, hi, lo);
+    // 512 bits on hi + lo, declared at `bits`.
+    let exact = |hi: &[Complex<f64>], lo: &[Complex<f64>], bits: u32| {
+        let mut workspace = DirectReductionPlan::new(settings.clone()).unwrap().workspace(Float::new(512)).unwrap();
+        workspace.set_stability_threshold(Float::with_val(512, 2f64.powi(-(512 - 40))));
+        workspace.set_input_precision(bits);
+        let at = |x: f64| Float::with_val(512, x);
+        let values = hi.iter().zip(lo).map(|(h, l)| Complex::new(at(h.re) + &at(l.re), at(h.im) + &at(l.im))).collect();
+        let result = workspace.reduce_batch(&KinematicsBatch { rows: 1, components: 1, values }).unwrap();
+        (result.statuses[0].clone(), result.lane(0).map(<[_]>::to_vec).unwrap_or_default())
+    };
+    let carried = |values: &[Complex<f64>], low: &[Complex<f64>]| -> Vec<Complex<Float>> {
+        let at = |x: f64| Float::with_val(512, x);
+        values.iter().zip(low).map(|(h, l)| Complex::new(at(h.re) + &at(l.re), at(h.im) + &at(l.im))).collect()
+    };
+    // Zero low words: as reduce_batch, bit for bit.
+    let (hi, lo) = coulomb_triangle_low_inputs(0.0, 0.0);
+    assert!(lo.iter().all(|z| z.re == 0.0));
+    let plain = run(&hi, None);
+    assert_eq!(plain.0, LaneStatus::Success);
+    assert_eq!(plain.1, LaneRoute::Tier(106), "a relation lane");
+    let zero = run(&hi, Some((&lo, 106)));
+    assert_eq!((zero.0.clone(), zero.1), (plain.0.clone(), plain.1));
+    assert_eq!((bits(&zero.2), bits(&zero.3)), (bits(&plain.2), bits(&plain.3)), "zero low words");
+    // Exactly at threshold, translated by 2^-60.
+    let t = 2f64.powi(-60);
+    let (hi_t, lo_t) = coulomb_triangle_low_inputs(0.0, t);
+    let (status, route, values, low) = run(&hi_t, Some((&lo_t, 106)));
+    assert_eq!((status, route), (LaneStatus::Success, LaneRoute::Tier(106)), "translated, at threshold");
+    let (reference_status, reference) = exact(&hi_t, &lo_t, 106);
+    assert_eq!(reference_status, LaneStatus::Success);
+    let ea = relative_difference_float(&carried(&values, &low), &reference);
+    assert!(ea <= 1e-25, "translated, at threshold: E/A {ea:e} against 512 bits");
+    let binary64 = relative_difference_float(&carried(&plain.2, &plain.3), &reference);
+    assert!(binary64 >= 1e-20, "the translation, lost by binary64 inputs: E/A {binary64:e}");
+    // Off threshold by 2^-80.
+    let e = 2f64.powi(-80);
+    let (hi_e, lo_e) = coulomb_triangle_low_inputs(e, 0.0);
+    assert_eq!(bits(&hi_e), bits(&hi), "the offset is below binary64's rounding");
+    let (status, ..) = run(&hi_e, Some((&lo_e, 106)));
+    assert!(matches!(status, LaneStatus::Unstable(_)), "at 106 bits, 2^-80 off threshold: {status:?}");
+    let (reference_status, _) = exact(&hi_e, &lo_e, 106);
+    assert!(matches!(reference_status, LaneStatus::Unstable(_)), "512 bits at 106-bit inputs: {reference_status:?}");
+    let (status, route, values, low) = run(&hi_e, Some((&lo_e, 64)));
+    assert_eq!((status, route), (LaneStatus::Success, LaneRoute::Tier(106)), "at 64 bits, within the rounding");
+    let (reference_status, reference) = exact(&hi_e, &lo_e, 64);
+    assert_eq!(reference_status, LaneStatus::Success);
+    let ea = relative_difference_float(&carried(&values, &low), &reference);
+    assert!(ea <= 1e-25, "at 64 bits: E/A {ea:e} against 512 bits");
+    let v0 = relative_difference_float(&carried(&values, &low), &carried(&plain.2, &plain.3));
+    assert!(v0 <= 1e-20, "at 64 bits: the v = 0 value, {v0:e} from the binary64 inputs'");
+    // Without relation_tiers the binary64 pass serves the lane at threshold
+    // (route Direct). With low words, nothing the binary64 pass decided at
+    // its rounding is kept: the tiers decide, with the same answers.
+    let first_pass = EmbedderOptions { relation_tiers: false, ..options };
+    let (status, route, ..) = run_with(first_pass, &hi_e, None);
+    assert_eq!((status, route), (LaneStatus::Success, LaneRoute::Direct), "binary64 inputs: the first pass");
+    let (status, route, ..) = run_with(first_pass, &hi_e, Some((&lo_e, 106)));
+    assert!(matches!(status, LaneStatus::Unstable(_)), "first pass on, 106 bits, 2^-80 off: {status:?}");
+    assert_eq!(route, LaneRoute::Refused);
+    let (status, route, values, low) = run_with(first_pass, &hi_e, Some((&lo_e, 64)));
+    assert_eq!((status, route), (LaneStatus::Success, LaneRoute::Tier(106)), "first pass on, 64 bits");
+    let ea = relative_difference_float(&carried(&values, &low), &reference);
+    assert!(ea <= 1e-25, "first pass on, 64 bits: E/A {ea:e} against 512 bits");
+    let (status, route, values, low) = run_with(first_pass, &hi_t, Some((&lo_t, 106)));
+    assert_eq!((status, route), (LaneStatus::Success, LaneRoute::Tier(106)), "first pass on, translated");
+    let (_, translated) = exact(&hi_t, &lo_t, 106);
+    let ea = relative_difference_float(&carried(&values, &low), &translated);
+    assert!(ea <= 1e-25, "first pass on, translated: E/A {ea:e} against 512 bits");
+    // Invalid declarations.
+    let mut workspace = TensorWorkspace::new_embedded(&plan, 0.0f64, options).unwrap();
+    for bits in [53, 107] {
+        assert!(workspace.reduce_batch_with_low_inputs(&batch(hi_t.clone()), &batch(lo_t.clone()), bits).is_err());
     }
 }

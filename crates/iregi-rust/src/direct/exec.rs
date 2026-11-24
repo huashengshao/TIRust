@@ -303,6 +303,10 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     /// Per lane of the most recent call: some box or triangle exceeds the a
     /// priori estimate (`estimate_flags` only).
     lane_estimate: Vec<bool>,
+    /// Per lane of the most recent call: the lane's plan variant reduces some
+    /// subset by an affine relation (a constant identity or a partial
+    /// fraction of linearly dependent propagators).
+    lane_relation: Vec<bool>,
     /// `8 * 2^-precision`: a squared distance below this multiple of its
     /// sum of squared components is zero within its own rounding.
     rounding: T,
@@ -331,6 +335,7 @@ pub(crate) struct CallRecord {
     conditions: Vec<Option<f64>>,
     gram: Vec<bool>,
     estimate: Vec<bool>,
+    relation: Vec<bool>,
     profile: DirectProfile,
     master_rows: usize,
 }
@@ -532,6 +537,7 @@ where
             lane_conditions: Vec::new(),
             lane_gram: Vec::new(),
             lane_estimate: Vec::new(),
+            lane_relation: Vec::new(),
             rounding: {
                 let half = prototype.one() / &prototype.from_usize(2);
                 (0..prototype.get_precision()).fold(prototype.from_usize(8), |acc, _| acc * &half)
@@ -610,6 +616,7 @@ where
             conditions: std::mem::take(&mut self.lane_conditions),
             gram: std::mem::take(&mut self.lane_gram),
             estimate: std::mem::take(&mut self.lane_estimate),
+            relation: std::mem::take(&mut self.lane_relation),
             profile: self.profile,
             master_rows: self.master_rows,
         }
@@ -621,6 +628,7 @@ where
         self.lane_conditions = first.conditions;
         self.lane_gram = first.gram;
         self.lane_estimate = first.estimate;
+        self.lane_relation = first.relation;
         self.master_rows += first.master_rows;
         let (a, b) = (&mut self.profile, first.profile);
         a.geometry += b.geometry;
@@ -651,6 +659,10 @@ where
 
     pub(crate) fn last_estimate_lanes(&self) -> &[bool] {
         &self.lane_estimate
+    }
+
+    pub(crate) fn last_relation_lanes(&self) -> &[bool] {
+        &self.lane_relation
     }
 
     fn timer(&self) -> Option<Instant> {
@@ -1661,9 +1673,39 @@ where
     /// fraction raises: a massless one (the Coulomb gluon), whose doubled
     /// propagator the master jets and their closed form handle.
     fn raised_member(&self, support: SubsetMask) -> Option<usize> {
-        members(support)
-            .into_iter()
-            .find(|&member| self.masses[member].re.is_zero() && self.masses[member].im.is_zero())
+        let massless = |member: usize| self.masses[member].re.is_zero() && self.masses[member].im.is_zero();
+        // A dotted member is raised itself, massless or not (P-wave's doubled
+        // Coulomb gluon, or a doubled heavy line): the plan admits a raised
+        // power on the raised member only.
+        let dotted = self.base_plan.settings.powers.iter().position(|&p| p > 1);
+        if let Some(d) = dotted.filter(|&d| support & (1 << d) != 0) {
+            return Some(d);
+        }
+        members(support).into_iter().find(|&member| massless(member))
+    }
+
+    /// The lane's linearly dependent sets with `support` added, all raising
+    /// one member (the plan's single jet). When their own raised members
+    /// differ, a member every set holds is raised instead: the heavy line
+    /// two Coulomb triples share (e+ e- > J/psi eta_c), or the dotted line
+    /// if they share it. `None` when they share none.
+    fn homogeneous_with(&self, support: SubsetMask, raised: usize) -> Option<Vec<(SubsetMask, usize)>> {
+        let mut profile = self.homogeneous_profile.clone();
+        profile.push((support, raised));
+        if profile.iter().all(|&(_, r)| r == raised) {
+            return Some(profile);
+        }
+        let shared = profile.iter().fold(SubsetMask::MAX, |mask, &(h, _)| mask & h);
+        let dotted = self.base_plan.settings.powers.iter().position(|&p| p > 1);
+        let common = match dotted {
+            Some(d) if shared & (1 << d) != 0 => d,
+            Some(_) => return None,
+            None => members(shared).into_iter().next()?,
+        };
+        for entry in &mut profile {
+            entry.1 = common;
+        }
+        Some(profile)
     }
 
     /// Partial fraction of a linearly dependent subset (`PostOp::TaylorShift`):
@@ -1794,9 +1836,14 @@ where
             let local = relation.members.iter().position(|&m| m == relation.raised).unwrap();
             // A variant reused from another lane (a rotated copy, another
             // labelling) may raise a member that is massive here; then the
-            // lane picks its own variant.
+            // lane picks its own variant. A massive member is the lane's own
+            // choice when it is the dotted line or shared by every linearly
+            // dependent set (`raised_member`, `homogeneous_with`).
             let raised_mass = &self.masses[relation.raised];
-            if !(raised_mass.re.is_zero() && raised_mass.im.is_zero()) {
+            let dotted = self.base_plan.settings.powers.iter().position(|&p| p > 1);
+            let shared = plan.homogeneous.len() >= 2
+                && plan.homogeneous.iter().all(|other| other.members.contains(&relation.raised));
+            if !(raised_mass.re.is_zero() && raised_mass.im.is_zero()) && dotted != Some(relation.raised) && !shared {
                 return Err(GeometryFailure::Relation(format!(
                     "propagator {} of the relation of {:?} is not massless on this lane",
                     relation.raised, relation.members
@@ -1929,6 +1976,29 @@ where
                                 scale = value;
                             }
                         }
+                        // The inputs' rounding moves the system's relative
+                        // determinant by at most sum_i ||delta row_i|| / ||row_i||
+                        // to first order, each entry's rounding that of its
+                        // three invariants (as `cayley_inverse`'s floor).
+                        let gram_floor = {
+                            let mut floor = self.prototype.zero();
+                            for i in 0..size {
+                                let (mut row, mut delta) = (self.prototype.zero(), self.prototype.zero());
+                                for j in 0..size {
+                                    let (mi, mj) = (members[i + 1], members[j + 1]);
+                                    row += &cnorm2(&self.matrix[i * size + j]);
+                                    let mut entry = self.prototype.zero();
+                                    for (a, b) in [(origin, mi), (origin, mj), (mi, mj)] {
+                                        entry += &(cnorm2(d(a, b)).sqrt() + &self.invariant_size(a, b));
+                                    }
+                                    delta += &(entry.clone() * &entry);
+                                }
+                                if !row.is_zero() {
+                                    floor += &(delta.sqrt() / &row.sqrt());
+                                }
+                            }
+                            floor * &self.input_rounding
+                        };
                         let quality = solve_in_place(
                             &mut self.matrix[..size * size],
                             &mut self.rhs[..size * size],
@@ -1985,6 +2055,26 @@ where
                             return Err(GeometryFailure::Singular(subset.mask, format!(
                                 "ill-conditioned Gram matrix for {members:?}: conditioning {:e}",
                                 condition
+                            )));
+                        }
+                        // Singular to the inputs' rounding, which the working
+                        // precision's threshold admits: binary64 inputs at 512
+                        // bits. If its propagators are linearly dependent at
+                        // that rounding (a Coulomb triple at v = 0), the lane
+                        // loop takes their partial fraction, as lower
+                        // precisions do, instead of the reduction resolving the
+                        // inputs' rounding (the off-threshold integral, 1/v
+                        // enhanced). Otherwise the system is reduced as before
+                        // (a Coulomb vertex 46 ulps above threshold is
+                        // evaluated exactly). Binary64 inputs at binary64,
+                        // under the default threshold, are refused first.
+                        if size >= 2
+                            && quality.relative_determinant <= gram_floor
+                            && matches!(self.relation_support(subset.mask), Ok((_, true)))
+                        {
+                            return Err(GeometryFailure::Singular(subset.mask, format!(
+                                "Gram matrix for {members:?} singular to the inputs' rounding: relative determinant {:e}",
+                                quality.relative_determinant
                             )));
                         }
                         for j in 0..size {
@@ -3164,6 +3254,23 @@ where
         })
     }
 
+    /// Whether `a`, `b` form a threshold bubble: equal real positive squared
+    /// masses and `d_ab = 4 m^2`, both to the inputs' rounding.
+    fn threshold_pair(&self, a: usize, b: usize) -> bool {
+        let n = self.plan.settings.propagators;
+        let (ma, mb) = (&self.masses[a], &self.masses[b]);
+        if !ma.im.is_zero() || !mb.im.is_zero() || !(ma.re > ma.re.zero()) {
+            return false;
+        }
+        let scale = cnorm2(ma).sqrt() + &cnorm2(mb).sqrt();
+        if cnorm2(&csub(ma, mb)).sqrt() > scale.clone() * &self.input_rounding {
+            return false;
+        }
+        let four = cscale(ma, &self.prototype.from_usize(4));
+        let gap = cnorm2(&csub(&self.distances[a * n + b], &four)).sqrt();
+        gap <= (scale * &self.prototype.from_usize(2) + &self.invariant_size(a, b)) * &self.input_rounding
+    }
+
     /// A collinear pair of a triangle `active`: two massless members `a`, `b`
     /// whose invariant vanishes to the inputs' rounding, with the third line
     /// `c`, as `(a, b, c)`. (A soft line, which a massless triangle with two
@@ -3278,9 +3385,12 @@ where
     /// normalization (slots `[uv, ir1, ir2, finite]`), first order only:
     /// - a doubled massless tadpole, `int 1/(l^2)^2 = 1/eps_UV - 1/eps_IR`
     ///   (scaleless), and its higher powers, zero;
-    /// - a lightlike (or coincident) bubble of equal masses, total power 3:
-    ///   at `p^2 = 0` the tadpole `int 1/(l^2 - m^2)^3 = -1/(2 m^2)` (finite;
-    ///   zero for `m = 0`, scaleless);
+    /// - a lightlike (or coincident) bubble of equal masses, total power
+    ///   `nu >= 3`: at `p^2 = 0` the tadpole
+    ///   `int 1/(l^2 - m^2)^nu = (-1)^nu (m^2)^(2 - nu) / ((nu - 1) (nu - 2))`
+    ///   (finite, `-1/(2 m^2)` at `nu = 3`; zero for `m = 0`, scaleless);
+    /// - a threshold bubble of equal masses, `p^2 = 4 m^2`, total power
+    ///   `nu >= 3` (below);
     /// - the on-shell bubble `(q_a - q_b)^2 = m^2` (to the working
     ///   precision's rounding of the inputs, real `m^2 > 0`) with a massless
     ///   partner, from
@@ -3308,12 +3418,16 @@ where
             // Higher powers of a massless tadpole are scaleless without a
             // logarithmic divergence: zero.
             &[d] if massless(&self.masses[d]) => Some(lzero(&self.zero)),
-            &[a, b] if power(a) + power(b) == 3 && {
+            &[a, b] if power(a) + power(b) >= 3 && {
                 // A lightlike (or coincident) bubble of equal masses: its
-                // Cayley matrix is singular, and at p^2 = 0 it is the tadpole
-                // int 1/(l^2 - m^2)^3 = (1/2) d B0(0; m, m)/d m^2 = -1/(2 m^2)
-                // (finite; scaleless, hence zero, for m = 0).
-                // Equal masses to the inputs' rounding.
+                // Cayley matrix is singular, and at p^2 = 0, where
+                // Delta = m^2 for every Feynman parameter, it is the tadpole of
+                // total power nu = nu_a + nu_b,
+                // int 1/(l^2 - m^2)^nu = (-1)^nu Gamma(nu - 2 + eps) / Gamma(nu)
+                // (m^2)^(2 - nu - eps), finite for nu >= 3:
+                // (-1)^nu (m^2)^(2 - nu) / ((nu - 1) (nu - 2)), e.g. -1/(2 m^2)
+                // = (1/2) d B0(0; m, m)/d m^2 at nu = 3 (scaleless, hence zero,
+                // for m = 0). Equal masses to the inputs' rounding.
                 let p2 = &self.distances[a * n + b];
                 let scale = cnorm2(&self.masses[a]).sqrt();
                 let equal = cnorm2(&csub(&self.masses[a], &self.masses[b])).sqrt()
@@ -3324,9 +3438,57 @@ where
                 if massless(&self.masses[a]) {
                     return Some(lzero(&self.zero));
                 }
-                let half = self.prototype.one() / &self.prototype.from_usize(2);
-                let value = cscale(&cinv(&self.masses[a]), &(self.prototype.zero() - &half));
-                Some([self.zero.clone(), self.zero.clone(), self.zero.clone(), value])
+                let nu = (power(a) + power(b)) as usize;
+                let inverse = cinv(&self.masses[a]);
+                let mut value = inverse.clone();
+                for _ in 3..nu {
+                    value = cmul(&value, &inverse);
+                }
+                let mut weight = self.prototype.one() / &self.prototype.from_usize((nu - 1) * (nu - 2));
+                if nu % 2 == 1 {
+                    weight = self.prototype.zero() - &weight;
+                }
+                Some([self.zero.clone(), self.zero.clone(), self.zero.clone(), cscale(&value, &weight)])
+            }
+            // A threshold bubble of equal masses, p^2 = 4 m^2 to the inputs'
+            // rounding, total power nu >= 3: Delta = m^2 (1 - 2x)^2, and with
+            // x = (1 - t)/2 and P(t) = x^(nu_b - 1) (1 - x)^(nu_a - 1) =
+            // sum_n c_n t^n, J = (-1)^nu Gamma(nu - 2 + eps) / (Gamma(nu_a)
+            // Gamma(nu_b)) (m^2)^(2 - nu - eps) sum_(n even) c_n / (5 - 2 nu + n
+            // - 2 eps). It is finite (5 - 2 nu + n is odd): dimensional
+            // regularization removes the power-like Coulomb singularity of the
+            // 4-dimensional mass derivative.
+            &[a, b] if power(a) + power(b) >= 3 && self.threshold_pair(a, b) => {
+                let (nu_a, nu_b) = (power(a) as usize, power(b) as usize);
+                let nu = nu_a + nu_b;
+                let one = self.prototype.one();
+                let half = one.clone() / &self.prototype.from_usize(2);
+                // P(t) as real coefficients, ascending.
+                let mut poly = vec![one.clone()];
+                for (count, sign) in [(nu_b - 1, -1i64), (nu_a - 1, 1)] {
+                    for _ in 0..count {
+                        let mut next = vec![self.prototype.zero(); poly.len() + 1];
+                        for (i, c) in poly.iter().enumerate() {
+                            next[i] += &(c.clone() * &half);
+                            next[i + 1] += &(c.clone() * &half * &self.prototype.from_i64(sign));
+                        }
+                        poly = next;
+                    }
+                }
+                let mut sum = self.prototype.zero();
+                for (n, c) in poly.iter().enumerate().step_by(2) {
+                    sum += &(c.clone() / &self.prototype.from_i64(5 - 2 * nu as i64 + n as i64));
+                }
+                let factorial = |k: usize| (1..=k).fold(one.clone(), |f, i| f * &self.prototype.from_usize(i));
+                let mut value = sum * &factorial(nu - 3) / &(factorial(nu_a - 1) * &factorial(nu_b - 1));
+                if nu % 2 == 1 {
+                    value = -value;
+                }
+                let m2 = self.masses[a].re.clone();
+                for _ in 0..nu - 2 {
+                    value = value / &m2;
+                }
+                Some([self.zero.clone(), self.zero.clone(), self.zero.clone(), real(value)])
             }
             &[a, b] => {
                 let (g, h) = if massless(&self.masses[a]) { (a, b) } else { (b, a) };
@@ -4382,6 +4544,8 @@ where
         self.lane_gram.resize(batch.rows, false);
         self.lane_estimate.clear();
         self.lane_estimate.resize(batch.rows, false);
+        self.lane_relation.clear();
+        self.lane_relation.resize(batch.rows, false);
         for row in 0..batch.rows {
             let lane_values = values.len();
             values.resize(lane_values + basis_len * 4, self.zero.clone());
@@ -4459,7 +4623,14 @@ where
                                     ));
                                     break plan;
                                 };
-                                self.homogeneous_profile.push((support, raised));
+                                let Some(profile) = self.homogeneous_with(support, raised) else {
+                                    failure = Some(format!(
+                                        "{error}; linearly dependent propagator sets {support:#b} and {:?} share no member to raise",
+                                        self.homogeneous_profile.iter().map(|&(h, _)| h).collect::<Vec<_>>()
+                                    ));
+                                    break plan;
+                                };
+                                self.homogeneous_profile = profile;
                                 self.homogeneous_profile.sort_unstable();
                                 if let Err(variant) = self.select_variant() {
                                     self.homogeneous_profile.clear();
@@ -4477,6 +4648,7 @@ where
                 }
             };
             self.lane_estimate[row] = self.estimate_tripped;
+            self.lane_relation[row] = !self.relation_profile.is_empty() || !self.homogeneous_profile.is_empty();
             if let Some(error) = failure {
                 self.lane_conditions[row] = self.failed_condition;
                 statuses.push(LaneStatus::Unstable(error));

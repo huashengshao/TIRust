@@ -144,6 +144,10 @@ python3 benchmarks/onia/make_fixture.py target/onia/points.json target/onia/affi
 python3 benchmarks/onia/make_dotted_lightlike.py
 python3 benchmarks/onia/make_two_onium_fixture.py
 python3 benchmarks/onia/make_collinear_fixture.py
+python3 benchmarks/onia/make_threshold_fixture.py
+python3 benchmarks/onia/make_two_onium_box_fixture.py
+python3 benchmarks/onia/make_lightlike_powers_fixture.py
+python3 benchmarks/onia/make_double_coulomb_fixture.py
 ```
 
 The physical S-wave amplitudes:
@@ -213,18 +217,30 @@ them as follows:
    below).
 2. **Partial fraction.** The plan variant (`SubsetKind::Homogeneous`,
    `plan.rs`) reduces every subset that contains such a relation by
-   1 = −Σ_{i≠j} (c_i/c_j) D_i/D_j, where j is the massless member, the gluon.
+   1 = −Σ_{i≠j} (c_i/c_j) D_i/D_j, where j is the raised member:
+   - the massless member, the gluon;
+   - the dotted line, massless or not, when the lane already raises a
+     member of the relation (P-wave's doubled gluon or doubled heavy line);
+   - the heavy line two relations share, for both, when each would raise
+     its own gluon (the double-Coulomb pentagons of e+ e- > J/psi eta_c).
+
    Each moment becomes a sum of the first Taylor coefficients, in m_j², of
-   the pinches without i: the pinches with the gluon doubled. The engine's
+   the pinches without i: the pinches with D_j doubled. The engine's
    existing jets (`master_jets`, `geometry_jets`, `run_program_jets`)
-   compute those, and the variant outputs Taylor order 0.
+   compute those, and the variant outputs Taylor order 0. A pinch may hold
+   another relation's partial fraction, so the jet holds one more order per
+   relation.
 3. **Closed-form bases.** The IBP recursion of the doubled masters ends in
    IR-singular bases whose Cayley matrices are singular, so they come from
    closed forms (`exec.rs::singular_ibp_base`, OneLOop normalization):
    - J(2,1) = −(1/ε_IR + ln(μ²/m²) − 2)/(2m²) and
      J(1,2) = (1/ε_IR + ln(μ²/m²))/(2m²), for the on-shell bubble
      p² = m² with a massless partner;
-   - ∫ 1/(l² − m²)³ = −1/(2m²), for a lightlike bubble of equal masses;
+   - ∫ 1/(l² − m²)^ν = (−1)^ν (m²)^(2−ν)/((ν − 1)(ν − 2)), for a lightlike
+     bubble of equal masses with total power ν ≥ 3 (−1/(2m²) at ν = 3): at
+     p² = 0 it is the tadpole of power ν;
+   - the closed form of Δ = m² (1 − 2x)², for a threshold bubble of equal
+     masses (p² = 4m²) with total power ν ≥ 3;
    - ∫ 1/(l²)² = 1/ε_UV − 1/ε_IR, for the scaleless doubled massless tadpole.
 4. **Lightlike bubbles under jets.** These are allowed when they do not
    contain the doubled propagator; their jets vanish.
@@ -294,7 +310,53 @@ against the closed forms, and triangles and boxes against the mass
 derivative of the undotted integral. Outside these bases TIRust's on-shell
 condition stays exact (see the S-wave finding below).
 
+**Relations at high energy.** An affine relation's identity has weights of
+order 1/K. At a heavy-quark threshold K is about 4 m^2, while the lane's
+invariants are of order s, so the identity cancels its pinches by about s/K
+and binary64 loses that many digits. No gate sees it: the Gram system is
+singular, not ill-conditioned. On MadLoop's P-wave pentagons of
+u u~ > chi_c0 g at sqrt(s) = 1 TeV (rank 4, a line doubled), binary64 is up
+to 2e-10 off the integral of its own inputs, and the P-wave sum amplifies
+that by about 1e8 (at 20 GeV MadLoop's results are good to 8e-8). With
+`EmbedderOptions::relation_tiers`, binary64 lanes served through a relation
+are evaluated again from the double-double tier up. The tiers declare the
+binary64 inputs as such, so the relations still hold there; a lane every
+tier refuses is refused, not returned from binary64. All 40 pentagon
+calls of the onia_loop reproducer are then within 6.8e-17 of 512 bits. A
+1 ulp shift of the invariants (MadLoop's check pass) moves the exact
+integrals by 1e-15 at most, so both passes agree. The option is off by
+default; a host sets it where it amplifies these lanes, e.g. MadLoop's
+raised-power entry point.
+
+With `EmbedderOptions::low_words`, a lane that a tier serves also keeps its
+low words (`TensorWorkspace::last_low_words`). These are the tier's value minus
+the returned binary64 value, rounded to binary64, so value plus low word
+carries the tier's value to about 106 bits. This is for a host that
+contracts in more than binary64, such as a P-wave sum in extended precision.
+Values and routes are unchanged, and lanes served in binary64 have zero low
+words. On the 40 reproducer calls the rounded value is 1.2e-17 to 6.8e-17
+off (relative to each call's scale) and value plus low word 2.8e-32 to
+6.9e-23, against 512 bits on the same binary64 inputs. This leaves out the
+rounding of the inputs themselves.
+
+That rounding can be supplied too. `TensorWorkspace::reduce_batch_with_low_inputs`
+takes the inputs as hi + lo words with their declared precision (`input_bits`,
+54 to 106: 64 for x87 extended values, 106 for a split of binary128 ones).
+A lane with low words keeps no value of the binary64 pass, which reads the hi
+words and decides at binary64 rounding: it goes to the tiers from
+double-double up (refused if every tier refuses). The tiers evaluate hi + lo
+and decide relations, thresholds and on-shell conditions at the declared
+rounding, in workspaces of their own. An offset
+that hi + lo resolves is therefore not taken as v = 0. A Coulomb triangle
+2^-80 off threshold is at threshold for its binary64 hi words and for
+64-bit inputs (the v = 0 value), but refused when declared at 106 bits, as at
+512 bits on the same inputs. Lanes whose low words are all zero are reduced
+exactly as without them.
+
 **Limits.**
+- A doubled line outside the Coulomb triple (24 of the coverage scan's
+  P-wave lanes) would need two raised lines, which the single-line jets do
+  not hold: refused (typed).
 - At rank 0 a Coulomb triangle or box is only a scalar master, with no
   Gram check to detect the linear dependence. On exact inputs oneloopmaster
   returns a nonfinite master and the lane is refused (typed); the facade
@@ -799,7 +861,8 @@ Each case holds its distinct loop integrals with contracted coefficients.
 TIRust's amplitude must agree with the reference to 1e-9. Its poles must
 match the Born predictions: double and UV poles to 1e-10, single to 1e-9.
 
-Two fixtures cover P-wave's dotted integrals (rank R+1, one line doubled):
+These fixtures cover P-wave's dotted integrals (rank R+1, one line doubled)
+and the S-wave lanes whose reduction reaches one:
 - `tests/fixtures/onia-dotted-lightlike.json` (`make_dotted_lightlike.py`,
   mpmath): the PV coefficients of two-point integrals at p^2 = 0 with one
   line doubled, ranks 0 to 4, from their d-dimensional Feynman-parameter
@@ -815,6 +878,42 @@ Two fixtures cover P-wave's dotted integrals (rank R+1, one line doubled):
   massless lines with a vanishing invariant), one line doubled, from original
   IREGI's quad scalar API with powers. TIRust must agree to 1e-13 (binary64)
   and 1e-15 (256 bits), and refuse the pentagon with a pair member doubled.
+- `tests/fixtures/onia-threshold-bubbles.json` (`make_threshold_fixture.py`):
+  scalars of the equal-mass bubble at p^2 = 4 m^2 with raised powers, and of
+  a triangle containing it with each line doubled, from original IREGI's
+  quad scalar API with powers. TIRust must agree to 1e-13.
+- `tests/fixtures/onia-two-onium-boxes.json` (`make_two_onium_box_fixture.py`):
+  two rank-3 boxes of e+ e- > J/psi eta_c at v = 0 with a Coulomb triple and
+  two heavy pairs at p^2 = 4 m^2, whose doubled triangles reduce to threshold
+  bubbles with raised powers. The reference is original IREGI's quad IBP
+  arrays with the pairs exactly on threshold: IREGI takes its invariants from
+  the shifts, and the binary64 shifts, off threshold by their rounding, move
+  it by up to 9e-9. TIRust, with MadLoop's supplied invariants, must agree to
+  1e-12 (binary64) and 1e-15 (256 bits). Two more tests take its first box
+  into rotated and boosted frames, with the invariants MadLoop supplies there
+  (up to 2.3e-14 off 4 m^2), and move its cross-onium pair off threshold.
+  Inside the inputs' rounding every lane is served and stays within
+  beta = sqrt(|s - 4 m^2| / 4 m^2) of the integral of its exact inputs,
+  which is the integral's own sensitivity to them. Beyond the rounding,
+  binary64 refuses and 256 bits agree with the exact inputs.
+- `tests/fixtures/onia-double-coulomb.json` (`make_double_coulomb_fixture.py`):
+  the two rank-3 pentagons of e+ e- > J/psi eta_c at v = 0 that hold both
+  onia's Coulomb triples, which share a heavy line. The reference is
+  original IREGI's quad IBP arrays with both onia exactly on threshold.
+  TIRust, with MadLoop's supplied invariants, must agree to 1e-12 in
+  binary64 and to 1e-14 at 256 bits with binary64 inputs (measured 2.8e-14
+  and 5e-15: IREGI's invariants agree with the supplied ones only to their
+  rounding). On IREGI's own binary128 inputs it must agree to 1e-15
+  (measured 1.1e-16, quad IREGI's floor).
+- `tests/fixtures/onia-lightlike-powers.json`
+  (`make_lightlike_powers_fixture.py`): scalars of the equal-mass bubble at
+  p^2 = 0 with one line raised to the third or fourth power, and of a
+  triangle containing it with each line so raised, from original IREGI's
+  quad scalar API with powers. The bubbles are the tadpole of their total
+  power. TIRust must agree to 1e-13. The test also takes ranks 1 to 3
+  against the same lanes with the pair moved off the light cone (512 bits,
+  s = 2^-80 m^2 and half that, extrapolated to s = 0), to 1e-12 in binary64
+  and 1e-40 at 256 bits.
 
 The test file's other cases need no fixture:
 - the #32 review's cases: mixed batches, the planar pentagon, and the
@@ -829,7 +928,24 @@ The test file's other cases need no fixture:
 - triangles and a box whose lightlike pairs contain the doubled line, against
   the mass derivative of the undotted integral;
 - IR-divergent triangles with a doubled line, which the soft-line recursion
-  reduces, against the IBP rows it does not use.
+  reduces, against the IBP rows it does not use;
+- a Coulomb box with a heavy line doubled (P-wave), whose partial fraction
+  raises that line, against the two triangles of the partial fraction at
+  256 bits, ranks 1 to 4;
+- `relation_tiers`: a P-wave pentagon of u u~ > chi_c0 g at 1 TeV
+  (MadLoop's binary64 inputs), 2e-10 off from binary64's first pass and
+  within 1e-15 of 512 bits from the double-double tier;
+- `low_words`: the same pentagon, whose value plus low word is 3.2e-26 from
+  512 bits (the rounded value alone 5.3e-17), with values and routes
+  bit-identical to the option off and zero low words on a binary64 route;
+- low inputs: a Coulomb triangle as hi + lo, exactly at threshold but
+  translated by 2^-60 (2.1e-32 from 512 bits at 106-bit inputs, where binary64
+  inputs lose 7.5e-19) and 2^-80 off threshold (refused at 106 bits, the
+  v = 0 value at 64 bits), with zero low words bit-identical;
+- the doubled Coulomb gluon in two pentagons of g g > chi_c0 g (rank 5,
+  MadLoop's binary64 invariants), whose IBP reaches lightlike equal-mass
+  bubbles at total power 4, against the same lanes with those pairs moved
+  off the light cone (from 2^-30 m^2, with binary64 inputs).
 
 ## Files
 
@@ -849,6 +965,10 @@ The test file's other cases need no fixture:
 | `make_dotted_lightlike.py` | the dotted lightlike-bubble fixture (mpmath) |
 | `make_two_onium_fixture.py` | the two-onium pentagon fixture (quad IREGI) |
 | `make_collinear_fixture.py` | the collinear-pair fixture (quad IREGI scalars with powers) |
+| `make_threshold_fixture.py` | the dotted threshold-bubble fixture (quad IREGI scalars with powers) |
+| `make_two_onium_box_fixture.py` | the two-onium box fixture (quad IREGI, pairs exactly on threshold) |
+| `make_lightlike_powers_fixture.py` | the lightlike equal-mass bubbles with higher powers (quad IREGI scalars with powers) |
+| `make_double_coulomb_fixture.py` | the double-Coulomb pentagon fixture (quad IREGI, both onia exactly on threshold) |
 | `merge_swave.py` | concatenates onia_swave outputs over point ranges |
 | `crates/iregi-prepare/examples/onia_diagrams.rs` | FeynKit diagram generation (DOT files) |
 | `crates/iregi-prepare/examples/onia_swave.rs` | S-wave projection and numerator coefficients per point and polarization |
