@@ -803,13 +803,15 @@ pub(crate) struct DirectPlanData {
 #[derive(Clone, Default)]
 pub(crate) struct DerivedPlans(Arc<DerivedMaps>);
 
-/// A plan variant's profile: relation masks, lightlike masks and linearly
-/// dependent sets (mask, raised member).
-type VariantKey = (Vec<SubsetMask>, Vec<SubsetMask>, Vec<(SubsetMask, usize)>);
+/// A plan variant's profile: relation masks, lightlike masks, linearly
+/// dependent sets (mask, raised member) and flat subsets of six or more
+/// points.
+type VariantKey = (Vec<SubsetMask>, Vec<SubsetMask>, Vec<(SubsetMask, usize)>, Vec<SubsetMask>);
 
 #[derive(Default)]
 struct DerivedMaps {
-    /// Variants by `(relation profile, lightlike profile, homogeneous profile)`.
+    /// Variants by `(relation profile, lightlike profile, homogeneous profile,
+    /// flat profile)`.
     variants: Mutex<HashMap<VariantKey, Arc<DirectPlanData>>>,
     /// Auxiliary plans by `(propagators, rank, top-child boost)`.
     auxiliary: Mutex<HashMap<(usize, u16, u16), Arc<DirectPlanData>>>,
@@ -984,13 +986,27 @@ impl DirectPlanData {
         lightlike_masks: &[SubsetMask],
         homogeneous: &[(SubsetMask, usize)],
     ) -> Result<Arc<DirectPlanData>, ReductionError> {
-        let key = (relation_masks.to_vec(), lightlike_masks.to_vec(), homogeneous.to_vec());
+        self.flat_variant(relation_masks, lightlike_masks, homogeneous, &[])
+    }
+
+    /// [`Self::variant`] whose subsets of six or more points in `flat` take
+    /// the denominator identities of their profile too
+    /// ([`Self::with_flat_profile`]).
+    pub fn flat_variant(
+        &self,
+        relation_masks: &[SubsetMask],
+        lightlike_masks: &[SubsetMask],
+        homogeneous: &[(SubsetMask, usize)],
+        flat: &[SubsetMask],
+    ) -> Result<Arc<DirectPlanData>, ReductionError> {
+        let key = (relation_masks.to_vec(), lightlike_masks.to_vec(), homogeneous.to_vec(), flat.to_vec());
         derived(&self.derived.0.variants, key, || {
-            Self::with_full_profile(
+            Self::with_flat_profile(
                 self.settings.clone(),
                 relation_masks,
                 lightlike_masks,
                 homogeneous,
+                flat,
                 self.top_child_boost,
             )
         })
@@ -1027,6 +1043,23 @@ impl DirectPlanData {
         relation_masks: &[SubsetMask],
         lightlike_masks: &[SubsetMask],
         homogeneous: &[(SubsetMask, usize)],
+        boost: u16,
+    ) -> Result<Self, ReductionError> {
+        Self::with_flat_profile(settings, relation_masks, lightlike_masks, homogeneous, &[], boost)
+    }
+
+    /// [`Self::with_full_profile`] in which the subsets of six or more points
+    /// in `flat` take the identities of the profile as well. A subset of six
+    /// or more points is otherwise reduced by its six-point coordinate
+    /// system, whatever relations its pinches hold; a flat one has none (its
+    /// external points span three dimensions: two onia, p_Q = p_Qbar, in a
+    /// 2 -> 2 process), and its identity keeps the rank.
+    pub fn with_flat_profile(
+        settings: ReductionSettings,
+        relation_masks: &[SubsetMask],
+        lightlike_masks: &[SubsetMask],
+        homogeneous: &[(SubsetMask, usize)],
+        flat: &[SubsetMask],
         boost: u16,
     ) -> Result<Self, ReductionError> {
         Self::supported(&settings)?;
@@ -1073,13 +1106,13 @@ impl DirectPlanData {
             (Some(jet), output)
         };
         let relation_for = |mask: SubsetMask| -> Option<usize> {
-            if mask.count_ones() >= 6 {
+            if mask.count_ones() >= 6 && !flat.contains(&mask) {
                 return None;
             }
             relation_masks.iter().position(|&r| r & !mask == 0)
         };
         let homogeneous_for = |mask: SubsetMask| -> Option<usize> {
-            if mask.count_ones() >= 6 || relation_for(mask).is_some() {
+            if (mask.count_ones() >= 6 && !flat.contains(&mask)) || relation_for(mask).is_some() {
                 return None;
             }
             homogeneous.iter().position(|&(h, _)| h & !mask == 0)
@@ -2266,6 +2299,31 @@ mod tests {
             .unwrap();
         assert!(top_moments.contains(&plan.moment_program[read].dst));
         assert!(written < read, "the relation reads the Coulomb box before its partial fraction");
+    }
+
+    /// A six-point subset takes a relation it holds only when it is flat:
+    /// otherwise its six-point coordinate system reduces it (and its rank),
+    /// as before. Flat, it is reduced by the constant relation at its rank,
+    /// or by the partial fraction of a linearly dependent set, and its
+    /// pinches keep their own kinds.
+    #[test]
+    fn flat_six_point_subsets_take_their_relations() {
+        let settings = ReductionSettings::new(6, 2);
+        let top_kind = |plan: &DirectPlanData| plan.subsets.last().unwrap().kind;
+        let pinch = |plan: &DirectPlanData, mask: SubsetMask| plan.subsets.iter().find(|s| s.mask == mask).unwrap().kind;
+        let plain = DirectPlanData::with_full_profile(settings.clone(), &[0b000111], &[], &[], 0).unwrap();
+        assert!(matches!(top_kind(&plain), SubsetKind::Hexagon));
+        let flat = DirectPlanData::with_flat_profile(settings.clone(), &[0b000111], &[], &[], &[0b111111], 0).unwrap();
+        assert!(matches!(top_kind(&flat), SubsetKind::Relation(0)));
+        assert_eq!(flat.subsets.last().unwrap().moment_rank, 2);
+        // The relation's pinches hold it no longer.
+        assert!(matches!(pinch(&flat, 0b111110), SubsetKind::Pentagon));
+        let homogeneous =
+            DirectPlanData::with_flat_profile(settings.clone(), &[], &[], &[(0b001110, 2)], &[0b111111], 0).unwrap();
+        assert!(matches!(top_kind(&homogeneous), SubsetKind::Homogeneous(0)));
+        assert!(matches!(pinch(&homogeneous, 0b111101), SubsetKind::Pentagon));
+        let unflat = DirectPlanData::with_flat_profile(settings, &[], &[], &[(0b001110, 2)], &[], 0).unwrap();
+        assert!(matches!(top_kind(&unflat), SubsetKind::Hexagon));
     }
 
     /// A partial fraction whose pinch is itself a partial fraction reads that

@@ -196,12 +196,19 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     plan: Arc<DirectPlanData>,
     base_plan: Arc<DirectPlanData>,
     /// Variants keyed by their minimal degenerate subsets.
-    variants: HashMap<(Vec<SubsetMask>, Vec<SubsetMask>, Vec<(SubsetMask, usize)>), (Arc<DirectPlanData>, Arc<Vec<T>>)>,
+    variants: HashMap<
+        (Vec<SubsetMask>, Vec<SubsetMask>, Vec<(SubsetMask, usize)>, Vec<SubsetMask>),
+        (Arc<DirectPlanData>, Arc<Vec<T>>),
+    >,
     lightlike_profile: Vec<SubsetMask>,
     base_constants: Arc<Vec<T>>,
     relation_profile: Vec<SubsetMask>,
     /// Linearly dependent subsets of the lane and their raised member.
     homogeneous_profile: Vec<(SubsetMask, usize)>,
+    /// Subsets of six or more points whose external points span three
+    /// dimensions: reduced by the identities of the profiles above, as no
+    /// six-point coordinate system exists.
+    flat_profile: Vec<SubsetMask>,
     prototype: T,
     zero: C<T>,
     one: C<T>,
@@ -552,6 +559,7 @@ where
             variants: HashMap::new(),
             relation_profile: Vec::new(),
             homogeneous_profile: Vec::new(),
+            flat_profile: Vec::new(),
             lightlike_profile: Vec::new(),
             constants,
             evaluators,
@@ -1671,7 +1679,12 @@ where
 
     /// The member of a linearly dependent set whose power the partial
     /// fraction raises: a massless one (the Coulomb gluon), whose doubled
-    /// propagator the master jets and their closed form handle.
+    /// propagator the master jets and their closed form handle. A set
+    /// without one raises its first member: four heavy lines of equal mass
+    /// with D_0 + D_1 = D_2 + D_3 (g g > onium onium: offsets 0, p_1 and
+    /// (p_1 -+ p_2) / 2 of a closed quark loop, or a heavy line through it),
+    /// whose integral is regular and whose pinches are not degenerate. The
+    /// doubled line's jets are then the mass derivatives of those pinches.
     fn raised_member(&self, support: SubsetMask) -> Option<usize> {
         let massless = |member: usize| self.masses[member].re.is_zero() && self.masses[member].im.is_zero();
         // A dotted member is raised itself, massless or not (P-wave's doubled
@@ -1681,7 +1694,7 @@ where
         if let Some(d) = members(support).into_iter().find(|&d| powers[d] > 1) {
             return Some(d);
         }
-        members(support).into_iter().find(|&member| massless(member))
+        members(support).into_iter().find(|&member| massless(member)).or_else(|| members(support).into_iter().next())
     }
 
     /// The lane's linearly dependent sets with `support` added. When their
@@ -1803,8 +1816,12 @@ where
             self.relation_profile.clone(),
             self.lightlike_profile.clone(),
             self.homogeneous_profile.clone(),
+            self.flat_profile.clone(),
         );
-        if self.relation_profile.is_empty() && self.lightlike_profile.is_empty() && self.homogeneous_profile.is_empty()
+        if self.relation_profile.is_empty()
+            && self.lightlike_profile.is_empty()
+            && self.homogeneous_profile.is_empty()
+            && self.flat_profile.is_empty()
         {
             self.plan = self.base_plan.clone();
             self.constants = self.base_constants.clone();
@@ -1812,8 +1829,12 @@ where
             self.plan = plan.clone();
             self.constants = constants.clone();
         } else {
-            let plan =
-                self.base_plan.variant(&self.relation_profile, &self.lightlike_profile, &self.homogeneous_profile)?;
+            let plan = self.base_plan.flat_variant(
+                &self.relation_profile,
+                &self.lightlike_profile,
+                &self.homogeneous_profile,
+                &self.flat_profile,
+            )?;
             let constants: Arc<Vec<T>> = Arc::new(
                 plan.constants
                     .iter()
@@ -1896,13 +1917,15 @@ where
             // A variant reused from another lane (a rotated copy, another
             // labelling) may raise a member that is massive here; then the
             // lane picks its own variant. A massive member is the lane's own
-            // choice when it is a dotted line or shared by every linearly
-            // dependent set (`raised_member`, `homogeneous_with`).
-            let raised_mass = &self.masses[relation.raised];
+            // choice when it is a dotted line, shared by every linearly
+            // dependent set, or of a set without a massless member
+            // (`raised_member`, `homogeneous_with`).
             let dotted = self.base_plan.settings.powers[relation.raised] > 1;
             let shared = plan.homogeneous.len() >= 2
                 && plan.homogeneous.iter().all(|other| other.members.contains(&relation.raised));
-            if !(raised_mass.re.is_zero() && raised_mass.im.is_zero()) && !dotted && !shared {
+            let massless = |m: usize| self.masses[m].re.is_zero() && self.masses[m].im.is_zero();
+            let all_massive = !relation.members.iter().any(|&m| massless(m));
+            if !massless(relation.raised) && !dotted && !shared && !all_massive {
                 return Err(GeometryFailure::Relation(format!(
                     "propagator {} of the relation of {:?} is not massless on this lane",
                     relation.raised, relation.members
@@ -2465,7 +2488,7 @@ where
             let ripple = drop + low;
             drop = (((ripple ^ drop) >> 2) / low) | ripple;
         }
-        let mut best: Option<(T, Vec<C<T>>, u128)> = None;
+        let mut best: Option<(T, Vec<C<T>>, u128, T)> = None;
         for drop in drops {
             let chosen: Vec<usize> = (0..size).filter(|&k| drop & (1 << k) == 0).collect();
             let origin = members[chosen[0]];
@@ -2492,26 +2515,57 @@ where
                     };
                 }
             }
+            // The inputs' rounding moves the relative determinant by at most
+            // sum_i ||delta row_i|| / ||row_i|| to first order (as the Gram
+            // floor): a momentum row's entries by that of both shifts'
+            // components, the f row's by that of d(origin, j) and both
+            // masses.
+            let mut floor = self.prototype.zero();
+            for row in 0..5 {
+                let (mut norm, mut delta) = (self.prototype.zero(), self.prototype.zero());
+                for column in 0..5 {
+                    let member = members[chosen[column + 1]];
+                    norm += &cnorm2(&self.matrix[row * 5 + column]);
+                    let size = if row < 4 {
+                        cnorm2(&self.shifts[member][row]).sqrt() + &cnorm2(&self.shifts[origin][row]).sqrt()
+                    } else {
+                        self.invariant_size(origin, member)
+                            + &cnorm2(&self.masses[member]).sqrt()
+                            + &cnorm2(&self.masses[origin]).sqrt()
+                    };
+                    delta += &(size.clone() * &size);
+                }
+                if !norm.is_zero() {
+                    floor += delta.sqrt() / &norm.sqrt();
+                }
+            }
+            let floor = floor * &self.input_rounding;
             let Some(quality) = solve_in_place(&mut self.matrix[..25], &mut self.rhs[..25], 5, 5) else {
                 continue;
             };
-            if best.as_ref().is_none_or(|(relative, _, _)| quality.relative_determinant > *relative) {
-                best = Some((quality.relative_determinant, self.rhs[..25].to_vec(), drop));
+            if best.as_ref().is_none_or(|(relative, _, _, _)| quality.relative_determinant > *relative) {
+                best = Some((quality.relative_determinant, self.rhs[..25].to_vec(), drop, floor));
             }
         }
-        let Some((relative, solution, drop)) = best else {
+        // A singular system, to the working precision or to the inputs'
+        // rounding, is `Singular`: six points spanning three dimensions (two
+        // onia at p_Q = p_Qbar in a 2 -> 2 process) or linearly dependent
+        // propagators. The lane loop then takes the identity of their
+        // relation (`flat_profile`).
+        let Some((relative, solution, drop, floor)) = best else {
             // Exactly singular pivot: conditioning zero.
             self.failed_condition = Some(0.0);
-            return Err(GeometryFailure::Unstable(format!(
-                "singular six-point coordinate system for {members:?}"
-            )));
+            return Err(GeometryFailure::Singular(
+                subset.mask,
+                format!("singular six-point coordinate system for {members:?}"),
+            ));
         };
-        if relative < threshold {
+        if relative < threshold || relative <= floor {
             self.failed_condition = Some(relative.to_f64());
-            return Err(GeometryFailure::Unstable(format!(
-                "ill-conditioned six-point coordinate system: relative determinant {:e}",
-                relative
-            )));
+            return Err(GeometryFailure::Singular(
+                subset.mask,
+                format!("ill-conditioned six-point coordinate system for {members:?}: relative determinant {:e}", relative),
+            ));
         }
         let chosen: Vec<usize> = (0..size).filter(|&k| drop & (1 << k) == 0).collect();
         for column in 0..5 {
@@ -4944,7 +4998,8 @@ where
                         if restarted
                             || (self.relation_profile.is_empty()
                                 && self.lightlike_profile.is_empty()
-                                && self.homogeneous_profile.is_empty())
+                                && self.homogeneous_profile.is_empty()
+                                && self.flat_profile.is_empty())
                         {
                             failure = Some(error);
                             break plan;
@@ -4953,6 +5008,7 @@ where
                         self.relation_profile.clear();
                         self.lightlike_profile.clear();
                         self.homogeneous_profile.clear();
+                        self.flat_profile.clear();
                         self.select_variant()?;
                     }
                     Err(GeometryFailure::Lightlike(mask)) => {
@@ -4973,32 +5029,49 @@ where
                         break plan;
                     }
                     Err(GeometryFailure::Singular(mask, error)) => {
+                        // A flat subset of six or more points takes the
+                        // identity of its relation, which may be one its
+                        // pinches hold already.
+                        let flat = mask.count_ones() >= 6 && !self.flat_profile.contains(&mask);
                         match self.relation_support(mask) {
                             Ok((support, false))
-                                if !self.relation_profile.contains(&support)
+                                if (flat || !self.relation_profile.contains(&support))
                                     && !(batched_masters && support != 0) =>
                             {
-                                self.relation_profile.push(support);
-                                self.relation_profile.sort_unstable();
+                                if !self.relation_profile.contains(&support) {
+                                    self.relation_profile.push(support);
+                                    self.relation_profile.sort_unstable();
+                                }
+                                if flat {
+                                    self.flat_profile.push(mask);
+                                    self.flat_profile.sort_unstable();
+                                }
                                 self.select_variant()?;
                             }
                             Ok((support, true))
                                 if !batched_masters
-                                    && !self.homogeneous_profile.iter().any(|&(h, _)| h == support) =>
+                                    && (flat || !self.homogeneous_profile.iter().any(|&(h, _)| h == support)) =>
                             {
                                 // Linearly dependent propagators (Coulomb
-                                // exchange): partial fractions with a raised
-                                // massless member.
-                                let Some(raised) = self.raised_member(support) else {
-                                    failure = Some(format!(
-                                        "{error}; linearly dependent propagators {support:#b} without a massless member"
-                                    ));
-                                    break plan;
-                                };
-                                self.homogeneous_profile = self.homogeneous_with(support, raised);
-                                self.homogeneous_profile.sort_unstable();
+                                // exchange, or four heavy lines of two onia):
+                                // partial fractions with a raised member.
+                                if !self.homogeneous_profile.iter().any(|&(h, _)| h == support) {
+                                    let Some(raised) = self.raised_member(support) else {
+                                        failure = Some(format!(
+                                            "{error}; linearly dependent propagators {support:#b} without a member to raise"
+                                        ));
+                                        break plan;
+                                    };
+                                    self.homogeneous_profile = self.homogeneous_with(support, raised);
+                                    self.homogeneous_profile.sort_unstable();
+                                }
+                                if flat {
+                                    self.flat_profile.push(mask);
+                                    self.flat_profile.sort_unstable();
+                                }
                                 if let Err(variant) = self.select_variant() {
                                     self.homogeneous_profile.clear();
+                                    self.flat_profile.clear();
                                     failure = Some(format!("{error}; {variant}"));
                                     self.select_variant()?;
                                     break plan;
@@ -5013,7 +5086,9 @@ where
                 }
             };
             self.lane_estimate[row] = self.estimate_tripped;
-            self.lane_relation[row] = !self.relation_profile.is_empty() || !self.homogeneous_profile.is_empty();
+            self.lane_relation[row] = !self.relation_profile.is_empty()
+                || !self.homogeneous_profile.is_empty()
+                || !self.flat_profile.is_empty();
             if let Some(error) = failure {
                 self.lane_conditions[row] = self.failed_condition;
                 statuses.push(LaneStatus::Unstable(error));

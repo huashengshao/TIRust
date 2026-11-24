@@ -401,6 +401,33 @@ On onia_loop's fixtures every call TIRust refused is served, in both passes:
   a lightlike one (the same pentagon with only that line doubled, one jet
   variable, misses by 9%).
 
+**Two onia in a 2 -> 2 process.** g g > chi_c0 chi_c0 also has unit-power
+integrals at rank 4 that the identities above did not reach (87 per g g
+pass at 20 GeV, refused at every precision):
+- **Four heavy lines without a massless member.** A closed c, b or t loop
+  with offsets 0, p1, (p1 - p2)/2, (p1 + p2)/2 has D_0 + D_1 = D_2 + D_3 for
+  equal masses: linearly dependent, but with no gluon to raise. These boxes,
+  and the pentagons and hexagons holding such a set, now raise a heavy line.
+  The integral is regular (only its reduction is degenerate), and the
+  doubled line's jets are the mass derivatives of pinches that are not.
+- **Flat hexagons.** With p_Q = p_Qbar for both onia, every external point
+  lies in the span of p1, p2 and one onium's momentum: three dimensions, so
+  no six-point coordinate system exists (singular, or singular to the
+  inputs' rounding). Such a hexagon now takes the identity of its relations,
+  as pentagons and boxes do: a constant one, which keeps the rank, or a
+  partial fraction where every relation is linearly dependent (two or three
+  Coulomb triples and heavy sets). Hexagons with a coordinate system are
+  reduced by it as before, whatever relations their pinches hold.
+
+All 87 calls are now served in binary64 and at 256 and 512 bits; quad
+original IREGI reports all of them stable. On the exact
+kinematics (every shift a rational combination of p1, p2 and one
+constituent, rebuilt in 200 digits), TIRust at 256 and 512 bits agrees with
+quad IREGI's arrays to 2.3e-16, IREGI's own accuracy here. MadLoop's binary64
+inputs agree with the exact kinematics to 5e-15, which moves the integral of
+some hexagons by up to 8e-9. On those inputs binary64 is within 5.4e-11 of
+512 bits.
+
 **Limits.**
 - A lightlike bubble with a massive line, whose two lines are both jet
   variables, has no closed form here: refused (typed).
@@ -961,6 +988,17 @@ and the S-wave lanes whose reduction reaches one:
   agree to 1e-8 in binary64 and at 256 bits (measured 2.3e-9 at both), and
   the whole array must agree with the reversed lines to 1e-8 (measured
   8.6e-10: the inputs' consistency).
+- `tests/fixtures/onia-two-onium-gg.json` (`make_two_onium_gg_fixture.py`):
+  15 of the 87 unit-power calls of g g > chi_c0 chi_c0 at 20 GeV, rank 4,
+  one per pattern of dependent subsets: the c, b and t boxes and the
+  pentagons whose four heavy lines are linearly dependent, and flat
+  hexagons (Coulomb triples, heavy sets, constant relations, and hexagons
+  whose relations are all linearly dependent). The reference is quad
+  original IREGI's arrays on the exact kinematics, which the test rebuilds
+  at 256 bits from the stored rational coefficients. TIRust must agree there
+  to 1e-15 (measured 1.9e-16), and, on MadLoop's binary64 inputs, to 1e-10
+  against 256 bits on the same inputs (5.4e-11) and to 1e-8 against the
+  reference (7.8e-9: the inputs' distance from the exact kinematics).
 - `tests/fixtures/onia-lightlike-powers.json`
   (`make_lightlike_powers_fixture.py`): scalars of the equal-mass bubble at
   p^2 = 0 with one line raised to the third or fourth power, and of a
@@ -1031,6 +1069,7 @@ The test file's other cases need no fixture:
 | `make_lightlike_powers_fixture.py` | the lightlike equal-mass bubbles with higher powers (quad IREGI scalars with powers) |
 | `make_double_coulomb_fixture.py` | the double-Coulomb pentagon fixture (quad IREGI, both onia exactly on threshold) |
 | `make_two_dotted_fixture.py` | the two-P-wave fixture (exact partial fractions to regular integrals, quad IREGI scalars with powers) |
+| `make_two_onium_gg_fixture.py` | the g g > chi_c0 chi_c0 unit-power fixture (quad IREGI on exact kinematics) |
 | `merge_swave.py` | concatenates onia_swave outputs over point ranges |
 | `crates/iregi-prepare/examples/onia_diagrams.rs` | FeynKit diagram generation (DOT files) |
 | `crates/iregi-prepare/examples/onia_swave.rs` | S-wave projection and numerator coefficients per point and polarization |

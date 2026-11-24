@@ -2459,8 +2459,12 @@ fn two_dotted_members_of_a_coulomb_triple_do_not_depend_on_their_labels() {
 /// so the geometry rejected the massive raised member, the lane restarted
 /// from the base plan, and it built the same profile again, forever. Each
 /// set now raises its own member again when no member is common to all,
-/// and a lane restarts at most once. The lane returns (refused, as on
-/// d17085a, where sets without a common member were refused).
+/// and a lane restarts at most once. The lane returns: refused from d17085a
+/// (sets without a common member) to 196bdcc (its points span three
+/// dimensions, so it has no six-point coordinate system), and served since
+/// its flat hexagon takes the identity of its relations (call 72 of
+/// `heavy_dependent_lines_and_flat_hexagons_of_two_onia_match_quad_iregi`
+/// checks its value).
 #[test]
 fn linearly_dependent_sets_without_a_common_member_return() {
     use iregi_rust::{InvariantInput, ScaleInput};
@@ -2491,7 +2495,7 @@ fn linearly_dependent_sets_without_a_common_member_return() {
     settings.invariants = InvariantInput::SuppliedInvariants;
     settings.scale_input = ScaleInput::MuSquared;
     let (status, _) = direct_lanes_with(settings, &lane);
-    assert!(matches!(status, LaneStatus::Unstable(_)), "{status:?}");
+    assert_eq!(status, LaneStatus::Success);
 }
 
 /// The pole slots of the two-dotted lanes' tensors (onia-two-dotted.json),
@@ -2798,4 +2802,130 @@ fn two_doubled_lines_of_a_scaleless_bubble_satisfy_exact_identities() {
     }
     eprintln!("identities and reversal: {measured:?}");
     assert_eq!(relations, (6 + 4) + (10 + 5) + 2 * (1 + 2));
+}
+
+/// Unit-power integrals of g g > chi_c0 chi_c0 at sqrt(s) = 20 GeV, rank 4
+/// (benchmarks/onia/make_two_onium_gg_fixture.py; MadLoop's binary64 inputs
+/// of calls d5442e6 refused). With p_Q = p_Qbar for both onia in a 2 -> 2
+/// process:
+/// - four heavy lines of equal mass, offsets 0, p1, (p1 -+ p2)/2 (boxes of a
+///   closed c, b or t loop, and pentagons and hexagons holding them), have
+///   D_0 + D_1 = D_2 + D_3: linearly dependent without a massless member.
+///   Their partial fraction raises a heavy line;
+/// - every hexagon's external points span three dimensions: no six-point
+///   coordinate system exists, and the hexagon takes the identity of its
+///   relation instead (a constant one, or a partial fraction where all are
+///   linearly dependent).
+/// The reference is quad original IREGI's array on the exact kinematics
+/// (every shift a combination of p1, p2 and one constituent p_c, with
+/// rational coefficients), which this test rebuilds at 256 bits: there the
+/// direct engine agrees to quad IREGI's own accuracy (2e-16 measured; the
+/// tolerance is that of the quad comparisons above). MadLoop's binary64
+/// inputs agree with the exact kinematics to 5e-15, which moves some
+/// hexagons by up to 8e-9: binary64 is held to that against the reference,
+/// and to 1e-10 against 256 bits on the same inputs.
+#[test]
+fn heavy_dependent_lines_and_flat_hexagons_of_two_onia_match_quad_iregi() {
+    use iregi_rust::{InvariantInput, ScaleInput};
+    use symbolica::domains::float::Real;
+    const BITS: u32 = 256;
+    // The kinematics are built at twice the working precision and rounded
+    // once, so that the inputs agree with one another to their rounding.
+    const BUILD: u32 = 2 * BITS;
+    let fixture: Value = serde_json::from_str(include_str!("fixtures/onia-two-onium-gg.json")).unwrap();
+    let parse = |v: &Value| v.as_str().unwrap().parse::<f64>().unwrap();
+    let wide = |x: f64| Float::with_val(BUILD, x);
+    let round = |x: &Float| {
+        let mut y = x.clone();
+        y.set_prec(BITS);
+        y
+    };
+    let zero = wide(0.0);
+    // p1, p2 and p_c.
+    let basis = &fixture["basis"];
+    let energy = wide(parse(&basis["energy"]));
+    let m2 = wide(parse(&basis["constituent_mass_squared"]));
+    let direction: Vec<Float> = basis["direction"].as_array().unwrap().iter().map(|x| wide(parse(x))).collect();
+    let norm = direction.iter().fold(zero.clone(), |sum, x| sum + &(x.clone() * x)).sqrt();
+    let momentum = (energy.clone() * &energy - &(m2.clone() * &wide(4.0))).sqrt();
+    let half = |x: Float| x / &wide(2.0);
+    let mut p_c = vec![half(energy.clone())];
+    p_c.extend(direction.iter().map(|x| half(momentum.clone()) * x / &norm));
+    let momenta = [
+        vec![energy.clone(), zero.clone(), zero.clone(), energy.clone()],
+        vec![energy.clone(), zero.clone(), zero.clone(), -energy.clone()],
+        p_c,
+    ];
+    let square = |p: &[Float]| p[0].clone() * &p[0] - &(p[1].clone() * &p[1]) - &(p[2].clone() * &p[2]) - &(p[3].clone() * &p[3]);
+    let mut worst = [0.0f64; 3];
+    for case in fixture["cases"].as_array().unwrap() {
+        let label = case["label"].as_str().unwrap();
+        let rank = case["rank"].as_u64().unwrap() as u16;
+        let masses: Vec<f64> = case["masses_squared"].as_array().unwrap().iter().map(parse).collect();
+        let n = masses.len();
+        let shifts: Vec<[f64; 4]> = case["shifts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|q| std::array::from_fn(|a| parse(&q[a])))
+            .collect();
+        let invariants: Vec<f64> = case["invariants"].as_array().unwrap().iter().map(parse).collect();
+        let mu2 = parse(&case["mu_squared"]);
+        let reference: Vec<Complex<f64>> = case["reference"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|monomial| monomial.as_array().unwrap().iter().map(|z| Complex::new(parse(&z[0]), parse(&z[1]))))
+            .collect();
+        let mut settings = ReductionSettings::new(n, rank);
+        settings.invariants = InvariantInput::SuppliedInvariants;
+        settings.scale_input = ScaleInput::MuSquared;
+        // MadLoop's binary64 inputs: binary64, and 256 bits on the same inputs.
+        let lane = supplied_lane(&shifts, &invariants, &masses, mu2);
+        let (status, binary64) = direct_lanes_with(settings.clone(), &lane);
+        assert_eq!(status, LaneStatus::Success, "{label}: binary64");
+        let (status, rounded) = direct_with_inputs(BITS, settings.clone(), &lane, Some(53));
+        assert_eq!(status, LaneStatus::Success, "{label}: 256 bits, binary64 inputs");
+        let own = relative_difference(&binary64, &to_f64(&rounded));
+        let input = relative_difference(&binary64, &reference);
+        assert!(own <= 1e-10, "{label}: binary64 {own:e} from 256 bits on its inputs");
+        assert!(input <= 1e-8, "{label}: binary64 {input:e} from quad IREGI on the exact kinematics");
+        // The exact kinematics at 256 bits.
+        let exact: Vec<Vec<Float>> = case["coefficients"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| {
+                (0..4)
+                    .map(|a| {
+                        (0..3).fold(zero.clone(), |sum, k| {
+                            sum + &(momenta[k][a].clone() * &wide(c[k].as_i64().unwrap() as f64))
+                        }) / &wide(4.0)
+                    })
+                    .collect()
+            })
+            .collect();
+        let narrow = |x: &Float| Complex::new(round(x), round(&zero));
+        let mut values: Vec<Complex<Float>> = exact.iter().flatten().map(narrow).collect();
+        for i in 0..n {
+            for j in i + 1..n {
+                let delta: Vec<Float> = (0..4).map(|a| exact[i][a].clone() - &exact[j][a]).collect();
+                values.push(narrow(&square(&delta)));
+            }
+        }
+        values.extend(masses.iter().map(|&m| narrow(&wide(m))));
+        values.push(narrow(&wide(mu2)));
+        let mut workspace = DirectReductionPlan::new(settings).unwrap().workspace(Float::new(BITS)).unwrap();
+        workspace.set_stability_threshold(Float::with_val(BITS, 2f64.powi(-(BITS as i32 - 40))));
+        let result = workspace.reduce_batch(&KinematicsBatch { rows: 1, components: 1, values }).unwrap();
+        assert_eq!(result.statuses[0], LaneStatus::Success, "{label}: 256 bits, exact kinematics");
+        let reference_wide: Vec<Complex<Float>> =
+            reference.iter().map(|z| Complex::new(Float::with_val(BITS, z.re), Float::with_val(BITS, z.im))).collect();
+        let ea = relative_difference_float(result.lane(0).unwrap(), &reference_wide);
+        assert!(ea <= 1e-15, "{label}: 256 bits {ea:e} from quad IREGI on the exact kinematics");
+        for (slot, value) in worst.iter_mut().zip([ea, own, input]) {
+            *slot = slot.max(value);
+        }
+    }
+    eprintln!("256 bits exact against quad IREGI, binary64 against 256 bits, binary64 against quad IREGI: {worst:?}");
 }
