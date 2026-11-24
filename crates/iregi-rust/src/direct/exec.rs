@@ -50,6 +50,8 @@ const NO_SLOT: u32 = u32::MAX;
 /// inputs (by default the working precision): 2^-40 for binary64 inputs, also
 /// when they are evaluated at a higher precision (rescue tiers).
 const LIGHTLIKE_MARGIN_BITS: i64 = 13;
+/// `rounding` is 8 units of 2^-p: `tolerance_at(p, ROUNDING_MARGIN_BITS)`.
+const ROUNDING_MARGIN_BITS: i64 = 3;
 
 /// Stage timings of the most recent profiled call.
 #[derive(Clone, Copy, Debug, Default)]
@@ -236,6 +238,14 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     input_bits: u32,
     /// `2^-(input_bits - LIGHTLIKE_MARGIN_BITS)` (computed once).
     lightlike_tolerance: T,
+    /// `8 * 2^-min(input_bits, p)`: the rounding the inputs carry, within
+    /// which degenerate kinematics are decided exactly (linearly dependent
+    /// propagators, equal masses, on-shell bubbles). It is `rounding` unless
+    /// the inputs are less precise than the working precision, as binary64
+    /// inputs in a rescue tier or binary128 ones at 256 bits are: those
+    /// carry relations such as p_Q = p_Qbar, p^2 = m^2 only to their own
+    /// rounding, and a test at the working precision's would refuse them.
+    input_rounding: T,
     /// Width of each propagator's field in the packed IBP keys.
     ibp_bits: u32,
     shifts: Vec<[C<T>; 4]>,
@@ -438,6 +448,7 @@ where
             lane_scale: zero.clone(),
             input_bits: prototype.get_precision(),
             lightlike_tolerance: tolerance_at(&prototype, prototype.get_precision(), LIGHTLIKE_MARGIN_BITS),
+            input_rounding: tolerance_at(&prototype, prototype.get_precision(), ROUNDING_MARGIN_BITS),
             ibp_bits: ibp_field_bits(plan.settings.propagators),
             shifts: vec![[zero.clone(), zero.clone(), zero.clone(), zero.clone()]; plan.settings.propagators],
             masses: vec![zero.clone(); plan.settings.propagators],
@@ -626,6 +637,8 @@ where
     pub fn set_input_precision(&mut self, bits: u32) {
         self.input_bits = bits;
         self.lightlike_tolerance = tolerance_at(&self.prototype, bits, LIGHTLIKE_MARGIN_BITS);
+        let bits = bits.min(self.prototype.get_precision());
+        self.input_rounding = tolerance_at(&self.prototype, bits, ROUNDING_MARGIN_BITS);
     }
 
     pub fn last_conditions(&self) -> &[Option<f64>] {
@@ -1423,23 +1436,47 @@ where
         for value in &v {
             sum = cadd(&sum, value);
         }
-        // Linear dependence (below) must hold to the working precision's
-        // rounding of the inputs, `self.rounding` (8 units of 2^-p) relative
-        // to the size of what each test reads: here, component by component,
-        // sum_i |c_i| |q_ia| with the origin's weight c_0 = -sum_j v_j.
+        // Linear dependence (below) must hold to the inputs' rounding,
+        // `self.input_rounding` (8 units of 2^-p for inputs at the working
+        // precision p) relative to the size of what each test reads: here,
+        // component by component, sum_i |c_i| |q_ia| with the origin's
+        // weight c_0 = -sum_j v_j. A component within that rounding of the
+        // members' largest one may also be zero, as a lightlike invariant
+        // within its inputs' rounding is: shifts are sums of momenta, so a
+        // component that cancels to nearly zero carries the momenta's
+        // rounding, not its own (an origin of 5e-35 in the z component of
+        // binary128 shifts of 1.5-sized momenta, where the other members'
+        // shifts are 1e-8). The relation holds if it does with such
+        // components as given or with them zero; without them the two
+        // residuals are the same.
+        let largest = members
+            .iter()
+            .flat_map(|&member| self.shifts[member].iter())
+            .map(cnorm2)
+            .fold(self.prototype.zero(), |a, b| if b > a { b } else { a })
+            .sqrt();
+        let floor = largest * &self.input_rounding;
+        let component = |member: usize, a: usize| {
+            let value = &self.shifts[member][a];
+            if cnorm2(value).sqrt() <= floor { self.zero.clone() } else { value.clone() }
+        };
         let mut dependent = true;
         for a in 0..4 {
             let mut residual = self.zero.clone();
+            let mut rounded = self.zero.clone();
+            let origin_component = component(origin, a);
             let mut size = cnorm2(&sum).sqrt() * &cnorm2(&self.shifts[origin][a]).sqrt();
             for j in 0..n {
                 cfma(&mut residual, &v[j], &original[a * n + j]);
+                cfma(&mut rounded, &v[j], &csub(&component(members[j + 1], a), &origin_component));
                 size += cnorm2(&v[j]).sqrt() * &cnorm2(&self.shifts[members[j + 1]][a]).sqrt();
             }
             let residual = cnorm2(&residual).sqrt();
             if residual > bound.clone() * &self.binary_tolerance(33) {
                 return Err(format!("no exact affine relation among {members:?}"));
             }
-            dependent &= residual <= size * &self.rounding;
+            let tolerance = size * &self.input_rounding;
+            dependent &= residual <= tolerance || cnorm2(&rounded).sqrt() <= tolerance;
         }
         let nprop = self.plan.settings.propagators;
         let mut constant = self.zero.clone();
@@ -1466,12 +1503,11 @@ where
             c.extend(v);
             // The propagators are linearly dependent (Coulomb exchange) only
             // when the shifts' relation and the constant vanish to the
-            // inputs' rounding at the working precision, and the on-shell
-            // bubbles their partial fraction reaches are decided at that
-            // rounding too. Otherwise they are nearly dependent: a nonzero
-            // relative velocity, whose value is not the v = 0 one, refused
-            // as without Coulomb support.
-            if dependent && magnitude <= constant_size * &self.rounding && self.bubbles_decided(members) {
+            // inputs' rounding, and the on-shell bubbles their partial
+            // fraction reaches are decided at that rounding too. Otherwise
+            // they are nearly dependent: a nonzero relative velocity, whose
+            // value is not the v = 0 one, refused as without Coulomb support.
+            if dependent && magnitude <= constant_size * &self.input_rounding && self.bubbles_decided(members) {
                 return Ok(AffineRelation::Homogeneous(c));
             }
             return Ok(AffineRelation::NearlyHomogeneous(c));
@@ -1511,7 +1547,7 @@ where
             AffineRelation::Homogeneous(_) => true,
             AffineRelation::NearlyHomogeneous(_) => {
                 return Err(format!(
-                    "propagators {support_members:?} are linearly dependent only beyond the working precision's rounding"
+                    "propagators {support_members:?} are linearly dependent only beyond the inputs' rounding"
                 ))
             }
         };
@@ -1597,9 +1633,9 @@ where
     }
 
     /// Whether every bubble {g, h} of a massless member g and a massive
-    /// member h of `members` is either on shell to the working precision's
-    /// rounding (`singular_ibp_base`'s test: |d(g, h) - m_h^2| within
-    /// `self.rounding` of m_h^2 plus the size of d(g, h)'s inputs) or off
+    /// member h of `members` is either on shell to the inputs' rounding
+    /// (`singular_ibp_base`'s test: |d(g, h) - m_h^2| within
+    /// `self.input_rounding` of m_h^2 plus the size of d(g, h)'s inputs) or off
     /// shell by more than 2^-33 of that. The partial fraction of linearly
     /// dependent propagators doubles g and reaches these bubbles; one only
     /// nearly on shell would get neither the closed form nor a
@@ -1613,7 +1649,7 @@ where
                 let mass = &self.masses[h];
                 let gap = cnorm2(&csub(&self.distances[g * n + h], mass)).sqrt();
                 let scale = cnorm2(mass).sqrt() + &self.invariant_size(g, h);
-                if gap > scale.clone() * &self.rounding && gap <= scale * &self.binary_tolerance(33) {
+                if gap > scale.clone() * &self.input_rounding && gap <= scale * &self.binary_tolerance(33) {
                     return false;
                 }
             }
@@ -2770,11 +2806,11 @@ where
                 // Cayley matrix is singular, and at p^2 = 0 it is the tadpole
                 // int 1/(l^2 - m^2)^3 = (1/2) d B0(0; m, m)/d m^2 = -1/(2 m^2)
                 // (finite; scaleless, hence zero, for m = 0).
-                // Equal masses to the working precision's rounding.
+                // Equal masses to the inputs' rounding.
                 let p2 = &self.distances[a * n + b];
                 let scale = cnorm2(&self.masses[a]).sqrt();
                 let equal = cnorm2(&csub(&self.masses[a], &self.masses[b])).sqrt()
-                    <= (scale.clone() + &cnorm2(&self.masses[b]).sqrt()) * &self.rounding;
+                    <= (scale.clone() + &cnorm2(&self.masses[b]).sqrt()) * &self.input_rounding;
                 equal && cnorm2(p2).sqrt() <= scale * &self.lightlike_tolerance
             } =>
             {
@@ -2794,10 +2830,9 @@ where
                 if !m2.im.is_zero() || !(m2.re > m2.re.zero()) {
                     return None;
                 }
-                // On shell to the working precision's rounding of the inputs
-                // (p^2's and m^2's).
+                // On shell to the inputs' rounding (p^2's and m^2's).
                 let gap = cnorm2(&csub(&self.distances[g * n + h], m2)).sqrt();
-                if gap > (m2.re.clone() + &self.invariant_size(g, h)) * &self.rounding {
+                if gap > (m2.re.clone() + &self.invariant_size(g, h)) * &self.input_rounding {
                     return None;
                 }
                 let mu2 = self.lane_mu2.as_ref()?;

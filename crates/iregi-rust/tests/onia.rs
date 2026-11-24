@@ -765,3 +765,109 @@ fn direct_lanes_with(settings: ReductionSettings, lane: &[Complex<f64>]) -> (Lan
     let result = workspace.reduce_batch(&batch).unwrap();
     (result.statuses[0].clone(), result.lane(0).map(<[_]>::to_vec).unwrap_or_default())
 }
+
+/// MadLoop's QP rescue of g g > eta_c(1S0[8]) at v = 0 (onia_loop): its
+/// 256-bit direct workspace evaluates exact binary128 inputs
+/// (`set_input_precision(113)`), which hold p_Q = p_Qbar and p_Q^2 = m^2
+/// only to binary128 rounding (here s_02 and 4 m^2 differ by 2^-112 of
+/// their size). The Coulomb triangle (heavy, gluon, heavy; shifts 0, p, 2p)
+/// and a box containing that triple must be decided linearly dependent at
+/// the inputs' rounding, as binary64 decides its own inputs, and agree with
+/// binary64 and with 512 bits. The triangle's origin also carries 5.5e-35
+/// of MadLoop's momentum non-conservation in its z component, where the
+/// other shifts are 1e-8 (zero to the inputs' rounding of the members'
+/// largest component, 3.1). Moving the third point by 1e-25 along an empty
+/// axis, which the inputs resolve, is still refused.
+#[test]
+fn binary128_inputs_keep_their_coulomb_relations_at_256_bits() {
+    use iregi_rust::{Convention, InvariantInput, ScaleInput, TensorWeights};
+    const P: &str = "1.550000000000000150417313013730877941058";
+    const TWO_P: &str = "3.100000000000000300834626027461755882116";
+    const M2: &str = "2.402500000000000301980662698042578995228";
+    const S02: &str = "9.610000000000001207922650792170314440167";
+    const MU2: &str = "9.610000000000000550670620214077651938730";
+    const ORIGIN_Z: &str = "5.456311585857560400126433672016202759864e-35";
+    const K: &str = "1.550000012818463695028389592261958698906";
+    let settings = |n: usize, rank: u16| {
+        let mut s = ReductionSettings::new(n, rank);
+        s.convention = Convention::MadLoop;
+        s.tensor_weights = TensorWeights::Components;
+        s.invariants = InvariantInput::SuppliedInvariants;
+        s.scale_input = ScaleInput::MuSquared;
+        s
+    };
+    // Shifts, the upper triangle of the supplied invariants s_ij (i < j)
+    // and the squared masses, as MadLoop's QP records write them.
+    let triangle = |third_x: &'static str| {
+        (
+            vec![
+                ["0", "0", "0", ORIGIN_Z],
+                ["-1.550000000000000150417313013730877941058", "0", "0", "-1.281846354461107657853108063427026083915e-8"],
+                ["-3.100000000000000300834626027461755882116", third_x, "0", "-2.563692708922215315706216126854052167830e-8"],
+            ],
+            vec![M2, S02, M2],
+            vec![M2, "0", M2],
+        )
+    };
+    let boxed = (
+        vec![
+            ["0", "0", "0", ORIGIN_Z],
+            [K, "0", "0", K],
+            [TWO_P, "0", "0", "2.563692708922215315706216132310363753687e-8"],
+            [P, "0", "0", "1.281846354461107657853108068883337669773e-8"],
+        ],
+        vec!["0", S02, M2, "0", "-2.402500000000000301980662698042578995228", M2],
+        vec![M2, M2, M2, "0"],
+    );
+    let values = |(shifts, invariants, masses): &(Vec<[&str; 4]>, Vec<&str>, Vec<&str>), bits: u32| {
+        let parse = |text: &str| {
+            let mut value = Float::parse(text, Some(113)).unwrap();
+            value.set_prec(bits);
+            Complex::new(value, Float::new(bits))
+        };
+        let mut lane: Vec<Complex<Float>> = shifts.iter().flat_map(|q| q.iter().map(|x| parse(x))).collect();
+        lane.extend(invariants.iter().map(|x| parse(x)));
+        lane.extend(masses.iter().map(|x| parse(x)));
+        lane.push(parse(MU2));
+        lane
+    };
+    let qp = |n: usize, rank: u16, lane: Vec<Complex<Float>>, bits: u32| {
+        let mut workspace = DirectReductionPlan::new(settings(n, rank)).unwrap().workspace(Float::new(bits)).unwrap();
+        workspace.set_input_precision(113);
+        // The bridge's QP gate: 2^-(bits - 120).
+        workspace.set_stability_threshold(Float::with_val(bits, 2f64.powi(-(bits as i32 - 120))));
+        let result = workspace.reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: lane }).unwrap();
+        (result.statuses[0].clone(), result.lane(0).map(<[_]>::to_vec).unwrap_or_default())
+    };
+    let triangle_lane = triangle("0");
+    for (name, n, rank, lane) in [("triangle", 3, 2u16, &triangle_lane), ("box", 4, 3, &boxed)] {
+        let (status, at_256) = qp(n, rank, values(lane, 256), 256);
+        assert_eq!(status, LaneStatus::Success, "{name}: binary128 inputs at 256 bits");
+        let (status, at_512) = qp(n, rank, values(lane, 512), 512);
+        assert_eq!(status, LaneStatus::Success, "{name}: binary128 inputs at 512 bits");
+        // Componentwise, relative to the largest |value| of each slot (squared).
+        let norm2 = |re: &Float, im: &Float| re.clone() * re + im.clone() * im;
+        let mut worst = 0.0f64;
+        for slot in 0..4 {
+            let scale = (slot..at_512.len())
+                .step_by(4)
+                .map(|k| norm2(&at_512[k].re, &at_512[k].im))
+                .fold(Float::new(512), |a, b| if b > a { b } else { a });
+            for k in (slot..at_512.len()).step_by(4) {
+                let difference = norm2(&(at_256[k].re.clone() - &at_512[k].re), &(at_256[k].im.clone() - &at_512[k].im));
+                worst = worst.max((difference / &scale).to_f64());
+            }
+        }
+        assert!(worst < 1e-140, "{name}: 256 bits {:e} off 512 bits", worst.sqrt());
+        // Binary64: the same inputs rounded, through the facade.
+        let rounded: Vec<Complex<f64>> = values(lane, 256).iter().map(|z| Complex::new(z.re.to_f64(), z.im.to_f64())).collect();
+        let (status, binary64) = facade_lane(settings(n, rank), &rounded);
+        assert_eq!(status, LaneStatus::Success, "{name}: binary64");
+        let ea = relative_difference(&binary64, &to_f64(&at_256));
+        assert!(ea <= 1e-14, "{name}: binary64 E/A {ea:e} against 256 bits");
+    }
+    // A third point moved by 1e-25 along x: a relative velocity the binary128
+    // inputs resolve, Coulomb singular rather than the v = 0 value.
+    let (status, _) = qp(3, 2, values(&triangle("1e-25"), 256), 256);
+    assert_ne!(status, LaneStatus::Success, "triangle moved by 1e-25: binary128 accepted the lane");
+}
