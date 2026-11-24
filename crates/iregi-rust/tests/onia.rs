@@ -871,3 +871,314 @@ fn binary128_inputs_keep_their_coulomb_relations_at_256_bits() {
     let (status, _) = qp(3, 2, values(&triangle("1e-25"), 256), 256);
     assert_ne!(status, LaneStatus::Success, "triangle moved by 1e-25: binary128 accepted the lane");
 }
+
+/// `{g^lambda p^k}` at the tensor component with these Lorentz indices: the
+/// sum over the partitions of the indices into `lambda` metric pairs
+/// (diag(1, -1, -1, -1)) and single momenta, each partition once.
+fn pv_structure(indices: &[usize], lambda: usize, p: &[f64; 4]) -> f64 {
+    let Some((&first, tail)) = indices.split_first() else {
+        return if lambda == 0 { 1.0 } else { 0.0 };
+    };
+    let mut sum = p[first] * pv_structure(tail, lambda, p);
+    if lambda > 0 {
+        for (i, &other) in tail.iter().enumerate() {
+            if other == first {
+                let mut rest = tail.to_vec();
+                rest.remove(i);
+                let metric = if first == 0 { 1.0 } else { -1.0 };
+                sum += metric * pv_structure(&rest, lambda - 1, p);
+            }
+        }
+    }
+    sum
+}
+
+/// P-wave phase 1: two-point integrals at p^2 = 0 with one line doubled
+/// (the lightlike bubbles of the dotted rank-(R+1) integrals), ranks 0 to 4,
+/// against their PV coefficients from the d-dimensional Feynman-parameter
+/// representation (benchmarks/onia/make_dotted_lightlike.py, mpmath; OneLOop
+/// normalization). Massless doubled lines (soft poles at every rank for
+/// line 1, below rank m for line 0), massive ones (with a massless, equal or
+/// unequal partner, both branches of the inverse-power moments) and
+/// scaleless pairs (cancelling poles at lambda = 1). Binary64 directly and
+/// through the facade, and 256 bits. Main refuses every case of rank 1 or
+/// more ("lightlike bubble unsupported for dotted propagators").
+#[test]
+fn dotted_lightlike_bubbles_match_their_d_dimensional_coefficients() {
+    use iregi_rust::Convention;
+    let fixture: Value = serde_json::from_str(include_str!("fixtures/onia-dotted-lightlike.json")).unwrap();
+    let rank = fixture["max_rank"].as_u64().unwrap() as u16;
+    let basis = iregi_rust::basis::tensor_basis(rank);
+    for case in fixture["cases"].as_array().unwrap() {
+        let label = case["label"].as_str().unwrap();
+        let shifts: Vec<[f64; 4]> = case["shifts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|q| std::array::from_fn(|a| q[a].as_f64().unwrap()))
+            .collect();
+        let masses: Vec<f64> = case["masses_squared"].as_array().unwrap().iter().map(|m| m.as_f64().unwrap()).collect();
+        let powers: Vec<u16> = case["powers"].as_array().unwrap().iter().map(|p| p.as_u64().unwrap() as u16).collect();
+        let mu = case["mu_squared"].as_f64().unwrap().sqrt();
+        let p = shifts[1];
+        let coefficient = |lambda: usize, k: usize, slot: usize| -> Float {
+            let text = case["coefficients"][format!("{lambda},{k}")][slot].as_str().unwrap();
+            Float::parse(text, Some(BITS)).unwrap()
+        };
+        // Expected components, slots [uv, ir1, ir2, finite], at 256 bits.
+        let mut expected = Vec::new();
+        for monomial in &basis {
+            let indices: Vec<usize> = (0..4).flat_map(|a| std::iter::repeat(a).take(usize::from(monomial.0[a]))).collect();
+            let r = indices.len();
+            for slot in 0..4 {
+                let mut value = Float::new(BITS);
+                for lambda in 0..=r / 2 {
+                    let weight = pv_structure(&indices, lambda, &p);
+                    if weight != 0.0 {
+                        value += &(coefficient(lambda, r - 2 * lambda, slot) * &Float::with_val(BITS, weight));
+                    }
+                }
+                expected.push(Complex::new(value, Float::new(BITS)));
+            }
+        }
+        let mut settings = ReductionSettings::new(2, rank);
+        settings.convention = Convention::OneLoop;
+        settings.powers = powers;
+        let lane = coulomb_lane(&shifts, &masses, mu);
+        let reference = to_f64(&expected);
+        for (what, (status, values)) in
+            [("direct", direct_lanes_with(settings.clone(), &lane)), ("facade", facade_lane(settings.clone(), &lane))]
+        {
+            assert_eq!(status, LaneStatus::Success, "{label}, {what}");
+            let ea = relative_difference(&values, &reference);
+            assert!(ea <= 1e-13, "{label}, {what}: E/A {ea:e} against the d-dimensional coefficients");
+        }
+        let (status, values) = direct256_float(settings, &lane);
+        assert_eq!(status, LaneStatus::Success, "{label}, 256 bits");
+        let (mut error, mut amplitude) = (0.0f64, 0.0f64);
+        for (z, r) in values.iter().zip(&expected) {
+            let (dr, di) = ((z.re.clone() - &r.re).to_f64(), (z.im.clone() - &r.im).to_f64());
+            error = error.max(dr.hypot(di));
+            amplitude = amplitude.max(r.re.to_f64().hypot(r.im.to_f64()));
+        }
+        assert!(error / amplitude <= 1e-30, "{label}, 256 bits: E/A {:e}", error / amplitude);
+    }
+}
+
+/// P-wave phase 1: triangles and boxes whose lightlike bubbles contain the
+/// doubled (massive) line, at ranks that reach those bubbles' tensor
+/// coefficients, against the mass derivative of the undotted integral (IR
+/// finite and smooth in that mass). Main refuses them all.
+#[test]
+fn dotted_lines_in_lightlike_pairs_match_the_mass_derivative() {
+    let mu = 3.0;
+    let (k, q2, q3) = ([3.0, 0.0, 0.0, 3.0], [3.0, 1.0, -1.0, 2.0], [-2.0, 0.5, 1.0, -1.0]);
+    let cases: [(&str, Vec<[f64; 4]>, Vec<f64>, usize, std::ops::RangeInclusive<u16>); 6] = [
+        ("triangle, equal-mass pair, line 0 doubled", vec![[0.0; 4], k, q2], vec![4.0, 4.0, 5.0], 0, 2..=4),
+        ("triangle, equal-mass pair, line 1 doubled", vec![[0.0; 4], k, q2], vec![4.0, 4.0, 5.0], 1, 2..=4),
+        ("triangle, unequal pair, line 1 doubled", vec![[0.0; 4], k, q2], vec![4.0, 9.0, 5.0], 1, 2..=3),
+        ("triangle, near-equal pair, line 0 doubled", vec![[0.0; 4], k, q2], vec![4.0, 5.0, 2.0], 0, 2..=3),
+        ("triangle, massless partner, line 0 doubled", vec![[0.0; 4], k, q2], vec![4.0, 0.0, 5.0], 0, 2..=3),
+        ("box, equal-mass pair, line 0 doubled", vec![[0.0; 4], k, q2, q3], vec![4.0, 4.0, 5.0, 2.0], 0, 3..=4),
+    ];
+    for (label, shifts, masses, line, ranks) in cases {
+        let n = shifts.len();
+        let lane = coulomb_lane(&shifts, &masses, mu);
+        for rank in ranks {
+            let mut settings = ReductionSettings::new(n, rank);
+            settings.powers[line] = 2;
+            let reference = mass_derivative(&shifts, &masses, mu, rank, line);
+            let direct = direct_lanes_with(settings.clone(), &lane);
+            for (what, (status, values)) in [("direct", direct), ("facade", facade_lane(settings, &lane))] {
+                assert_eq!(status, LaneStatus::Success, "{label}, rank {rank}, {what}");
+                let ea = relative_difference(&values, &reference);
+                assert!(ea <= 1e-8, "{label}, rank {rank}, {what}: E/A {ea:e} against d/dm^2");
+            }
+        }
+    }
+}
+
+/// P-wave phase 1: IR-divergent triangles with a doubled line, which the
+/// soft-line recursion reduces (a massless line k with every other line on
+/// shell against it empties row k of the Cayley matrix; main refuses them
+/// with "singular Cayley matrix"). The other rows of the IBP identity of
+/// (l + r_k) at unit powers,
+///   (D - 4) J(1,1,1) - sum_(i != k) J(1 + e_i - e_k) + sum_i R_ki J(1 + e_i) = 0,
+/// tie the three singly dotted scalars to the undotted triangle and the
+/// doubled pinches, and the recursion uses none of them. Binary64 and 256
+/// bits: a soft triangle with one massive line (on-shell leg) and the
+/// massless triangle with two lightlike legs.
+#[test]
+fn soft_lines_reduce_dotted_ir_divergent_triangles() {
+    use iregi_rust::Convention;
+    let mu = 3.0;
+    let k = [3.0, 0.0, 0.0, 3.0];
+    let cases: [(&str, Vec<[f64; 4]>, Vec<f64>, usize); 2] = [
+        ("soft triangle, on-shell massive leg", vec![[0.0; 4], k, [5.0, 0.0, 0.0, 3.0]], vec![0.0, 0.0, 4.0], 1),
+        ("massless triangle, two lightlike legs", vec![[0.0; 4], k, [6.0, 0.0, 0.0, 0.0]], vec![0.0, 0.0, 0.0], 1),
+    ];
+    let minkowski = |a: &[f64; 4], b: &[f64; 4]| {
+        let d: [f64; 4] = std::array::from_fn(|i| a[i] - b[i]);
+        d[0] * d[0] - d[1] * d[1] - d[2] * d[2] - d[3] * d[3]
+    };
+    let big = |x: f64| Complex::new(Float::with_val(BITS, x), Float::new(BITS));
+    for (label, shifts, masses, soft) in cases {
+        // Scalars of the lines given with the powers given, at 256 bits and
+        // in binary64 (both carried at 256 bits for the rows).
+        let scalar = |lines: &[usize], powers: Vec<u16>| -> [Vec<Complex<Float>>; 2] {
+            let mut settings = ReductionSettings::new(lines.len(), 0);
+            settings.convention = Convention::OneLoop;
+            settings.powers = powers;
+            let sub: Vec<[f64; 4]> = lines.iter().map(|&l| shifts[l]).collect();
+            let m: Vec<f64> = lines.iter().map(|&l| masses[l]).collect();
+            let lane = coulomb_lane(&sub, &m, mu);
+            let (status, binary64) = direct_lanes_with(settings.clone(), &lane);
+            assert_eq!(status, LaneStatus::Success, "{label}: lines {lines:?}, binary64");
+            let (status, wide) = direct256_float(settings, &lane);
+            assert_eq!(status, LaneStatus::Success, "{label}: lines {lines:?}, 256 bits");
+            [binary64.iter().map(|z| Complex::new(Float::with_val(BITS, z.re), Float::with_val(BITS, z.im))).collect(), wide]
+        };
+        let all = [0, 1, 2];
+        let base = scalar(&all, vec![1, 1, 1]);
+        let dotted: Vec<_> = (0..3).map(|i| scalar(&all, (0..3).map(|l| if l == i { 2 } else { 1 }).collect())).collect();
+        for (precision, tolerance) in [(0, 1e-12), (1, 1e-60)] {
+            for (i, value) in dotted.iter().enumerate() {
+                let ir = value[precision][1].re.to_f64().hypot(value[precision][1].im.to_f64())
+                    + value[precision][2].re.to_f64().hypot(value[precision][2].im.to_f64());
+                assert!(ir > 0.0, "{label}: D{i} doubled has no soft pole");
+            }
+            for row in (0..3).filter(|&r| r != soft) {
+                // (D - 4) J(1,1,1) = -2 eps J(1,1,1): [uv, ir1, ir2, finite] times -2 eps.
+                let j = &base[precision];
+                let mut residual = [
+                    big(0.0),
+                    j[2].clone() * &big(-2.0),
+                    big(0.0),
+                    (j[0].clone() + &j[1]) * &big(-2.0),
+                ];
+                let mut size = 0.0f64;
+                for i in (0..3).filter(|&i| i != row) {
+                    let lines: Vec<usize> = (0..3).filter(|&l| l != row).collect();
+                    let pinch = scalar(&lines, lines.iter().map(|&l| if l == i { 2 } else { 1 }).collect());
+                    for slot in 0..4 {
+                        residual[slot] = residual[slot].clone() - &pinch[precision][slot];
+                        size = size.max(pinch[precision][slot].re.to_f64().hypot(pinch[precision][slot].im.to_f64()));
+                    }
+                }
+                for i in 0..3 {
+                    let r = minkowski(&shifts[row], &shifts[i]) - masses[row] - masses[i];
+                    for slot in 0..4 {
+                        let term = dotted[i][precision][slot].clone() * &big(r);
+                        size = size.max(term.re.to_f64().hypot(term.im.to_f64()));
+                        residual[slot] = residual[slot].clone() + &term;
+                    }
+                }
+                let worst = residual.iter().map(|z| z.re.to_f64().hypot(z.im.to_f64())).fold(0.0, f64::max) / size;
+                assert!(worst <= tolerance, "{label}: IBP row {row}, {}: residual {worst:e}", ["binary64", "256 bits"][precision]);
+            }
+        }
+    }
+}
+
+/// Two-onium pentagons of onia_loop's e+ e- > J/psi eta_c trace at v = 0
+/// (binary64, MadLoop's supplied invariants): each has two Coulomb triples
+/// sharing a heavy line, whose partial fractions double a gluon on shell
+/// against both heavy lines. That soft line empties its row of the
+/// triangle's Cayley matrix; main refuses the lanes ("singular Cayley
+/// matrix"), the soft-line recursion serves them. Reference: original
+/// IREGI's quad IBP arrays, which it reports stable
+/// (benchmarks/onia/make_two_onium_fixture.py).
+#[test]
+fn two_onium_pentagons_with_soft_coulomb_triangles_match_quad_iregi() {
+    use iregi_rust::{InvariantInput, ScaleInput};
+    let fixture: Value = serde_json::from_str(include_str!("fixtures/onia-two-onium-pentagons.json")).unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let label = case["label"].as_str().unwrap();
+        let parse = |v: &Value| v.as_str().unwrap().parse::<f64>().unwrap();
+        let shifts: Vec<f64> =
+            case["shifts"].as_array().unwrap().iter().flat_map(|q| q.as_array().unwrap().iter().map(parse)).collect();
+        let invariants: Vec<f64> = case["invariants"].as_array().unwrap().iter().map(parse).collect();
+        let masses: Vec<f64> = case["masses_squared"].as_array().unwrap().iter().map(parse).collect();
+        let n = masses.len();
+        let rank = case["rank"].as_u64().unwrap() as u16;
+        let mut lane: Vec<Complex<f64>> = shifts.iter().map(|&x| Complex::new(x, 0.0)).collect();
+        // The packed strict upper triangle of the (column-major) invariants.
+        for i in 0..n {
+            for j in i + 1..n {
+                lane.push(Complex::new(invariants[i + n * j], 0.0));
+            }
+        }
+        lane.extend(masses.iter().map(|&m| Complex::new(m, 0.0)));
+        lane.push(Complex::new(parse(&case["mu_squared"]), 0.0));
+        let reference: Vec<Complex<f64>> = case["reference"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|monomial| monomial.as_array().unwrap().iter().map(|z| Complex::new(parse(&z[0]), parse(&z[1]))))
+            .collect();
+        let mut settings = ReductionSettings::new(n, rank);
+        settings.invariants = InvariantInput::SuppliedInvariants;
+        settings.scale_input = ScaleInput::MuSquared;
+        for (what, (status, values)) in
+            [("direct", direct_lanes_with(settings.clone(), &lane)), ("facade", facade_lane(settings.clone(), &lane))]
+        {
+            assert_eq!(status, LaneStatus::Success, "{label}, {what}");
+            let ea = relative_difference(&values, &reference);
+            assert!(ea <= 1e-12, "{label}, {what}: E/A {ea:e} against quad IREGI");
+        }
+    }
+}
+
+/// Collinear pairs (two massless lines whose invariant vanishes): a triangle
+/// with one has a singular Cayley matrix that no soft line empties, and its
+/// null vector's IBP identity reduces it (main refuses it, "singular Cayley
+/// matrix"). A generic triangle and box sharing the pair, either pair member
+/// doubled, and a pentagon with its massive line doubled, against original
+/// IREGI's quad scalars with powers (benchmarks/onia/make_collinear_fixture.py).
+/// The pentagon with a pair member doubled is refused: its Cayley reduction
+/// drops a (D + 2)-dimensional term whose mass derivative keeps a collinear
+/// pole (1e-4 of the integral here).
+#[test]
+fn collinear_pairs_reduce_dotted_triangles_and_refuse_unreduced_pentagons() {
+    let fixture: Value = serde_json::from_str(include_str!("fixtures/onia-collinear.json")).unwrap();
+    let shifts: Vec<[f64; 4]> = fixture["shifts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|q| std::array::from_fn(|a| q[a].as_f64().unwrap()))
+        .collect();
+    let masses: Vec<f64> = fixture["masses_squared"].as_array().unwrap().iter().map(|m| m.as_f64().unwrap()).collect();
+    let mu = fixture["mu"].as_f64().unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let (n, dotted) = (case["n"].as_u64().unwrap() as usize, case["dotted"].as_u64().unwrap() as usize);
+        let reference: Vec<Complex<f64>> = case["reference"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|z| Complex::new(z[0].as_str().unwrap().parse().unwrap(), z[1].as_str().unwrap().parse().unwrap()))
+            .collect();
+        let mut settings = ReductionSettings::new(n, 0);
+        settings.powers[dotted] = 2;
+        let lane = coulomb_lane(&shifts[..n], &masses[..n], mu);
+        for (what, (status, values)) in
+            [("direct", direct_lanes_with(settings.clone(), &lane)), ("facade", facade_lane(settings.clone(), &lane))]
+        {
+            assert_eq!(status, LaneStatus::Success, "n={n}, D{dotted} doubled, {what}");
+            let ea = relative_difference(&values, &reference);
+            assert!(ea <= 1e-13, "n={n}, D{dotted} doubled, {what}: E/A {ea:e} against quad IREGI");
+        }
+        let (status, values) = direct256(settings, &lane);
+        assert_eq!(status, LaneStatus::Success, "n={n}, D{dotted} doubled, 256 bits");
+        let ea = relative_difference(&values, &reference);
+        assert!(ea <= 1e-15, "n={n}, D{dotted} doubled, 256 bits: E/A {ea:e} against quad IREGI");
+    }
+    for dotted in [0, 1] {
+        let mut settings = ReductionSettings::new(5, 0);
+        settings.powers[dotted] = 2;
+        let (status, _) = direct_lanes_with(settings, &coulomb_lane(&shifts, &masses, mu));
+        assert!(
+            matches!(&status, LaneStatus::Unstable(e) if e.contains("collinear pair of pentagon")),
+            "pentagon, D{dotted} doubled: {status:?}"
+        );
+    }
+}
