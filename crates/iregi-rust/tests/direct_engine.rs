@@ -7,7 +7,7 @@
 use std::path::Path;
 
 use iregi_rust::{
-    DirectReductionPlan, KinematicsBatch, LaneStatus, ReductionSettings, TensorReductionPlan,
+    DirectReductionPlan, InvariantInput, KinematicsBatch, LaneStatus, ReductionSettings, TensorReductionPlan,
     TensorWorkspace,
 };
 use serde_json::Value;
@@ -382,9 +382,20 @@ fn slot_error<T: Clone + Into<Mp>>(values: &[Complex<T>], reference: &[Complex<M
 /// and at 256 bits, each through the direct workspace, and in binary64 through
 /// the facade.
 fn rank0_lanes(shifts: &[[f64; 4]], masses: &[f64]) -> [(LaneStatus, Vec<Complex<Mp>>); 4] {
+    rank0_lanes_with(shifts, None, masses)
+}
+
+/// [`rank0_lanes`], with the invariants `s_ij` (`i < j`, row-major) supplied
+/// instead of derived from the shifts where `invariants` is given.
+fn rank0_lanes_with(shifts: &[[f64; 4]], invariants: Option<&[f64]>, masses: &[f64]) -> [(LaneStatus, Vec<Complex<Mp>>); 4] {
     use symbolica::domains::float::{DoubleFloat, RealLike};
-    let settings = ReductionSettings::new(shifts.len(), 0);
-    let row = row(shifts, &masses.iter().map(|&m| (m, 0.0)).collect::<Vec<_>>(), 3.0);
+    let mut settings = ReductionSettings::new(shifts.len(), 0);
+    let mut row = row(shifts, &masses.iter().map(|&m| (m, 0.0)).collect::<Vec<_>>(), 3.0);
+    if let Some(invariants) = invariants {
+        settings.invariants = InvariantInput::SuppliedInvariants;
+        let at = 4 * shifts.len();
+        row.splice(at..at, invariants.iter().map(|&s| Complex::new(s, 0.0)));
+    }
     let up = |z: &Complex<f64>| Complex::new(Mp::with_val(256, z.re), Mp::with_val(256, z.im));
     let plan = DirectReductionPlan::new(settings.clone()).unwrap();
     let take = |status: &LaneStatus, lane: Option<Vec<Complex<Mp>>>| (status.clone(), lane.unwrap_or_default());
@@ -503,6 +514,88 @@ fn scalar_boxes_with_three_points_on_a_line_take_their_identities() {
             assert_eq!(status, LaneStatus::Success, "{masses:?}, {label}");
             let error = slot_error(&values, &reference);
             assert!(error <= tolerance, "{masses:?}, {label}: E/A {error:e}");
+        }
+    }
+}
+
+/// Issue #60: the C0 master sees only the invariants, which can sit at issue
+/// #36's point (Källén function and Cayley determinant zero) while the shifts
+/// are not dependent: supplied invariants (taken as given, as MadLoop's
+/// snapped ones), or derived ones that round onto it. oneloopmaster's binary64
+/// and double-double C0 returned 6e15 and 1.6e32 there as `Success`, and near
+/// it lose their accuracy. Such lanes are now refused below MPFR, whose C0
+/// reduces a vanishing Källén function exactly, and the facade serves them
+/// from there. Triangles with a lightlike leg, soft ones and resolved ones
+/// keep their fixed-precision master.
+#[test]
+fn scalar_triangles_at_degenerate_invariants_are_left_to_mpfr() {
+    let line = [on_a_line(0.0), on_a_line(1.0), on_a_line(2.0)];
+    // The middle shift moved at right angles to the line (k = (5, 0, 0, 4)).
+    let moved = |eps: f64| {
+        let mut shifts = line;
+        shifts[1][1] += eps;
+        shifts
+    };
+    let refused = |status: &LaneStatus, case: &str| {
+        assert!(matches!(status, LaneStatus::Unstable(_)), "{case}: {status:?}");
+    };
+    for masses in [[0.0, 1.0, 20.0], [1.0, 2.0, 21.0]] {
+        // The partial fraction at the point (as for issue #36).
+        let upper = doubled_256(&line[1..], &masses[1..], 0);
+        let lower = doubled_256(&line[..2], &masses[..2], 1);
+        let half = Mp::with_val(256, 0.5);
+        let reference: Vec<Complex<Mp>> = upper
+            .iter()
+            .zip(&lower)
+            .map(|(a, b)| Complex::new((a.re.clone() + b.re.clone()) * half.clone(), (a.im.clone() + b.im.clone()) * half.clone()))
+            .collect();
+        // Supplied (s01, s02, s12) = (9, 36, 9) with the shifts 1e-3 off the line.
+        let [binary64, dd, mp, facade] = rank0_lanes_with(&moved(1e-3), Some(&[9.0, 36.0, 9.0]), &masses);
+        refused(&binary64.0, &format!("{masses:?}, supplied, binary64"));
+        refused(&dd.0, &format!("{masses:?}, supplied, double-double"));
+        for (label, (status, values), tolerance) in [("256 bits", mp, 1e-45), ("facade", facade, 1e-14)] {
+            assert_eq!(status, LaneStatus::Success, "{masses:?}, supplied, {label}");
+            let error = slot_error(&values, &reference);
+            assert!(error <= tolerance, "{masses:?}, supplied, {label}: E/A {error:e}");
+        }
+        // Derived from shifts 1e-9 off the line: binary64 rounds the
+        // invariants onto the point (9 - 1e-18 to 9).
+        let [binary64, _, _, facade] = rank0_lanes(&moved(1e-9), &masses);
+        refused(&binary64.0, &format!("{masses:?}, rounded, binary64"));
+        assert_eq!(facade.0, LaneStatus::Success, "{masses:?}, rounded, facade");
+        let error = slot_error(&facade.1, &reference);
+        assert!(error <= 1e-14, "{masses:?}, rounded, facade: E/A {error:e}");
+    }
+    // Against the 256-bit lane of the same supplied invariants.
+    let against_mpfr = |invariants: [f64; 3], masses: [f64; 3], case: &str| {
+        let [binary64, dd, mp, facade] = rank0_lanes_with(&moved(1e-3), Some(&invariants), &masses);
+        assert_eq!(mp.0, LaneStatus::Success, "{case}, 256 bits");
+        (binary64, dd, facade, mp.1)
+    };
+    // Near the point: s01 = 9 (1 - 1e-13) with the massive lines (binary64
+    // was 2.4e-3 off, double-double right).
+    let (binary64, dd, facade, reference) = against_mpfr([9.0 * (1.0 - 1e-13), 36.0, 9.0], [1.0, 2.0, 21.0], "near");
+    refused(&binary64.0, "near, binary64");
+    for (label, (status, values)) in [("double-double", dd), ("facade", facade)] {
+        assert_eq!(status, LaneStatus::Success, "near, {label}");
+        let error = slot_error(&values, &reference);
+        assert!(error <= 1e-14, "near, {label}: E/A {error:e}");
+    }
+    // Kept: a resolved Källén function (s01 = 9 (1 - 1e-5)), a lightlike leg
+    // (0, -1, -1) at det Y = 0, and a soft triangle (a massless line between
+    // legs on shell, s01 = m1, s02 = m2; collinear invariants).
+    for (case, invariants, masses, tolerance) in [
+        ("resolved", [9.0 * (1.0 - 1e-5), 36.0, 9.0], [0.0, 1.0, 20.0], 1e-12),
+        ("lightlike", [0.0, -1.0, -1.0], [1.0, 1.0, 5.0], 1e-14),
+        ("soft", [1.0, 9.0, 4.0], [0.0, 1.0, 9.0], 1e-14),
+    ] {
+        let (binary64, dd, facade, reference) = against_mpfr(invariants, masses, case);
+        for (label, (status, values), tolerance) in
+            [("binary64", binary64, tolerance), ("double-double", dd, 1e-28), ("facade", facade, tolerance)]
+        {
+            assert_eq!(status, LaneStatus::Success, "{case}, {label}");
+            let error = slot_error(&values, &reference);
+            assert!(error <= tolerance, "{case}, {label}: E/A {error:e}");
         }
     }
 }
@@ -915,11 +1008,10 @@ fn binary64_boxes_are_checked_by_the_rotation_test() {
 /// and k_g2 + P/2 + k_g3, every component and invariant exact in binary64.
 /// One leg is lightlike and the other two have nearly equal virtualities
 /// (p_1^2 = -379.88, p_2^2 = -358.91 GeV^2), so the Gram determinant
-/// det(2 p_i.p_j) is small, -2.0e-4 s^2 (s = 1477.59 GeV^2). The 1e-12
-/// binary64 gate accepts both mass patterns below, yet PV keeps only E/A
-/// 2.0e-8 (heavy propagator first, `N3-HLL-Q+g2|g3|Q+g1`) and 1.5e-8 (light
-/// propagator first, `N3-LHH-Q+g2|g3|Q+g1`); the other cyclic orders keep
-/// 3e-11 to 4e-10.
+/// det(2 p_i.p_j) is small, -2.0e-4 s^2 (s = 1477.59 GeV^2). Binary64 PV
+/// keeps only E/A 2.0e-8 (heavy propagator first, `N3-HLL-Q+g2|g3|Q+g1`) and
+/// 1.5e-8 (light propagator first, `N3-LHH-Q+g2|g3|Q+g1`); the other cyclic
+/// orders keep 3e-11 to 4e-10.
 const QUARKONIUM_TRIANGLE: [[f64; 4]; 3] = [
     [0.0, 0.0, 0.0, 0.0],
     [34.28497314453125, -11.43359375, 14.21484375, -34.96502685546875],
@@ -930,12 +1022,13 @@ const QUARKONIUM_M2: f64 = 2.3941650390625;
 const QUARKONIUM_MU: f64 = 3.0;
 
 #[test]
-fn binary64_triangles_are_checked_by_the_rotation_test() {
-    // Triangles get the loop-rotation test too. Both lanes pass the gate;
-    // their rotated copies differ by about their error, so the test refuses
-    // them: with the precision rescue (the default) the double-double tier
-    // serves them within the request, and in binary64 alone they come back
-    // unstable with that difference as their estimate.
+fn binary64_gate_refuses_lightlike_forward_quarkonium_triangles() {
+    // The lanes that once made the case for the triangles' loop-rotation
+    // test: the 1e-12 gate accepted both and their rotated copies differed by
+    // about their error. A lightlike leg next to two nearly equal invariants
+    // (huashengshao/TIRust#62), they are now refused by the gate itself: with
+    // the precision rescue (the default) the double-double tier serves them
+    // within the request, and in binary64 alone they come back unstable.
     use iregi_rust::{PrecisionRescue, TensorEngineExecution, TensorWorkspaceOptions};
     let m2 = QUARKONIUM_M2;
     for (label, masses) in [("HLL", [m2, 0.0, 0.0]), ("LHH", [0.0, m2, m2])] {
@@ -953,27 +1046,17 @@ fn binary64_triangles_are_checked_by_the_rotation_test() {
                 panic!("expected the direct engine");
             };
             let notes = workspace.last_diagnostics()[0].clone();
-            assert_eq!((stats.rotation_rows, stats.rotation_failures), (1, 1), "{label} {rescue:?}: {stats:?}");
-            assert!(notes[0].contains("loop-rotation test: binary64 arrays differ"), "{label}: {notes:?}");
-            let error = |lane: &[Complex<f64>]| {
-                general_array_error(&result.basis, 4 - 2 * 3, QUARKONIUM_MU, lane, &reference)
-            };
+            assert_eq!(stats.direct_successes, 0, "{label} {rescue:?}: {stats:?}");
+            assert!(notes[0].contains("ill-conditioned Gram matrix"), "{label}: {notes:?}");
             if rescue == PrecisionRescue::Automatic {
                 assert_eq!(result.statuses[0], LaneStatus::Success, "{label}: {notes:?}");
                 assert!(result.fallback_used[0], "{label}: {notes:?}");
                 assert_eq!(stats.precision_rescue.len(), 1, "{label}: {stats:?}");
                 assert_eq!((stats.precision_rescue[0].bits, stats.precision_rescue[0].successes), (106, 1));
-                let error = error(result.lane(0).unwrap());
+                let error = general_array_error(&result.basis, 4 - 2 * 3, QUARKONIUM_MU, result.lane(0).unwrap(), &reference);
                 assert!(error <= 1e-15, "{label}: E/A = {error:e}");
             } else {
                 assert!(matches!(result.statuses[0], LaneStatus::Unstable(_)), "{label}: {notes:?}");
-                // The best binary64 array (the first order's), flagged with
-                // the rotation difference, which is about its error.
-                let best = result.lane_with_estimate(0).expect("a best-effort array");
-                assert!(!best.certified);
-                let (estimate, error) = (best.estimated_error.unwrap(), error(best.values));
-                assert!(error > 2f64.powi(-34) && estimate > 2f64.powi(-34), "{label}: {error:e} {estimate:e}");
-                assert!(estimate > error / 4.0 && estimate < error * 4.0, "{label}: {error:e} {estimate:e}");
             }
         }
     }

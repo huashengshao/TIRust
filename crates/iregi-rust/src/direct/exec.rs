@@ -52,6 +52,14 @@ const NO_SLOT: u32 = u32::MAX;
 const LIGHTLIKE_MARGIN_BITS: i64 = 13;
 /// `rounding` is 8 units of 2^-p: `tolerance_at(p, ROUNDING_MARGIN_BITS)`.
 const ROUNDING_MARGIN_BITS: i64 = 3;
+/// Bits of the working precision `p` a binary64 or double-double triangle
+/// integral keeps through its PV Gram system near a vanishing Källén function
+/// (huashengshao/TIRust#62): whatever the stability threshold, the Gram gate
+/// also refuses a triangle whose Gram system alone (`triangle_estimates`)
+/// costs more than `p - TRIANGLE_KEPT_BITS` bits, so that it keeps about the
+/// facade's default request (2^-34). MPFR workspaces keep their threshold
+/// alone (the precision tiers' own limits keep 40 bits).
+const TRIANGLE_KEPT_BITS: i64 = 34;
 
 /// Stage timings of the most recent profiled call.
 #[derive(Clone, Copy, Debug, Default)]
@@ -321,6 +329,10 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     /// `8 * 2^-precision`: a squared distance below this multiple of its
     /// sum of squared components is zero within its own rounding.
     rounding: T,
+    /// Binary64 and double-double: `2^-(p - TRIANGLE_KEPT_BITS)`, the least
+    /// estimate of a triangle's Gram system alone the Gram gate accepts;
+    /// `None` for MPFR.
+    triangle_floor: Option<T>,
     /// Supplied invariants of the current lane: their largest distance from
     /// the invariants of its shifts, relative to each invariant's input size
     /// (`invariant_size`), where it exceeds `rounding`; `None` for inputs
@@ -332,6 +344,10 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     /// so lanes whose outputs are certainly finite stop after the
     /// coefficient program (see `top_outputs_finite`).
     coefficients_only: bool,
+    /// Every lane starts from the base plan instead of the previous lane's
+    /// variant (see [`Self::set_lane_independent`]); passed on to the
+    /// partial-rescue and small-Gram executors at every use.
+    pub(super) lane_independent: bool,
 }
 
 /// The stages whose stored refusals name their subset (see
@@ -465,6 +481,8 @@ where
             input_bits: prototype.get_precision(),
             lightlike_tolerance: tolerance_at(&prototype, prototype.get_precision(), LIGHTLIKE_MARGIN_BITS),
             input_rounding: tolerance_at(&prototype, prototype.get_precision(), ROUNDING_MARGIN_BITS),
+            triangle_floor: T::FIXED_BITS
+                .map(|_| tolerance_at(&prototype, prototype.get_precision(), TRIANGLE_KEPT_BITS)),
             ibp_bits: ibp_field_bits(plan.settings.propagators),
             shifts: vec![[zero.clone(), zero.clone(), zero.clone(), zero.clone()]; plan.settings.propagators],
             masses: vec![zero.clone(); plan.settings.propagators],
@@ -558,6 +576,7 @@ where
             profiling: false,
             profile: DirectProfile::default(),
             coefficients_only: false,
+            lane_independent: false,
             dd_masters: None,
             base_plan: plan.clone(),
             base_constants: constants.clone(),
@@ -577,6 +596,18 @@ where
 
     pub fn set_profiling(&mut self, enabled: bool) {
         self.profiling = enabled;
+    }
+
+    /// Start every lane from the base plan (`true`) instead of the plan
+    /// variant the previous lane selected (`false`, the default). A lane
+    /// whose kinematics satisfy a variant's relations only to its tolerance
+    /// (a near-degenerate subset next to an exactly degenerate one) is
+    /// otherwise reduced through that variant after such a lane and through
+    /// the base plan alone, so its bits depend on the lanes and calls before
+    /// it. With `true` each lane's result is a function of the lane and the
+    /// executor's settings only.
+    pub(crate) fn set_lane_independent(&mut self, enabled: bool) {
+        self.lane_independent = enabled;
     }
 
     pub fn last_profile(&self) -> DirectProfile {
@@ -1345,6 +1376,7 @@ where
                 // Its scalar masters shared with the amplitude's other
                 // double-double evaluations (limb-exact keys).
                 executor.set_shared_subsets(self.shared.clone());
+                executor.lane_independent = self.lane_independent;
                 let result = executor
                     .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values })
                     .map_err(|e| e.to_string())?;
@@ -1562,23 +1594,112 @@ where
     /// its master otherwise: nearly dependent points that the working
     /// precision resolves (a Coulomb triple 1e-12 off its line at 256 bits)
     /// are evaluated as on main.
+    ///
+    /// The C0 master sees only the invariants, which can be degenerate while
+    /// the points are not (issue #60): invariants that round onto the
+    /// degenerate point, supplied ones (taken as given), or MadLoop's
+    /// snapped ones. A triangle whose invariants put binary64 or
+    /// double-double C0 where it is unreliable ([`Self::unreliable_fixed_c0`])
+    /// fails as singular too, so that the facade evaluates it at a higher
+    /// precision (MPFR reduces a vanishing Källén function exactly).
     fn ungated_scalar(&self, mask: SubsetMask, members: &[usize]) -> Result<(), GeometryFailure> {
         let margin = exact_f64(&self.prototype, 1024.0);
         let inputs = self.input_rounding.clone() * &margin;
-        if !self.points_affinely_dependent(members, &inputs) {
-            return Ok(());
+        if self.points_affinely_dependent(members, &inputs) {
+            let working = self.rounding.clone() * &margin;
+            if working >= inputs
+                || self.points_affinely_dependent(members, &working)
+                || matches!(self.relation_support(mask), Ok((_, true)))
+            {
+                return Err(GeometryFailure::Singular(
+                    mask,
+                    format!("scalar integral {members:?} with affinely dependent external points"),
+                ));
+            }
         }
-        let working = self.rounding.clone() * &margin;
-        if working >= inputs
-            || self.points_affinely_dependent(members, &working)
-            || matches!(self.relation_support(mask), Ok((_, true)))
-        {
+        if self.unreliable_fixed_c0(members) {
             return Err(GeometryFailure::Singular(
                 mask,
-                format!("scalar integral {members:?} with affinely dependent external points"),
+                format!("scalar triangle {members:?} whose invariants have a vanishing Källén function"),
             ));
         }
         Ok(())
+    }
+
+    /// Whether binary64 or double-double C0 is unreliable at the invariants
+    /// and masses of the triangle `members`, as its master receives them
+    /// (issue #60). oneloopmaster's fixed-precision sector code takes the
+    /// square root of the Källén function `lambda` of the invariants and loses
+    /// its accuracy as `lambda` vanishes, the faster the smaller the modified
+    /// Cayley determinant `det Y` (`Y_ij = (m_i + m_j - s_ij) / 2`):
+    /// - `|lambda|` within 16 roundings of `(|s_01| + |s_12| + |s_02|)^2`
+    ///   (unresolved): binary64 up to 1e-6 off at a generic `det Y`, 1e15 at
+    ///   `det Y = 0` (issue #36's point);
+    /// - `|lambda|` within `8 sqrt(u)` of that and `|det Y|` within 1024 times
+    ///   `|lambda|`'s share of the product of `Y`'s row norms (binary64 up to
+    ///   1e-4 off at a relative `lambda` of 1e-12 and `det Y` of 1e-13, and
+    ///   falling about as their ratio grows: 1e-8 at 10 to 100, 3e-10 at 1e3).
+    ///
+    /// Not where an invariant is zero (a lightlike leg: its sectors are
+    /// accurate), nor at a massless line between two legs on shell to 8
+    /// roundings (soft: `det Y = 0` at every `lambda`, the near-forward and
+    /// near-threshold Coulomb triangles, accurate), nor at MPFR, whose C0
+    /// reduces `lambda = 0` exactly and has the bits elsewhere.
+    fn unreliable_fixed_c0(&self, members: &[usize]) -> bool {
+        if T::FIXED_BITS.is_none() || members.len() != 3 {
+            return false;
+        }
+        let n = self.masses.len();
+        let zero = self.prototype.zero();
+        let leg = |i: usize, j: usize| &self.distances[members[i] * n + members[j]];
+        let legs = [leg(0, 1), leg(1, 2), leg(0, 2)];
+        if legs.iter().any(|s| !s.im.is_zero() || s.re.is_zero()) {
+            return false;
+        }
+        let abs = |x: T| if x < zero { zero.clone() - &x } else { x };
+        let (a, b, c) = (legs[0].re.clone(), legs[1].re.clone(), legs[2].re.clone());
+        let difference = a.clone() - &b - &c;
+        let lambda = abs(difference.clone() * &difference - exact_f64(&self.prototype, 4.0) * &b * &c);
+        let size = abs(a) + &abs(b) + &abs(c);
+        let scale = size.clone() * &size;
+        // u = rounding / 8.
+        let u = self.rounding.clone() / &exact_f64(&self.prototype, 8.0);
+        let near = exact_f64(&self.prototype, 8.0) * &u.clone().sqrt() * &scale;
+        if lambda > near {
+            return false;
+        }
+        let mass = |k: usize| &self.masses[members[k]];
+        let on_shell = |s: &C<T>, m: &C<T>| cnorm2(&csub(s, m)) <= self.rounding.clone() * &self.rounding * &cnorm2(m);
+        for k in 0..3 {
+            let (i, j) = ((k + 1) % 3, (k + 2) % 3);
+            if cnorm2(mass(k)).is_zero() && on_shell(leg(k, i), mass(i)) && on_shell(leg(k, j), mass(j)) {
+                return false;
+            }
+        }
+        if lambda <= exact_f64(&self.prototype, 16.0) * &u * &scale {
+            return true;
+        }
+        let half = exact_f64(&self.prototype, 0.5);
+        let y = |i: usize, j: usize| -> C<T> {
+            if i == j {
+                mass(i).clone()
+            } else {
+                cscale(&csub(&cadd(mass(i), mass(j)), leg(i.min(j), i.max(j))), &half)
+            }
+        };
+        let y: [[C<T>; 3]; 3] = std::array::from_fn(|i| std::array::from_fn(|j| y(i, j)));
+        let minor = |r: usize, s: usize, t: usize, w: usize| csub(&cmul(&y[r][t], &y[s][w]), &cmul(&y[r][w], &y[s][t]));
+        let determinant = cadd(
+            &csub(&cmul(&y[0][0], &minor(1, 2, 1, 2)), &cmul(&y[0][1], &minor(1, 2, 0, 2))),
+            &cmul(&y[0][2], &minor(1, 2, 0, 1)),
+        );
+        let mut rows = self.prototype.one();
+        for row in &y {
+            rows = rows * &(cnorm2(&row[0]) + &cnorm2(&row[1]) + &cnorm2(&row[2]));
+        }
+        // |det Y| <= 1024 (lambda / scale) prod |row|, squared.
+        let bound = exact_f64(&self.prototype, 1024.0) * &lambda / &scale;
+        cnorm2(&determinant) <= bound.clone() * &bound * &rows
     }
 
     /// Whether the three or four external points of `members` are affinely
@@ -2160,8 +2281,13 @@ where
                                     if i == j { self.one.clone() } else { self.zero.clone() };
                             }
                         }
+                        // Its largest entry, for the triangle estimate.
+                        let mut gram_scale = self.prototype.zero();
                         for value in &self.matrix[..size * size] {
                             let value = cnorm2(value).sqrt();
+                            if value > gram_scale {
+                                gram_scale = value.clone();
+                            }
                             if value > scale {
                                 scale = value;
                             }
@@ -2223,11 +2349,34 @@ where
                                 condition = shifted;
                             }
                         }
-                        if condition.clone().pow(power) < threshold {
+                        let mut estimate = condition.clone().pow(power);
+                        let mut short = false;
+                        if size == 2 && n == 3 && self.base_plan.settings.powers.iter().all(|&p| p == 1) {
+                            // A triangle integral with unit powers
+                            // (huashengshao/TIRust#62): the Hadamard ratio and
+                            // |det Z|^(1/2) / scale miss the error growth where
+                            // the Källén function vanishes. A triangle pinched
+                            // from a larger integral keeps the gate it had:
+                            // there this estimate of the triangle alone
+                            // overstates the lane's error (measured with
+                            // D^(1/2) at every rank: on MadLoop's traces 27,365
+                            // of the 70,114 box to hexagon lanes it sent to the
+                            // tiers had binary64 values within 1e-14, at 2.6
+                            // times the Zggg cost). So does a
+                            // dotted triangle, whose coefficient rank counts
+                            // its raised powers (the two-P-wave lanes of
+                            // tests/onia.rs keep 8.6e-10 in binary64).
+                            let (triangle, own) = triangle_estimates(&quality, &scale, &gram_scale, power);
+                            if triangle < estimate {
+                                estimate = triangle;
+                            }
+                            short = self.triangle_floor.as_ref().is_some_and(|floor| own < *floor);
+                        }
+                        if estimate < threshold || short {
                             if gram && (2..=3).contains(&size) {
                                 // Small-Gram expansion (box or triangle), injected in the lane loop
                                 // (with the a priori choice too: its retry covers refused lanes).
-                                let estimate = condition.clone().pow(power).to_f64();
+                                let estimate = estimate.to_f64();
                                 self.failed_condition =
                                     Some(self.failed_condition.map_or(estimate, |f: f64| f.min(estimate)));
                                 self.gram_external.push(subset_id);
@@ -2235,13 +2384,13 @@ where
                             }
                             if partial && (2..=3).contains(&size) && Some(subset.mask) != top_mask {
                                 // Computed in double-double and injected.
-                                let estimate = condition.clone().pow(power).to_f64();
+                                let estimate = estimate.to_f64();
                                 self.failed_condition =
                                     Some(self.failed_condition.map_or(estimate, |f: f64| f.min(estimate)));
                                 self.external.push(subset_id);
                                 continue;
                             }
-                            self.failed_condition = Some(condition.clone().pow(power).to_f64());
+                            self.failed_condition = Some(estimate.to_f64());
                             return Err(GeometryFailure::Singular(subset.mask, format!(
                                 "ill-conditioned Gram matrix for {members:?}: conditioning {:e}",
                                 condition
@@ -5672,6 +5821,20 @@ where
             // Reuse the previous lane's variant; on a relation that does not
             // hold here, restart from the base plan. Each affinely dependent
             // subset the geometry discovers switches to a relation variant.
+            // Lane-independent executors restart from the base plan always.
+            if self.lane_independent
+                && !(self.relation_profile.is_empty()
+                    && self.lightlike_profile.is_empty()
+                    && self.homogeneous_profile.is_empty()
+                    && self.flat_profile.is_empty()
+                    && Arc::ptr_eq(&self.plan, &self.base_plan))
+            {
+                self.relation_profile.clear();
+                self.lightlike_profile.clear();
+                self.homogeneous_profile.clear();
+                self.flat_profile.clear();
+                self.select_variant()?;
+            }
             let mut failure = None;
             // A relation that fails after the restart fails the lane: the
             // restart would repeat the same profile.
@@ -6149,6 +6312,46 @@ fn gram_condition<T: NativeFloat>(quality: &SolveQuality<T>, size: usize, scale:
     } else {
         quality.relative_determinant.clone()
     }
+}
+
+/// Conditioning estimates of a triangle integral's 2 x 2 PV Gram system `Z`, solved
+/// with `quality`, at recursion depth `power` (huashengshao/TIRust#62). With
+/// `D = |det Z| / max |Z_ij|^2` (`gram_scale` the largest entry), the row
+/// balance `B = min(1, D / H)` (`H` the Hadamard ratio, so `B` is the product
+/// of `Z`'s row norms over `max |Z_ij|^2`: about `D^(1/2)` next to a lightlike
+/// leg, about 1 at collinear legs) and `G = |det Z|^(1/2) / scale` on the
+/// recursion's kinematic `scale` (Gram, f and m0^2):
+/// - the estimate `(G D^(1/2) B)^power`, times `D^(1/2)` at rank 1, held
+///   against the threshold;
+/// - the Gram system's own, `(D B)^power`, times `D^(1/2)` at rank 1 (`G` at
+///   its largest, `D^(1/2)`), held against the fixed-precision floor
+///   (`triangle_floor`). It leaves lanes whose `G` alone is small (small
+///   momenta against heavy masses) to the threshold.
+///
+/// Each step solves `Z x = R` with `R` rounded on `scale`, not on `Z`'s rows,
+/// so it amplifies that rounding by about `scale ||Z^-1|| = 1 / (G D^(1/2))`;
+/// the Hadamard ratio and `G` (`gram_condition`) miss this where the Källén
+/// function vanishes. Measured against 1024 bits near collinear legs: up to
+/// `0.1 u D^-1.5` at rank 1 (C0's own loss, its sector formulas divide by
+/// `lambda^(1/2)`) and `0.4 u D^-rank` above; next to a lightlike leg with the
+/// other two invariants nearly equal, up to a further `D^(1/2)` per step
+/// (rank 1 up to `D^-1`, rank 2 `D^-2.5`, rank 3 `D^-4`), which `B` carries.
+fn triangle_estimates<T: NativeFloat>(quality: &SolveQuality<T>, scale: &T, gram_scale: &T, power: u64) -> (T, T) {
+    if scale.is_zero() || gram_scale.is_zero() || quality.relative_determinant.is_zero() {
+        return (scale.zero(), scale.zero());
+    }
+    let d = quality.determinant.clone() / &(gram_scale.clone() * gram_scale);
+    let mut balance = d.clone() / &quality.relative_determinant;
+    if balance > scale.one() {
+        balance = scale.one();
+    }
+    let root = d.sqrt();
+    let lost = root.clone() * &balance;
+    let geometric = quality.determinant.clone().sqrt() / scale;
+    let once = if power == 1 { root.clone() } else { scale.one() };
+    let estimate = (geometric * &lost).pow(power) * &once;
+    let own = (root * &lost).pow(power) * &once;
+    (estimate, own)
 }
 
 /// `2^-(bits - margin)` in the domain of `prototype`.

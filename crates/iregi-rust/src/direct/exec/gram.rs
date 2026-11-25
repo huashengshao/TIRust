@@ -1158,6 +1158,9 @@ where
                 let values = self.subset_row(&subset.members, |z| z.clone());
                 // Nested expansions of the auxiliary box share too.
                 executor.set_shared_subsets(self.shared.clone());
+                // A pooled executor keeps the variant of its last lane, which
+                // another parent (or thread) may have reduced.
+                executor.lane_independent = self.lane_independent;
                 executor.gram_wanted_ranks = None;
                 let result = executor
                     .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values })

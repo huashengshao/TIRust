@@ -313,8 +313,8 @@ fn the_getter_reports_the_effective_setting() {
             assert_eq!(workspace.rotation_test(), RotationTest::Disabled, "{label} set to {test:?}");
         }
     }
-    // Triangles run the test (S-wave quarkonium triangles: see
-    // `binary64_triangles_are_checked_by_the_rotation_test` in
+    // Triangles run the test (since the S-wave quarkonium triangles of
+    // `binary64_gate_refuses_lightlike_forward_quarkonium_triangles` in
     // tests/direct_engine.rs), so they report what was set.
     let mut triangle = facade(ReductionSettings::new(3, 3));
     for test in [RotationTest::Enabled, RotationTest::Disabled] {
