@@ -574,6 +574,19 @@ impl SubsetStore {
 
     /// Stored entries of every map (coefficient results, binary64 masters,
     /// moments, double-double masters).
+    /// Stored entries by kind: binary64 sub-integrals (with pentagons,
+    /// rescues and expansions), binary64 scalar masters, binary64 moments,
+    /// and double-double masters, sub-integrals and moments.
+    pub(crate) fn entry_counts(&self) -> [u64; 4] {
+        fn len<K, V, S>(map: &Mutex<HashMap<K, V, S>>) -> u64 {
+            map.lock().unwrap_or_else(|e| e.into_inner()).len() as u64
+        }
+        let masters =
+            len(&self.tadpoles) + len(&self.bubbles) + len(&self.triangles) + len(&self.boxes);
+        let dd = len(&self.dd_masters) + len(&self.dd_subsets_map) + len(&self.dd_moments);
+        [len(&self.map), masters, len(&self.moments), dd]
+    }
+
     pub(crate) fn entries(&self) -> u64 {
         let len = |n: usize| n as u64;
         len(self.map.lock().unwrap_or_else(|e| e.into_inner()).len())
