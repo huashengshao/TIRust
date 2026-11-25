@@ -52,6 +52,14 @@ const NO_SLOT: u32 = u32::MAX;
 const LIGHTLIKE_MARGIN_BITS: i64 = 13;
 /// `rounding` is 8 units of 2^-p: `tolerance_at(p, ROUNDING_MARGIN_BITS)`.
 const ROUNDING_MARGIN_BITS: i64 = 3;
+/// Bits of the working precision `p` a binary64 or double-double triangle
+/// integral keeps through its PV Gram system near a vanishing Källén function
+/// (huashengshao/TIRust#62): whatever the stability threshold, the Gram gate
+/// also refuses a triangle whose Gram system alone (`triangle_estimates`)
+/// costs more than `p - TRIANGLE_KEPT_BITS` bits, so that it keeps about the
+/// facade's default request (2^-34). MPFR workspaces keep their threshold
+/// alone (the precision tiers' own limits keep 40 bits).
+const TRIANGLE_KEPT_BITS: i64 = 34;
 
 /// Stage timings of the most recent profiled call.
 #[derive(Clone, Copy, Debug, Default)]
@@ -317,6 +325,10 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     /// `8 * 2^-precision`: a squared distance below this multiple of its
     /// sum of squared components is zero within its own rounding.
     rounding: T,
+    /// Binary64 and double-double: `2^-(p - TRIANGLE_KEPT_BITS)`, the least
+    /// estimate of a triangle's Gram system alone the Gram gate accepts;
+    /// `None` for MPFR.
+    triangle_floor: Option<T>,
     /// Supplied invariants of the current lane: their largest distance from
     /// the invariants of its shifts, relative to each invariant's input size
     /// (`invariant_size`), where it exceeds `rounding`; `None` for inputs
@@ -461,6 +473,8 @@ where
             input_bits: prototype.get_precision(),
             lightlike_tolerance: tolerance_at(&prototype, prototype.get_precision(), LIGHTLIKE_MARGIN_BITS),
             input_rounding: tolerance_at(&prototype, prototype.get_precision(), ROUNDING_MARGIN_BITS),
+            triangle_floor: T::FIXED_BITS
+                .map(|_| tolerance_at(&prototype, prototype.get_precision(), TRIANGLE_KEPT_BITS)),
             ibp_bits: ibp_field_bits(plan.settings.propagators),
             shifts: vec![[zero.clone(), zero.clone(), zero.clone(), zero.clone()]; plan.settings.propagators],
             masses: vec![zero.clone(); plan.settings.propagators],
@@ -2155,8 +2169,13 @@ where
                                     if i == j { self.one.clone() } else { self.zero.clone() };
                             }
                         }
+                        // Its largest entry, for the triangle estimate.
+                        let mut gram_scale = self.prototype.zero();
                         for value in &self.matrix[..size * size] {
                             let value = cnorm2(value).sqrt();
+                            if value > gram_scale {
+                                gram_scale = value.clone();
+                            }
                             if value > scale {
                                 scale = value;
                             }
@@ -2218,11 +2237,34 @@ where
                                 condition = shifted;
                             }
                         }
-                        if condition.clone().pow(power) < threshold {
+                        let mut estimate = condition.clone().pow(power);
+                        let mut short = false;
+                        if size == 2 && n == 3 && self.base_plan.settings.powers.iter().all(|&p| p == 1) {
+                            // A triangle integral with unit powers
+                            // (huashengshao/TIRust#62): the Hadamard ratio and
+                            // |det Z|^(1/2) / scale miss the error growth where
+                            // the Källén function vanishes. A triangle pinched
+                            // from a larger integral keeps the gate it had:
+                            // there this estimate of the triangle alone
+                            // overstates the lane's error (measured with
+                            // D^(1/2) at every rank: on MadLoop's traces 27,365
+                            // of the 70,114 box to hexagon lanes it sent to the
+                            // tiers had binary64 values within 1e-14, at 2.6
+                            // times the Zggg cost). So does a
+                            // dotted triangle, whose coefficient rank counts
+                            // its raised powers (the two-P-wave lanes of
+                            // tests/onia.rs keep 8.6e-10 in binary64).
+                            let (triangle, own) = triangle_estimates(&quality, &scale, &gram_scale, power);
+                            if triangle < estimate {
+                                estimate = triangle;
+                            }
+                            short = self.triangle_floor.as_ref().is_some_and(|floor| own < *floor);
+                        }
+                        if estimate < threshold || short {
                             if gram && (2..=3).contains(&size) {
                                 // Small-Gram expansion (box or triangle), injected in the lane loop
                                 // (with the a priori choice too: its retry covers refused lanes).
-                                let estimate = condition.clone().pow(power).to_f64();
+                                let estimate = estimate.to_f64();
                                 self.failed_condition =
                                     Some(self.failed_condition.map_or(estimate, |f: f64| f.min(estimate)));
                                 self.gram_external.push(subset_id);
@@ -2230,13 +2272,13 @@ where
                             }
                             if partial && (2..=3).contains(&size) && Some(subset.mask) != top_mask {
                                 // Computed in double-double and injected.
-                                let estimate = condition.clone().pow(power).to_f64();
+                                let estimate = estimate.to_f64();
                                 self.failed_condition =
                                     Some(self.failed_condition.map_or(estimate, |f: f64| f.min(estimate)));
                                 self.external.push(subset_id);
                                 continue;
                             }
-                            self.failed_condition = Some(condition.clone().pow(power).to_f64());
+                            self.failed_condition = Some(estimate.to_f64());
                             return Err(GeometryFailure::Singular(subset.mask, format!(
                                 "ill-conditioned Gram matrix for {members:?}: conditioning {:e}",
                                 condition
@@ -5716,6 +5758,46 @@ fn gram_condition<T: NativeFloat>(quality: &SolveQuality<T>, size: usize, scale:
     } else {
         quality.relative_determinant.clone()
     }
+}
+
+/// Conditioning estimates of a triangle integral's 2 x 2 PV Gram system `Z`, solved
+/// with `quality`, at recursion depth `power` (huashengshao/TIRust#62). With
+/// `D = |det Z| / max |Z_ij|^2` (`gram_scale` the largest entry), the row
+/// balance `B = min(1, D / H)` (`H` the Hadamard ratio, so `B` is the product
+/// of `Z`'s row norms over `max |Z_ij|^2`: about `D^(1/2)` next to a lightlike
+/// leg, about 1 at collinear legs) and `G = |det Z|^(1/2) / scale` on the
+/// recursion's kinematic `scale` (Gram, f and m0^2):
+/// - the estimate `(G D^(1/2) B)^power`, times `D^(1/2)` at rank 1, held
+///   against the threshold;
+/// - the Gram system's own, `(D B)^power`, times `D^(1/2)` at rank 1 (`G` at
+///   its largest, `D^(1/2)`), held against the fixed-precision floor
+///   (`triangle_floor`). It leaves lanes whose `G` alone is small (small
+///   momenta against heavy masses) to the threshold.
+///
+/// Each step solves `Z x = R` with `R` rounded on `scale`, not on `Z`'s rows,
+/// so it amplifies that rounding by about `scale ||Z^-1|| = 1 / (G D^(1/2))`;
+/// the Hadamard ratio and `G` (`gram_condition`) miss this where the Källén
+/// function vanishes. Measured against 1024 bits near collinear legs: up to
+/// `0.1 u D^-1.5` at rank 1 (C0's own loss, its sector formulas divide by
+/// `lambda^(1/2)`) and `0.4 u D^-rank` above; next to a lightlike leg with the
+/// other two invariants nearly equal, up to a further `D^(1/2)` per step
+/// (rank 1 up to `D^-1`, rank 2 `D^-2.5`, rank 3 `D^-4`), which `B` carries.
+fn triangle_estimates<T: NativeFloat>(quality: &SolveQuality<T>, scale: &T, gram_scale: &T, power: u64) -> (T, T) {
+    if scale.is_zero() || gram_scale.is_zero() || quality.relative_determinant.is_zero() {
+        return (scale.zero(), scale.zero());
+    }
+    let d = quality.determinant.clone() / &(gram_scale.clone() * gram_scale);
+    let mut balance = d.clone() / &quality.relative_determinant;
+    if balance > scale.one() {
+        balance = scale.one();
+    }
+    let root = d.sqrt();
+    let lost = root.clone() * &balance;
+    let geometric = quality.determinant.clone().sqrt() / scale;
+    let once = if power == 1 { root.clone() } else { scale.one() };
+    let estimate = (geometric * &lost).pow(power) * &once;
+    let own = (root * &lost).pow(power) * &once;
+    (estimate, own)
 }
 
 /// `2^-(bits - margin)` in the domain of `prototype`.
