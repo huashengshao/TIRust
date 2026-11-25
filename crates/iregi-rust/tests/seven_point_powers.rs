@@ -1,8 +1,7 @@
 //! Seven-point integrals with raised powers (two P-wave onia and a gluon):
 //! the direct engine's mass-derivative jets through the seven-point thin
-//! system, against exact identities evaluated from six-point integrals at
-//! 256 bits, and the refusal of two onia at threshold, whose Coulomb
-//! relations raise a soft gluon beyond the (D - 4) terms the plan keeps.
+//! system and through the Coulomb relations of two onia at threshold,
+//! against exact identities evaluated from six-point integrals at 256 bits.
 use iregi_rust::{DirectReductionPlan, KinematicsBatch, LaneStatus, ReductionSettings, ScaleInput};
 use symbolica::domains::float::{Complex, Float, Real, RealLike};
 
@@ -162,6 +161,24 @@ fn thin_reference(p: &Point, rank: u16, powers: &[u16], drop: usize) -> Vec<Comp
     combine(terms)
 }
 
+/// A threshold heptagon by the partial fraction of its first Coulomb triple:
+/// `1/(D_1^a D_3^c) = [1/(D_1^a D_3^(c-1)) + 1/(D_1^(a-1) D_3^c)] / (2 D_2)`,
+/// down to hexagons.
+fn coulomb_reference(p: &Point, rank: u16, powers: &[u16]) -> Vec<Complex<Float>> {
+    if powers[1] == 0 || powers[3] == 0 {
+        let members: Vec<usize> = (0..7).filter(|&k| powers[k] > 0).collect();
+        let sub: Vec<u16> = members.iter().map(|&k| powers[k]).collect();
+        return lane_256(p, &members, rank, &sub);
+    }
+    let mut first = powers.to_vec();
+    first[2] += 1;
+    first[3] -= 1;
+    let mut second = powers.to_vec();
+    second[2] += 1;
+    second[1] -= 1;
+    combine(vec![(big(0.5), coulomb_reference(p, rank, &first)), (big(0.5), coulomb_reference(p, rank, &second))])
+}
+
 /// `max |value - reference| / max |reference|` over the lane.
 fn error<T: Clone>(values: &[Complex<T>], reference: &[Complex<Float>], lift: impl Fn(&T) -> Float) -> f64 {
     let norm = |re: Float, im: Float| (re.clone() * &re + &(im.clone() * &im)).sqrt().to_f64();
@@ -208,41 +225,40 @@ fn seven_point_thin_systems_carry_mass_derivative_jets() {
 
 /// Two onia at threshold: no thin system exists; the heptagon takes the
 /// partial fractions of its Coulomb triples, whose raised members join the
-/// dotted lines as jet variables. The first triple's partial fraction raises
-/// gluon 4 to power 3 in pentagons (e.g. [0, 2, 4, 5, 6]) next to the
-/// on-shell leg of heavy line 5: in 6 - 2 eps dimensions such a pentagon is
-/// soft divergent, so the (D - 4) terms its reduction drops are finite, and
-/// the plan keeps them for one doubled line only. These lanes are refused
-/// (original IREGI's quad scalar of that pentagon, gluon 4 tripled, differs
-/// from the reduction without them by 8% of its finite part). Lines 1 and 5
-/// doubled are served: binary64 against 256 bits.
+/// dotted lines as jet variables. Against the first triple's partial
+/// fraction, applied to the integrand down to hexagons (all but two lines
+/// doubled: those hexagons would carry three raised lines; there, binary64
+/// against 256 bits).
 #[test]
-fn two_onia_at_threshold_refuse_tripled_soft_gluons_at_seven_points() {
-    let refused = |p: &Point, rank: u16, powers: &[u16]| {
-        let members: Vec<usize> = (0..7).collect();
-        let mut w = DirectReductionPlan::new(settings(7, rank, powers)).unwrap().workspace(Float::new(BITS)).unwrap();
-        let r = w.reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: row(p, &members, big, big(0.0)) }).unwrap();
-        matches!(&r.statuses[0], LaneStatus::Unstable(e) if e.contains("without its (D - 4) terms"))
-    };
-    let mut worst = 0.0f64;
+fn two_onia_at_threshold_take_their_coulomb_partial_fractions_at_seven_points() {
+    let mut worst = [0.0f64; 3];
     for variant in 0..2 {
         let p = threshold(variant);
         for rank in [0u16, 2] {
-            assert!(refused(&p, rank, &[1; 7]), "point {variant}, unit, rank {rank}: not refused");
+            let unit = [1u16; 7];
+            let reference = lane_256(&p, &(0..7).collect::<Vec<_>>(), rank, &unit);
+            let binary64 = error(&lane_binary64(&p, rank, &unit), &reference, |x| big(*x));
+            assert!(binary64 <= 1e-11, "point {variant}, unit, rank {rank}: binary64 {binary64:e}");
             for (label, powers) in DOTTED {
+                let mp = lane_256(&p, &(0..7).collect::<Vec<_>>(), rank, &powers);
+                let binary64 = lane_binary64(&p, rank, &powers);
                 if label == "lines 1 and 5 doubled" {
-                    let mp = lane_256(&p, &(0..7).collect::<Vec<_>>(), rank, &powers);
-                    let own = error(&lane_binary64(&p, rank, &powers), &mp, |x| big(*x));
+                    let own = error(&binary64, &mp, |x| big(*x));
                     eprintln!("point {variant} rank {rank} {label}: binary64 {own:.1e} from 256 bits");
                     assert!(own <= 1e-11, "point {variant}, {label}, rank {rank}: binary64 {own:e} from 256 bits");
-                    worst = worst.max(own);
+                    worst[2] = worst[2].max(own);
                     continue;
                 }
-                assert!(refused(&p, rank, &powers), "point {variant}, {label}, rank {rank}: not refused");
+                let reference = coulomb_reference(&p, rank, &powers);
+                let (mp, binary64) = (error(&mp, &reference, |x| x.clone()), error(&binary64, &reference, |x| big(*x)));
+                eprintln!("point {variant} rank {rank} {label}: 256 bits {mp:.1e}, binary64 {binary64:.1e}");
+                assert!(mp <= 1e-60, "point {variant}, {label}, rank {rank}: 256 bits {mp:e}");
+                assert!(binary64 <= 1e-11, "point {variant}, {label}, rank {rank}: binary64 {binary64:e}");
+                worst = [worst[0], worst[1].max(mp), worst[2].max(binary64)];
             }
         }
     }
-    eprintln!("worst: binary64 {worst:.1e}");
+    eprintln!("worst: 256 bits {:.1e}, binary64 {:.1e}", worst[1], worst[2]);
 }
 
 /// The unit-power integral of `members` at 256 bits with `masses` moved by

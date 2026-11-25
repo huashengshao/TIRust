@@ -18,7 +18,7 @@ use super::{
         C, L4, SolveQuality, cadd, cfma, cfma_real, cinv, cmul, cnorm2, cscale, csub, czero, div_dimension,
         lfma, lfma_slots, lzero, mul_dimension, real_lfma_slots, solve_in_place, times_epsilon,
     },
-    plan::{DirectPlanData, Gather, Instruction, Jet, NO_GEOMETRY, PostOp, Subset, SubsetKind, SubsetMask, Term, members},
+    plan::{DirectPlanData, FastMap, Gather, Instruction, Jet, NO_GEOMETRY, PostOp, Subset, SubsetKind, SubsetMask, Term, members},
     shared::{MASTER_KEY_WORDS, SharedValue, SubsetStore},
 };
 use crate::{
@@ -2363,57 +2363,14 @@ where
         // pentagons were refused once the Cayley system amplified it (g g >
         // chi_c0 chi_c0 9.7 degrees from the beam: up to 40 times for binary64
         // inputs, 2.1 for binary128 ones; B is at most 0.026 of this bound).
-        let jet_lines: Vec<usize> = if geometry.epsilon != NO_GEOMETRY {
-            Vec::new()
-        } else {
-            self.plan.jet.as_ref().map_or(Vec::new(), |jet| jet.variables.iter().map(|&(line, _)| line).collect())
-        };
-        let massless = |i: usize| self.masses[i].re.is_zero() && self.masses[i].im.is_zero();
-        // Power counting in 6 dimensions at the jet's highest powers nu (a jet
-        // line's Taylor length, 1 for other lines): a massless line a is
-        // collinear to a massless partner e across a vanishing invariant if
-        // nu_a + nu_e >= 3, and soft if 2 nu_a plus the powers of the lines b
-        // on shell to it ((r_a - r_b)^2 = m_b^2) reaches 6.
-        let jet_power = |line: usize| -> usize {
-            self.plan
-                .jet
-                .as_ref()
-                .and_then(|jet| jet.variables.iter().find(|&&(l, _)| l == line))
-                .map_or(1, |&(_, length)| length)
-        };
-        let lightlike = |a: usize, e: usize| cnorm2(d(a, e)).sqrt() <= self.invariant_size(a, e) * &self.input_rounding;
-        let on_shell = |a: usize, b: usize| {
-            let size = cnorm2(&self.masses[b]).sqrt() + &self.invariant_size(a, b);
-            cnorm2(&csub(d(a, b), &self.masses[b])).sqrt() <= size * &self.input_rounding
-        };
-        let exposed = jet_lines.iter().find(|&&a| {
-            members.contains(&a) && massless(a) && {
-                let collinear = members
-                    .iter()
-                    .any(|&e| e != a && massless(e) && lightlike(a, e) && jet_power(a) + jet_power(e) >= 3);
-                let soft: usize = members.iter().filter(|&&b| b != a && on_shell(a, b)).map(|&b| jet_power(b)).sum();
-                collinear || 2 * jet_power(a) + soft >= 6
-            }
-        });
-        if let Some(&dotted) = exposed {
-            let mut sum = self.zero.clone();
-            let mut bound = self.prototype.zero();
-            for i in 0..5 {
-                sum = cadd(&sum, &self.rhs[i]);
-                let size = cnorm2(&self.rhs[i]).sqrt();
-                for j in 0..5 {
-                    let (mi, mj) = (members[i], members[j]);
-                    let entry = cnorm2(d(mi, mj)).sqrt()
-                        + &self.invariant_size(mi, mj)
-                        + &cnorm2(&self.masses[mi]).sqrt()
-                        + &cnorm2(&self.masses[mj]).sqrt();
-                    bound += size.clone() * &cnorm2(&self.rhs[j]).sqrt() * &entry;
-                }
-            }
-            if cnorm2(&sum).sqrt() > bound * &self.input_rounding {
+        let covered = geometry.epsilon != NO_GEOMETRY || geometry.terms;
+        let exposed = (!covered && self.plan.jet.is_some()).then(|| self.pentagon_ir_exposed(members)).flatten();
+        if let Some(dotted) = exposed {
+            let b: Vec<C<T>> = self.rhs[..5].to_vec();
+            if !self.pentagon_b_vanishes(members, &b) {
                 return Err(GeometryFailure::Unstable(format!(
-                    "dotted massless line {dotted} of pentagon {members:?} in a Taylor jet without \
-                     its (D - 4) terms: its (D + 2)-dimensional term is not reduced"
+                    "massless line {dotted} of pentagon {members:?} is IR exposed at its jet's powers, \
+                     and the pentagon has no Gram-free part to keep its (D - 4) terms"
                 )));
             }
         }
@@ -3378,6 +3335,242 @@ where
         (0..size).filter(|&k| drop & (1 << k) == 0).collect()
     }
 
+    /// A massless member of a pentagon whose (D + 2)-dimensional integrals
+    /// can be IR divergent at the plan's jet: power counting in 6 dimensions
+    /// at the jet's highest powers nu (a jet line's Taylor length, 1 for other
+    /// lines). A massless line a is collinear to a massless partner e across a
+    /// vanishing invariant if nu_a + nu_e >= 3, and soft if 2 nu_a plus the
+    /// powers of the lines b on shell to it ((r_a - r_b)^2 = m_b^2, a raised
+    /// massive b too) reaches 6. Without one, the (D - 4) terms of its
+    /// reduction vanish.
+    fn pentagon_ir_exposed(&self, members: &[usize]) -> Option<usize> {
+        let n = self.masses.len();
+        let d = |i: usize, j: usize| &self.distances[i * n + j];
+        let massless = |i: usize| self.masses[i].re.is_zero() && self.masses[i].im.is_zero();
+        let power = |line: usize| -> usize {
+            self.plan
+                .jet
+                .as_ref()
+                .and_then(|jet| jet.variables.iter().find(|&&(l, _)| l == line))
+                .map_or(1, |&(_, length)| length)
+        };
+        let lightlike = |a: usize, e: usize| cnorm2(d(a, e)).sqrt() <= self.invariant_size(a, e) * &self.input_rounding;
+        let on_shell = |a: usize, b: usize| {
+            let size = cnorm2(&self.masses[b]).sqrt() + &self.invariant_size(a, b);
+            cnorm2(&csub(d(a, b), &self.masses[b])).sqrt() <= size * &self.input_rounding
+        };
+        members.iter().copied().find(|&a| {
+            massless(a) && {
+                let collinear =
+                    members.iter().any(|&e| e != a && massless(e) && lightlike(a, e) && power(a) + power(e) >= 3);
+                let soft: usize = members.iter().filter(|&&b| b != a && on_shell(a, b)).map(|&b| power(b)).sum();
+                collinear || 2 * power(a) + soft >= 6
+            }
+        })
+    }
+
+    /// Whether a pentagon's B = sum_i b_i vanishes to its inputs' rounding
+    /// (a degenerate Gram determinant: flat pentagons). With Y b = 1 the
+    /// rounding moves B by -b^T dY b to first order: at most the rounding times
+    /// sum_ij |b_i| |b_j| y_ij, y_ij the size of Y_ij's inputs (the invariant's,
+    /// its cancellation's and both masses').
+    fn pentagon_b_vanishes(&self, members: &[usize], b: &[C<T>]) -> bool {
+        let n = self.masses.len();
+        let mut sum = self.zero.clone();
+        let mut bound = self.prototype.zero();
+        for i in 0..5 {
+            sum = cadd(&sum, &b[i]);
+            let size = cnorm2(&b[i]).sqrt();
+            for j in 0..5 {
+                let (mi, mj) = (members[i], members[j]);
+                let entry = cnorm2(&self.distances[mi * n + mj]).sqrt()
+                    + &self.invariant_size(mi, mj)
+                    + &cnorm2(&self.masses[mi]).sqrt()
+                    + &cnorm2(&self.masses[mj]).sqrt();
+                bound += size.clone() * &cnorm2(&b[j]).sqrt() * &entry;
+            }
+        }
+        cnorm2(&sum).sqrt() <= bound * &self.input_rounding
+    }
+
+    /// The (D - 4) terms of a Gram-free pentagon at every order of a jet other
+    /// than one doubled line ([`super::plan::PentagonTerms`]). With
+    /// E(lambda, kappa) its coefficients and o the jet's orders, by degree:
+    /// - true metric poles from momentum moments one order lower (Schwinger
+    ///   parameters): E(lambda + 1, I)|_o = -E(lambda, I + e_a)|_(o - e_v) / (2 o_v),
+    ///   v a raised massless line of o, a its member (at the origin
+    ///   e_a = -(1 + sum_j e_j)); an order raising massive lines only has none;
+    /// - the dropped terms (hep-ph/0509141 Eq. (6.10)): r dE(lambda, kappa)|_o
+    ///   = 2 (D - 4) sum_k kappa_k sum_(o1 + o2 = o) X^-1_k0|_o1 E(lambda + 1,
+    ///   kappa - e_k)|_o2, and Melrose's scalar 4 eps sum B|_o1 E(1, 0)|_o2;
+    /// - for the next orders, the true D-dimensional poles of the momentum
+    ///   coefficients: the Gram-free ones are exact in four dimensions only,
+    ///   so their metric parts, expanded through g_4 = sum 2 Z^-1_jk p_j p_k,
+    ///   are traded for the true ones.
+    fn pentagon_terms(&mut self, plan: &DirectPlanData, block: usize) {
+        let terms = &plan.pentagon_terms[block];
+        let jet = plan.jet.as_ref().expect("a pentagon's terms need a jet");
+        let subset = &plan.subsets[terms.subset];
+        let members = subset.members.clone();
+        let geometry = subset.pentagon.expect("a pentagon");
+        let n = self.masses.len();
+        let zero = self.zero.clone();
+        let no_poles = lzero(&zero);
+        let massless = |line: usize| self.masses[line].re.is_zero() && self.masses[line].im.is_zero();
+        let mut orders: Vec<usize> = (1..jet.len)
+            .filter(|&o| {
+                jet.digits(o).iter().enumerate().all(|(v, &d)| d == 0 || terms.lines.iter().any(|&(w, _)| w == v))
+            })
+            .collect();
+        orders.sort_by_key(|&o| (jet.digits(o).iter().sum::<usize>(), o));
+        // The relation holds for any raised line; a massless one first.
+        let raised: Vec<Option<(usize, usize, usize)>> = (0..jet.len)
+            .map(|o| {
+                let digits = jet.digits(o);
+                let mut lines = terms.lines.iter().filter(|&&(v, _)| digits[v] >= 1);
+                lines
+                    .clone()
+                    .find(|&&(v, _)| massless(jet.variables[v].0))
+                    .or_else(|| lines.next())
+                    .map(|&(v, local)| (v, local, digits[v]))
+            })
+            .collect();
+        if self.pentagon_ir_exposed(&members).is_none() {
+            return;
+        }
+        // A flat pentagon (B vanishing: a degenerate Gram determinant, the
+        // two onia of a 2 -> 2 process) keeps its Gram-free value, as before
+        // (checked against exact partial fractions in tests/onia.rs); its Gram
+        // inverse below would not exist.
+        let b0: Vec<C<T>> = (0..5).map(|i| self.geometry[geometry.b as usize + i].clone()).collect();
+        if self.pentagon_b_vanishes(&members, &b0) {
+            return;
+        }
+        // Z^-1 of the members' momenta (mass independent).
+        let d = |i: usize, j: usize| self.distances[i * n + j].clone();
+        let origin = members[0];
+        for i in 0..4 {
+            for j in 0..4 {
+                let (mi, mj) = (members[i + 1], members[j + 1]);
+                self.matrix[i * 4 + j] = csub(&cadd(&d(origin, mi), &d(origin, mj)), &d(mi, mj));
+                self.rhs[i * 4 + j] = if i == j { self.one.clone() } else { zero.clone() };
+            }
+        }
+        let zinv: Option<Vec<C<T>>> =
+            solve_in_place(&mut self.matrix[..16], &mut self.rhs[..16], 4, 4).map(|_| self.rhs[..16].to_vec());
+        let pole = |v: &L4<T>| -> L4<T> { [v[0].clone(), v[1].clone(), v[2].clone(), zero.clone()] };
+        let axpy = |acc: &mut L4<T>, f: &C<T>, x: &L4<T>| {
+            for slot in 0..3 {
+                acc[slot] = cadd(&acc[slot], &cmul(f, &x[slot]));
+            }
+        };
+        let plus = |kappa: &[u16; 4], a: usize| -> [u16; 4] {
+            let mut k = *kappa;
+            k[a] += 1;
+            k
+        };
+        let mut metric: FastMap<(u16, [u16; 4], usize), L4<T>> = FastMap::default();
+        let mut momentum: FastMap<([u16; 4], usize), L4<T>> = FastMap::default();
+        for &o in &orders {
+            // True metric poles at o.
+            if let Some((v, local, digit)) = raised[o] {
+                let lower = jet.lower[v][o] as usize;
+                let scale = C::new(self.prototype.from_i64(-1) / &self.prototype.from_usize(2 * digit), self.prototype.zero());
+                for &(lambda1, kappa) in &terms.metric {
+                    let lambda = lambda1 - 1;
+                    let truth = |exec: &Self, j: [u16; 4]| -> L4<T> {
+                        if lower == 0 {
+                            pole(&exec.values[terms.layout[&(lambda, j)] as usize])
+                        } else if lambda >= 1 {
+                            metric.get(&(lambda, j, lower)).cloned().unwrap_or_else(|| no_poles.clone())
+                        } else {
+                            momentum.get(&(j, lower)).cloned().unwrap_or_else(|| no_poles.clone())
+                        }
+                    };
+                    let mut acc = no_poles.clone();
+                    let one = C::new(self.prototype.one(), self.prototype.zero());
+                    let minus = C::new(self.prototype.from_i64(-1), self.prototype.zero());
+                    if local >= 1 {
+                        axpy(&mut acc, &one, &truth(self, plus(&kappa, local - 1)));
+                    } else {
+                        axpy(&mut acc, &minus, &truth(self, kappa));
+                        for j in 0..4 {
+                            axpy(&mut acc, &minus, &truth(self, plus(&kappa, j)));
+                        }
+                    }
+                    let mut value = no_poles.clone();
+                    axpy(&mut value, &scale, &acc);
+                    metric.insert((lambda1, kappa, o), value);
+                }
+            }
+            // The dropped terms at o: sum over o1 + o2 = o with o2 != 0.
+            let splits: Vec<(usize, usize)> = (0..jet.len)
+                .flat_map(|a| jet.sums[a].iter().filter(|&&(b, c)| c as usize == o && b != 0).map(move |&(b, _)| (a, b as usize)))
+                .collect();
+            let geo = |exec: &Self, order: usize, g: usize| -> C<T> {
+                if order == 0 { exec.geometry[g].clone() } else { exec.geometry_jet[order - 1][g].clone() }
+            };
+            let mut additions: Vec<(u32, L4<T>)> = Vec::new();
+            for &(lambda, kappa) in &terms.results {
+                let r = 2 * u64::from(lambda) + kappa.iter().map(|&x| u64::from(x)).sum::<u64>();
+                let mut sum = no_poles.clone();
+                for k in 0..4 {
+                    if kappa[k] == 0 {
+                        continue;
+                    }
+                    let mut rest = kappa;
+                    rest[k] -= 1;
+                    let weight = self.prototype.from_i64(-4 * i64::from(kappa[k])) / &self.prototype.from_usize(r as usize);
+                    for &(o1, o2) in &splits {
+                        if let Some(g) = metric.get(&(lambda + 1, rest, o2)) {
+                            let x = cscale(&geo(self, o1, geometry.xinv as usize + 5 * (k + 1)), &weight);
+                            axpy(&mut sum, &x, g);
+                        }
+                    }
+                }
+                additions.push((terms.layout[&(lambda, kappa)], sum));
+            }
+            let mut scalar = no_poles.clone();
+            for &(o1, o2) in &splits {
+                if let Some(g) = metric.get(&(1, [0; 4], o2)) {
+                    let mut b = zero.clone();
+                    for i in 0..5 {
+                        b = cadd(&b, &geo(self, o1, geometry.b as usize + i));
+                    }
+                    axpy(&mut scalar, &cscale(&b, &self.prototype.from_i64(4)), g);
+                }
+            }
+            additions.push((terms.layout[&(0, [0; 4])], scalar));
+            for (index, p) in additions {
+                // epsilon times p: the double pole to the single, the single to the finite part.
+                let target = &mut self.values_jet[o - 1][index as usize];
+                target[1] = cadd(&target[1], &p[2]);
+                target[3] = cadd(&target[3], &cadd(&p[0], &p[1]));
+            }
+            // True momentum poles at o, for the next orders.
+            for kappa2 in &terms.momenta {
+                momentum.insert((*kappa2, o), pole(&self.values_jet[o - 1][terms.layout[&(0, *kappa2)] as usize]));
+            }
+            if let Some(zinv) = &zinv {
+                let two = self.prototype.from_usize(2);
+                for (lambda, kappa, kappa2, labels, count) in &terms.expansion {
+                    let mut factor = C::new(self.prototype.from_usize(*count as usize), self.prototype.zero());
+                    for &(j, k) in labels {
+                        factor = cmul(&factor, &cscale(&zinv[4 * j as usize + k as usize], &two));
+                    }
+                    let mut difference = pole(&self.values_jet[o - 1][terms.layout[&(*lambda, *kappa)] as usize]);
+                    if let Some(g) = metric.get(&(*lambda, *kappa, o)) {
+                        for slot in 0..3 {
+                            difference[slot] = csub(&difference[slot], &g[slot]);
+                        }
+                    }
+                    let entry = momentum.get_mut(&(*kappa2, o)).expect("a momentum coefficient");
+                    axpy(entry, &factor, &difference);
+                }
+            }
+        }
+    }
+
     /// Taylor orders of a Gram-free pentagon's entries in the jet's squared
     /// masses: the inverse `X^-1` of its modified Cayley matrix `X = [[2 m0^2,
     /// f^T], [f, Z]]`, the sums of its entries and the products `adjadj`.
@@ -3624,14 +3817,14 @@ where
                         // The (D - 4) terms' weights (`PentagonGeometry::epsilon`),
                         // at the jet's one order: b_1 = R0^-1 E b = b_a b + B R0^-1 e_a
                         // gives 2 B R0^-1 e_a, and 2 X^-1_k0 from the Gram-free part.
-                        // A massive line is neither soft nor collinear: its terms
-                        // vanish (they would only add rounding).
+                        // Without an IR-exposed member (`pentagon_ir_exposed`) the
+                        // terms vanish (they would only add rounding).
                         let e = geometry.epsilon as usize;
                         for i in 0..9 {
                             self.geometry_jet[0][e + i] = self.zero.clone();
                         }
-                        let massless = self.masses[dotted].re.is_zero() && self.masses[dotted].im.is_zero();
-                        if let (Some(local), 2, true) = (local, k_len, massless) {
+                        let exposed = self.pentagon_ir_exposed(&members).is_some();
+                        if let (Some(local), 2, true) = (local, k_len, exposed) {
                             let ba = self.geometry[geometry.b as usize + local].clone();
                             for i in 0..5 {
                                 let product = cmul(&ba, &self.geometry[geometry.b as usize + i]);
@@ -4475,6 +4668,10 @@ where
         let mut accumulator = vec![lzero(&self.zero); len];
         let mut factors = vec![self.zero.clone(); len];
         for instruction in program {
+            if let PostOp::PentagonTerms { block } = instruction.post {
+                self.pentagon_terms(plan, block as usize);
+                continue;
+            }
             if let PostOp::TaylorShift { variable, own } = instruction.post {
                 match jet.univariate() {
                     Some(k_len) => self.taylor_shift::<true>(plan, instruction, k_len),
@@ -4594,6 +4791,10 @@ where
             &plan.coefficient_program
         };
         for instruction in program {
+            if let PostOp::PentagonTerms { block } = instruction.post {
+                self.pentagon_terms(plan, block as usize);
+                continue;
+            }
             if let PostOp::TaylorShift { .. } = instruction.post {
                 self.taylor_shift::<FULL>(plan, instruction, K);
                 continue;
@@ -4774,6 +4975,10 @@ where
         loop {
             let end = skip.get(next).map_or(program.len(), |&(a, _)| (a as usize).min(program.len()));
             for instruction in program.get(at..end).unwrap_or(&[]) {
+                // Only plans with a Taylor jet have pentagon terms.
+                if let PostOp::PentagonTerms { .. } = instruction.post {
+                    continue;
+                }
                 let mut accumulator = lzero(zero);
                 for term in &terms[instruction.terms.0 as usize..instruction.terms.1 as usize] {
                     let factor = if term.geometry == NO_GEOMETRY {
@@ -4797,6 +5002,7 @@ where
                         div_dimension(&mut accumulator, &constants[inverse as usize]);
                     }
                     PostOp::TimesEpsilon => times_epsilon(&mut accumulator),
+                    PostOp::PentagonTerms { .. } => {}
                     // Only plans with a Taylor jet have partial fractions.
                     PostOp::TaylorShift { .. } => unreachable!("a partial fraction without a Taylor jet"),
                 }

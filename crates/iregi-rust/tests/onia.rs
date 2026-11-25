@@ -1141,14 +1141,16 @@ fn supplied_invariant_lanes_match(fixture: &Value, wide: bool) {
 /// with one has a singular Cayley matrix that no soft line empties, and its
 /// null vector's IBP identity reduces it (main refuses it, "singular Cayley
 /// matrix"). A generic triangle, box and pentagon sharing the pair, each pair
-/// member doubled, a pentagon with its massive line doubled, and a pentagon
-/// whose doubled massless line joins two on-shell legs ("soft"), against
+/// member doubled, a pentagon with its massive line doubled, a pair member
+/// tripled or both doubled, a pentagon whose doubled massless line joins two
+/// on-shell legs ("soft", also with its massive neighbour doubled), and two
+/// onia at threshold's pentagon with its Coulomb gluon tripled, against
 /// original IREGI's quad scalars with powers
-/// (benchmarks/onia/make_collinear_fixture.py). With a pair member or the
-/// soft line doubled, the pentagon's Cayley reduction drops (4 - D) B
-/// J5^(D+2), whose mass derivative keeps an IR pole: the executor keeps its
-/// finite part (2.4e-4 of the collinear pentagons, 3.7e-2 of the soft one;
-/// the soft one was served without it). Its tensor coefficients:
+/// (benchmarks/onia/make_collinear_fixture.py). There the pentagon's Cayley
+/// reduction drops (4 - D) B J5^(D+2), whose mass derivatives keep an IR
+/// pole: the executor keeps its finite part (2.4e-4 of the collinear
+/// pentagons, 3.7e-2 of the soft one and 8% of the threshold one, which were
+/// served without it; issue #67). Their tensor coefficients:
 /// `tests/doubled_ir_pentagons.rs`.
 #[test]
 fn collinear_pairs_reduce_dotted_triangles_boxes_and_pentagons() {
@@ -1161,42 +1163,49 @@ fn collinear_pairs_reduce_dotted_triangles_boxes_and_pentagons() {
         .collect();
     let masses: Vec<f64> = fixture["masses_squared"].as_array().unwrap().iter().map(|m| m.as_f64().unwrap()).collect();
     let mu = fixture["mu"].as_f64().unwrap();
-    let soft = &fixture["soft"];
-    let soft_shifts: Vec<[f64; 4]> = soft["shifts"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|q| std::array::from_fn(|a| q[a].as_f64().unwrap()))
-        .collect();
-    let soft_masses: Vec<f64> = soft["masses_squared"].as_array().unwrap().iter().map(|m| m.as_f64().unwrap()).collect();
-    let points = fixture["cases"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|case| (case, &shifts, &masses))
-        .chain(soft["cases"].as_array().unwrap().iter().map(|case| (case, &soft_shifts, &soft_masses)));
-    for (case, shifts, masses) in points {
-        let (n, dotted) = (case["n"].as_u64().unwrap() as usize, case["dotted"].as_u64().unwrap() as usize);
-        let reference: Vec<Complex<f64>> = case["reference"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|z| Complex::new(z[0].as_str().unwrap().parse().unwrap(), z[1].as_str().unwrap().parse().unwrap()))
-            .collect();
-        let mut settings = ReductionSettings::new(n, 0);
-        settings.powers[dotted] = 2;
-        let lane = coulomb_lane(&shifts[..n], &masses[..n], mu);
-        for (what, (status, values)) in
-            [("direct", direct_lanes_with(settings.clone(), &lane)), ("facade", facade_lane(settings.clone(), &lane))]
-        {
-            assert_eq!(status, LaneStatus::Success, "n={n}, D{dotted} doubled, {what}");
+    let point = |key: &str| -> (Vec<[f64; 4]>, Vec<f64>, f64) {
+        let p = &fixture[key];
+        let shifts = p["shifts"].as_array().unwrap().iter().map(|q| std::array::from_fn(|a| q[a].as_f64().unwrap())).collect();
+        let masses = p["masses_squared"].as_array().unwrap().iter().map(|m| m.as_f64().unwrap()).collect();
+        (shifts, masses, p["mu"].as_f64().unwrap_or(mu))
+    };
+    let (soft, threshold) = (point("soft"), point("threshold"));
+    let collinear = (shifts, masses, mu);
+    let points = [("collinear", &collinear, "cases"), ("soft", &soft, "soft"), ("threshold", &threshold, "threshold")];
+    for (label, (shifts, masses, mu), key) in points {
+        let cases = if key == "cases" { &fixture["cases"] } else { &fixture[key]["cases"] };
+        for case in cases.as_array().unwrap() {
+            let n = case["n"].as_u64().unwrap() as usize;
+            let powers: Vec<u16> = match case.get("powers") {
+                Some(p) => p.as_array().unwrap().iter().map(|x| x.as_u64().unwrap() as u16).collect(),
+                None => {
+                    let dotted = case["dotted"].as_u64().unwrap() as usize;
+                    (0..n).map(|i| if i == dotted { 2 } else { 1 }).collect()
+                }
+            };
+            let what_case = format!("{label}, n={n}, powers {powers:?}");
+            let reference: Vec<Complex<f64>> = case["reference"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|z| Complex::new(z[0].as_str().unwrap().parse().unwrap(), z[1].as_str().unwrap().parse().unwrap()))
+                .collect();
+            let mut settings = ReductionSettings::new(n, 0);
+            settings.powers = powers.clone();
+            let lane = coulomb_lane(&shifts[..n], &masses[..n], *mu);
+            for (what, (status, values)) in
+                [("direct", direct_lanes_with(settings.clone(), &lane)), ("facade", facade_lane(settings.clone(), &lane))]
+            {
+                assert_eq!(status, LaneStatus::Success, "{what_case}, {what}");
+                let ea = relative_difference(&values, &reference);
+                assert!(ea <= 1e-13, "{what_case}, {what}: E/A {ea:e} against quad IREGI");
+            }
+            let (status, values) = direct256(settings, &lane);
+            assert_eq!(status, LaneStatus::Success, "{what_case}, 256 bits");
             let ea = relative_difference(&values, &reference);
-            assert!(ea <= 1e-13, "n={n}, D{dotted} doubled, {what}: E/A {ea:e} against quad IREGI");
+            eprintln!("{what_case}: 256 bits E/A {ea:.1e} against quad IREGI");
+            assert!(ea <= 1e-15, "{what_case}, 256 bits: E/A {ea:e} against quad IREGI");
         }
-        let (status, values) = direct256(settings, &lane);
-        assert_eq!(status, LaneStatus::Success, "n={n}, D{dotted} doubled, 256 bits");
-        let ea = relative_difference(&values, &reference);
-        assert!(ea <= 1e-15, "n={n}, D{dotted} doubled, 256 bits: E/A {ea:e} against quad IREGI");
     }
 }
 

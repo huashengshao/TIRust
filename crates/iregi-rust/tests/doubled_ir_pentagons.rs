@@ -145,36 +145,33 @@ fn doubled_massless_lines_keep_the_d_minus_4_terms_of_pentagons() {
     eprintln!("worst: identities {:.1e}, binary64 {:.1e}", worst[0], worst[1]);
 }
 
-/// Jets the plan keeps no (D - 4) terms for are refused where power counting
-/// in 6 - 2 eps dimensions allows an IR pole, and served where it does not:
-/// - a massless line tripled next to one on-shell leg (2 * 3 + 1 >= 6: the
-///   pentagon [0, 2, 4, 5, 6] of two onia at threshold in
-///   `tests/seven_point_powers.rs`, its Coulomb gluon tripled; original
-///   IREGI's quad scalar differs from the reduction without the terms by 8%
-///   of its finite part);
-/// - the soft line doubled together with its on-shell neighbour
-///   (2 * 2 + 1 + 2 >= 6);
-/// - served: the collinear pentagon with a massive line tripled, and with
-///   two massive lines doubled.
+/// Jets other than one doubled line keep the terms at every order
+/// (`PostOp::PentagonTerms`): a massless line tripled next to an on-shell
+/// leg (the Coulomb gluon of two onia at threshold, `tests/seven_point_powers.rs`'s
+/// pentagon [0, 2, 4, 5, 6]), the soft line doubled together with its
+/// on-shell neighbour, a collinear pair member tripled, both pair members
+/// doubled, a pair member and a massive line doubled, and the collinear
+/// hexagon with two lines doubled. The same identities, ranks 1 to 5.
 #[test]
-fn jets_without_the_terms_refuse_ir_exposed_massless_lines() {
+fn raised_massless_lines_keep_the_d_minus_4_terms_at_every_order() {
     let threshold: [[f64; 4]; 5] =
         [[0.0, 0.0, 0.0, 0.0], [4.5, -3.0, -1.0, 8.0], [-1.5, -4.0, -2.0, 8.0], [-4.0, -2.0, -2.0, 8.0], [-7.0, 0.0, 0.0, 7.0]];
     let threshold_masses = [2.25, 0.0, 0.0, 2.25, 2.25];
-    let refused = |status: &LaneStatus| matches!(status, LaneStatus::Unstable(e) if e.contains("without its (D - 4) terms"));
-    for (label, shifts, masses, powers, refuse) in [
-        ("tripled gluon at threshold", &threshold[..], &threshold_masses[..], vec![1, 1, 3, 1, 1], true),
-        ("soft line and its neighbour doubled", &SOFT_SHIFTS[..], &SOFT_MASSES[..], vec![1, 2, 2, 1, 1], true),
-        ("collinear pentagon, massive line tripled", &COLLINEAR_SHIFTS[..5], &COLLINEAR_MASSES[..5], vec![1, 1, 3, 1, 1], false),
-        ("collinear pentagon, massive lines doubled", &COLLINEAR_SHIFTS[..5], &COLLINEAR_MASSES[..5], vec![1, 1, 2, 2, 1], false),
+    let mut worst = [0.0f64; 2];
+    for (label, shifts, masses, powers) in [
+        ("tripled gluon at threshold", &threshold[..], &threshold_masses[..], vec![1, 1, 3, 1, 1]),
+        ("soft line and its neighbour doubled", &SOFT_SHIFTS[..], &SOFT_MASSES[..], vec![1, 2, 2, 1, 1]),
+        ("collinear pentagon, line 1 tripled", &COLLINEAR_SHIFTS[..5], &COLLINEAR_MASSES[..5], vec![1, 3, 1, 1, 1]),
+        ("collinear pentagon, lines 0 and 1 doubled", &COLLINEAR_SHIFTS[..5], &COLLINEAR_MASSES[..5], vec![2, 2, 1, 1, 1]),
+        ("collinear pentagon, lines 1 and 2 doubled", &COLLINEAR_SHIFTS[..5], &COLLINEAR_MASSES[..5], vec![1, 2, 2, 1, 1]),
+        ("collinear hexagon, lines 1 and 3 doubled", &COLLINEAR_SHIFTS[..], &COLLINEAR_MASSES[..], vec![1, 2, 1, 2, 1, 1]),
     ] {
-        for rank in [0u16, 3] {
-            let (status, _) = run(shifts, masses, &powers, rank);
-            if refuse {
-                assert!(refused(&status), "{label}, rank {rank}: {status:?}");
-            } else {
-                assert_eq!(status, LaneStatus::Success, "{label}, rank {rank}");
-            }
+        for rank in 1..=5u16 {
+            let (identity, binary64) = residuals(shifts, masses, &powers, rank, label);
+            eprintln!("{label}, rank {rank}: identities {identity:.1e}, binary64 {binary64:.1e}");
+            assert!(identity <= 1e-60, "{label}, rank {rank}: identity residual {identity:e}");
+            worst = [worst[0].max(identity), worst[1].max(binary64)];
         }
     }
+    eprintln!("worst: identities {:.1e}, binary64 {:.1e}", worst[0], worst[1]);
 }
