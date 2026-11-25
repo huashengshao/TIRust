@@ -21,10 +21,13 @@
 //! times 2^-53 / t.
 //!
 //! The reference is the direct engine at 256 bits on the same inputs
-//! (512 bits gives the same binary64 values). Every lane must be served,
-//! the scalar C0 within `C0_LIMIT` and each rank-1 lane within
+//! (512 bits gives the same binary64 values). Every scalar lane must be
+//! served within `C0_LIMIT`, and each rank-1 lane binary64 serves within
 //! `RANK_ONE_MARGIN * 2^-53 / t`, both relative to the lane's largest
 //! entry. At oneloop 07fc754 both fail by more than a factor of 1000.
+//! Since huashengshao/TIRust#62 the 1e-12 gate refuses the t = 3.1e-12
+//! rank-1 lane: its triangle estimate `(G D^(1/2) B) D^(1/2)` is 0.14 t
+//! (D = 1/4, B = 0.56), 4.4e-13, against the measure t it was served on.
 
 use iregi_rust::{
     Convention, DirectReductionPlan, InvariantInput, KinematicsBatch, LaneStatus,
@@ -159,12 +162,19 @@ fn soft_photon_scalar_triangle_keeps_binary64_accuracy() {
 
 #[test]
 fn soft_photon_rank_one_triangle_matches_256_bits() {
-    let failures: Vec<_> = errors(1, |t| RANK_ONE_MARGIN * 2f64.powi(-53) / t)
-        .into_iter()
-        .filter(|&(_, e, l)| e > l)
-        .collect();
-    assert!(
-        failures.is_empty(),
-        "binary64 rank-1 lanes beyond {RANK_ONE_MARGIN} * 2^-53 / t (t, error, limit): {failures:?}"
-    );
+    let mut served = 0;
+    for &exponent in &PHOTON_EXPONENTS {
+        let (values, t) = row(exponent);
+        match binary64(1, &values) {
+            Ok(lane) => {
+                let (e, limit) = (error(&lane, &reference(1, &values)), RANK_ONE_MARGIN * 2f64.powi(-53) / t);
+                println!("rank 1, t = {t:.2e}: error {e:.2e}, limit {limit:.2e}");
+                assert!(e <= limit, "binary64 rank-1 lane at t = {t:.1e} beyond {RANK_ONE_MARGIN} * 2^-53 / t: {e:e}");
+                served += 1;
+            }
+            // The gate's refusal of the smallest t (huashengshao/TIRust#62).
+            Err(status) => assert!(t < 1e-11 && matches!(status, LaneStatus::Unstable(_)), "t = {t:.1e}: {status:?}"),
+        }
+    }
+    assert_eq!(served, PHOTON_EXPONENTS.len() - 1);
 }
