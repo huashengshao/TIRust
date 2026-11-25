@@ -64,8 +64,11 @@ fn as_double_real<T: NativeFloat>(x: &T) -> Option<&DoubleFloat> {
 /// but correlated, as in the Gram systems of nearly planar pentagons (issue
 /// #40). These kernels round every result once, at the larger operand
 /// precision, as MPFR does at a fixed precision: through the backend's own
-/// operations, whose result takes the precision of their left operand, with
-/// that operand lifted first (exactly) where it is the less precise.
+/// operations, with the left operand lifted first (exactly) where it is the
+/// less precise. This relies on the `float-mpfr` backend, which TIRust builds
+/// with and whose operations round at the precision of their left operand.
+/// Symbolica's `float-astro` backend rounds a product at the smaller operand
+/// precision instead.
 mod fixed {
     use symbolica::domains::{backend::float::MultiPrecisionFloat, float::Float};
 

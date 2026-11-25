@@ -18,7 +18,7 @@ use super::{
         C, L4, SolveQuality, cadd, cfma, cfma_real, cinv, cmul, cnorm2, cscale, csub, czero, div_dimension,
         lfma, lfma_slots, lzero, mul_dimension, real_lfma_slots, solve_in_place,
     },
-    plan::{DirectPlanData, Gather, Instruction, NO_GEOMETRY, PostOp, Subset, SubsetKind, SubsetMask, Term, members},
+    plan::{DirectPlanData, Gather, Instruction, Jet, NO_GEOMETRY, PostOp, Subset, SubsetKind, SubsetMask, Term, members},
     shared::{MASTER_KEY_WORDS, SharedValue, SubsetStore},
 };
 use crate::{
@@ -50,6 +50,16 @@ const NO_SLOT: u32 = u32::MAX;
 /// inputs (by default the working precision): 2^-40 for binary64 inputs, also
 /// when they are evaluated at a higher precision (rescue tiers).
 const LIGHTLIKE_MARGIN_BITS: i64 = 13;
+/// `rounding` is 8 units of 2^-p: `tolerance_at(p, ROUNDING_MARGIN_BITS)`.
+const ROUNDING_MARGIN_BITS: i64 = 3;
+/// Bits of the working precision `p` a binary64 or double-double triangle
+/// integral keeps through its PV Gram system near a vanishing Källén function
+/// (huashengshao/TIRust#62): whatever the stability threshold, the Gram gate
+/// also refuses a triangle whose Gram system alone (`triangle_estimates`)
+/// costs more than `p - TRIANGLE_KEPT_BITS` bits, so that it keeps about the
+/// facade's default request (2^-34). MPFR workspaces keep their threshold
+/// alone (the precision tiers' own limits keep 40 bits).
+const TRIANGLE_KEPT_BITS: i64 = 34;
 
 /// Stage timings of the most recent profiled call.
 #[derive(Clone, Copy, Debug, Default)]
@@ -194,12 +204,19 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     plan: Arc<DirectPlanData>,
     base_plan: Arc<DirectPlanData>,
     /// Variants keyed by their minimal degenerate subsets.
-    variants: HashMap<(Vec<SubsetMask>, Vec<SubsetMask>, Vec<(SubsetMask, usize)>), (Arc<DirectPlanData>, Arc<Vec<T>>)>,
+    variants: HashMap<
+        (Vec<SubsetMask>, Vec<SubsetMask>, Vec<(SubsetMask, usize)>, Vec<SubsetMask>),
+        (Arc<DirectPlanData>, Arc<Vec<T>>),
+    >,
     lightlike_profile: Vec<SubsetMask>,
     base_constants: Arc<Vec<T>>,
     relation_profile: Vec<SubsetMask>,
     /// Linearly dependent subsets of the lane and their raised member.
     homogeneous_profile: Vec<(SubsetMask, usize)>,
+    /// Subsets of six or more points whose external points span three
+    /// dimensions: reduced by the identities of the profiles above, as no
+    /// six-point coordinate system exists.
+    flat_profile: Vec<SubsetMask>,
     prototype: T,
     zero: C<T>,
     one: C<T>,
@@ -236,6 +253,14 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     input_bits: u32,
     /// `2^-(input_bits - LIGHTLIKE_MARGIN_BITS)` (computed once).
     lightlike_tolerance: T,
+    /// `8 * 2^-min(input_bits, p)`: the rounding the inputs carry, within
+    /// which degenerate kinematics are decided exactly (linearly dependent
+    /// propagators, equal masses, on-shell bubbles). It is `rounding` unless
+    /// the inputs are less precise than the working precision, as binary64
+    /// inputs in a rescue tier or binary128 ones at 256 bits are: those
+    /// carry relations such as p_Q = p_Qbar, p^2 = m^2 only to their own
+    /// rounding, and a test at the working precision's would refuse them.
+    input_rounding: T,
     /// Width of each propagator's field in the packed IBP keys.
     ibp_bits: u32,
     shifts: Vec<[C<T>; 4]>,
@@ -293,9 +318,17 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     /// Per lane of the most recent call: some box or triangle exceeds the a
     /// priori estimate (`estimate_flags` only).
     lane_estimate: Vec<bool>,
+    /// Per lane of the most recent call: the lane's plan variant reduces some
+    /// subset by an affine relation (a constant identity or a partial
+    /// fraction of linearly dependent propagators).
+    lane_relation: Vec<bool>,
     /// `8 * 2^-precision`: a squared distance below this multiple of its
     /// sum of squared components is zero within its own rounding.
     rounding: T,
+    /// Binary64 and double-double: `2^-(p - TRIANGLE_KEPT_BITS)`, the least
+    /// estimate of a triangle's Gram system alone the Gram gate accepts;
+    /// `None` for MPFR.
+    triangle_floor: Option<T>,
     /// Supplied invariants of the current lane: their largest distance from
     /// the invariants of its shifts, relative to each invariant's input size
     /// (`invariant_size`), where it exceeds `rounding`; `None` for inputs
@@ -325,6 +358,7 @@ pub(crate) struct CallRecord {
     conditions: Vec<Option<f64>>,
     gram: Vec<bool>,
     estimate: Vec<bool>,
+    relation: Vec<bool>,
     profile: DirectProfile,
     master_rows: usize,
 }
@@ -406,7 +440,7 @@ where
         for _ in 0..plan.lambda_shift {
             gather_scale *= &prototype.from_i64(-2);
         }
-        let jet_orders = plan.jet.map_or(0, |(_, k)| k - 1);
+        let jet_orders = plan.jet.as_ref().map_or(0, |jet| jet.len - 1);
         let gather_degree = plan.basis.len();
         let max_size = plan.subsets.iter().map(|s| s.members.len()).max().unwrap_or(1);
         let stability_threshold = prototype.from_rational(&symbolica::domains::rational::Rational::from((
@@ -442,6 +476,9 @@ where
             lane_scale: zero.clone(),
             input_bits: prototype.get_precision(),
             lightlike_tolerance: tolerance_at(&prototype, prototype.get_precision(), LIGHTLIKE_MARGIN_BITS),
+            input_rounding: tolerance_at(&prototype, prototype.get_precision(), ROUNDING_MARGIN_BITS),
+            triangle_floor: T::FIXED_BITS
+                .map(|_| tolerance_at(&prototype, prototype.get_precision(), TRIANGLE_KEPT_BITS)),
             ibp_bits: ibp_field_bits(plan.settings.propagators),
             shifts: vec![[zero.clone(), zero.clone(), zero.clone(), zero.clone()]; plan.settings.propagators],
             masses: vec![zero.clone(); plan.settings.propagators],
@@ -525,6 +562,7 @@ where
             lane_conditions: Vec::new(),
             lane_gram: Vec::new(),
             lane_estimate: Vec::new(),
+            lane_relation: Vec::new(),
             rounding: {
                 let half = prototype.one() / &prototype.from_usize(2);
                 (0..prototype.get_precision()).fold(prototype.from_usize(8), |acc, _| acc * &half)
@@ -540,6 +578,7 @@ where
             variants: HashMap::new(),
             relation_profile: Vec::new(),
             homogeneous_profile: Vec::new(),
+            flat_profile: Vec::new(),
             lightlike_profile: Vec::new(),
             constants,
             evaluators,
@@ -616,6 +655,7 @@ where
             conditions: std::mem::take(&mut self.lane_conditions),
             gram: std::mem::take(&mut self.lane_gram),
             estimate: std::mem::take(&mut self.lane_estimate),
+            relation: std::mem::take(&mut self.lane_relation),
             profile: self.profile,
             master_rows: self.master_rows,
         }
@@ -627,6 +667,7 @@ where
         self.lane_conditions = first.conditions;
         self.lane_gram = first.gram;
         self.lane_estimate = first.estimate;
+        self.lane_relation = first.relation;
         self.master_rows += first.master_rows;
         let (a, b) = (&mut self.profile, first.profile);
         a.geometry += b.geometry;
@@ -643,6 +684,8 @@ where
     pub fn set_input_precision(&mut self, bits: u32) {
         self.input_bits = bits;
         self.lightlike_tolerance = tolerance_at(&self.prototype, bits, LIGHTLIKE_MARGIN_BITS);
+        let bits = bits.min(self.prototype.get_precision());
+        self.input_rounding = tolerance_at(&self.prototype, bits, ROUNDING_MARGIN_BITS);
     }
 
     pub fn last_conditions(&self) -> &[Option<f64>] {
@@ -655,6 +698,10 @@ where
 
     pub(crate) fn last_estimate_lanes(&self) -> &[bool] {
         &self.lane_estimate
+    }
+
+    pub(crate) fn last_relation_lanes(&self) -> &[bool] {
+        &self.lane_relation
     }
 
     fn timer(&self) -> Option<Instant> {
@@ -1441,23 +1488,47 @@ where
         for value in &v {
             sum = cadd(&sum, value);
         }
-        // Linear dependence (below) must hold to the working precision's
-        // rounding of the inputs, `self.rounding` (8 units of 2^-p) relative
-        // to the size of what each test reads: here, component by component,
-        // sum_i |c_i| |q_ia| with the origin's weight c_0 = -sum_j v_j.
+        // Linear dependence (below) must hold to the inputs' rounding,
+        // `self.input_rounding` (8 units of 2^-p for inputs at the working
+        // precision p) relative to the size of what each test reads: here,
+        // component by component, sum_i |c_i| |q_ia| with the origin's
+        // weight c_0 = -sum_j v_j. A component within that rounding of the
+        // members' largest one may also be zero, as a lightlike invariant
+        // within its inputs' rounding is: shifts are sums of momenta, so a
+        // component that cancels to nearly zero carries the momenta's
+        // rounding, not its own (an origin of 5e-35 in the z component of
+        // binary128 shifts of 1.5-sized momenta, where the other members'
+        // shifts are 1e-8). The relation holds if it does with such
+        // components as given or with them zero; without them the two
+        // residuals are the same.
+        let largest = members
+            .iter()
+            .flat_map(|&member| self.shifts[member].iter())
+            .map(cnorm2)
+            .fold(self.prototype.zero(), |a, b| if b > a { b } else { a })
+            .sqrt();
+        let floor = largest * &self.input_rounding;
+        let component = |member: usize, a: usize| {
+            let value = &self.shifts[member][a];
+            if cnorm2(value).sqrt() <= floor { self.zero.clone() } else { value.clone() }
+        };
         let mut dependent = true;
         for a in 0..4 {
             let mut residual = self.zero.clone();
+            let mut rounded = self.zero.clone();
+            let origin_component = component(origin, a);
             let mut size = cnorm2(&sum).sqrt() * &cnorm2(&self.shifts[origin][a]).sqrt();
             for j in 0..n {
                 cfma(&mut residual, &v[j], &original[a * n + j]);
+                cfma(&mut rounded, &v[j], &csub(&component(members[j + 1], a), &origin_component));
                 size += cnorm2(&v[j]).sqrt() * &cnorm2(&self.shifts[members[j + 1]][a]).sqrt();
             }
             let residual = cnorm2(&residual).sqrt();
             if residual > bound.clone() * &self.binary_tolerance(33) {
                 return Err(format!("no exact affine relation among {members:?}"));
             }
-            dependent &= residual <= size * &self.rounding;
+            let tolerance = size * &self.input_rounding;
+            dependent &= residual <= tolerance || cnorm2(&rounded).sqrt() <= tolerance;
         }
         let nprop = self.plan.settings.propagators;
         let mut constant = self.zero.clone();
@@ -1484,12 +1555,11 @@ where
             c.extend(v);
             // The propagators are linearly dependent (Coulomb exchange) only
             // when the shifts' relation and the constant vanish to the
-            // inputs' rounding at the working precision, and the on-shell
-            // bubbles their partial fraction reaches are decided at that
-            // rounding too. Otherwise they are nearly dependent: a nonzero
-            // relative velocity, whose value is not the v = 0 one, refused
-            // as without Coulomb support.
-            if dependent && magnitude <= constant_size * &self.rounding && self.bubbles_decided(members) {
+            // inputs' rounding, and the on-shell bubbles their partial
+            // fraction reaches are decided at that rounding too. Otherwise
+            // they are nearly dependent: a nonzero relative velocity, whose
+            // value is not the v = 0 one, refused as without Coulomb support.
+            if dependent && magnitude <= constant_size * &self.input_rounding && self.bubbles_decided(members) {
                 return Ok(AffineRelation::Homogeneous(c));
             }
             return Ok(AffineRelation::NearlyHomogeneous(c));
@@ -1501,6 +1571,186 @@ where
             weights.push(cmul(value, &inverse));
         }
         Ok(AffineRelation::Constant(weights))
+    }
+
+    /// A scalar triangle or box at rank 0 has no Gram system, so nothing else
+    /// stops its master from being evaluated at affinely dependent external
+    /// points, where oneloopmaster's C0 and D0 are wrong: C0 with a vanishing
+    /// Källén function and Cayley determinant (issue #36, 1e15 in binary64),
+    /// and near it (1e-2 at a relative Cayley determinant of 1e-7); D0 even
+    /// at 256 bits. Such a subset of a higher rank takes its denominator
+    /// identity or partial fraction where its Gram system is singular at the
+    /// working precision, and its partial fraction where the system is
+    /// singular only at the inputs' rounding and its propagators are linearly
+    /// dependent there (the v = 0 value of a Coulomb triple), else its
+    /// reduction. This one fails as singular in the same two cases, its
+    /// points dependent at 2^-(p - 13) of their spread (the lightlike margin)
+    /// with p the working precision or the inputs' (at most it), and keeps
+    /// its master otherwise: nearly dependent points that the working
+    /// precision resolves (a Coulomb triple 1e-12 off its line at 256 bits)
+    /// are evaluated as on main.
+    ///
+    /// The C0 master sees only the invariants, which can be degenerate while
+    /// the points are not (issue #60): invariants that round onto the
+    /// degenerate point, supplied ones (taken as given), or MadLoop's
+    /// snapped ones. A triangle whose invariants put binary64 or
+    /// double-double C0 where it is unreliable ([`Self::unreliable_fixed_c0`])
+    /// fails as singular too, so that the facade evaluates it at a higher
+    /// precision (MPFR reduces a vanishing Källén function exactly).
+    fn ungated_scalar(&self, mask: SubsetMask, members: &[usize]) -> Result<(), GeometryFailure> {
+        let margin = exact_f64(&self.prototype, 1024.0);
+        let inputs = self.input_rounding.clone() * &margin;
+        if self.points_affinely_dependent(members, &inputs) {
+            let working = self.rounding.clone() * &margin;
+            if working >= inputs
+                || self.points_affinely_dependent(members, &working)
+                || matches!(self.relation_support(mask), Ok((_, true)))
+            {
+                return Err(GeometryFailure::Singular(
+                    mask,
+                    format!("scalar integral {members:?} with affinely dependent external points"),
+                ));
+            }
+        }
+        if self.unreliable_fixed_c0(members) {
+            return Err(GeometryFailure::Singular(
+                mask,
+                format!("scalar triangle {members:?} whose invariants have a vanishing Källén function"),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Whether binary64 or double-double C0 is unreliable at the invariants
+    /// and masses of the triangle `members`, as its master receives them
+    /// (issue #60). oneloopmaster's fixed-precision sector code takes the
+    /// square root of the Källén function `lambda` of the invariants and loses
+    /// its accuracy as `lambda` vanishes, the faster the smaller the modified
+    /// Cayley determinant `det Y` (`Y_ij = (m_i + m_j - s_ij) / 2`):
+    /// - `|lambda|` within 16 roundings of `(|s_01| + |s_12| + |s_02|)^2`
+    ///   (unresolved): binary64 up to 1e-6 off at a generic `det Y`, 1e15 at
+    ///   `det Y = 0` (issue #36's point);
+    /// - `|lambda|` within `8 sqrt(u)` of that and `|det Y|` within 1024 times
+    ///   `|lambda|`'s share of the product of `Y`'s row norms (binary64 up to
+    ///   1e-4 off at a relative `lambda` of 1e-12 and `det Y` of 1e-13, and
+    ///   falling about as their ratio grows: 1e-8 at 10 to 100, 3e-10 at 1e3).
+    ///
+    /// Not where an invariant is zero (a lightlike leg: its sectors are
+    /// accurate), nor at a massless line between two legs on shell to 8
+    /// roundings (soft: `det Y = 0` at every `lambda`, the near-forward and
+    /// near-threshold Coulomb triangles, accurate), nor at MPFR, whose C0
+    /// reduces `lambda = 0` exactly and has the bits elsewhere.
+    fn unreliable_fixed_c0(&self, members: &[usize]) -> bool {
+        if T::FIXED_BITS.is_none() || members.len() != 3 {
+            return false;
+        }
+        let n = self.masses.len();
+        let zero = self.prototype.zero();
+        let leg = |i: usize, j: usize| &self.distances[members[i] * n + members[j]];
+        let legs = [leg(0, 1), leg(1, 2), leg(0, 2)];
+        if legs.iter().any(|s| !s.im.is_zero() || s.re.is_zero()) {
+            return false;
+        }
+        let abs = |x: T| if x < zero { zero.clone() - &x } else { x };
+        let (a, b, c) = (legs[0].re.clone(), legs[1].re.clone(), legs[2].re.clone());
+        let difference = a.clone() - &b - &c;
+        let lambda = abs(difference.clone() * &difference - exact_f64(&self.prototype, 4.0) * &b * &c);
+        let size = abs(a) + &abs(b) + &abs(c);
+        let scale = size.clone() * &size;
+        // u = rounding / 8.
+        let u = self.rounding.clone() / &exact_f64(&self.prototype, 8.0);
+        let near = exact_f64(&self.prototype, 8.0) * &u.clone().sqrt() * &scale;
+        if lambda > near {
+            return false;
+        }
+        let mass = |k: usize| &self.masses[members[k]];
+        let on_shell = |s: &C<T>, m: &C<T>| cnorm2(&csub(s, m)) <= self.rounding.clone() * &self.rounding * &cnorm2(m);
+        for k in 0..3 {
+            let (i, j) = ((k + 1) % 3, (k + 2) % 3);
+            if cnorm2(mass(k)).is_zero() && on_shell(leg(k, i), mass(i)) && on_shell(leg(k, j), mass(j)) {
+                return false;
+            }
+        }
+        if lambda <= exact_f64(&self.prototype, 16.0) * &u * &scale {
+            return true;
+        }
+        let half = exact_f64(&self.prototype, 0.5);
+        let y = |i: usize, j: usize| -> C<T> {
+            if i == j {
+                mass(i).clone()
+            } else {
+                cscale(&csub(&cadd(mass(i), mass(j)), leg(i.min(j), i.max(j))), &half)
+            }
+        };
+        let y: [[C<T>; 3]; 3] = std::array::from_fn(|i| std::array::from_fn(|j| y(i, j)));
+        let minor = |r: usize, s: usize, t: usize, w: usize| csub(&cmul(&y[r][t], &y[s][w]), &cmul(&y[r][w], &y[s][t]));
+        let determinant = cadd(
+            &csub(&cmul(&y[0][0], &minor(1, 2, 1, 2)), &cmul(&y[0][1], &minor(1, 2, 0, 2))),
+            &cmul(&y[0][2], &minor(1, 2, 0, 1)),
+        );
+        let mut rows = self.prototype.one();
+        for row in &y {
+            rows = rows * &(cnorm2(&row[0]) + &cnorm2(&row[1]) + &cnorm2(&row[2]));
+        }
+        // |det Y| <= 1024 (lambda / scale) prod |row|, squared.
+        let bound = exact_f64(&self.prototype, 1024.0) * &lambda / &scale;
+        cnorm2(&determinant) <= bound.clone() * &bound * &rows
+    }
+
+    /// Whether the three or four external points of `members` are affinely
+    /// dependent at `tolerance`: [`Self::affine_relation`]'s rank test
+    /// (complete pivoting of the shift differences, a pivot at most
+    /// `tolerance` times the largest difference) without the relation or an
+    /// allocation, run on every lane of an ungated scalar top.
+    fn points_affinely_dependent(&self, members: &[usize], tolerance: &T) -> bool {
+        let n = members.len() - 1;
+        debug_assert!((2..=3).contains(&n));
+        let origin = members[0];
+        let mut p: [[C<T>; 3]; 4] = std::array::from_fn(|a| {
+            std::array::from_fn(|j| {
+                if j < n { csub(&self.shifts[members[j + 1]][a], &self.shifts[origin][a]) } else { self.zero.clone() }
+            })
+        });
+        // Squared, as the pivots.
+        let mut scale = self.prototype.zero();
+        for j in 0..n {
+            let mut norm = self.prototype.zero();
+            for row in &p {
+                norm += cnorm2(&row[j]);
+            }
+            if norm > scale {
+                scale = norm;
+            }
+        }
+        let tolerance = scale * &(tolerance.clone() * tolerance);
+        let mut columns = [0usize, 1, 2];
+        for step in 0..n {
+            let mut best = self.prototype.zero();
+            let mut pivot = (step, step);
+            for (row, values) in p.iter().enumerate().skip(step) {
+                for column in step..n {
+                    let candidate = cnorm2(&values[columns[column]]);
+                    if candidate > best {
+                        best = candidate;
+                        pivot = (row, column);
+                    }
+                }
+            }
+            if best <= tolerance {
+                return true;
+            }
+            p.swap(step, pivot.0);
+            columns.swap(step, pivot.1);
+            let inverse = cinv(&p[step][columns[step]]);
+            for row in step + 1..4 {
+                let factor = cmul(&p[row][columns[step]], &inverse);
+                for column in step..n {
+                    let update = cmul(&factor, &p[step][columns[column]]);
+                    p[row][columns[column]] = csub(&p[row][columns[column]], &update);
+                }
+            }
+        }
+        false
     }
 
     /// Minimal support of the affine relation of a singular subset.
@@ -1529,7 +1779,7 @@ where
             AffineRelation::Homogeneous(_) => true,
             AffineRelation::NearlyHomogeneous(_) => {
                 return Err(format!(
-                    "propagators {support_members:?} are linearly dependent only beyond the working precision's rounding"
+                    "propagators {support_members:?} are linearly dependent only beyond the inputs' rounding"
                 ))
             }
         };
@@ -1615,9 +1865,9 @@ where
     }
 
     /// Whether every bubble {g, h} of a massless member g and a massive
-    /// member h of `members` is either on shell to the working precision's
-    /// rounding (`singular_ibp_base`'s test: |d(g, h) - m_h^2| within
-    /// `self.rounding` of m_h^2 plus the size of d(g, h)'s inputs) or off
+    /// member h of `members` is either on shell to the inputs' rounding
+    /// (`singular_ibp_base`'s test: |d(g, h) - m_h^2| within
+    /// `self.input_rounding` of m_h^2 plus the size of d(g, h)'s inputs) or off
     /// shell by more than 2^-33 of that. The partial fraction of linearly
     /// dependent propagators doubles g and reaches these bubbles; one only
     /// nearly on shell would get neither the closed form nor a
@@ -1631,7 +1881,7 @@ where
                 let mass = &self.masses[h];
                 let gap = cnorm2(&csub(&self.distances[g * n + h], mass)).sqrt();
                 let scale = cnorm2(mass).sqrt() + &self.invariant_size(g, h);
-                if gap > scale.clone() * &self.rounding && gap <= scale * &self.binary_tolerance(33) {
+                if gap > scale.clone() * &self.input_rounding && gap <= scale * &self.binary_tolerance(33) {
                     return false;
                 }
             }
@@ -1641,11 +1891,56 @@ where
 
     /// The member of a linearly dependent set whose power the partial
     /// fraction raises: a massless one (the Coulomb gluon), whose doubled
-    /// propagator the master jets and their closed form handle.
+    /// propagator the master jets and their closed form handle. A set
+    /// without one raises its first member: four heavy lines of equal mass
+    /// with D_0 + D_1 = D_2 + D_3 (g g > onium onium: offsets 0, p_1 and
+    /// (p_1 -+ p_2) / 2 of a closed quark loop, or a heavy line through it),
+    /// whose integral is regular and whose pinches are not degenerate. The
+    /// doubled line's jets are then the mass derivatives of those pinches.
     fn raised_member(&self, support: SubsetMask) -> Option<usize> {
-        members(support)
-            .into_iter()
-            .find(|&member| self.masses[member].re.is_zero() && self.masses[member].im.is_zero())
+        let massless = |member: usize| self.masses[member].re.is_zero() && self.masses[member].im.is_zero();
+        // A dotted member is raised itself, massless or not (P-wave's doubled
+        // Coulomb gluon, or a doubled heavy line): it is a jet variable
+        // already.
+        let powers = &self.base_plan.settings.powers;
+        if let Some(d) = members(support).into_iter().find(|&d| powers[d] > 1) {
+            return Some(d);
+        }
+        members(support).into_iter().find(|&member| massless(member)).or_else(|| members(support).into_iter().next())
+    }
+
+    /// The lane's linearly dependent sets with `support` added. When their
+    /// own raised members differ, a member every set holds is raised
+    /// instead, so that they share one jet variable: the dotted line if
+    /// they share it, else the heavy line two Coulomb triples share (e+ e-
+    /// > J/psi eta_c). Sets that share no member keep their own raised
+    /// members, each a jet variable (two P-wave states).
+    fn homogeneous_with(&self, support: SubsetMask, raised: usize) -> Vec<(SubsetMask, usize)> {
+        let mut profile = self.homogeneous_profile.clone();
+        profile.push((support, raised));
+        if profile.iter().all(|&(_, r)| r == raised) {
+            return profile;
+        }
+        let shared = profile.iter().fold(SubsetMask::MAX, |mask, &(h, _)| mask & h);
+        let powers = &self.base_plan.settings.powers;
+        let dotted = members(shared).into_iter().find(|&d| powers[d] > 1);
+        match dotted.or_else(|| members(shared).into_iter().next()) {
+            Some(common) => {
+                for entry in &mut profile {
+                    entry.1 = common;
+                }
+            }
+            // Each set raises its own member again: a member made common to
+            // the earlier sets may be massive, and is not shared by this one.
+            None => {
+                for entry in &mut profile {
+                    if let Some(own) = self.raised_member(entry.0) {
+                        entry.1 = own;
+                    }
+                }
+            }
+        }
+        profile
     }
 
     /// Partial fraction of a linearly dependent subset (`PostOp::TaylorShift`):
@@ -1678,14 +1973,67 @@ where
         }
     }
 
+    /// [`Self::taylor_shift`] on a jet of several variables: order `c` of the
+    /// destination accumulates the weights times order `c + e_v` of the
+    /// pinches, `v` the raised member's variable, and, for each dotted member
+    /// `i` other than the raised one (`own`), its weight times the
+    /// destination's own order `c - e_i + e_v`, which `by_others` puts first.
+    /// The orders whose `c + e_v` leaves the jet are zero, as the univariate
+    /// jet's last order. The weights have no Taylor orders: the relation
+    /// holds at the lane's masses for every power.
+    fn taylor_shift_jet<const FULL: bool>(
+        &mut self,
+        plan: &DirectPlanData,
+        instruction: &Instruction,
+        variable: usize,
+        own: (u32, u32),
+    ) {
+        let jet = plan.jet.as_ref().expect("a partial fraction has a Taylor jet");
+        let raise = &jet.raise[variable];
+        let dst = instruction.dst as usize;
+        let terms = &plan.terms[instruction.terms.0 as usize..instruction.terms.1 as usize];
+        let own = &plan.taylor_own[own.0 as usize..own.1 as usize];
+        for &order in &jet.by_others[variable] {
+            let c = order as usize;
+            let mut acc = lzero(&self.zero);
+            if raise[c] != Jet::NONE {
+                let source = raise[c] as usize;
+                for term in terms {
+                    debug_assert_ne!(term.geometry, NO_GEOMETRY, "partial-fraction weights are geometry");
+                    let factor = cscale(&self.geometry[term.geometry as usize], &self.constants[term.constant as usize]);
+                    lfma_slots::<T, FULL>(&mut acc, &factor, &self.values_jet[source - 1][term.src as usize]);
+                }
+                for &(weight, member) in own {
+                    let lower = jet.lower[usize::from(member)][c];
+                    if lower == Jet::NONE || raise[lower as usize] == Jet::NONE {
+                        continue;
+                    }
+                    let shifted = raise[lower as usize] as usize;
+                    let value = if shifted == 0 { self.values[dst].clone() } else { self.values_jet[shifted - 1][dst].clone() };
+                    let factor = self.geometry[weight as usize].clone();
+                    lfma_slots::<T, FULL>(&mut acc, &factor, &value);
+                }
+            }
+            if c == 0 {
+                self.values[dst] = acc;
+            } else {
+                self.values_jet[c - 1][dst] = acc;
+            }
+        }
+    }
+
     /// Switch the lane to the plan variant of `relation_profile`.
     fn select_variant(&mut self) -> Result<(), ReductionError> {
         let key = (
             self.relation_profile.clone(),
             self.lightlike_profile.clone(),
             self.homogeneous_profile.clone(),
+            self.flat_profile.clone(),
         );
-        if self.relation_profile.is_empty() && self.lightlike_profile.is_empty() && self.homogeneous_profile.is_empty()
+        if self.relation_profile.is_empty()
+            && self.lightlike_profile.is_empty()
+            && self.homogeneous_profile.is_empty()
+            && self.flat_profile.is_empty()
         {
             self.plan = self.base_plan.clone();
             self.constants = self.base_constants.clone();
@@ -1693,8 +2041,12 @@ where
             self.plan = plan.clone();
             self.constants = constants.clone();
         } else {
-            let plan =
-                self.base_plan.variant(&self.relation_profile, &self.lightlike_profile, &self.homogeneous_profile)?;
+            let plan = self.base_plan.flat_variant(
+                &self.relation_profile,
+                &self.lightlike_profile,
+                &self.homogeneous_profile,
+                &self.flat_profile,
+            )?;
             let constants: Arc<Vec<T>> = Arc::new(
                 plan.constants
                     .iter()
@@ -1714,7 +2066,7 @@ where
         }
         let (value_count, geometry_count) = (plan.value_count, plan.geometry_count);
         // A Coulomb-exchange variant carries jets its base plan has not.
-        let orders = plan.jet.map_or(0, |(_, k)| k - 1);
+        let orders = plan.jet.as_ref().map_or(0, |jet| jet.len - 1);
         while self.values_jet.len() < orders {
             self.values_jet.push(vec![lzero(&self.zero); value_count]);
         }
@@ -1776,9 +2128,16 @@ where
             let local = relation.members.iter().position(|&m| m == relation.raised).unwrap();
             // A variant reused from another lane (a rotated copy, another
             // labelling) may raise a member that is massive here; then the
-            // lane picks its own variant.
-            let raised_mass = &self.masses[relation.raised];
-            if !(raised_mass.re.is_zero() && raised_mass.im.is_zero()) {
+            // lane picks its own variant. A massive member is the lane's own
+            // choice when it is a dotted line, shared by every linearly
+            // dependent set, or of a set without a massless member
+            // (`raised_member`, `homogeneous_with`).
+            let dotted = self.base_plan.settings.powers[relation.raised] > 1;
+            let shared = plan.homogeneous.len() >= 2
+                && plan.homogeneous.iter().all(|other| other.members.contains(&relation.raised));
+            let massless = |m: usize| self.masses[m].re.is_zero() && self.masses[m].im.is_zero();
+            let all_massive = !relation.members.iter().any(|&m| massless(m));
+            if !massless(relation.raised) && !dotted && !shared && !all_massive {
                 return Err(GeometryFailure::Relation(format!(
                     "propagator {} of the relation of {:?} is not massless on this lane",
                     relation.raised, relation.members
@@ -1821,6 +2180,18 @@ where
                     }
                     for a in 0..4 {
                         self.geometry[geometry.origin as usize + a] = self.shifts[origin][a].clone();
+                    }
+                    if momenta >= 2 && subset.coefficient_rank < 1 && Some(subset.mask) == top_mask {
+                        // A rank-0 triangle or box (issue #36). Conditioning
+                        // zero, as an exactly singular Gram system: the facade
+                        // sends a refused lane to higher precision, where the
+                        // points may be resolved, not to the symbolic engine
+                        // (whose relation search takes a Coulomb triple 1e-12
+                        // off its line for the v = 0 one).
+                        if let Err(failure) = self.ungated_scalar(subset.mask, members) {
+                            self.failed_condition = Some(0.0);
+                            return Err(failure);
+                        }
                     }
                     if momenta == 1 && (subset.lightlike || subset.coefficient_rank >= 1) {
                         // Lightlike or coincident bubble: |p^2| negligible
@@ -1905,12 +2276,40 @@ where
                                     if i == j { self.one.clone() } else { self.zero.clone() };
                             }
                         }
+                        // Its largest entry, for the triangle estimate.
+                        let mut gram_scale = self.prototype.zero();
                         for value in &self.matrix[..size * size] {
                             let value = cnorm2(value).sqrt();
+                            if value > gram_scale {
+                                gram_scale = value.clone();
+                            }
                             if value > scale {
                                 scale = value;
                             }
                         }
+                        // The inputs' rounding moves the system's relative
+                        // determinant by at most sum_i ||delta row_i|| / ||row_i||
+                        // to first order, each entry's rounding that of its
+                        // three invariants (as `cayley_inverse`'s floor).
+                        let gram_floor = {
+                            let mut floor = self.prototype.zero();
+                            for i in 0..size {
+                                let (mut row, mut delta) = (self.prototype.zero(), self.prototype.zero());
+                                for j in 0..size {
+                                    let (mi, mj) = (members[i + 1], members[j + 1]);
+                                    row += &cnorm2(&self.matrix[i * size + j]);
+                                    let mut entry = self.prototype.zero();
+                                    for (a, b) in [(origin, mi), (origin, mj), (mi, mj)] {
+                                        entry += &(cnorm2(d(a, b)).sqrt() + &self.invariant_size(a, b));
+                                    }
+                                    delta += &(entry.clone() * &entry);
+                                }
+                                if !row.is_zero() {
+                                    floor += &(delta.sqrt() / &row.sqrt());
+                                }
+                            }
+                            floor * &self.input_rounding
+                        };
                         let quality = solve_in_place(
                             &mut self.matrix[..size * size],
                             &mut self.rhs[..size * size],
@@ -1945,11 +2344,34 @@ where
                                 condition = shifted;
                             }
                         }
-                        if condition.clone().pow(power) < threshold {
+                        let mut estimate = condition.clone().pow(power);
+                        let mut short = false;
+                        if size == 2 && n == 3 && self.base_plan.settings.powers.iter().all(|&p| p == 1) {
+                            // A triangle integral with unit powers
+                            // (huashengshao/TIRust#62): the Hadamard ratio and
+                            // |det Z|^(1/2) / scale miss the error growth where
+                            // the Källén function vanishes. A triangle pinched
+                            // from a larger integral keeps the gate it had:
+                            // there this estimate of the triangle alone
+                            // overstates the lane's error (measured with
+                            // D^(1/2) at every rank: on MadLoop's traces 27,365
+                            // of the 70,114 box to hexagon lanes it sent to the
+                            // tiers had binary64 values within 1e-14, at 2.6
+                            // times the Zggg cost). So does a
+                            // dotted triangle, whose coefficient rank counts
+                            // its raised powers (the two-P-wave lanes of
+                            // tests/onia.rs keep 8.6e-10 in binary64).
+                            let (triangle, own) = triangle_estimates(&quality, &scale, &gram_scale, power);
+                            if triangle < estimate {
+                                estimate = triangle;
+                            }
+                            short = self.triangle_floor.as_ref().is_some_and(|floor| own < *floor);
+                        }
+                        if estimate < threshold || short {
                             if gram && (2..=3).contains(&size) {
                                 // Small-Gram expansion (box or triangle), injected in the lane loop
                                 // (with the a priori choice too: its retry covers refused lanes).
-                                let estimate = condition.clone().pow(power).to_f64();
+                                let estimate = estimate.to_f64();
                                 self.failed_condition =
                                     Some(self.failed_condition.map_or(estimate, |f: f64| f.min(estimate)));
                                 self.gram_external.push(subset_id);
@@ -1957,16 +2379,36 @@ where
                             }
                             if partial && (2..=3).contains(&size) && Some(subset.mask) != top_mask {
                                 // Computed in double-double and injected.
-                                let estimate = condition.clone().pow(power).to_f64();
+                                let estimate = estimate.to_f64();
                                 self.failed_condition =
                                     Some(self.failed_condition.map_or(estimate, |f: f64| f.min(estimate)));
                                 self.external.push(subset_id);
                                 continue;
                             }
-                            self.failed_condition = Some(condition.clone().pow(power).to_f64());
+                            self.failed_condition = Some(estimate.to_f64());
                             return Err(GeometryFailure::Singular(subset.mask, format!(
                                 "ill-conditioned Gram matrix for {members:?}: conditioning {:e}",
                                 condition
+                            )));
+                        }
+                        // Singular to the inputs' rounding, which the working
+                        // precision's threshold admits: binary64 inputs at 512
+                        // bits. If its propagators are linearly dependent at
+                        // that rounding (a Coulomb triple at v = 0), the lane
+                        // loop takes their partial fraction, as lower
+                        // precisions do, instead of the reduction resolving the
+                        // inputs' rounding (the off-threshold integral, 1/v
+                        // enhanced). Otherwise the system is reduced as before
+                        // (a Coulomb vertex 46 ulps above threshold is
+                        // evaluated exactly). Binary64 inputs at binary64,
+                        // under the default threshold, are refused first.
+                        if size >= 2
+                            && quality.relative_determinant <= gram_floor
+                            && matches!(self.relation_support(subset.mask), Ok((_, true)))
+                        {
+                            return Err(GeometryFailure::Singular(subset.mask, format!(
+                                "Gram matrix for {members:?} singular to the inputs' rounding: relative determinant {:e}",
+                                quality.relative_determinant
                             )));
                         }
                         for j in 0..size {
@@ -2034,6 +2476,56 @@ where
         }
         for i in 0..5 {
             self.geometry[geometry.b as usize + i] = self.rhs[i].clone();
+        }
+        // A dotted massless line in a collinear pair of this pentagon. The
+        // reduction J5 = sum_i b_i J4^(i) + (4 - D) B J5^(D+2), B = sum_i b_i,
+        // drops its last term; in 6 - 2 eps dimensions the doubled line keeps
+        // a collinear pole, so the dropped part of the mass derivative is of
+        // order B, not eps (a generic pentagon is 1e-4 off). Only a B that
+        // vanishes to the inputs' rounding (a degenerate Gram determinant:
+        // the flat pentagons of two onia in a 2 -> 2 process) lets it go.
+        // (Quarkonium's pentagons at v = 0 take their exact denominator
+        // identity instead.) With Y b = 1, the inputs' rounding moves
+        // B = 1^T b by -b^T dY b to first order: at most the rounding times
+        // sum_ij |b_i| |b_j| y_ij, y_ij the size of Y_ij's inputs
+        // (`cayley_inverse`'s: the invariant's, its cancellation's and both
+        // masses'). Held to sum_i |b_i| times the rounding instead, such
+        // pentagons were refused once the Cayley system amplified it (g g >
+        // chi_c0 chi_c0 9.7 degrees from the beam: up to 40 times for binary64
+        // inputs, 2.1 for binary128 ones; B is at most 0.026 of this bound).
+        let jet_lines: Vec<usize> =
+            self.plan.jet.as_ref().map_or(Vec::new(), |jet| jet.variables.iter().map(|&(line, _)| line).collect());
+        let massless = |i: usize| self.masses[i].re.is_zero() && self.masses[i].im.is_zero();
+        let collinear = jet_lines.iter().find(|&&dotted| {
+            members.contains(&dotted)
+                && massless(dotted)
+                && members.iter().any(|&e| {
+                    e != dotted
+                        && massless(e)
+                        && cnorm2(d(dotted, e)).sqrt() <= self.invariant_size(dotted, e) * &self.input_rounding
+                })
+        });
+        if let Some(&dotted) = collinear {
+            let mut sum = self.zero.clone();
+            let mut bound = self.prototype.zero();
+            for i in 0..5 {
+                sum = cadd(&sum, &self.rhs[i]);
+                let size = cnorm2(&self.rhs[i]).sqrt();
+                for j in 0..5 {
+                    let (mi, mj) = (members[i], members[j]);
+                    let entry = cnorm2(d(mi, mj)).sqrt()
+                        + &self.invariant_size(mi, mj)
+                        + &cnorm2(&self.masses[mi]).sqrt()
+                        + &cnorm2(&self.masses[mj]).sqrt();
+                    bound += size.clone() * &cnorm2(&self.rhs[j]).sqrt() * &entry;
+                }
+            }
+            if cnorm2(&sum).sqrt() > bound * &self.input_rounding {
+                return Err(GeometryFailure::Unstable(format!(
+                    "dotted massless line {dotted} in a collinear pair of pentagon {members:?}: \
+                     its (D + 2)-dimensional term is not reduced"
+                )));
+            }
         }
         if geometry.dd_rank >= 1 {
             // Gram-free coefficients: momenta and origin for the
@@ -2264,7 +2756,7 @@ where
             let ripple = drop + low;
             drop = (((ripple ^ drop) >> 2) / low) | ripple;
         }
-        let mut best: Option<(T, Vec<C<T>>, u128)> = None;
+        let mut best: Option<(T, Vec<C<T>>, u128, T)> = None;
         for drop in drops {
             let chosen: Vec<usize> = (0..size).filter(|&k| drop & (1 << k) == 0).collect();
             let origin = members[chosen[0]];
@@ -2291,26 +2783,57 @@ where
                     };
                 }
             }
+            // The inputs' rounding moves the relative determinant by at most
+            // sum_i ||delta row_i|| / ||row_i|| to first order (as the Gram
+            // floor): a momentum row's entries by that of both shifts'
+            // components, the f row's by that of d(origin, j) and both
+            // masses.
+            let mut floor = self.prototype.zero();
+            for row in 0..5 {
+                let (mut norm, mut delta) = (self.prototype.zero(), self.prototype.zero());
+                for column in 0..5 {
+                    let member = members[chosen[column + 1]];
+                    norm += &cnorm2(&self.matrix[row * 5 + column]);
+                    let size = if row < 4 {
+                        cnorm2(&self.shifts[member][row]).sqrt() + &cnorm2(&self.shifts[origin][row]).sqrt()
+                    } else {
+                        self.invariant_size(origin, member)
+                            + &cnorm2(&self.masses[member]).sqrt()
+                            + &cnorm2(&self.masses[origin]).sqrt()
+                    };
+                    delta += &(size.clone() * &size);
+                }
+                if !norm.is_zero() {
+                    floor += delta.sqrt() / &norm.sqrt();
+                }
+            }
+            let floor = floor * &self.input_rounding;
             let Some(quality) = solve_in_place(&mut self.matrix[..25], &mut self.rhs[..25], 5, 5) else {
                 continue;
             };
-            if best.as_ref().is_none_or(|(relative, _, _)| quality.relative_determinant > *relative) {
-                best = Some((quality.relative_determinant, self.rhs[..25].to_vec(), drop));
+            if best.as_ref().is_none_or(|(relative, _, _, _)| quality.relative_determinant > *relative) {
+                best = Some((quality.relative_determinant, self.rhs[..25].to_vec(), drop, floor));
             }
         }
-        let Some((relative, solution, drop)) = best else {
+        // A singular system, to the working precision or to the inputs'
+        // rounding, is `Singular`: six points spanning three dimensions (two
+        // onia at p_Q = p_Qbar in a 2 -> 2 process) or linearly dependent
+        // propagators. The lane loop then takes the identity of their
+        // relation (`flat_profile`).
+        let Some((relative, solution, drop, floor)) = best else {
             // Exactly singular pivot: conditioning zero.
             self.failed_condition = Some(0.0);
-            return Err(GeometryFailure::Unstable(format!(
-                "singular six-point coordinate system for {members:?}"
-            )));
+            return Err(GeometryFailure::Singular(
+                subset.mask,
+                format!("singular six-point coordinate system for {members:?}"),
+            ));
         };
-        if relative < threshold {
+        if relative < threshold || relative <= floor {
             self.failed_condition = Some(relative.to_f64());
-            return Err(GeometryFailure::Unstable(format!(
-                "ill-conditioned six-point coordinate system: relative determinant {:e}",
-                relative
-            )));
+            return Err(GeometryFailure::Singular(
+                subset.mask,
+                format!("ill-conditioned six-point coordinate system for {members:?}: relative determinant {:e}", relative),
+            ));
         }
         let chosen: Vec<usize> = (0..size).filter(|&k| drop & (1 << k) == 0).collect();
         for column in 0..5 {
@@ -2473,8 +2996,486 @@ where
                 }
                 self.values[index as usize] = value;
             }
+            // Taylor orders in the squared mass of the jet variable whose
+            // propagator is a member. Mixed orders of two members (both
+            // lines jet variables) have a closed form here when the bubble
+            // is scaleless or both its lines are massive.
+            if let Some(jet) = plan.jet.as_ref() {
+                let inside: Vec<usize> =
+                    (0..jet.variables.len()).filter(|&v| members.contains(&jet.variables[v].0)).collect();
+                // Every order starts at zero: the master jets keep this
+                // bubble's orders as written here, and one variable writes
+                // only its own (the bubble does not depend on the others'
+                // masses). Unwritten, they would keep an earlier lane's or
+                // variant's values at these indices.
+                if !inside.is_empty() {
+                    for order in &mut self.values_jet[..jet.len - 1] {
+                        for &(_, _, index) in entries {
+                            order[index as usize] = lzero(&self.zero);
+                        }
+                    }
+                }
+                match inside[..] {
+                    [] => {}
+                    [v] => {
+                        let (line, k_len) = jet.variables[v];
+                        let local = members.iter().position(|&member| member == line).unwrap();
+                        let mut targets = Vec::with_capacity(k_len - 1);
+                        let mut order = 0;
+                        for _ in 1..k_len {
+                            order = jet.raise[v][order] as usize;
+                            targets.push(order);
+                        }
+                        self.lightlike_jets(local, &targets, entries, [&a, &b, &end], &l_values, &log_mu2)?;
+                    }
+                    [v, u] if a_zero && b_zero => {
+                        let by_member = if jet.variables[v].0 == members[0] { [v, u] } else { [u, v] };
+                        self.scaleless_lightlike_jets(jet, by_member, entries);
+                    }
+                    [v, u] if !a_zero && !end_zero => {
+                        let by_member = if jet.variables[v].0 == members[0] { [v, u] } else { [u, v] };
+                        self.massive_lightlike_jets(jet, by_member, entries, [&a, &b, &end], &l_values, &log_mu2);
+                    }
+                    _ => {
+                        return Err(format!(
+                            "lightlike bubble {members:?} with a massless and a massive line, both differentiated (two jet variables)"
+                        ));
+                    }
+                }
+            }
         }
         Ok(())
+    }
+
+    /// Taylor orders `1..k_len` (the jet orders `targets`) in the dotted squared mass of a lightlike
+    /// bubble's coefficients `C(lambda, k)` (`lightlike_coefficients`), with
+    /// `D(x) = a + b x`, `end = a + b`, and member `local` (0 or 1) dotted:
+    /// `m^2 -> m^2 + delta` adds `delta w(x)` to `D`, `w = 1 - x` or `x`.
+    /// - Order `j` of `D^lambda` is `binom(lambda, j) D^(lambda-j) w^j`.
+    /// - Order `j` of `D^lambda log D` is `binom(lambda, j) D^(lambda-j) w^j
+    ///   (log D + H_lambda - H_(lambda-j))` for `j <= lambda`, and
+    ///   `(-1)^(j-lambda-1) lambda! (j-lambda-1)!/j! w^j D^(lambda-j)` beyond,
+    ///   which is UV finite.
+    ///
+    /// With a massive dotted line these integrals converge: `D` vanishes on
+    /// `[0, 1]` only as `m_d^2 w`, when the partner is massless. With a
+    /// massless one and a massive partner (`M^2`), the orders `j <= lambda`
+    /// converge too, but beyond, in `4 - 2 eps` dimensions (powers
+    /// `nu_d = 1 + j`, measure `x^(nu_1 - 1) (1-x)^(nu_0 - 1)`), the endpoint
+    /// where `D` vanishes gives Beta functions with a soft pole. With `m =
+    /// j - lambda` and `n = k + lambda + 1`:
+    /// - member 1 dotted: `(-1)^k (k+j)! / (2^lambda j! n!) M^(-2m)
+    ///   [1/eps_IR + H_n - ln(M^2/mu^2)]`;
+    /// - member 0 dotted, `k >= m`: `(-1)^(k+j+lambda) (m-1)! (k-m)! /
+    ///   (2^lambda n!) M^(-2m)` (finite);
+    /// - member 0 dotted, `q = m - k >= 1`: `(m-1)! / (2^lambda (q-1)! n!)
+    ///   M^(-2m) [1/eps_IR + H_(m-1) - H_(q-1) + H_n - ln(M^2/mu^2)]`.
+    ///
+    /// Both lines massless: scaleless, zero but for the logarithmically
+    /// divergent `j = lambda`, whose cancelling poles `c (1/eps_UV -
+    /// 1/eps_IR)` carry the massive case's UV residue `c`.
+    fn lightlike_jets(
+        &mut self,
+        local: usize,
+        targets: &[usize],
+        entries: &[(u16, u16, u32)],
+        [a, b, end]: [&C<T>; 3],
+        l_values: &[C<T>],
+        log_mu2: &C<T>,
+    ) -> Result<(), String> {
+        use oneloop::rust_codegen::runtime::primitives::log;
+        // Univariate orders 1..k_len, stored at the jet orders `targets`.
+        let k_len = targets.len() + 1;
+        let is_zero = |z: &C<T>| z.re.is_zero() && z.im.is_zero();
+        let (dotted_mass, partner_mass) = if local == 0 { (a, end) } else { (end, a) };
+        let (dotted_massless, scaleless) = (is_zero(dotted_mass), is_zero(dotted_mass) && is_zero(partner_mass));
+        // D = m_d^2 w exactly when the partner is massless.
+        let proportional = is_zero(partner_mass);
+        let max_k = entries.iter().map(|&(_, k, _)| usize::from(k)).max().unwrap_or(0);
+        let moments = if proportional || dotted_massless {
+            Vec::new()
+        } else {
+            self.inverse_power_moments(a, b, end, k_len - 1, max_k + k_len - 1)
+        };
+        // The massive partner of a massless dotted line: M^-2 and
+        // ln(M^2/mu^2).
+        let soft = (dotted_massless && !scaleless)
+            .then(|| (cinv(partner_mass), csub(&log(partner_mass), log_mu2)));
+        let (zero, unit, prototype) = (self.zero.clone(), self.one.clone(), self.prototype.clone());
+        let one = prototype.one();
+        let integer = |n: usize| prototype.from_usize(n);
+        let harmonic = |n: usize| (1..=n).fold(prototype.zero(), |h, i| h + &(one.clone() / &integer(i)));
+        let factorial = |n: usize| (1..=n).fold(one.clone(), |f, i| f * &integer(i));
+        // Polynomials in x, ascending coefficients.
+        let times_w = |p: &[C<T>]| -> Vec<C<T>> {
+            let mut out = vec![zero.clone(); p.len() + 1];
+            for (i, c) in p.iter().enumerate() {
+                if local == 0 {
+                    out[i] = cadd(&out[i], c);
+                    out[i + 1] = csub(&out[i + 1], c);
+                } else {
+                    out[i + 1] = cadd(&out[i + 1], c);
+                }
+            }
+            out
+        };
+        let times_d = |p: &[C<T>]| -> Vec<C<T>> {
+            let mut out = vec![zero.clone(); p.len() + 1];
+            for (i, c) in p.iter().enumerate() {
+                out[i] = cadd(&out[i], &cmul(c, a));
+                out[i + 1] = cadd(&out[i + 1], &cmul(c, b));
+            }
+            out
+        };
+        let mut jets = Vec::with_capacity(entries.len() * (k_len - 1));
+        for &(lambda, k, index) in entries {
+            let (lambda, k) = (usize::from(lambda), usize::from(k));
+            let mut normalization = one.clone();
+            for i in 1..=lambda {
+                normalization = normalization / &integer(2 * i);
+            }
+            if k % 2 == 1 {
+                normalization = -normalization;
+            }
+            let h_lambda = harmonic(lambda);
+            for order in 1..k_len {
+                let mut value = lzero(&zero);
+                if scaleless {
+                    if order == lambda {
+                        // c = normalization int x^k w^lambda.
+                        let mut poly = vec![unit.clone()];
+                        for _ in 0..lambda {
+                            poly = times_w(&poly);
+                        }
+                        let mut residue = zero.clone();
+                        for (i, c) in poly.iter().enumerate() {
+                            residue = cadd(&residue, &cscale(c, &(one.clone() / &integer(k + i + 1))));
+                        }
+                        let residue = cscale(&residue, &normalization);
+                        value[1] = csub(&zero, &residue);
+                        value[0] = residue;
+                    }
+                } else if order > lambda && dotted_massless {
+                    let (inverse, logarithm) = soft.as_ref().unwrap();
+                    let m = order - lambda;
+                    let n = k + lambda + 1;
+                    let mut power = unit.clone();
+                    for _ in 0..m {
+                        power = cmul(&power, inverse);
+                    }
+                    let mut two_lambda = one.clone();
+                    for _ in 0..lambda {
+                        two_lambda = two_lambda * &integer(2);
+                    }
+                    if local == 1 {
+                        let mut residue = factorial(k + order) / &(factorial(order) * &factorial(n) * &two_lambda);
+                        if k % 2 == 1 {
+                            residue = -residue;
+                        }
+                        let residue = cscale(&power, &residue);
+                        value[3] = cmul(&residue, &csub(&C::new(harmonic(n), prototype.zero()), logarithm));
+                        value[1] = residue;
+                    } else if k >= m {
+                        let mut finite = factorial(m - 1) * &factorial(k - m) / &(factorial(n) * &two_lambda);
+                        if (k + order + lambda) % 2 == 1 {
+                            finite = -finite;
+                        }
+                        value[3] = cscale(&power, &finite);
+                    } else {
+                        let q = m - k;
+                        let residue = factorial(m - 1) / &(factorial(q - 1) * &factorial(n) * &two_lambda);
+                        let residue = cscale(&power, &residue);
+                        let constant = harmonic(m - 1) - &harmonic(q - 1) + &harmonic(n);
+                        value[3] = cmul(&residue, &csub(&C::new(constant, prototype.zero()), logarithm));
+                        value[1] = residue;
+                    }
+                } else if order <= lambda {
+                    // x^k D^(lambda-j) w^j against 1 and log(D/mu^2).
+                    let mut poly = vec![unit.clone()];
+                    for _ in 0..lambda - order {
+                        poly = times_d(&poly);
+                    }
+                    for _ in 0..order {
+                        poly = times_w(&poly);
+                    }
+                    let (mut s0, mut s1) = (zero.clone(), zero.clone());
+                    for (i, c) in poly.iter().enumerate() {
+                        let n = k + i;
+                        let inverse = one.clone() / &integer(n + 1);
+                        s0 = cadd(&s0, &cscale(c, &inverse));
+                        s1 = cadd(&s1, &cmul(c, &csub(&l_values[n], &cscale(log_mu2, &inverse))));
+                    }
+                    let binomial = factorial(lambda) / &(factorial(order) * &factorial(lambda - order));
+                    let shift = h_lambda.clone() - &harmonic(lambda - order);
+                    let i0 = cscale(&s0, &binomial);
+                    let i1 = cscale(&cadd(&s1, &cscale(&s0, &shift)), &binomial);
+                    value[0] = cscale(&i0, &normalization);
+                    value[3] = cscale(&csub(&cscale(&i0, &h_lambda), &i1), &normalization);
+                } else {
+                    let m = order - lambda;
+                    let mut integral = zero.clone();
+                    if proportional {
+                        // x^k w^j D^-m = x^k w^lambda (m_d^2)^-m.
+                        let mut poly = vec![unit.clone()];
+                        for _ in 0..lambda {
+                            poly = times_w(&poly);
+                        }
+                        for (i, c) in poly.iter().enumerate() {
+                            integral = cadd(&integral, &cscale(c, &(one.clone() / &integer(k + i + 1))));
+                        }
+                        let inverse = cinv(dotted_mass);
+                        for _ in 0..m {
+                            integral = cmul(&integral, &inverse);
+                        }
+                    } else {
+                        let mut poly = vec![unit.clone()];
+                        for _ in 0..order {
+                            poly = times_w(&poly);
+                        }
+                        for (i, c) in poly.iter().enumerate() {
+                            integral = cadd(&integral, &cmul(c, &moments[m - 1][k + i]));
+                        }
+                    }
+                    // Finite slot only: -normalization (-1)^(m-1) lambda! (m-1)!/j! integral.
+                    let mut weight = factorial(lambda) * &factorial(m - 1) / &factorial(order) * &normalization;
+                    if m % 2 == 1 {
+                        weight = -weight;
+                    }
+                    value[3] = cscale(&integral, &weight);
+                }
+                jets.push((order, index, value));
+            }
+        }
+        for (order, index, value) in jets {
+            self.values_jet[targets[order - 1] - 1][index as usize] = value;
+        }
+        Ok(())
+    }
+
+    /// Every jet order of a scaleless lightlike bubble (both lines massless)
+    /// whose two lines are jet variables, `variables[i]` holding member
+    /// `i`'s line. The order `(j0, j1)` in those variables raises the lines
+    /// to `1 + j0` and `1 + j1`. The bubble stays scaleless: it vanishes, but
+    /// for the logarithmically divergent `j0 + j1 = lambda`, whose cancelling
+    /// poles `c (1/eps_UV - 1/eps_IR)` carry the massive case's UV residue
+    /// `c`, the order `(j0, j1)` of `C(lambda, k)`'s `normalization int x^k
+    /// (D + delta0 (1 - x) + delta1 x)^lambda`:
+    /// `c = (-1)^k (k + j1)! / (2^lambda j1! (k + lambda + 1)!)`
+    /// (`lambda!/(j0! j1!) int x^(k + j1) (1 - x)^j0`). With one digit zero
+    /// this is `lightlike_jets`' scaleless residue. Orders with a digit in
+    /// another variable vanish: the bubble does not depend on that mass.
+    fn scaleless_lightlike_jets(&mut self, jet: &Jet, variables: [usize; 2], entries: &[(u16, u16, u32)]) {
+        let prototype = self.prototype.clone();
+        let one = prototype.one();
+        let integer = |n: usize| prototype.from_usize(n);
+        let factorial = |n: usize| (1..=n).fold(one.clone(), |f, i| f * &integer(i));
+        for order in 1..jet.len {
+            let digits = jet.digits(order);
+            let own = digits.iter().enumerate().all(|(u, &digit)| digit == 0 || variables.contains(&u));
+            let (j0, j1) = (digits[variables[0]], digits[variables[1]]);
+            for &(lambda, k, index) in entries {
+                let (lambda, k) = (usize::from(lambda), usize::from(k));
+                let mut value = lzero(&self.zero);
+                if own && j0 + j1 == lambda {
+                    let mut residue = factorial(k + j1) / &(factorial(j1) * &factorial(k + lambda + 1));
+                    for _ in 0..lambda {
+                        residue = residue / &integer(2);
+                    }
+                    if k % 2 == 1 {
+                        residue = -residue;
+                    }
+                    value[1] = C::new(-residue.clone(), prototype.zero());
+                    value[0] = C::new(residue, prototype.zero());
+                }
+                self.values_jet[order - 1][index as usize] = value;
+            }
+        }
+    }
+
+    /// Every jet order of a lightlike bubble whose two lines are massive jet
+    /// variables, `variables[i]` holding member `i`'s line: two heavy lines
+    /// doubled together (two P-wave states, whose doubled lines differ by a
+    /// gluon momentum). Moving both squared masses moves `D = a + b x` by
+    /// `delta0 (1 - x) + delta1 x`, so the order `(j0, j1)` of a function of
+    /// `D` is its `j`-th derivative, `j = j0 + j1`, times `(1 - x)^j0 x^j1 /
+    /// (j0! j1!)`: `lightlike_jets`' massive orders with `w^j / j!` so
+    /// replaced, of `C(lambda, k) = normalization [I0/eps_UV + H_lambda I0 -
+    /// I1]`:
+    /// - `j <= lambda`: `lambda! / ((lambda - j)! j0! j1!) x^k D^(lambda - j)
+    ///   (1 - x)^j0 x^j1` against 1 (`I0`) and `log(D/mu^2) + H_lambda -
+    ///   H_(lambda - j)` (`I1`);
+    /// - `j > lambda`, UV finite: `I1`'s order alone, `(-1)^(m-1) lambda!
+    ///   (m-1)! / (j0! j1!) x^k (1 - x)^j0 x^j1 D^-m`, `m = j - lambda`
+    ///   (`D` has no zero on `[0, 1]`: both masses are nonzero).
+    /// With one digit zero this is `lightlike_jets`' order. Orders with a
+    /// digit in another variable vanish: the bubble does not depend on that
+    /// mass.
+    fn massive_lightlike_jets(
+        &mut self,
+        jet: &Jet,
+        variables: [usize; 2],
+        entries: &[(u16, u16, u32)],
+        [a, b, end]: [&C<T>; 3],
+        l_values: &[C<T>],
+        log_mu2: &C<T>,
+    ) {
+        let largest = variables.iter().map(|&v| jet.variables[v].1 - 1).sum::<usize>();
+        let max_k = entries.iter().map(|&(_, k, _)| usize::from(k)).max().unwrap_or(0);
+        let moments = self.inverse_power_moments(a, b, end, largest, max_k + largest);
+        let (zero, unit, prototype) = (self.zero.clone(), self.one.clone(), self.prototype.clone());
+        let one = prototype.one();
+        let integer = |n: usize| prototype.from_usize(n);
+        let harmonic = |n: usize| (1..=n).fold(prototype.zero(), |h, i| h + &(one.clone() / &integer(i)));
+        let factorial = |n: usize| (1..=n).fold(one.clone(), |f, i| f * &integer(i));
+        // Polynomials in x, ascending coefficients: times (1 - x), x and D.
+        let times_w0 = |p: &[C<T>]| -> Vec<C<T>> {
+            let mut out = vec![zero.clone(); p.len() + 1];
+            for (i, c) in p.iter().enumerate() {
+                out[i] = cadd(&out[i], c);
+                out[i + 1] = csub(&out[i + 1], c);
+            }
+            out
+        };
+        let times_w1 = |p: &[C<T>]| -> Vec<C<T>> {
+            let mut out = vec![zero.clone(); p.len() + 1];
+            for (i, c) in p.iter().enumerate() {
+                out[i + 1] = cadd(&out[i + 1], c);
+            }
+            out
+        };
+        let times_d = |p: &[C<T>]| -> Vec<C<T>> {
+            let mut out = vec![zero.clone(); p.len() + 1];
+            for (i, c) in p.iter().enumerate() {
+                out[i] = cadd(&out[i], &cmul(c, a));
+                out[i + 1] = cadd(&out[i + 1], &cmul(c, b));
+            }
+            out
+        };
+        for order in 1..jet.len {
+            let digits = jet.digits(order);
+            let own = digits.iter().enumerate().all(|(u, &digit)| digit == 0 || variables.contains(&u));
+            let (j0, j1) = (digits[variables[0]], digits[variables[1]]);
+            let j = j0 + j1;
+            for &(lambda, k, index) in entries {
+                let (lambda, k) = (usize::from(lambda), usize::from(k));
+                let mut value = lzero(&zero);
+                if own {
+                    let mut normalization = one.clone();
+                    for i in 1..=lambda {
+                        normalization = normalization / &integer(2 * i);
+                    }
+                    if k % 2 == 1 {
+                        normalization = -normalization;
+                    }
+                    // (1 - x)^j0 x^j1, times D^(lambda - j) below lambda.
+                    let mut poly = vec![unit.clone()];
+                    for _ in 0..j0 {
+                        poly = times_w0(&poly);
+                    }
+                    for _ in 0..j1 {
+                        poly = times_w1(&poly);
+                    }
+                    let multinomial = factorial(j0) * &factorial(j1);
+                    if j <= lambda {
+                        for _ in 0..lambda - j {
+                            poly = times_d(&poly);
+                        }
+                        let (mut s0, mut s1) = (zero.clone(), zero.clone());
+                        for (i, c) in poly.iter().enumerate() {
+                            let n = k + i;
+                            let inverse = one.clone() / &integer(n + 1);
+                            s0 = cadd(&s0, &cscale(c, &inverse));
+                            s1 = cadd(&s1, &cmul(c, &csub(&l_values[n], &cscale(log_mu2, &inverse))));
+                        }
+                        let coefficient = factorial(lambda) / &(factorial(lambda - j) * &multinomial);
+                        let h_lambda = harmonic(lambda);
+                        let shift = h_lambda.clone() - &harmonic(lambda - j);
+                        let i0 = cscale(&s0, &coefficient);
+                        let i1 = cscale(&cadd(&s1, &cscale(&s0, &shift)), &coefficient);
+                        value[0] = cscale(&i0, &normalization);
+                        value[3] = cscale(&csub(&cscale(&i0, &h_lambda), &i1), &normalization);
+                    } else {
+                        let m = j - lambda;
+                        let mut integral = zero.clone();
+                        for (i, c) in poly.iter().enumerate() {
+                            integral = cadd(&integral, &cmul(c, &moments[m - 1][k + i]));
+                        }
+                        let mut weight = factorial(lambda) * &factorial(m - 1) / &multinomial * &normalization;
+                        if m % 2 == 1 {
+                            weight = -weight;
+                        }
+                        value[3] = cscale(&integral, &weight);
+                    }
+                }
+                self.values_jet[order - 1][index as usize] = value;
+            }
+        }
+    }
+
+    /// `N[m - 1][n] = int_0^1 x^n (a + b x)^-m` for `1 <= m <= m_max` and
+    /// `n <= n_max`, with `a` and `end = a + b` nonzero:
+    /// - for `|b| <= |a|/2`, the series `a^-m sum_i binom(m+i-1, i) (-b/a)^i
+    ///   / (n+i+1)`, truncated as `lightlike_coefficients` truncates `M[k]`;
+    /// - else, from `x = (D - a)/b`, `N[m][n] = (N[m-1][n-1] - a N[m][n-1]) / b`,
+    ///   starting from `N[0][n] = 1/(n+1)`, `N[1][0] = (log end - log a)/b`
+    ///   and `N[m][0] = (a^(1-m) - end^(1-m)) / ((m-1) b)`.
+    fn inverse_power_moments(&self, a: &C<T>, b: &C<T>, end: &C<T>, m_max: usize, n_max: usize) -> Vec<Vec<C<T>>> {
+        use oneloop::rust_codegen::runtime::primitives::log;
+        let one = self.prototype.one();
+        let integer = |n: usize| self.prototype.from_usize(n);
+        let inverse_a = cinv(a);
+        let ratio = cmul(b, &inverse_a);
+        let mut moments = Vec::with_capacity(m_max);
+        if cnorm2(&ratio) <= one.clone() / &integer(4) {
+            let minus_ratio = csub(&self.zero, &ratio);
+            let tolerance = self.precision_tolerance(-7);
+            // |b/a| <= 1/2: the terms' ratio tends to |b/a|; binom(m+i-1, i)
+            // grows only polynomially.
+            let terms = self.prototype.get_precision() as usize + 64 + 8 * m_max;
+            let mut a_power = self.one.clone();
+            for m in 1..=m_max {
+                a_power = cmul(&a_power, &inverse_a);
+                let mut row = Vec::with_capacity(n_max + 1);
+                for n in 0..=n_max {
+                    let mut sum = self.zero.clone();
+                    let mut power = self.one.clone();
+                    for i in 0..terms {
+                        let term = cscale(&power, &(one.clone() / &integer(n + i + 1)));
+                        sum = cadd(&sum, &term);
+                        if cnorm2(&term).sqrt() <= cnorm2(&sum).sqrt() * &tolerance {
+                            break;
+                        }
+                        power = cscale(&cmul(&power, &minus_ratio), &(integer(m + i) / &integer(i + 1)));
+                    }
+                    row.push(cmul(&sum, &a_power));
+                }
+                moments.push(row);
+            }
+        } else {
+            let inverse_b = cinv(b);
+            let inverse_end = cinv(end);
+            let mut previous: Vec<C<T>> =
+                (0..=n_max).map(|n| C::new(one.clone() / &integer(n + 1), self.prototype.zero())).collect();
+            let (mut a_power, mut end_power) = (self.one.clone(), self.one.clone());
+            for m in 1..=m_max {
+                let mut row = Vec::with_capacity(n_max + 1);
+                row.push(if m == 1 {
+                    cmul(&csub(&log(end), &log(a)), &inverse_b)
+                } else {
+                    a_power = cmul(&a_power, &inverse_a);
+                    end_power = cmul(&end_power, &inverse_end);
+                    let scale = one.clone() / &integer(m - 1);
+                    cscale(&cmul(&csub(&a_power, &end_power), &inverse_b), &scale)
+                });
+                for n in 1..=n_max {
+                    let value = cmul(&csub(&previous[n - 1], &cmul(a, &row[n - 1])), &inverse_b);
+                    row.push(value);
+                }
+                previous = row.clone();
+                moments.push(row);
+            }
+        }
+        moments
     }
 
     /// `d f / d delta` of `f_member = d(origin, member) - m_member^2 + m_origin^2`.
@@ -2494,9 +3495,18 @@ where
     /// matrices of pentagons, the six-point `f` row and relation constants.
     #[inline(never)]
     fn geometry_jets(&mut self) -> Result<(), String> {
-        let Some((dotted, k_len)) = self.plan.jet else {
-            return Ok(());
-        };
+        let plan = self.plan.clone();
+        match plan.jet.as_ref() {
+            None => Ok(()),
+            Some(jet) => match jet.univariate() {
+                Some(k_len) => self.geometry_jets_univariate(jet.variables[0].0, k_len),
+                None => self.geometry_jets_multivariate(jet),
+            },
+        }
+    }
+
+    /// [`Self::geometry_jets`] for one variable, the squared mass of `dotted`.
+    fn geometry_jets_univariate(&mut self, dotted: usize, k_len: usize) -> Result<(), String> {
         let plan = self.plan.clone();
         let n = plan.settings.propagators;
         for order in &mut self.geometry_jet {
@@ -2538,7 +3548,9 @@ where
                         self.geometry_jet[0][geometry.f as usize + i] = real(value.clone());
                         df.push(value);
                     }
-                    if subset.coefficient_rank >= 1 && geometry.n > 0 {
+                    // A lightlike bubble has no Gram inverse (its closed
+                    // forms supply its jets).
+                    if subset.coefficient_rank >= 1 && geometry.n > 0 && !subset.lightlike {
                         for j in 0..geometry.n {
                             let mut zf = self.zero.clone();
                             for i in 0..geometry.n {
@@ -2649,6 +3661,218 @@ where
         Ok(())
     }
 
+    /// [`Self::geometry_jets`] for several variables `v`, the squared masses
+    /// of `line_v`. Every mass-dependent entry is linear in them, or solves a
+    /// system linear in them, `(A0 + sum_v delta_v A_v) X = c`, whose orders
+    /// are `X_o = -A0^-1 sum_v A_v X_(o - e_v)`: one variable's formulas of
+    /// [`Self::geometry_jets_univariate`], summed over the variables an order
+    /// lowers.
+    fn geometry_jets_multivariate(&mut self, jet: &Jet) -> Result<(), String> {
+        let plan = self.plan.clone();
+        let n = plan.settings.propagators;
+        let variables = jet.variables.len();
+        for order in &mut self.geometry_jet {
+            for value in order.iter_mut().take(plan.geometry_count) {
+                *value = self.zero.clone();
+            }
+        }
+        let real = |value: T| C::new(value, self.prototype.zero());
+        // The order e_v of each variable.
+        let first: Vec<usize> = (0..variables).map(|v| jet.raise[v][0] as usize).collect();
+        for relation in &plan.relations {
+            // w(delta) = w0 / (1 + sum_v t_v delta_v), t_v = sum_j w0_j df_j(v):
+            // w_o = -sum_v t_v w_(o - e_v).
+            let base = relation.weights as usize;
+            let origin = relation.members[0];
+            let t: Vec<C<T>> = jet
+                .variables
+                .iter()
+                .map(|&(line, _)| {
+                    let mut t = self.zero.clone();
+                    for (j, &member) in relation.members.iter().enumerate().skip(1) {
+                        let df = self.f_derivative(origin, member, line);
+                        t = cadd(&t, &cscale(&self.geometry[base + j], &df));
+                    }
+                    t
+                })
+                .collect();
+            for j in 0..relation.members.len() {
+                for order in 1..jet.len {
+                    let mut value = self.zero.clone();
+                    for (v, t) in t.iter().enumerate() {
+                        let lower = jet.lower[v][order];
+                        if lower == Jet::NONE {
+                            continue;
+                        }
+                        let previous =
+                            if lower == 0 { &self.geometry[base + j] } else { &self.geometry_jet[lower as usize - 1][base + j] };
+                        value = csub(&value, &cmul(previous, t));
+                    }
+                    self.geometry_jet[order - 1][base + j] = value;
+                }
+            }
+        }
+        for subset in &plan.subsets {
+            let members = &subset.members;
+            let origin = members[0];
+            match subset.kind {
+                SubsetKind::Pv => {
+                    let geometry = subset.pv.unwrap();
+                    for (v, &(line, _)) in jet.variables.iter().enumerate() {
+                        let order = first[v] - 1;
+                        if origin == line {
+                            self.geometry_jet[order][geometry.m0 as usize] = self.one.clone();
+                        }
+                        let mut df = Vec::with_capacity(geometry.n);
+                        for i in 0..geometry.n {
+                            let value = self.f_derivative(origin, members[i + 1], line);
+                            self.geometry_jet[order][geometry.f as usize + i] = real(value.clone());
+                            df.push(value);
+                        }
+                        // A lightlike bubble has no Gram inverse (its closed
+                        // forms supply its jets).
+                        if subset.coefficient_rank >= 1 && geometry.n > 0 && !subset.lightlike {
+                            for j in 0..geometry.n {
+                                let mut zf = self.zero.clone();
+                                for i in 0..geometry.n {
+                                    let zinv = &self.geometry[geometry.zinv as usize + j * geometry.n + i];
+                                    zf = cadd(&zf, &cscale(zinv, &df[i]));
+                                }
+                                self.geometry_jet[order][geometry.zf as usize + j] = zf;
+                            }
+                        }
+                    }
+                }
+                SubsetKind::Pentagon => {
+                    let geometry = subset.pentagon.unwrap();
+                    let locals: Vec<Option<usize>> =
+                        jet.variables.iter().map(|&(line, _)| members.iter().position(|&m| m == line)).collect();
+                    // R(delta) = R0 - sum_v delta_v E_v, (E_v)_ij = [i=d_v] + [j=d_v]:
+                    // b_o = R0^-1 sum_v E_v b_(o - e_v).
+                    for order in 1..jet.len {
+                        let mut contributes = false;
+                        for i in 0..5 {
+                            self.rhs[i] = self.zero.clone();
+                        }
+                        for (v, local) in locals.iter().enumerate() {
+                            let (Some(local), lower) = (*local, jet.lower[v][order]) else {
+                                continue;
+                            };
+                            if lower == Jet::NONE {
+                                continue;
+                            }
+                            contributes = true;
+                            let previous: Vec<C<T>> = (0..5)
+                                .map(|i| {
+                                    if lower == 0 {
+                                        self.geometry[geometry.b as usize + i].clone()
+                                    } else {
+                                        self.geometry_jet[lower as usize - 1][geometry.b as usize + i].clone()
+                                    }
+                                })
+                                .collect();
+                            let mut sum = self.zero.clone();
+                            for value in &previous {
+                                sum = cadd(&sum, value);
+                            }
+                            for i in 0..5 {
+                                let mut e = previous[local].clone();
+                                if i == local {
+                                    e = cadd(&e, &sum);
+                                }
+                                self.rhs[i] = cadd(&self.rhs[i], &e);
+                            }
+                        }
+                        if !contributes {
+                            continue;
+                        }
+                        for i in 0..5 {
+                            for j in 0..5 {
+                                let (mi, mj) = (members[i], members[j]);
+                                self.matrix[i * 5 + j] =
+                                    csub(&csub(&self.distances[mi * n + mj], &self.masses[mi]), &self.masses[mj]);
+                            }
+                        }
+                        solve_in_place(&mut self.matrix[..25], &mut self.rhs[..5], 5, 1)
+                            .ok_or_else(|| "singular pentagon Cayley jet system".to_string())?;
+                        for i in 0..5 {
+                            self.geometry_jet[order - 1][geometry.b as usize + i] = self.rhs[i].clone();
+                        }
+                    }
+                    if subset.moment_rank >= 1 {
+                        for (v, &(line, _)) in jet.variables.iter().enumerate() {
+                            for mu in 0..4 {
+                                let mut a = self.zero.clone();
+                                for j in 0..4 {
+                                    let df = self.f_derivative(origin, members[j + 1], line);
+                                    let w = &self.geometry[geometry.w as usize + 4 * mu + j];
+                                    a = csub(&a, &cscale(w, &df));
+                                }
+                                self.geometry_jet[first[v] - 1][geometry.a as usize + mu] = a;
+                            }
+                        }
+                    }
+                }
+                SubsetKind::Hexagon => {
+                    // A(delta) = A0 + sum_v delta_v A_v, A_v only in the f row:
+                    // X_o = y (-sum_v a_v . X_(o - e_v)), y = A0^-1 e_4.
+                    let weights = subset.hexagon.unwrap() as usize;
+                    let a1: Vec<Vec<T>> = jet
+                        .variables
+                        .iter()
+                        .map(|&(line, _)| (0..5).map(|c| self.f_derivative(origin, members[c + 1], line)).collect())
+                        .collect();
+                    if a1.iter().flatten().all(|value| value.is_zero()) {
+                        continue;
+                    }
+                    for column in 0..5 {
+                        let member = members[column + 1];
+                        for mu in 0..4 {
+                            self.matrix[mu * 5 + column] = csub(&self.shifts[member][mu], &self.shifts[origin][mu]);
+                        }
+                        self.matrix[4 * 5 + column] =
+                            cadd(&csub(&self.distances[origin * n + member], &self.masses[member]), &self.masses[origin]);
+                    }
+                    for row in 0..5 {
+                        self.rhs[row] = if row == 4 { self.one.clone() } else { self.zero.clone() };
+                    }
+                    solve_in_place(&mut self.matrix[..25], &mut self.rhs[..5], 5, 1)
+                        .ok_or_else(|| "singular six-point jet system".to_string())?;
+                    let y: Vec<C<T>> = self.rhs[..5].to_vec();
+                    for order in 1..jet.len {
+                        for column in 0..5 {
+                            let mut r = self.zero.clone();
+                            for (v, a1) in a1.iter().enumerate() {
+                                let lower = jet.lower[v][order];
+                                if lower == Jet::NONE {
+                                    continue;
+                                }
+                                for c in 0..5 {
+                                    let index = weights + 6 * column + c + 1;
+                                    let previous = if lower == 0 {
+                                        &self.geometry[index]
+                                    } else {
+                                        &self.geometry_jet[lower as usize - 1][index]
+                                    };
+                                    r = csub(&r, &cscale(previous, &a1[c]));
+                                }
+                            }
+                            let mut sum = self.zero.clone();
+                            for i in 0..5 {
+                                let value = cmul(&y[i], &r);
+                                sum = cadd(&sum, &value);
+                                self.geometry_jet[order - 1][weights + 6 * column + i + 1] = value;
+                            }
+                            self.geometry_jet[order - 1][weights + 6 * column] = csub(&self.zero, &sum);
+                        }
+                    }
+                }
+                SubsetKind::Relation(_) | SubsetKind::Homogeneous(_) => {}
+            }
+        }
+        Ok(())
+    }
+
     /// Inverse of the modified Cayley matrix `R_ij = d_ij - m_i^2 - m_j^2`.
     fn cayley_inverse(&mut self, mask: SubsetMask) -> Result<Vec<C<T>>, String> {
         if let Some(inverse) = self.rinv_memo.get(&mask) {
@@ -2668,6 +3892,28 @@ where
             }
             inverse[i * size + i] = self.one.clone();
         }
+        // The inputs' rounding moves the relative determinant |det| /
+        // prod_i ||row_i|| by at most sum_i ||delta row_i|| / ||row_i|| to
+        // first order, with each entry's rounding taken as that of its
+        // invariant (`invariant_size`, the cancellation of the shifts it
+        // comes from) and of its masses.
+        let mut floor = self.prototype.zero();
+        for i in 0..size {
+            let (mut row, mut delta) = (self.prototype.zero(), self.prototype.zero());
+            for j in 0..size {
+                let (a, b) = (members[i], members[j]);
+                row += &cnorm2(&matrix[i * size + j]);
+                let entry = cnorm2(&self.distances[a * n + b]).sqrt()
+                    + &self.invariant_size(a, b)
+                    + &cnorm2(&self.masses[a]).sqrt()
+                    + &cnorm2(&self.masses[b]).sqrt();
+                delta += &(entry.clone() * &entry);
+            }
+            if !row.is_zero() {
+                floor += &(delta.sqrt() / &row.sqrt());
+            }
+        }
+        let floor = floor * &self.input_rounding;
         let quality = solve_in_place(&mut matrix, &mut inverse, size, size)
             .ok_or_else(|| format!("singular Cayley matrix for {members:?}"));
         if quality.is_err() {
@@ -2679,6 +3925,17 @@ where
             self.failed_condition = Some(quality.relative_determinant.to_f64());
             return Err(format!(
                 "ill-conditioned Cayley matrix for {members:?}: relative determinant {:e}",
+                quality.relative_determinant
+            ));
+        }
+        // Singular to the inputs' rounding (a threshold bubble from binary128
+        // inputs at 256 bits, boosted or not): the inverse would resolve
+        // their rounding, not their kinematics, whatever the stability
+        // threshold.
+        if quality.relative_determinant <= floor {
+            self.failed_condition = Some(quality.relative_determinant.to_f64());
+            return Err(format!(
+                "Cayley matrix for {members:?} singular to the inputs' rounding: relative determinant {:e}",
                 quality.relative_determinant
             ));
         }
@@ -2723,6 +3980,38 @@ where
             self.ibp_memo.insert(powers, value.clone());
             return Ok(value);
         }
+        // A soft line k (massless, every other member on shell against it:
+        // R_jk = d_jk - m_j^2 = 0 to the inputs' rounding) empties row k of
+        // the Cayley matrix, and the IBP identity of (l + r_k) reads
+        // [(D - |v|) - v_k] J(v) = sum_(j != k) v_j J(v + e_j - e_k):
+        // it lowers v_k, so it ends at the pinch of k, with no inverse.
+        // Its factor 4 - |v| - v_k - 2 eps vanishes at D = 4 only for a
+        // bubble of total power 3 whose soft line is undotted, the on-shell
+        // or scaleless closed forms above.
+        if let Some(k) = self.soft_line(&active) {
+            let c0 = 4 - total as i64 - power(powers, k) as i64;
+            if c0 != 0 {
+                let mut sum = lzero(&self.zero);
+                for &j in active.iter().filter(|&&j| j != k) {
+                    let child = powers + ibp_unit(bits, j) - ibp_unit(bits, k);
+                    let value = self.ibp(child)?;
+                    let weight = C::new(self.prototype.from_usize(power(powers, j) as usize), self.prototype.zero());
+                    lfma(&mut sum, &weight, &value);
+                }
+                div_dimension(&mut sum, &(self.prototype.one() / &self.prototype.from_i64(c0)));
+                self.ibp_memo.insert(powers, sum.clone());
+                return Ok(sum);
+            }
+        }
+        // A collinear pair a, b of a triangle (massless, lightlike to the
+        // inputs' rounding): rows a and b of the Cayley matrix are
+        // (0, 0, R_ac) and (0, 0, R_bc), so it is singular (`collinear_ibp`).
+        if let Some(triple) = self.collinear_pair(&active) {
+            if let Some(value) = self.collinear_ibp(triple, l, powers)? {
+                self.ibp_memo.insert(powers, value.clone());
+                return Ok(value);
+            }
+        }
         let inverse = self.cayley_inverse(mask)?;
         let local_l = active.iter().position(|&i| i == l).unwrap();
         let w = powers - ibp_unit(bits, l);
@@ -2751,14 +4040,163 @@ where
         Ok(result)
     }
 
+    /// A soft line of `active` (two members at least): massless, with every
+    /// other member on shell against it, `d_jk = m_j^2` to the inputs'
+    /// rounding (`singular_ibp_base`'s on-shell test), so that row `k` of
+    /// the Cayley matrix `R_jk = d_jk - m_j^2 - m_k^2` vanishes.
+    fn soft_line(&self, active: &[usize]) -> Option<usize> {
+        if active.len() < 2 {
+            return None;
+        }
+        let n = self.plan.settings.propagators;
+        let massless = |z: &C<T>| z.re.is_zero() && z.im.is_zero();
+        active.iter().copied().find(|&k| {
+            massless(&self.masses[k])
+                && active.iter().filter(|&&j| j != k).all(|&j| {
+                    let m2 = &self.masses[j];
+                    let gap = cnorm2(&csub(&self.distances[j * n + k], m2)).sqrt();
+                    gap <= (cnorm2(m2).sqrt() + &self.invariant_size(j, k)) * &self.input_rounding
+                })
+        })
+    }
+
+    /// Whether `a`, `b` form a threshold bubble: equal real positive squared
+    /// masses and `d_ab = 4 m^2`, both to the inputs' rounding.
+    fn threshold_pair(&self, a: usize, b: usize) -> bool {
+        let n = self.plan.settings.propagators;
+        let (ma, mb) = (&self.masses[a], &self.masses[b]);
+        if !ma.im.is_zero() || !mb.im.is_zero() || !(ma.re > ma.re.zero()) {
+            return false;
+        }
+        let scale = cnorm2(ma).sqrt() + &cnorm2(mb).sqrt();
+        if cnorm2(&csub(ma, mb)).sqrt() > scale.clone() * &self.input_rounding {
+            return false;
+        }
+        let four = cscale(ma, &self.prototype.from_usize(4));
+        let gap = cnorm2(&csub(&self.distances[a * n + b], &four)).sqrt();
+        gap <= (scale * &self.prototype.from_usize(2) + &self.invariant_size(a, b)) * &self.input_rounding
+    }
+
+    /// A collinear pair of a triangle `active`: two massless members `a`, `b`
+    /// whose invariant vanishes to the inputs' rounding, with the third line
+    /// `c`, as `(a, b, c)`. (A soft line, which a massless triangle with two
+    /// lightlike legs has, comes first.)
+    fn collinear_pair(&self, active: &[usize]) -> Option<(usize, usize, usize)> {
+        let &[x, y, w] = active else {
+            return None;
+        };
+        let n = self.plan.settings.propagators;
+        let massless = |z: &C<T>| z.re.is_zero() && z.im.is_zero();
+        [(x, y, w), (x, w, y), (y, w, x)].into_iter().find(|&(a, b, _)| {
+            massless(&self.masses[a])
+                && massless(&self.masses[b])
+                && cnorm2(&self.distances[a * n + b]).sqrt() <= self.invariant_size(a, b) * &self.input_rounding
+        })
+    }
+
+    /// `J(v)` of a triangle with a collinear pair `(a, b)` and third line `c`
+    /// (`collinear_pair`), `v_l >= 2`, or `None` when this relation does not
+    /// determine it. With `mu = v - e_l`, `T = |v|` and `Y_i = mu_i J(mu + e_i)`,
+    /// the IBP identity of `(l + r_k)` at `mu`, `sum_i R_ki Y_i = rhs_k =
+    /// sum_i mu_i J(mu + e_i - e_k) - (D - |mu|) J(mu)`, gives `Y_c` from row
+    /// `a` (or `b`) and `R_ca Y_a + R_cb Y_b = u = rhs_c - R_cc Y_c` from row
+    /// `c`. The null vector `z = (R_cb, -R_ca, 0)`, `Z = R_cb - R_ca`, makes
+    /// the identities' combination at `mu + e_a`
+    /// `[(D - T) Z - z_a (mu_a + 1) - z_b mu_b] J(mu + e_a) = z_a (Y_b + Y_c) + z_b W`,
+    /// `W = (mu_a + 1) J(mu + 2 e_a - e_b) + mu_c J(mu + e_a + e_c - e_b)`
+    /// (a lower power of `b`, down to its pinch), so that
+    /// `(Z / mu_a) (A - 2 eps) Y_a = u + R_cb Y_c - R_ca W`, with
+    /// `A = [(4 - T) Z - R_cb (mu_a + 1) + R_ca (mu_a + mu_b)] / Z`
+    /// (`-2` for a single dot). Symmetric legs (`Z = 0`) or `A = 0` leave it
+    /// to the Cayley inverse, which refuses the singular matrix.
+    fn collinear_ibp(
+        &mut self,
+        (a, b, c): (usize, usize, usize),
+        l: usize,
+        powers: u64,
+    ) -> Result<Option<L4<T>>, String> {
+        let n = self.plan.settings.propagators;
+        let bits = self.ibp_bits;
+        let power = |packed: u64, i: usize| ibp_power(packed, bits, i);
+        let unit = |i: usize| ibp_unit(bits, i);
+        let entry = |i: usize, j: usize| csub(&csub(&self.distances[i * n + j], &self.masses[i]), &self.masses[j]);
+        let (r_ac, r_bc, r_ca, r_cb, r_cc) = (entry(a, c), entry(b, c), entry(c, a), entry(c, b), entry(c, c));
+        let z = csub(&r_cb, &r_ca);
+        let scale = cnorm2(&r_ca).sqrt() + &cnorm2(&r_cb).sqrt();
+        if cnorm2(&z).sqrt() <= scale * &self.input_rounding {
+            return Ok(None);
+        }
+        let mu = powers - unit(l);
+        let (mu_a, mu_b, mu_c) = (power(mu, a), power(mu, b), power(mu, c));
+        let total = (mu_a + mu_b + mu_c + 1) as i64;
+        let prototype = self.prototype.clone();
+        let real = move |x: i64| C::new(prototype.from_i64(x), prototype.zero());
+        let numerator_a = csub(
+            &csub(&cmul(&z, &real(4 - total)), &cmul(&r_cb, &real(mu_a as i64 + 1))),
+            &cmul(&r_ca, &real(-((mu_a + mu_b) as i64))),
+        );
+        let coefficient = cmul(&numerator_a, &cinv(&z));
+        if cnorm2(&coefficient).sqrt() <= self.input_rounding.clone() * &self.prototype.from_usize(64) {
+            return Ok(None);
+        }
+        // rhs_k for k = c and for the better row of a, b.
+        let mut dimension = self.ibp(mu)?;
+        mul_dimension(&mut dimension, &self.prototype.from_i64(5 - total));
+        let row = if cnorm2(&r_ac) >= cnorm2(&r_bc) { a } else { b };
+        let mut rhs = [lzero(&self.zero), lzero(&self.zero)];
+        for (slot, k) in [row, c].into_iter().enumerate() {
+            let mut acc: L4<T> = std::array::from_fn(|s| csub(&self.zero, &dimension[s]));
+            for i in [a, b, c] {
+                let value = self.ibp(mu + unit(i) - unit(k))?;
+                lfma(&mut acc, &real(power(mu, i) as i64), &value);
+            }
+            rhs[slot] = acc;
+        }
+        let r_kc = if row == a { &r_ac } else { &r_bc };
+        let mut y_c = lzero(&self.zero);
+        lfma(&mut y_c, &cinv(r_kc), &rhs[0]);
+        let mut u = rhs[1].clone();
+        lfma(&mut u, &csub(&self.zero, &r_cc), &y_c);
+        // W: a lower power of b.
+        let mut w = lzero(&self.zero);
+        let k1 = self.ibp(mu + 2 * unit(a) - unit(b))?;
+        lfma(&mut w, &real(mu_a as i64 + 1), &k1);
+        let k2 = self.ibp(mu + unit(a) + unit(c) - unit(b))?;
+        lfma(&mut w, &real(mu_c as i64), &k2);
+        let mut numerator = u.clone();
+        lfma(&mut numerator, &r_cb, &y_c);
+        lfma(&mut numerator, &csub(&self.zero, &r_ca), &w);
+        // Y_a = (mu_a / Z) numerator / (A - 2 eps).
+        let y_a = {
+            let mut scaled = lzero(&self.zero);
+            lfma(&mut scaled, &cmul(&real(mu_a as i64), &cinv(&z)), &numerator);
+            div_dimension_complex(&scaled, &coefficient)
+        };
+        let mut y_b = u;
+        lfma(&mut y_b, &csub(&self.zero, &r_ca), &y_a);
+        let y_b: L4<T> = std::array::from_fn(|s| cmul(&y_b[s], &cinv(&r_cb)));
+        let (y_l, mu_l) = if l == a {
+            (y_a, mu_a)
+        } else if l == b {
+            (y_b, mu_b)
+        } else {
+            (y_c, mu_c)
+        };
+        let inverse = cinv(&real(mu_l as i64));
+        Ok(Some(std::array::from_fn(|s| cmul(&y_l[s], &inverse))))
+    }
+
     /// Closed forms of the IR-singular IBP bases (singular Cayley matrix)
     /// that the Coulomb-exchange partial fractions reach, in OneLOop's
     /// normalization (slots `[uv, ir1, ir2, finite]`), first order only:
     /// - a doubled massless tadpole, `int 1/(l^2)^2 = 1/eps_UV - 1/eps_IR`
-    ///   (scaleless);
-    /// - a lightlike (or coincident) bubble of equal masses, total power 3:
-    ///   at `p^2 = 0` the tadpole `int 1/(l^2 - m^2)^3 = -1/(2 m^2)` (finite;
-    ///   zero for `m = 0`, scaleless);
+    ///   (scaleless), and its higher powers, zero;
+    /// - a lightlike (or coincident) bubble of equal masses, total power
+    ///   `nu >= 3`: at `p^2 = 0` the tadpole
+    ///   `int 1/(l^2 - m^2)^nu = (-1)^nu (m^2)^(2 - nu) / ((nu - 1) (nu - 2))`
+    ///   (finite, `-1/(2 m^2)` at `nu = 3`; zero for `m = 0`, scaleless);
+    /// - a threshold bubble of equal masses, `p^2 = 4 m^2`, total power
+    ///   `nu >= 3` (below);
     /// - the on-shell bubble `(q_a - q_b)^2 = m^2` (to the working
     ///   precision's rounding of the inputs, real `m^2 > 0`) with a massless
     ///   partner, from
@@ -2783,25 +4221,80 @@ where
                 self.zero.clone(),
                 self.zero.clone(),
             ]),
-            &[a, b] if power(a) + power(b) == 3 && {
+            // Higher powers of a massless tadpole are scaleless without a
+            // logarithmic divergence: zero.
+            &[d] if massless(&self.masses[d]) => Some(lzero(&self.zero)),
+            &[a, b] if power(a) + power(b) >= 3 && {
                 // A lightlike (or coincident) bubble of equal masses: its
-                // Cayley matrix is singular, and at p^2 = 0 it is the tadpole
-                // int 1/(l^2 - m^2)^3 = (1/2) d B0(0; m, m)/d m^2 = -1/(2 m^2)
-                // (finite; scaleless, hence zero, for m = 0).
-                // Equal masses to the working precision's rounding.
+                // Cayley matrix is singular, and at p^2 = 0, where
+                // Delta = m^2 for every Feynman parameter, it is the tadpole of
+                // total power nu = nu_a + nu_b,
+                // int 1/(l^2 - m^2)^nu = (-1)^nu Gamma(nu - 2 + eps) / Gamma(nu)
+                // (m^2)^(2 - nu - eps), finite for nu >= 3:
+                // (-1)^nu (m^2)^(2 - nu) / ((nu - 1) (nu - 2)), e.g. -1/(2 m^2)
+                // = (1/2) d B0(0; m, m)/d m^2 at nu = 3 (scaleless, hence zero,
+                // for m = 0). Equal masses to the inputs' rounding.
                 let p2 = &self.distances[a * n + b];
                 let scale = cnorm2(&self.masses[a]).sqrt();
                 let equal = cnorm2(&csub(&self.masses[a], &self.masses[b])).sqrt()
-                    <= (scale.clone() + &cnorm2(&self.masses[b]).sqrt()) * &self.rounding;
+                    <= (scale.clone() + &cnorm2(&self.masses[b]).sqrt()) * &self.input_rounding;
                 equal && cnorm2(p2).sqrt() <= scale * &self.lightlike_tolerance
             } =>
             {
                 if massless(&self.masses[a]) {
                     return Some(lzero(&self.zero));
                 }
-                let half = self.prototype.one() / &self.prototype.from_usize(2);
-                let value = cscale(&cinv(&self.masses[a]), &(self.prototype.zero() - &half));
-                Some([self.zero.clone(), self.zero.clone(), self.zero.clone(), value])
+                let nu = (power(a) + power(b)) as usize;
+                let inverse = cinv(&self.masses[a]);
+                let mut value = inverse.clone();
+                for _ in 3..nu {
+                    value = cmul(&value, &inverse);
+                }
+                let mut weight = self.prototype.one() / &self.prototype.from_usize((nu - 1) * (nu - 2));
+                if nu % 2 == 1 {
+                    weight = self.prototype.zero() - &weight;
+                }
+                Some([self.zero.clone(), self.zero.clone(), self.zero.clone(), cscale(&value, &weight)])
+            }
+            // A threshold bubble of equal masses, p^2 = 4 m^2 to the inputs'
+            // rounding, total power nu >= 3: Delta = m^2 (1 - 2x)^2, and with
+            // x = (1 - t)/2 and P(t) = x^(nu_b - 1) (1 - x)^(nu_a - 1) =
+            // sum_n c_n t^n, J = (-1)^nu Gamma(nu - 2 + eps) / (Gamma(nu_a)
+            // Gamma(nu_b)) (m^2)^(2 - nu - eps) sum_(n even) c_n / (5 - 2 nu + n
+            // - 2 eps). It is finite (5 - 2 nu + n is odd): dimensional
+            // regularization removes the power-like Coulomb singularity of the
+            // 4-dimensional mass derivative.
+            &[a, b] if power(a) + power(b) >= 3 && self.threshold_pair(a, b) => {
+                let (nu_a, nu_b) = (power(a) as usize, power(b) as usize);
+                let nu = nu_a + nu_b;
+                let one = self.prototype.one();
+                let half = one.clone() / &self.prototype.from_usize(2);
+                // P(t) as real coefficients, ascending.
+                let mut poly = vec![one.clone()];
+                for (count, sign) in [(nu_b - 1, -1i64), (nu_a - 1, 1)] {
+                    for _ in 0..count {
+                        let mut next = vec![self.prototype.zero(); poly.len() + 1];
+                        for (i, c) in poly.iter().enumerate() {
+                            next[i] += &(c.clone() * &half);
+                            next[i + 1] += &(c.clone() * &half * &self.prototype.from_i64(sign));
+                        }
+                        poly = next;
+                    }
+                }
+                let mut sum = self.prototype.zero();
+                for (n, c) in poly.iter().enumerate().step_by(2) {
+                    sum += &(c.clone() / &self.prototype.from_i64(5 - 2 * nu as i64 + n as i64));
+                }
+                let factorial = |k: usize| (1..=k).fold(one.clone(), |f, i| f * &self.prototype.from_usize(i));
+                let mut value = sum * &factorial(nu - 3) / &(factorial(nu_a - 1) * &factorial(nu_b - 1));
+                if nu % 2 == 1 {
+                    value = -value;
+                }
+                let m2 = self.masses[a].re.clone();
+                for _ in 0..nu - 2 {
+                    value = value / &m2;
+                }
+                Some([self.zero.clone(), self.zero.clone(), self.zero.clone(), real(value)])
             }
             &[a, b] => {
                 let (g, h) = if massless(&self.masses[a]) { (a, b) } else { (b, a) };
@@ -2812,10 +4305,9 @@ where
                 if !m2.im.is_zero() || !(m2.re > m2.re.zero()) {
                     return None;
                 }
-                // On shell to the working precision's rounding of the inputs
-                // (p^2's and m^2's).
+                // On shell to the inputs' rounding (p^2's and m^2's).
                 let gap = cnorm2(&csub(&self.distances[g * n + h], m2)).sqrt();
-                if gap > (m2.re.clone() + &self.invariant_size(g, h)) * &self.rounding {
+                if gap > (m2.re.clone() + &self.invariant_size(g, h)) * &self.input_rounding {
                     return None;
                 }
                 let mu2 = self.lane_mu2.as_ref()?;
@@ -2840,55 +4332,85 @@ where
         }
     }
 
-    /// Taylor coefficients `J(1_S + k e_d)` of every master containing `d`.
+    /// Taylor coefficients `J(1_S + o)` of every master `S` containing a jet
+    /// variable's propagator, for the orders `o` whose variables all lie in
+    /// `S` (the others vanish: `S` does not depend on those masses).
     fn master_jets(&mut self) -> Result<(), String> {
-        let Some((dotted, k_len)) = self.plan.jet else {
+        let plan = self.plan.clone();
+        let Some(jet) = plan.jet.as_ref() else {
             return Ok(());
         };
         self.ibp_memo.clear();
         self.rinv_memo.clear();
-        let plan = self.plan.clone();
+        let lines: SubsetMask = jet.variables.iter().fold(0, |mask, &(line, _)| mask | (1 << line));
+        // `lightlike_coefficients` (which runs first) wrote the jets of the
+        // lightlike bubbles containing a variable's propagator: keep them.
+        let kept: Vec<(usize, usize, L4<T>)> = plan
+            .lightlike
+            .iter()
+            .filter(|(subset, _)| plan.subsets[*subset].mask & lines != 0)
+            .flat_map(|(_, entries)| entries.iter().map(|&(_, _, index)| index as usize))
+            .flat_map(|index| (0..jet.len - 1).map(move |order| (order, index)))
+            .map(|(order, index)| (order, index, self.values_jet[order][index].clone()))
+            .collect();
         for order in &mut self.values_jet {
             for value in order.iter_mut().take(plan.value_count) {
                 *value = lzero(&self.zero);
             }
         }
+        for (order, index, value) in kept {
+            self.values_jet[order][index] = value;
+        }
+        let bits = self.ibp_bits;
         for family in &plan.masters {
             for &(subset, index) in family {
                 let mask = plan.subsets[subset].mask;
-                if mask & (1 << dotted) == 0 {
+                if mask & lines == 0 {
                     continue;
                 }
-                let bits = self.ibp_bits;
                 let (mut unit, mut rest) = (0u64, mask);
                 while rest != 0 {
                     unit += ibp_unit(bits, rest.trailing_zeros() as usize);
                     rest &= rest - 1;
                 }
-                for order in 1..k_len {
-                    let value = self.ibp(unit + order as u64 * ibp_unit(bits, dotted))?;
-                    self.values_jet[order - 1][index as usize] = value;
+                for order in 1..jet.len {
+                    let mut powers = unit;
+                    let mut inside = true;
+                    for (&(line, _), digit) in jet.variables.iter().zip(jet.digits(order)) {
+                        if digit > 0 {
+                            inside &= mask & (1 << line) != 0;
+                            powers += digit as u64 * ibp_unit(bits, line);
+                        }
+                    }
+                    if inside {
+                        let value = self.ibp(powers)?;
+                        self.values_jet[order - 1][index as usize] = value;
+                    }
                 }
             }
         }
         Ok(())
     }
 
-    /// Recurrence program on Taylor jets: order k accumulates
-    /// `sum_(a+b=k) geometry_a constant value_b`.
+    /// Recurrence program on Taylor jets of any shape: order `c` accumulates
+    /// `sum_(a+b=c) geometry_a constant value_b` over the jet's box.
     #[inline(never)]
     fn run_program_jets(&mut self, plan: &DirectPlanData, program_is_moments: bool) {
-        let k_len = plan.jet.map_or(1, |(_, k)| k);
+        let jet = plan.jet.as_ref().expect("a jet program has a Taylor jet");
+        let len = jet.len;
         let program = if program_is_moments {
             &plan.moment_program
         } else {
             &plan.coefficient_program
         };
-        let mut accumulator = vec![lzero(&self.zero); k_len];
-        let mut factors = vec![self.zero.clone(); k_len];
+        let mut accumulator = vec![lzero(&self.zero); len];
+        let mut factors = vec![self.zero.clone(); len];
         for instruction in program {
-            if let PostOp::TaylorShift = instruction.post {
-                self.taylor_shift::<true>(plan, instruction, k_len);
+            if let PostOp::TaylorShift { variable, own } = instruction.post {
+                match jet.univariate() {
+                    Some(k_len) => self.taylor_shift::<true>(plan, instruction, k_len),
+                    None => self.taylor_shift_jet::<true>(plan, instruction, usize::from(variable), own),
+                }
                 continue;
             }
             for value in &mut accumulator {
@@ -2902,23 +4424,23 @@ where
                 } else {
                     let g = term.geometry as usize;
                     factors[0] = cscale(&self.geometry[g], constant);
-                    for a in 1..k_len {
+                    for a in 1..len {
                         factors[a] = cscale(&self.geometry_jet[a - 1][g], constant);
                     }
-                    k_len
+                    len
                 };
                 let src = term.src as usize;
                 for a in 0..orders {
                     if factors[a].re.is_zero() && factors[a].im.is_zero() {
                         continue;
                     }
-                    for b in 0..k_len - a {
+                    for &(b, c) in &jet.sums[a] {
                         let value = if b == 0 {
                             &self.values[src]
                         } else {
-                            &self.values_jet[b - 1][src]
+                            &self.values_jet[b as usize - 1][src]
                         };
-                        lfma(&mut accumulator[a + b], &factors[a], value);
+                        lfma(&mut accumulator[c as usize], &factors[a], value);
                     }
                 }
             }
@@ -2929,7 +4451,7 @@ where
             }
             let dst = instruction.dst as usize;
             self.values[dst] = accumulator[0].clone();
-            for order in 1..k_len {
+            for order in 1..len {
                 self.values_jet[order - 1][dst] = accumulator[order].clone();
             }
         }
@@ -2948,15 +4470,17 @@ where
     }
 
     fn run_program(&mut self, plan: &DirectPlanData, program_is_moments: bool) {
-        match (self.plan.jet, self.ir_free) {
-            (Some((_, 2)), true) => self.run_program_jet::<false, 2>(plan, program_is_moments),
-            (Some((_, 2)), false) => self.run_program_jet::<true, 2>(plan, program_is_moments),
-            (Some((_, 3)), true) => self.run_program_jet::<false, 3>(plan, program_is_moments),
-            (Some((_, 3)), false) => self.run_program_jet::<true, 3>(plan, program_is_moments),
-            (Some((_, 4)), true) => self.run_program_jet::<false, 4>(plan, program_is_moments),
-            (Some((_, 4)), false) => self.run_program_jet::<true, 4>(plan, program_is_moments),
-            (Some((_, 5)), true) => self.run_program_jet::<false, 5>(plan, program_is_moments),
-            (Some((_, 5)), false) => self.run_program_jet::<true, 5>(plan, program_is_moments),
+        // One variable of length 2 to 5: the unrolled univariate jets.
+        let shape = self.plan.jet.as_ref().map(Jet::univariate);
+        match (shape, self.ir_free) {
+            (Some(Some(2)), true) => self.run_program_jet::<false, 2>(plan, program_is_moments),
+            (Some(Some(2)), false) => self.run_program_jet::<true, 2>(plan, program_is_moments),
+            (Some(Some(3)), true) => self.run_program_jet::<false, 3>(plan, program_is_moments),
+            (Some(Some(3)), false) => self.run_program_jet::<true, 3>(plan, program_is_moments),
+            (Some(Some(4)), true) => self.run_program_jet::<false, 4>(plan, program_is_moments),
+            (Some(Some(4)), false) => self.run_program_jet::<true, 4>(plan, program_is_moments),
+            (Some(Some(5)), true) => self.run_program_jet::<false, 5>(plan, program_is_moments),
+            (Some(Some(5)), false) => self.run_program_jet::<true, 5>(plan, program_is_moments),
             (Some(_), _) => self.run_program_jets(plan, program_is_moments),
             (None, true) => self.run_program_ordinary::<false>(plan, program_is_moments),
             (None, false) => self.run_program_ordinary::<true>(plan, program_is_moments),
@@ -2973,7 +4497,7 @@ where
             for &(_, index) in family {
                 let value = &self.values[index as usize];
                 free &= zero(&value[1]) && zero(&value[2]);
-                for order in self.values_jet.iter().take(plan.jet.map_or(0, |(_, k)| k - 1)) {
+                for order in self.values_jet.iter().take(plan.jet.as_ref().map_or(0, |jet| jet.len - 1)) {
                     let value = &order[index as usize];
                     free &= zero(&value[1]) && zero(&value[2]);
                 }
@@ -2998,7 +4522,7 @@ where
             &plan.coefficient_program
         };
         for instruction in program {
-            if let PostOp::TaylorShift = instruction.post {
+            if let PostOp::TaylorShift { .. } = instruction.post {
                 self.taylor_shift::<FULL>(plan, instruction, K);
                 continue;
             }
@@ -3196,7 +4720,7 @@ where
                         div_dimension(&mut accumulator, &constants[inverse as usize]);
                     }
                     // Only plans with a Taylor jet have partial fractions.
-                    PostOp::TaylorShift => unreachable!("a partial fraction without a Taylor jet"),
+                    PostOp::TaylorShift { .. } => unreachable!("a partial fraction without a Taylor jet"),
                 }
                 values[instruction.dst as usize] = accumulator;
             }
@@ -3845,6 +5369,8 @@ where
         self.lane_gram.resize(batch.rows, false);
         self.lane_estimate.clear();
         self.lane_estimate.resize(batch.rows, false);
+        self.lane_relation.clear();
+        self.lane_relation.resize(batch.rows, false);
         for row in 0..batch.rows {
             let lane_values = values.len();
             values.resize(lane_values + basis_len * 4, self.zero.clone());
@@ -3875,6 +5401,9 @@ where
                 self.select_variant()?;
             }
             let mut failure = None;
+            // A relation that fails after the restart fails the lane: the
+            // restart would repeat the same profile.
+            let mut restarted = false;
             // The lane's plan, cloned once (an atomic increment and
             // decrement) and lent to every step below.
             let plan = loop {
@@ -3882,27 +5411,29 @@ where
                 match self.geometry(&plan) {
                     Ok(()) => break plan,
                     Err(GeometryFailure::Relation(error)) => {
-                        if self.relation_profile.is_empty()
-                            && self.lightlike_profile.is_empty()
-                            && self.homogeneous_profile.is_empty()
+                        if restarted
+                            || (self.relation_profile.is_empty()
+                                && self.lightlike_profile.is_empty()
+                                && self.homogeneous_profile.is_empty()
+                                && self.flat_profile.is_empty())
                         {
                             failure = Some(error);
                             break plan;
                         }
+                        restarted = true;
                         self.relation_profile.clear();
                         self.lightlike_profile.clear();
                         self.homogeneous_profile.clear();
+                        self.flat_profile.clear();
                         self.select_variant()?;
                     }
                     Err(GeometryFailure::Lightlike(mask)) => {
                         // A lightlike bubble without the dotted propagator has
                         // vanishing jets (its geometry and masters do not
-                        // depend on that mass).
-                        let dotted_inside = self.plan.jet.is_some_and(|(d, _)| mask & (1 << d) != 0);
-                        if dotted_inside || self.lightlike_profile.contains(&mask) {
-                            failure = Some(format!(
-                                "lightlike bubble {mask:#b} unsupported for dotted propagators"
-                            ));
+                        // depend on that mass); with it, `lightlike_jets`
+                        // supplies them.
+                        if self.lightlike_profile.contains(&mask) {
+                            failure = Some(format!("lightlike bubble {mask:#b} reported twice"));
                             break plan;
                         }
                         self.lightlike_profile.push(mask);
@@ -3914,32 +5445,49 @@ where
                         break plan;
                     }
                     Err(GeometryFailure::Singular(mask, error)) => {
+                        // A flat subset of six or more points takes the
+                        // identity of its relation, which may be one its
+                        // pinches hold already.
+                        let flat = mask.count_ones() >= 6 && !self.flat_profile.contains(&mask);
                         match self.relation_support(mask) {
                             Ok((support, false))
-                                if !self.relation_profile.contains(&support)
+                                if (flat || !self.relation_profile.contains(&support))
                                     && !(batched_masters && support != 0) =>
                             {
-                                self.relation_profile.push(support);
-                                self.relation_profile.sort_unstable();
+                                if !self.relation_profile.contains(&support) {
+                                    self.relation_profile.push(support);
+                                    self.relation_profile.sort_unstable();
+                                }
+                                if flat {
+                                    self.flat_profile.push(mask);
+                                    self.flat_profile.sort_unstable();
+                                }
                                 self.select_variant()?;
                             }
                             Ok((support, true))
                                 if !batched_masters
-                                    && !self.homogeneous_profile.iter().any(|&(h, _)| h == support) =>
+                                    && (flat || !self.homogeneous_profile.iter().any(|&(h, _)| h == support)) =>
                             {
                                 // Linearly dependent propagators (Coulomb
-                                // exchange): partial fractions with a raised
-                                // massless member.
-                                let Some(raised) = self.raised_member(support) else {
-                                    failure = Some(format!(
-                                        "{error}; linearly dependent propagators {support:#b} without a massless member"
-                                    ));
-                                    break plan;
-                                };
-                                self.homogeneous_profile.push((support, raised));
-                                self.homogeneous_profile.sort_unstable();
+                                // exchange, or four heavy lines of two onia):
+                                // partial fractions with a raised member.
+                                if !self.homogeneous_profile.iter().any(|&(h, _)| h == support) {
+                                    let Some(raised) = self.raised_member(support) else {
+                                        failure = Some(format!(
+                                            "{error}; linearly dependent propagators {support:#b} without a member to raise"
+                                        ));
+                                        break plan;
+                                    };
+                                    self.homogeneous_profile = self.homogeneous_with(support, raised);
+                                    self.homogeneous_profile.sort_unstable();
+                                }
+                                if flat {
+                                    self.flat_profile.push(mask);
+                                    self.flat_profile.sort_unstable();
+                                }
                                 if let Err(variant) = self.select_variant() {
                                     self.homogeneous_profile.clear();
+                                    self.flat_profile.clear();
                                     failure = Some(format!("{error}; {variant}"));
                                     self.select_variant()?;
                                     break plan;
@@ -3954,6 +5502,9 @@ where
                 }
             };
             self.lane_estimate[row] = self.estimate_tripped;
+            self.lane_relation[row] = !self.relation_profile.is_empty()
+                || !self.homogeneous_profile.is_empty()
+                || !self.flat_profile.is_empty();
             if let Some(error) = failure {
                 self.lane_conditions[row] = self.failed_condition;
                 statuses.push(LaneStatus::Unstable(error));
@@ -4049,14 +5600,13 @@ where
                 continue;
             }
             let started = self.timer();
-            match self.plan.jet {
+            let (jet_len, output_order) = (self.plan.jet.as_ref().map(|jet| jet.len), self.plan.output_order);
+            match jet_len {
                 None => self.gather(&plan),
                 // Without moment recursions only the requested order is used.
-                Some((_, k_len)) if self.plan.moment_program.is_empty() => {
-                    self.gather_order(&plan, k_len - 1)
-                }
-                Some((_, k_len)) => {
-                    for order in 0..k_len {
+                Some(_) if self.plan.moment_program.is_empty() => self.gather_order(&plan, output_order),
+                Some(len) => {
+                    for order in 0..len {
                         self.gather_order(&plan, order);
                     }
                 }
@@ -4329,6 +5879,46 @@ fn gram_condition<T: NativeFloat>(quality: &SolveQuality<T>, size: usize, scale:
     }
 }
 
+/// Conditioning estimates of a triangle integral's 2 x 2 PV Gram system `Z`, solved
+/// with `quality`, at recursion depth `power` (huashengshao/TIRust#62). With
+/// `D = |det Z| / max |Z_ij|^2` (`gram_scale` the largest entry), the row
+/// balance `B = min(1, D / H)` (`H` the Hadamard ratio, so `B` is the product
+/// of `Z`'s row norms over `max |Z_ij|^2`: about `D^(1/2)` next to a lightlike
+/// leg, about 1 at collinear legs) and `G = |det Z|^(1/2) / scale` on the
+/// recursion's kinematic `scale` (Gram, f and m0^2):
+/// - the estimate `(G D^(1/2) B)^power`, times `D^(1/2)` at rank 1, held
+///   against the threshold;
+/// - the Gram system's own, `(D B)^power`, times `D^(1/2)` at rank 1 (`G` at
+///   its largest, `D^(1/2)`), held against the fixed-precision floor
+///   (`triangle_floor`). It leaves lanes whose `G` alone is small (small
+///   momenta against heavy masses) to the threshold.
+///
+/// Each step solves `Z x = R` with `R` rounded on `scale`, not on `Z`'s rows,
+/// so it amplifies that rounding by about `scale ||Z^-1|| = 1 / (G D^(1/2))`;
+/// the Hadamard ratio and `G` (`gram_condition`) miss this where the Källén
+/// function vanishes. Measured against 1024 bits near collinear legs: up to
+/// `0.1 u D^-1.5` at rank 1 (C0's own loss, its sector formulas divide by
+/// `lambda^(1/2)`) and `0.4 u D^-rank` above; next to a lightlike leg with the
+/// other two invariants nearly equal, up to a further `D^(1/2)` per step
+/// (rank 1 up to `D^-1`, rank 2 `D^-2.5`, rank 3 `D^-4`), which `B` carries.
+fn triangle_estimates<T: NativeFloat>(quality: &SolveQuality<T>, scale: &T, gram_scale: &T, power: u64) -> (T, T) {
+    if scale.is_zero() || gram_scale.is_zero() || quality.relative_determinant.is_zero() {
+        return (scale.zero(), scale.zero());
+    }
+    let d = quality.determinant.clone() / &(gram_scale.clone() * gram_scale);
+    let mut balance = d.clone() / &quality.relative_determinant;
+    if balance > scale.one() {
+        balance = scale.one();
+    }
+    let root = d.sqrt();
+    let lost = root.clone() * &balance;
+    let geometric = quality.determinant.clone().sqrt() / scale;
+    let once = if power == 1 { root.clone() } else { scale.one() };
+    let estimate = (geometric * &lost).pow(power) * &once;
+    let own = (root * &lost).pow(power) * &once;
+    (estimate, own)
+}
+
 /// `2^-(bits - margin)` in the domain of `prototype`.
 fn tolerance_at<T: NativeFloat>(prototype: &T, bits: u32, margin: i64) -> T {
     let exponent = i64::from(bits) - margin;
@@ -4343,6 +5933,22 @@ fn tolerance_at<T: NativeFloat>(prototype: &T, bits: u32, margin: i64) -> T {
 /// Width of each propagator's power field in the packed IBP keys of an
 /// `n`-propagator plan: the 64 key bits shared equally (dotted plans have at
 /// most six propagators, so at least 10 bits: powers up to 1023).
+/// `value / (a - 2 eps)` through the finite term for complex `a != 0`: as
+/// `div_dimension` (`1/a + 2 eps/a^2 + 4 eps^2/a^3`).
+fn div_dimension_complex<T: NativeFloat>(value: &L4<T>, a: &C<T>) -> L4<T> {
+    let inverse = cinv(a);
+    let two = inverse.re.from_usize(2);
+    let inverse2 = cscale(&cmul(&inverse, &inverse), &two);
+    let inverse3 = cscale(&cmul(&inverse2, &inverse), &two);
+    let [uv, ir1, ir2, finite] = value;
+    [
+        cmul(uv, &inverse),
+        cadd(&cmul(ir1, &inverse), &cmul(ir2, &inverse2)),
+        cmul(ir2, &inverse),
+        cadd(&cadd(&cmul(finite, &inverse), &cmul(&cadd(uv, ir1), &inverse2)), &cmul(ir2, &inverse3)),
+    ]
+}
+
 pub(crate) fn ibp_field_bits(n: usize) -> u32 {
     u64::BITS / n.max(1) as u32
 }

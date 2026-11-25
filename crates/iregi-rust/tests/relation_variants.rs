@@ -5,7 +5,7 @@
 //! box plan does not create: the variant must evaluate those masters itself,
 //! alone and next to generic lanes, never read the previous lane's values.
 use iregi_rust::{DirectReductionPlan, KinematicsBatch, LaneStatus, ReductionSettings};
-use symbolica::domains::float::Complex;
+use symbolica::domains::float::{Complex, DoubleFloat, RealLike};
 
 type Lane = Vec<Complex<f64>>;
 
@@ -27,6 +27,19 @@ fn reduce(n: usize, rank: u16, lanes: &[Lane]) -> Vec<Lane> {
             result.lane(k).unwrap().to_vec()
         })
         .collect()
+}
+
+/// One lane in double-double, rounded to binary64: the reference pinches.
+/// Binary64 refuses two of the rank-4 ones (Gram systems with D = 0.09 and
+/// 0.04 and an unbalanced row, below its 34-bit floor since
+/// huashengshao/TIRust#62).
+fn reduce_double_double(n: usize, rank: u16, lane: &Lane) -> Lane {
+    let plan = DirectReductionPlan::new(ReductionSettings::new(n, rank)).unwrap();
+    let mut workspace = plan.workspace(DoubleFloat::from(0.0)).unwrap();
+    let values = lane.iter().map(|z| Complex::new(DoubleFloat::from(z.re), DoubleFloat::from(z.im))).collect();
+    let result = workspace.reduce_batch(&KinematicsBatch { rows: 1, components: 1, values }).unwrap();
+    assert_eq!(result.statuses[0], LaneStatus::Success);
+    result.lane(0).unwrap().iter().map(|z| Complex::new(z.re.to_f64(), z.im.to_f64())).collect()
 }
 
 fn minkowski(a: &[f64; 4]) -> f64 {
@@ -85,7 +98,7 @@ fn parallelogram_boxes_agree_with_their_denominator_identity() {
                     &keep.iter().map(|&j| shifts[j]).collect::<Vec<_>>(),
                     &keep.iter().map(|&j| masses[j]).collect::<Vec<_>>(),
                 );
-                let values = reduce(3, rank, &[pinch]).remove(0);
+                let values = reduce_double_double(3, rank, &pinch);
                 reference.resize(values.len(), Complex::new(0.0, 0.0));
                 let w = c[i] / k;
                 for (r, v) in reference.iter_mut().zip(&values) {

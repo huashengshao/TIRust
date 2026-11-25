@@ -143,9 +143,43 @@ C0 = -(m^2)^(-1-eps) Gamma(1+eps) / (2 eps (1 + 2 eps)).
 
 - **PV mode.** It reports these integrals unstable.
 
+## 5. Quad scalar API with powers on a linearly dependent box: wrong, no warning
+
+`iregi_dependent_box_powers.py` evaluates one box with quad IREGI's scalar
+API with powers (the reference build, `ONIA_QUAD`). It is a pinch of a
+g g > chic0 chic0 pentagon with two P-wave states (onia_loop's TIRust
+fixtures, sqrt(s) = 20 GeV): lines Q(p_2/2), g(p_2), g(p_3), Q(p_3/2) with
+p_2^2 = p_3^2, so D_1 - D_2/2 + D_3/2 - D_4 = 0 exactly. Every input is
+binary64 and the halvings are exact. The partial fraction that raises line 1
+writes the box as triangles, which IREGI evaluates well (each also agrees
+with TIRust to 1e-15).
+
+```bash
+python3 benchmarks/onia/mre/iregi_dependent_box_powers.py
+```
+
+**Observed.**
+- **Powers (2,1,1,1):** IREGI satisfies the identity to 1e-16.
+- **Powers (3,1,1,1) and (2,1,1,2):** it does not. The IR pole is
+  -5.763e-6 i where the identity gives -5.472e-6 i, and 8.393e-7 i where it
+  gives 2.568e-7 i. The finite parts differ as much. The UV slot, which must
+  vanish, is 1e-25 (1e-38 otherwise), and there is no warning.
+- **Scope.** On the 50 lanes of `make_two_dotted_fixture.py`, IREGI's direct
+  scalar is wrong on six g g > chic0 chic0 lanes holding such a box, by
+  2.1e-6 to 5.6 relative. TIRust agrees with the identity-reduced reference
+  to 2.3e-9 on all 50, which is the inputs' own consistency.
+- **The general tensor API with powers** of this quad build stops on every
+  lane with a raised power: "ERROR: i > 12, please take long type
+  (KIND=LINT) integer". The binary64 build's general API runs (item 4).
+
+**Likely origin.** The box's modified Cayley matrix is singular to the
+inputs' rounding (relative determinant 9e-18 in binary64). IREGI's IBP
+recursion for raised powers divides by it unguarded; at total power 5 the
+error is no longer small.
+
 ## Reporting
 
 These are reproducers only. Following the project's rule for reference codes,
-IREGI and its bundled OneLOop are not modified. Items 1 and 2 belong to IREGI's
-reduction. Item 3 belongs to OneLOop's three-mass box chart, which IREGI bundles
+IREGI and its bundled OneLOop are not modified. Items 1, 2 and 5 belong to
+IREGI's reduction. Item 3 belongs to OneLOop's three-mass box chart, which IREGI bundles
 (3.4 here); OneLOop 3.6 has it too, per oneloopmaster's README.

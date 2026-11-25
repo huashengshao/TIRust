@@ -12,15 +12,22 @@
 //! `tirust-bench-20261109`).
 //!
 //! Triangles have had the rotation test since the S-wave quarkonium
-//! triangles (`binary64_triangles_are_checked_by_the_rotation_test` in
-//! `tests/direct_engine.rs`), so with the test their lanes now carry an
-//! estimate, which changed the default's hashes. For the pentagon and
-//! hexagon amplitudes, hashed with the triangles' estimates as absent (as
-//! they were), they are still the captures': no array or status changed. In
-//! the heptagon amplitude the test refuses 4 of the 1,120 triangle lanes,
-//! which the double-double tier now serves: against 256 bits they were off
-//! by E/A 7.9e-11 to 2.1e-9 (beyond the request 2^-34, unflagged) and are now
-//! within 1.3e-16; every other triangle lane is unchanged.
+//! triangles (`binary64_gate_refuses_lightlike_forward_quarkonium_triangles`
+//! in `tests/direct_engine.rs`), so with the test their lanes now carry an
+//! estimate, which changed the default's hashes. In the heptagon amplitude
+//! the test refuses 4 of the 1,120 triangle lanes, which the double-double
+//! tier now serves: against 256 bits they were off by E/A 7.9e-11 to 2.1e-9
+//! (beyond the request 2^-34, unflagged) and are now within 1.3e-16.
+//!
+//! Since huashengshao/TIRust#62 the triangle integrals' Gram gate also holds
+//! them to their PV error growth near a vanishing Källén function, and to a
+//! 34-bit floor of their Gram system in binary64. Of the 2,080 rank-3
+//! triangle lanes of the three amplitudes, 279 changed (pentagon 19,
+//! hexagon 74, heptagon 186), 167 of them now refused by the binary64 gate
+//! and served by the double-double tier. Against 256 bits they were within
+//! 1.7e-10 (30 above 1e-12, 3 above 1e-10, unflagged) and are now within
+//! 1.9e-15 (the change touches 3-point plans only). So no amplitude keeps
+//! capture 026's hash with the triangles' estimates absent.
 //!
 //! Platform: the hashes cover every bit, so they depend on the C library's
 //! `log`, `exp`, `atan2` and other libm functions behind the scalar masters.
@@ -137,19 +144,19 @@ fn check(label: &str, spec: &str, enabled: u64, capture: Option<u64>, disabled: 
 #[test]
 fn pentagon_amplitude_fingerprints_are_the_captures() {
     let spec = include_str!("fixtures/amplitude-pentagon-r5.json");
-    check("pentagon", spec, 0xd6c3_821e_eeae_dbf5, Some(0x2e7a_57a2_a747_69b4), 0x5b55_fb4e_1b7d_4877);
+    check("pentagon", spec, 0x7ccb_ea34_219f_f68e, None, 0x3bc0_1008_ebcf_0412);
 }
 
 #[test]
 fn hexagon_amplitude_fingerprints_are_the_captures() {
     let spec = include_str!("fixtures/amplitude-hexagon-r6.json");
-    check("hexagon", spec, 0xe860_2f5e_9ed0_cea1, Some(0x0007_2b2b_c3bf_86bc), 0x4fd7_39ec_d746_b99d);
+    check("hexagon", spec, 0xb98a_8e86_3b18_1bc5, None, 0x5b28_9dea_381e_5c94);
 }
 
 #[test]
 fn heptagon_amplitude_fingerprints_are_the_captures() {
-    // Capture 026's 0xb23a_5b5d_c0e2_5cb2 no longer applies: 4 triangle
-    // lanes are now rescued (see the module notes).
+    // Capture 026's 0xb23a_5b5d_c0e2_5cb2 no longer applies: triangle lanes
+    // are now rescued (see the module notes).
     let spec = include_str!("fixtures/amplitude-heptagon-r7.json");
-    check("heptagon", spec, 0x969b_77c8_40b4_f1ac, None, 0x3925_2438_efef_2cac);
+    check("heptagon", spec, 0xb874_9985_867b_c1d2, None, 0xe55a_01cc_309b_547e);
 }

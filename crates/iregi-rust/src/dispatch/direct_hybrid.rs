@@ -679,7 +679,7 @@ where
             // rescues and other tiers, and in an amplitude's store this tier's
             // sub-integrals, Gram-free pentagons and moments (limb-exact keys).
             workspace.set_shared_subsets(self.shared.clone());
-            run_tier::<T, DoubleFloat>(workspace, DoubleFloat::from, batch, lanes, &self.prototype, result, profile, &mut self.last)
+            run_tier::<T, DoubleFloat>(workspace, DoubleFloat::from, batch, lanes, &self.prototype, result, None, None, profile, &mut self.last)
         } else {
             let slot = &mut self.rescue.mpfr[tier - 1];
             if slot.is_none() {
@@ -690,7 +690,7 @@ where
                 )?);
             }
             let workspace = slot.as_mut().unwrap();
-            run_tier::<T, Float>(workspace, |x| Float::with_val(bits, x), batch, lanes, &self.prototype, result, profile, &mut self.last)
+            run_tier::<T, Float>(workspace, |x| Float::with_val(bits, x), batch, lanes, &self.prototype, result, None, None, profile, &mut self.last)
         }
     }
 
@@ -1692,6 +1692,11 @@ pub(super) fn run_tier<T: NativeFloat, R: NativeFloat>(
     lanes: &[usize],
     prototype: &T,
     result: &mut BatchResult<T>,
+    // Per entry of `batch`: the low words of the inputs (hi + lo is lifted).
+    low_inputs: Option<&[Complex<T>]>,
+    // Per entry of `result`: the residual of each accepted entry's binary64
+    // rounding (tier value minus that value, rounded to binary64).
+    mut low: Option<&mut [Complex<T>]>,
     profile: &mut ExecutionProfile,
     stats: &mut DirectExecutionStats,
 ) -> Result<Vec<(LaneStatus, Option<f64>)>, ReductionError>
@@ -1701,12 +1706,15 @@ where
     let width = batch.values.len() / batch.rows.max(1);
     let mut values = Vec::with_capacity(lanes.len() * width);
     for &lane in lanes {
-        // Exact: the caller's domain has 53 bits.
-        values.extend(
-            batch.values[lane * width..(lane + 1) * width]
-                .iter()
-                .map(|z| Complex::new(lift(z.re.to_f64()), lift(z.im.to_f64()))),
-        );
+        // Exact: the caller's domain has 53 bits, and hi + lo fits the tier's
+        // precision (106 bits and up).
+        let inputs = &batch.values[lane * width..(lane + 1) * width];
+        match low_inputs {
+            None => values.extend(inputs.iter().map(|z| Complex::new(lift(z.re.to_f64()), lift(z.im.to_f64())))),
+            Some(low) => values.extend(inputs.iter().zip(&low[lane * width..(lane + 1) * width]).map(|(z, l)| {
+                Complex::new(lift(z.re.to_f64()) + &lift(l.re.to_f64()), lift(z.im.to_f64()) + &lift(l.im.to_f64()))
+            })),
+        }
     }
     let sub = KinematicsBatch {
         rows: lanes.len(),
@@ -1729,6 +1737,19 @@ where
                     from_binary64(prototype, value.re.to_f64()),
                     from_binary64(prototype, value.im.to_f64()),
                 );
+            }
+            if let Some(low) = low.as_deref_mut() {
+                for (out, value) in low[lane * stride..(lane + 1) * stride]
+                    .iter_mut()
+                    .zip(&rescued.values[k * stride..(k + 1) * stride])
+                {
+                    // Exact in the tier's precision: hi is a binary64 value.
+                    let residual = |x: &R| (x.clone() - &lift(x.to_f64())).to_f64();
+                    *out = Complex::new(
+                        from_binary64(prototype, residual(&value.re)),
+                        from_binary64(prototype, residual(&value.im)),
+                    );
+                }
             }
         }
         outcomes.push((rescued.statuses[k].clone(), conditions.get(k).copied().flatten()));
