@@ -99,8 +99,9 @@ pub struct DirectCapabilities {
     /// members of linearly dependent sets). Two is the validated domain:
     /// P-wave pairs of bound states.
     pub max_dotted_propagators: usize,
-    /// Largest number of propagators with a raised power (the seven-point
-    /// thin system has no mass-derivative jets).
+    /// Largest number of propagators with a raised power: the thin systems of
+    /// six and seven points carry mass-derivative jets (a seven-point lane's
+    /// over the six members it chooses).
     pub max_dotted_points: usize,
     /// Largest PV coefficient rank `R + 2h` (a rank-`R` integral in
     /// `D + 2h` dimensions needs its subsets' coefficients up to `R + 2h`):
@@ -127,7 +128,7 @@ impl DirectCapabilities {
             max_propagators: SubsetMask::BITS as usize,
             max_rank: max_rank as u16,
             max_dotted_propagators: 2,
-            max_dotted_points: 6,
+            max_dotted_points: 7,
             max_coefficient_rank: u16::MAX,
             max_shifted_points: 4,
         }
@@ -181,8 +182,8 @@ impl DirectCapabilities {
             ));
         }
         if dotted > 0 && n > self.max_dotted_points {
-            // The seven-point thin system picks its six members per lane;
-            // its mass-derivative jets are not implemented.
+            // Eight or more points reduce through thin systems that drop
+            // several members per lane, whose jets are not validated.
             return Err(ReductionError::Unsupported(format!(
                 "direct engine handles raised powers up to {} propagators",
                 self.max_dotted_points

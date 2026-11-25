@@ -290,6 +290,10 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     ibp_memo: HashMap<u64, L4<T>>,
     /// Per-lane inverse modified Cayley matrices, keyed by subset mask.
     rinv_memo: HashMap<SubsetMask, Vec<C<T>>>,
+    /// Per-lane members a six- or seven-point thin system drops (bit sets
+    /// over the member positions), keyed by its weights' geometry offset:
+    /// the jets of its weights solve the same system.
+    hexagon_drops: HashMap<u32, u128>,
     /// `(-2)^h` of dimension-shifted gathers.
     gather_scale: T,
     /// The current lane's masters have no IR poles (two-slot kernels).
@@ -504,6 +508,7 @@ where
             geometry_jet: vec![vec![zero.clone(); plan.geometry_count.max(1)]; jet_orders],
             ibp_memo: HashMap::new(),
             rinv_memo: HashMap::new(),
+            hexagon_drops: HashMap::new(),
             gather_scale,
             ir_free: false,
             master_rows: 0,
@@ -2686,6 +2691,7 @@ where
                 format!("ill-conditioned six-point coordinate system for {members:?}: relative determinant {:e}", relative),
             ));
         }
+        self.hexagon_drops.insert(weights as u32, drop);
         let chosen: Vec<usize> = (0..size).filter(|&k| drop & (1 << k) == 0).collect();
         for column in 0..5 {
             let mut sum = self.zero.clone();
@@ -3330,6 +3336,14 @@ where
     }
 
     /// `d f / d delta` of `f_member = d(origin, member) - m_member^2 + m_origin^2`.
+    /// Member positions of the six members the current lane's thin system of
+    /// the six- or seven-point subset with weights at `weights` chose, origin
+    /// first ([`Self::geometry_hexagon`]).
+    fn hexagon_choice(&self, weights: usize, size: usize) -> Vec<usize> {
+        let drop = self.hexagon_drops.get(&(weights as u32)).copied().unwrap_or(0);
+        (0..size).filter(|&k| drop & (1 << k) == 0).collect()
+    }
+
     fn f_derivative(&self, origin: usize, member: usize, dotted: usize) -> T {
         let mut value = self.prototype.zero();
         if origin == dotted {
@@ -3460,16 +3474,22 @@ where
                 }
                 SubsetKind::Hexagon => {
                     // A(delta) = A0 + delta A1, A1 only in the f row:
-                    // X_k = -A0^-1 A1 X_(k-1) = y (-a1 . X_(k-1)), y = A0^-1 e_4.
+                    // X_k = -A0^-1 A1 X_(k-1) = y (-a1 . X_(k-1)), y = A0^-1 e_4,
+                    // over the six members the lane's system chose (a
+                    // seven-point lane's dropped member keeps weight zero).
                     let weights = subset.hexagon.unwrap() as usize;
+                    let size = members.len();
+                    let chosen = self.hexagon_choice(weights, size);
+                    let origin = members[chosen[0]];
+                    let slot = |column: usize, c: usize| weights + size * column + chosen[c];
                     let a1: Vec<T> = (0..5)
-                        .map(|c| self.f_derivative(origin, members[c + 1], dotted))
+                        .map(|c| self.f_derivative(origin, members[chosen[c + 1]], dotted))
                         .collect();
                     if a1.iter().all(|value| value.is_zero()) {
                         continue;
                     }
                     for column in 0..5 {
-                        let member = members[column + 1];
+                        let member = members[chosen[column + 1]];
                         for mu in 0..4 {
                             self.matrix[mu * 5 + column] =
                                 csub(&self.shifts[member][mu], &self.shifts[origin][mu]);
@@ -3490,9 +3510,9 @@ where
                             let mut r = self.zero.clone();
                             for c in 0..5 {
                                 let previous = if order == 0 {
-                                    &self.geometry[weights + 6 * column + c + 1]
+                                    &self.geometry[slot(column, c + 1)]
                                 } else {
-                                    &self.geometry_jet[order - 1][weights + 6 * column + c + 1]
+                                    &self.geometry_jet[order - 1][slot(column, c + 1)]
                                 };
                                 r = csub(&r, &cscale(previous, &a1[c]));
                             }
@@ -3500,9 +3520,9 @@ where
                             for i in 0..5 {
                                 let value = cmul(&y[i], &r);
                                 sum = cadd(&sum, &value);
-                                self.geometry_jet[order][weights + 6 * column + i + 1] = value;
+                                self.geometry_jet[order][slot(column, i + 1)] = value;
                             }
-                            self.geometry_jet[order][weights + 6 * column] = csub(&self.zero, &sum);
+                            self.geometry_jet[order][slot(column, 0)] = csub(&self.zero, &sum);
                         }
                     }
                 }
@@ -3666,18 +3686,23 @@ where
                 }
                 SubsetKind::Hexagon => {
                     // A(delta) = A0 + sum_v delta_v A_v, A_v only in the f row:
-                    // X_o = y (-sum_v a_v . X_(o - e_v)), y = A0^-1 e_4.
+                    // X_o = y (-sum_v a_v . X_(o - e_v)), y = A0^-1 e_4, over
+                    // the lane's chosen six members (as the univariate case).
                     let weights = subset.hexagon.unwrap() as usize;
+                    let size = members.len();
+                    let chosen = self.hexagon_choice(weights, size);
+                    let origin = members[chosen[0]];
+                    let slot = |column: usize, c: usize| weights + size * column + chosen[c];
                     let a1: Vec<Vec<T>> = jet
                         .variables
                         .iter()
-                        .map(|&(line, _)| (0..5).map(|c| self.f_derivative(origin, members[c + 1], line)).collect())
+                        .map(|&(line, _)| (0..5).map(|c| self.f_derivative(origin, members[chosen[c + 1]], line)).collect())
                         .collect();
                     if a1.iter().flatten().all(|value| value.is_zero()) {
                         continue;
                     }
                     for column in 0..5 {
-                        let member = members[column + 1];
+                        let member = members[chosen[column + 1]];
                         for mu in 0..4 {
                             self.matrix[mu * 5 + column] = csub(&self.shifts[member][mu], &self.shifts[origin][mu]);
                         }
@@ -3699,7 +3724,7 @@ where
                                     continue;
                                 }
                                 for c in 0..5 {
-                                    let index = weights + 6 * column + c + 1;
+                                    let index = slot(column, c + 1);
                                     let previous = if lower == 0 {
                                         &self.geometry[index]
                                     } else {
@@ -3712,9 +3737,9 @@ where
                             for i in 0..5 {
                                 let value = cmul(&y[i], &r);
                                 sum = cadd(&sum, &value);
-                                self.geometry_jet[order - 1][weights + 6 * column + i + 1] = value;
+                                self.geometry_jet[order - 1][slot(column, i + 1)] = value;
                             }
-                            self.geometry_jet[order - 1][weights + 6 * column] = csub(&self.zero, &sum);
+                            self.geometry_jet[order - 1][slot(column, 0)] = csub(&self.zero, &sum);
                         }
                     }
                 }

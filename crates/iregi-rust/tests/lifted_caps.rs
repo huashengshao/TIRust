@@ -31,7 +31,7 @@ fn capability_query_reports_bounds_derived_from_the_representation() {
     assert!(binomial(r + 4, 4) <= u64::from(u32::MAX) && binomial(r + 5, 4) > u64::from(u32::MAX));
     assert_eq!((caps.max_power(1), caps.max_power(4)), (u16::MAX, u16::MAX));
     assert_eq!((caps.max_power(5), caps.max_power(6)), (4095, 1023));
-    assert_eq!((caps.max_dotted_propagators, caps.max_dotted_points, caps.max_shifted_points), (2, 6, 4));
+    assert_eq!((caps.max_dotted_propagators, caps.max_dotted_points, caps.max_shifted_points), (2, 7, 4));
     // R + 2h within the u16 coefficient ranks.
     assert_eq!(caps.max_coefficient_rank, u16::MAX);
     assert_eq!((caps.max_dimension_shift(0), caps.max_dimension_shift(1)), (i16::MAX, i16::MAX));
@@ -49,7 +49,8 @@ fn capability_query_reports_bounds_derived_from_the_representation() {
     assert!(supports(2, caps.max_rank, None, 0) && !supports(2, caps.max_rank + 1, None, 0));
     assert!(supports(3, 2, Some(vec![9, 1, 1]), 0) && supports(6, 1, Some(vec![1, 1, 1, 1, 1, 1023]), 0));
     assert!(!supports(6, 1, Some(vec![1, 1, 1, 1, 1, 1024]), 0));
-    assert!(!supports(7, 1, Some(vec![2, 1, 1, 1, 1, 1, 1]), 0), "raised powers stop at six points");
+    assert!(supports(7, 1, Some(vec![2, 1, 1, 1, 1, 1, 1]), 0), "raised powers at seven points");
+    assert!(!supports(8, 1, Some(vec![2, 1, 1, 1, 1, 1, 1, 1]), 0), "raised powers stop at seven points");
     assert!(supports(3, 1, Some(vec![2, 2, 1]), 0) && !supports(3, 1, Some(vec![2, 2, 2]), 0), "two raised powers");
     assert!(supports(3, 2, None, 9) && !supports(5, 2, None, 1), "shifts up to four points");
     assert!(supports(1, 2, None, 32766) && !supports(1, 2, None, 32767), "R + 2h <= u16::MAX");
