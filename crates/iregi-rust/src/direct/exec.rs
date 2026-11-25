@@ -2348,6 +2348,8 @@ where
                         let mut short = false;
                         // Whether the Gram gate's own measure refuses the system.
                         let gram_refuses = estimate < threshold;
+                        // The triangle's Gram system alone, held against the fixed-precision floor.
+                        let mut own_estimate = None;
                         if size == 2 && n == 3 && self.base_plan.settings.powers.iter().all(|&p| p == 1) {
                             // A triangle integral with unit powers
                             // (huashengshao/TIRust#62): the Hadamard ratio and
@@ -2368,6 +2370,7 @@ where
                                 estimate = triangle;
                             }
                             short = self.triangle_floor.as_ref().is_some_and(|floor| own < *floor);
+                            own_estimate = Some(own);
                         }
                         if estimate < threshold || short {
                             if gram && (2..=3).contains(&size) {
@@ -2388,8 +2391,19 @@ where
                                 continue;
                             }
                             self.failed_condition = Some(estimate.to_f64());
-                            let message =
-                                format!("ill-conditioned Gram matrix for {members:?}: conditioning {:e}", condition);
+                            // The estimate that failed and what it failed against
+                            // (the threshold, the fixed-precision floor or both).
+                            let mut reason = if estimate < threshold {
+                                format!("estimate {estimate:e} below the threshold {threshold:e}")
+                            } else {
+                                format!("estimate {estimate:e}, threshold {threshold:e}")
+                            };
+                            if let (true, Some(own), Some(floor)) = (short, &own_estimate, &self.triangle_floor) {
+                                reason += &format!("; Gram system {own:e} below the fixed-precision floor {floor:e}");
+                            }
+                            let message = format!(
+                                "ill-conditioned Gram matrix for {members:?}: {reason} (conditioning {condition:e} at rank {power})"
+                            );
                             if !gram_refuses {
                                 // Refused by the triangle estimate or its floor
                                 // alone, where the Gram gate passes: the PV

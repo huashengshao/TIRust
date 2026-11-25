@@ -74,8 +74,26 @@ pub struct EmbedderOptions {
     /// Binary64 workspaces: lanes still refused on conditioning are evaluated
     /// again by the direct engine at 106, 256 and 512 bits. Default `false`.
     pub precision_tiers: bool,
-    /// Minimal accepted relative determinant of the first pass (raised to the
-    /// recursion depth); `None` keeps the direct engine's default (1e-12).
+    /// Threshold of the first pass's conditioning gates; `None` keeps the
+    /// direct engine's default (1e-12). Each Gram, Cayley or coordinate
+    /// system is held to an estimate of its conditioning (a PV Gram system's
+    /// raised to the recursion depth; for a triangle integral with unit
+    /// powers, the Passarino-Veltman estimate of huashengshao/TIRust#62).
+    /// These are conditioning heuristics, not error
+    /// bounds. They do not measure the right-hand sides' own rounding, the
+    /// scalar masters' errors or cancellation in the tensor assembly, and
+    /// they are Lorentz invariant, so a lane's error can exceed what the
+    /// threshold suggests (huashengshao/TIRust#65, huashengshao/TIRust#66).
+    ///
+    /// Whatever the threshold, binary64 and double-double workspaces also
+    /// refuse a triangle integral whose Gram system alone amplifies rounding
+    /// by more than `2^(p - 34)` (p = 53 or 106 bits). This is a floor on the
+    /// Gram system's conditioning, not a promise of 34 correct bits. With
+    /// neither [`Self::method_choice`] nor [`Self::precision_tiers`], such
+    /// lanes come back [`LaneStatus::Unstable`], as they do from a plain
+    /// binary64 or double-double direct workspace at any stability
+    /// threshold. The caller must handle that, for example by evaluating
+    /// them at a higher precision.
     pub gate: Option<f64>,
     /// Gate of the method-choice pass; `None`: 1e-15, the gate the binary64
     /// facade's choice runs with (its rows are checked by the host).
