@@ -3344,6 +3344,132 @@ where
         (0..size).filter(|&k| drop & (1 << k) == 0).collect()
     }
 
+    /// Taylor orders of a Gram-free pentagon's entries in the jet's squared
+    /// masses: the inverse `X^-1` of its modified Cayley matrix `X = [[2 m0^2,
+    /// f^T], [f, Z]]`, the sums of its entries and the products `adjadj`.
+    /// `X` is linear in each squared mass (`Z` holds none), `X(delta) = X0 +
+    /// sum_v delta_v X_v` with `X_v` only in row and column 0, so
+    /// `X^-1_o = -X0^-1 sum_v X_v X^-1_(o - e_v)`; the sums are linear in
+    /// `X^-1` and the `adjadj` entries products of two of its entries.
+    fn dd_pentagon_jets(&mut self, subset: &Subset, jet: &Jet) {
+        let geometry = subset.pentagon.unwrap();
+        if geometry.dd_rank < 0 {
+            return;
+        }
+        let members = &subset.members;
+        let origin = members[0];
+        let xinv = geometry.xinv as usize;
+        // X_v, 5x5, per variable (row and column 0 only).
+        let derivatives: Vec<Vec<T>> = jet
+            .variables
+            .iter()
+            .map(|&(line, _)| {
+                let mut x = vec![self.prototype.zero(); 25];
+                if origin == line {
+                    x[0] = self.prototype.from_usize(2);
+                }
+                for i in 0..4 {
+                    let df = self.f_derivative(origin, members[i + 1], line);
+                    x[i + 1] = df.clone();
+                    x[(i + 1) * 5] = df;
+                }
+                x
+            })
+            .collect();
+        if derivatives.iter().flatten().all(|value| value.is_zero()) {
+            return;
+        }
+        let order0: Vec<C<T>> = self.geometry[xinv..xinv + 25].to_vec();
+        let mut orders: Vec<Vec<C<T>>> = vec![order0.clone()];
+        for order in 1..jet.len {
+            // m = sum_v X_v X^-1_(o - e_v).
+            let mut m = vec![self.zero.clone(); 25];
+            for (v, x) in derivatives.iter().enumerate() {
+                let lower = jet.lower[v][order];
+                if lower == Jet::NONE {
+                    continue;
+                }
+                let previous = &orders[lower as usize];
+                for i in 0..5 {
+                    for j in 0..5 {
+                        let mut value = m[i * 5 + j].clone();
+                        for k in 0..5 {
+                            if !x[i * 5 + k].is_zero() {
+                                value = cadd(&value, &cscale(&previous[k * 5 + j], &x[i * 5 + k]));
+                            }
+                        }
+                        m[i * 5 + j] = value;
+                    }
+                }
+            }
+            let mut next = vec![self.zero.clone(); 25];
+            for i in 0..5 {
+                for j in 0..5 {
+                    let mut value = self.zero.clone();
+                    for k in 0..5 {
+                        value = csub(&value, &cmul(&order0[i * 5 + k], &m[k * 5 + j]));
+                    }
+                    next[i * 5 + j] = value;
+                }
+            }
+            orders.push(next);
+        }
+        let sums = geometry.sums as usize;
+        let adjadj = geometry.adjadj as usize;
+        for order in 1..jet.len {
+            let x = &orders[order];
+            for (i, value) in x.iter().enumerate() {
+                self.geometry_jet[order - 1][xinv + i] = value.clone();
+            }
+            let mut column = self.zero.clone();
+            for m in 1..=4 {
+                column = cadd(&column, &x[5 * m]);
+            }
+            self.geometry_jet[order - 1][sums] = column;
+            for k in 1..=4 {
+                let mut row = self.zero.clone();
+                for m in 0..5 {
+                    row = cadd(&row, &x[5 * k + m]);
+                }
+                self.geometry_jet[order - 1][sums + k] = row;
+            }
+            for slot in 0..64 {
+                self.geometry_jet[order - 1][adjadj + slot] = self.zero.clone();
+            }
+        }
+        // adjadj_(kmi) = X^-1_0m X^-1_ik - X^-1_im X^-1_0k, a product: order c
+        // collects the orders (a, b) with a + b = c.
+        for a in 0..jet.len {
+            for &(b, c) in &jet.sums[a] {
+                let c = c as usize;
+                if c == 0 {
+                    continue;
+                }
+                let (x, y) = (&orders[a], &orders[b as usize]);
+                for k in 1..=4 {
+                    for i in 1..=4 {
+                        for m in 1..=4 {
+                            let value = csub(&cmul(&x[m], &y[5 * i + k]), &cmul(&x[5 * i + m], &y[k]));
+                            let index = adjadj + 16 * (k - 1) + 4 * (m - 1) + (i - 1);
+                            self.geometry_jet[c - 1][index] = cadd(&self.geometry_jet[c - 1][index], &value);
+                        }
+                    }
+                }
+            }
+        }
+        for order in 1..jet.len {
+            for k in 1..=4 {
+                for i in 1..=4 {
+                    let mut total = self.zero.clone();
+                    for m in (1..=4).filter(|&m| m != k) {
+                        total = cadd(&total, &self.geometry_jet[order - 1][adjadj + 16 * (k - 1) + 4 * (m - 1) + (i - 1)]);
+                    }
+                    self.geometry_jet[order - 1][sums + 5 + 4 * (k - 1) + (i - 1)] = total;
+                }
+            }
+        }
+    }
+
     fn f_derivative(&self, origin: usize, member: usize, dotted: usize) -> T {
         let mut value = self.prototype.zero();
         if origin == dotted {
@@ -3528,6 +3654,10 @@ where
                 }
                 SubsetKind::Relation(_) | SubsetKind::Homogeneous(_) => {}
             }
+        }
+        let jet = plan.jet.as_ref().expect("a jet");
+        for subset in plan.subsets.iter().filter(|subset| matches!(subset.kind, SubsetKind::Pentagon)) {
+            self.dd_pentagon_jets(subset, jet);
         }
         Ok(())
     }
@@ -3745,6 +3875,9 @@ where
                 }
                 SubsetKind::Relation(_) | SubsetKind::Homogeneous(_) => {}
             }
+        }
+        for subset in plan.subsets.iter().filter(|subset| matches!(subset.kind, SubsetKind::Pentagon)) {
+            self.dd_pentagon_jets(subset, jet);
         }
         Ok(())
     }

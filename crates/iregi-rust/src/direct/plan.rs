@@ -1141,11 +1141,14 @@ impl DirectPlanData {
         let basis = tensor_basis(rank);
         let monomials = MonomialTable::shared(rank);
         let top = full_mask(n);
-        // Gram-free pentagon rank: not for dotted propagators (no geometry
-        // jets of X^-1 yet) or when a box child is degenerate (it supplies
-        // moments by its identity, not PV coefficients).
+        // Gram-free pentagon rank: not when a box child is degenerate (it
+        // supplies moments by its identity, not PV coefficients). With a jet
+        // (dotted propagators, raised members of linearly dependent sets) the
+        // executor carries the Taylor orders of X^-1 (`dd_pentagon_jets`): the
+        // Gram recursion amplifies the supplied invariants' mismatch with the
+        // shifts like kappa^R, the Gram-free part does not.
         let dd_rank = |mask: SubsetMask, moment: i32| -> i32 {
-            if moment < 0 || jet.is_some() {
+            if moment < 0 {
                 return -1;
             }
             if members(mask).into_iter().any(|member| relation_for(without(mask, member)).is_some()) {

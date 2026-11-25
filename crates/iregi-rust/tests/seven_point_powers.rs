@@ -260,3 +260,94 @@ fn two_onia_at_threshold_take_their_coulomb_partial_fractions_at_seven_points() 
     }
     eprintln!("worst: 256 bits {:.1e}, binary64 {:.1e}", worst[1], worst[2]);
 }
+
+/// The unit-power integral of `members` at 256 bits with `masses` moved by
+/// `delta` (squared masses).
+fn moved_256(p: &Point, members: &[usize], rank: u16, delta: &[(usize, Float)]) -> Vec<Complex<Float>> {
+    let mut values = Vec::new();
+    for &i in members {
+        values.extend(p.shifts[i].iter().map(|&x| Complex::new(big(x), big(0.0))));
+    }
+    for &i in members {
+        let mut m = big(p.masses[i]);
+        for (line, d) in delta {
+            if *line == i {
+                m += d;
+            }
+        }
+        values.push(Complex::new(m, big(0.0)));
+    }
+    values.push(Complex::new(big(MU2), big(0.0)));
+    let ones = vec![1u16; members.len()];
+    let mut w = DirectReductionPlan::new(settings(members.len(), rank, &ones)).unwrap().workspace(Float::new(BITS)).unwrap();
+    let r = w.reduce_batch(&KinematicsBatch { rows: 1, components: 1, values }).unwrap();
+    assert_eq!(r.statuses[0], LaneStatus::Success);
+    r.lane(0).unwrap().to_vec()
+}
+
+/// Gram-free pentagons with raised powers carry the Taylor orders of their
+/// modified Cayley inverse (the Gram recursion amplified the supplied
+/// invariants' mismatch like kappa^R there). Generic five points, ranks 0 to
+/// 5, against mass derivatives of the unit-power pentagon by central
+/// differences at 256 bits: a heavy line doubled (h = 2^-90), tripled
+/// (half the second difference, h = 2^-60) and two lines doubled (the mixed
+/// difference, h = 2^-60).
+#[test]
+fn gram_free_pentagons_with_raised_powers_match_mass_derivatives() {
+    let p = generic();
+    let members = [0usize, 1, 3, 5, 6];
+    let local_powers = |raised: &[(usize, u16)]| -> Vec<u16> {
+        members.iter().map(|m| raised.iter().find(|(l, _)| l == m).map_or(1, |&(_, k)| k)).collect()
+    };
+    let mut worst = [0.0f64; 2];
+    for rank in 0..=5u16 {
+        let h1 = big(2f64.powi(-90));
+        let h2 = big(2f64.powi(-60));
+        let neg = |x: &Float| -x.clone();
+        // d/dm_1^2: 1/D_1^2.
+        let doubled = {
+            let up = moved_256(&p, &members, rank, &[(1, h1.clone())]);
+            let down = moved_256(&p, &members, rank, &[(1, neg(&h1))]);
+            let inverse = big(1.0) / (h1.clone() + &h1);
+            combine(vec![(inverse.clone(), up), (-inverse, down)])
+        };
+        // (1/2) d^2/d(m_3^2)^2: 1/D_3^3.
+        let tripled = {
+            let up = moved_256(&p, &members, rank, &[(3, h2.clone())]);
+            let mid = moved_256(&p, &members, rank, &[]);
+            let down = moved_256(&p, &members, rank, &[(3, neg(&h2))]);
+            let inverse = big(0.5) / (h2.clone() * &h2);
+            combine(vec![(inverse.clone(), up), (big(-2.0) * &inverse, mid), (inverse, down)])
+        };
+        // d^2/(dm_1^2 dm_5^2): 1/(D_1^2 D_5^2).
+        let two = {
+            let corner = |a: &Float, b: &Float| moved_256(&p, &members, rank, &[(1, a.clone()), (5, b.clone())]);
+            let inverse = big(0.25) / (h2.clone() * &h2);
+            combine(vec![
+                (inverse.clone(), corner(&h2, &h2)),
+                (-inverse.clone(), corner(&h2, &neg(&h2))),
+                (-inverse.clone(), corner(&neg(&h2), &h2)),
+                (inverse, corner(&neg(&h2), &neg(&h2))),
+            ])
+        };
+        for (label, raised, reference, tolerance) in [
+            ("line 1 doubled", vec![(1usize, 2u16)], doubled, 1e-40),
+            ("line 3 tripled", vec![(3, 3)], tripled, 1e-25),
+            ("lines 1 and 5 doubled", vec![(1, 2), (5, 2)], two, 1e-25),
+        ] {
+            let powers = local_powers(&raised);
+            let mp = error(&lane_256(&p, &members, rank, &powers), &reference, |x| x.clone());
+            let mut w = DirectReductionPlan::new(settings(5, rank, &powers)).unwrap().workspace(0.0f64).unwrap();
+            let r = w.reduce_batch(&KinematicsBatch { rows: 1, components: 1, values: row(&p, &members, |x| x, 0.0) }).unwrap();
+            assert_eq!(r.statuses[0], LaneStatus::Success, "{label}, rank {rank}: binary64");
+            let binary64 = error(r.lane(0).unwrap(), &reference, |x| big(*x));
+            eprintln!("pentagon rank {rank} {label}: 256 bits {mp:.1e}, binary64 {binary64:.1e}");
+            assert!(mp <= tolerance, "{label}, rank {rank}: 256 bits {mp:e}");
+            // Binary64: up to 7.5e-10 doubled and 1.1e-7 tripled at rank 5 (the
+            // Gram recursion: 2.2e-11 and 9.6e-8).
+            assert!(binary64 <= 1e-6, "{label}, rank {rank}: binary64 {binary64:e}");
+            worst = [worst[0].max(mp), worst[1].max(binary64)];
+        }
+    }
+    eprintln!("worst: 256 bits {:.1e}, binary64 {:.1e}", worst[0], worst[1]);
+}
