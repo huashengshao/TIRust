@@ -336,6 +336,26 @@ where
         self.executor.set_profiling(enabled);
     }
 
+    /// Make every lane's result independent of the lanes and calls this
+    /// workspace reduced before it (default `false`). By default a lane
+    /// starts from the plan variant (affine relations, lightlike bubbles,
+    /// linearly dependent propagators) of the previous lane, and the
+    /// small-Gram methods take auxiliary executors from a per-thread pool
+    /// that keeps that state too: a lane whose kinematics satisfy a
+    /// variant's relation only to its tolerance is then reduced through the
+    /// variant after an exactly degenerate lane and through the base plan
+    /// after any other, so its bits (and, at a stability threshold of zero,
+    /// its value) depend on its predecessors, the batch it is in and the
+    /// thread. With `true`, every lane of this workspace and of its
+    /// auxiliary and partial-rescue executors starts from the base plan:
+    /// a lane gives bit for bit what a new workspace with the same settings
+    /// gives it alone, so lanes can be split between workspaces and
+    /// threads in any way. Lanes on the base plan are unchanged; a lane
+    /// with a variant rediscovers it (one geometry pass per variant step).
+    pub fn set_lane_independent(&mut self, enabled: bool) {
+        self.executor.set_lane_independent(enabled);
+    }
+
     pub fn last_profile(&self) -> DirectProfile {
         self.executor.last_profile()
     }

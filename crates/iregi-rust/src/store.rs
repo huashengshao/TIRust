@@ -206,6 +206,22 @@ pub struct TensorStoreStatistics {
     pub dd_masters_computed: u64,
     /// Stored entries.
     pub entries: u64,
+    /// Stored entries by kind: binary64 sub-integrals, pentagons, rescues
+    /// and expansions; binary64 scalar masters; binary64 gathered moments;
+    /// double-double masters, sub-integrals and moments. Every entry is
+    /// stored under its key by whichever workspace computes it first, so
+    /// without a byte budget these counts (and `entries`) are the number of
+    /// distinct results the calls needed: with lane-independent workspaces
+    /// ([`crate::DirectWorkspace::set_lane_independent`]) they do not depend
+    /// on the order of the calls, their split between workspaces or the
+    /// number of threads sharing the store. The `*_reused` and `*_computed`
+    /// counts above count lookups instead: concurrent workspaces may both
+    /// miss one key, and a reused entry skips the lookups of its own
+    /// computation, so they depend on the order.
+    pub subsets_stored: u64,
+    pub masters_stored: u64,
+    pub moments_stored: u64,
+    pub dd_stored: u64,
     /// Estimated size of the stored entries in bytes. Since double-double
     /// sharing, a binary64 sub-integral, pentagon or moment entry counts 8
     /// bytes more (one more key word: the low limb of a real setting, zero
@@ -316,6 +332,7 @@ impl TensorStore {
         let (moments_reused, moments_computed) = self.inner.moment_counts();
         let (dd_masters_reused, dd_masters_computed) = self.inner.dd_master_counts();
         let (bytes, not_stored) = self.inner.byte_counts();
+        let [subsets_stored, masters_stored, moments_stored, dd_stored] = self.inner.entry_counts();
         TensorStoreStatistics {
             subsets_reused: hits.saturating_sub(masters_reused),
             subsets_computed: misses.saturating_sub(masters_computed),
@@ -327,6 +344,10 @@ impl TensorStore {
             dd_masters_reused,
             dd_masters_computed,
             entries: self.inner.entries(),
+            subsets_stored,
+            masters_stored,
+            moments_stored,
+            dd_stored,
             bytes,
             not_stored,
         }
