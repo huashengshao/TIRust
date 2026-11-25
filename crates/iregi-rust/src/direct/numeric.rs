@@ -363,6 +363,16 @@ pub(crate) fn mul_dimension<T: NativeFloat>(value: &mut L4<T>, a: &T) {
     value[3] = csub(&cscale(&finite, a), &cscale(&cadd(&uv, &ir1), &two));
 }
 
+/// Multiply `[uv, ir1, ir2, finite]` by `epsilon` (`D = 4 - 2 epsilon`)
+/// through the finite term: the single poles (UV and IR) become the finite
+/// part and the double pole the single IR one.
+pub(crate) fn times_epsilon<T: NativeFloat>(value: &mut L4<T>) {
+    let zero = czero(&value[0].re);
+    value[3] = cadd(&value[0], &value[1]);
+    value[1] = std::mem::replace(&mut value[2], zero.clone());
+    value[0] = zero;
+}
+
 /// Multiply by `(a - 2 epsilon)^-1` through the finite term, `a != 0`.
 /// `inv_a = 1/a` is supplied by the caller at working precision.
 pub(crate) fn div_dimension<T: NativeFloat>(value: &mut L4<T>, inv_a: &T) {

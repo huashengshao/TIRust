@@ -1140,14 +1140,18 @@ fn supplied_invariant_lanes_match(fixture: &Value, wide: bool) {
 /// Collinear pairs (two massless lines whose invariant vanishes): a triangle
 /// with one has a singular Cayley matrix that no soft line empties, and its
 /// null vector's IBP identity reduces it (main refuses it, "singular Cayley
-/// matrix"). A generic triangle and box sharing the pair, either pair member
-/// doubled, and a pentagon with its massive line doubled, against original
-/// IREGI's quad scalars with powers (benchmarks/onia/make_collinear_fixture.py).
-/// The pentagon with a pair member doubled is refused: its Cayley reduction
-/// drops a (D + 2)-dimensional term whose mass derivative keeps a collinear
-/// pole (1e-4 of the integral here).
+/// matrix"). A generic triangle, box and pentagon sharing the pair, each pair
+/// member doubled, a pentagon with its massive line doubled, and a pentagon
+/// whose doubled massless line joins two on-shell legs ("soft"), against
+/// original IREGI's quad scalars with powers
+/// (benchmarks/onia/make_collinear_fixture.py). With a pair member or the
+/// soft line doubled, the pentagon's Cayley reduction drops (4 - D) B
+/// J5^(D+2), whose mass derivative keeps an IR pole: the executor keeps its
+/// finite part (2.4e-4 of the collinear pentagons, 3.7e-2 of the soft one;
+/// the soft one was served without it). Its tensor coefficients:
+/// `tests/doubled_ir_pentagons.rs`.
 #[test]
-fn collinear_pairs_reduce_dotted_triangles_and_refuse_unreduced_pentagons() {
+fn collinear_pairs_reduce_dotted_triangles_boxes_and_pentagons() {
     let fixture: Value = serde_json::from_str(include_str!("fixtures/onia-collinear.json")).unwrap();
     let shifts: Vec<[f64; 4]> = fixture["shifts"]
         .as_array()
@@ -1157,7 +1161,21 @@ fn collinear_pairs_reduce_dotted_triangles_and_refuse_unreduced_pentagons() {
         .collect();
     let masses: Vec<f64> = fixture["masses_squared"].as_array().unwrap().iter().map(|m| m.as_f64().unwrap()).collect();
     let mu = fixture["mu"].as_f64().unwrap();
-    for case in fixture["cases"].as_array().unwrap() {
+    let soft = &fixture["soft"];
+    let soft_shifts: Vec<[f64; 4]> = soft["shifts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|q| std::array::from_fn(|a| q[a].as_f64().unwrap()))
+        .collect();
+    let soft_masses: Vec<f64> = soft["masses_squared"].as_array().unwrap().iter().map(|m| m.as_f64().unwrap()).collect();
+    let points = fixture["cases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|case| (case, &shifts, &masses))
+        .chain(soft["cases"].as_array().unwrap().iter().map(|case| (case, &soft_shifts, &soft_masses)));
+    for (case, shifts, masses) in points {
         let (n, dotted) = (case["n"].as_u64().unwrap() as usize, case["dotted"].as_u64().unwrap() as usize);
         let reference: Vec<Complex<f64>> = case["reference"]
             .as_array()
@@ -1179,15 +1197,6 @@ fn collinear_pairs_reduce_dotted_triangles_and_refuse_unreduced_pentagons() {
         assert_eq!(status, LaneStatus::Success, "n={n}, D{dotted} doubled, 256 bits");
         let ea = relative_difference(&values, &reference);
         assert!(ea <= 1e-15, "n={n}, D{dotted} doubled, 256 bits: E/A {ea:e} against quad IREGI");
-    }
-    for dotted in [0, 1] {
-        let mut settings = ReductionSettings::new(5, 0);
-        settings.powers[dotted] = 2;
-        let (status, _) = direct_lanes_with(settings, &coulomb_lane(&shifts, &masses, mu));
-        assert!(
-            matches!(&status, LaneStatus::Unstable(e) if e.contains("collinear pair of pentagon")),
-            "pentagon, D{dotted} doubled: {status:?}"
-        );
     }
 }
 
@@ -3325,8 +3334,9 @@ fn two_onium_exact(case: &Value, build: u32) -> (Vec<Vec<Float>>, Vec<Float>) {
 /// rounding exceeds here (by up to 40 for binary64 inputs, and 2.1 for
 /// binary128 inputs at 50 and 200 GeV). It now holds B to the rounding's
 /// first-order effect, |b^T dY b| (Y b = 1), of which B is at most 0.026.
-/// A generic pentagon is still refused
-/// (`collinear_pairs_reduce_dotted_triangles_and_refuse_unreduced_pentagons`).
+/// A generic pentagon keeps the term instead
+/// (`collinear_pairs_reduce_dotted_triangles_boxes_and_pentagons`); here it
+/// is of the order of B, which the inputs' rounding sets.
 /// - MadLoop's binary64 inputs through the bridge's embedder (relation
 ///   tiers): served by the double-double tier, within 1e-8 of 256 bits on the
 ///   same inputs (declared binary64; equal once rounded, measured).

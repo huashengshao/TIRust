@@ -384,6 +384,9 @@ pub(crate) enum PostOp {
     /// own order `k - e_i + e_v`, for the entries `own` of
     /// `DirectPlanData::taylor_own`.
     TaylorShift { variable: u16, own: (u32, u32) },
+    /// Multiply by `epsilon` (`D = 4 - 2 epsilon`): the poles become the
+    /// finite part and the double pole the single one.
+    TimesEpsilon,
 }
 
 /// Largest number of jet variables: dotted propagators and raised members of
@@ -639,6 +642,12 @@ pub(crate) struct PentagonGeometry {
     /// k = 1..4 `sum_{n=0..4} X^-1_kn`, then for (k, i) the sums over
     /// `n != k` of `Xtt_(kn)(0i)/det X` at `sums + 5 + 4 (k-1) + (i-1)`.
     pub sums: u32,
+    /// The (D - 4) terms of a pentagon with one doubled line `a` (a
+    /// univariate jet of length 2), at jet order 1 only (order 0 is zero):
+    /// `epsilon + i`, i = 0..4, is `2 B R^-1_(a i)` for Melrose's scalar, and
+    /// `epsilon + 4 + k`, k = 1..4, is `2 X^-1_(k0)` for the Gram-free
+    /// coefficients. `NO_GEOMETRY` otherwise.
+    pub epsilon: u32,
     /// Coefficient ranks `0..=dd_rank` come from the Gram-free reduction;
     /// `-1` keeps the Gram recursion for every rank (dotted propagators,
     /// degenerate box children).
@@ -758,6 +767,9 @@ pub(crate) struct DirectPlanData {
     /// Value index holding the constant `[0, 0, 0, 1]` (unit finite part),
     /// used by the rank-5 pentagon UV remainder.
     pub unit_finite: Option<u32>,
+    /// Scratch value of the pentagons' (D - 4) terms
+    /// ([`PentagonGeometry::epsilon`]).
+    pub epsilon_scratch: Option<u32>,
     /// Per subset: its coefficient instructions `coefficient_program[a..b]`
     /// (PV subsets; empty otherwise) and the number of its coefficient values
     /// `C(lambda, kappa)`, contiguous from its master. A refused box or
@@ -1276,6 +1288,10 @@ impl DirectPlanData {
         // D(0) of a Gram-free pentagon in its own momentum basis.
         let mut shifted_layouts: FastMap<SubsetMask, FastMap<(u16, Vec<u16>), u32>> = FastMap::default();
         let mut unit_finite = None;
+        let mut epsilon_scratch = None;
+        // One doubled line (a univariate jet of length 2): the line whose
+        // Gram-free pentagons carry their (D - 4) terms.
+        let epsilon_line = jet.as_ref().and_then(|jet| (jet.univariate() == Some(2)).then(|| jet.variables[0].0));
         let mut relations = Vec::new();
         for &relation in relation_masks {
             let member_list = members(relation);
@@ -1368,9 +1384,18 @@ impl DirectPlanData {
                         xinv: NO_GEOMETRY,
                         adjadj: NO_GEOMETRY,
                         sums: NO_GEOMETRY,
+                        epsilon: NO_GEOMETRY,
                         dd_rank: dd,
                     };
                     geometry_count = grow(geometry_count, 29)?;
+                    if dd >= 0 && epsilon_line.is_some_and(|line| mask & (1 << line) != 0) {
+                        pentagon.epsilon = geometry_count;
+                        geometry_count = grow(geometry_count, 9)?;
+                        if epsilon_scratch.is_none() {
+                            epsilon_scratch = Some(value_count);
+                            value_count = grow(value_count, 1)?;
+                        }
+                    }
                     if dd >= 0 {
                         // Momenta and origin for the gather, X^-1, Xtt/det X.
                         let (geometry, length) = PvGeometry::new(geometry_count, 4);
@@ -1649,6 +1674,19 @@ impl DirectPlanData {
                                 let src = layouts[&child(i)].lookup[&(0, vec![0, 0, 0])];
                                 terms.push(builder.term(src, geometry.b + i as u32, rational(1, 1)));
                             }
+                            if geometry.epsilon != NO_GEOMETRY {
+                                // Its (4 - D) B J5^(D+2) term at the doubled
+                                // line's order: epsilon 2 B sum_i R^-1_(ai) J4^(i).
+                                let scratch = epsilon_scratch.expect("pentagons with (D - 4) terms allocate a scratch value");
+                                let epsilon_terms: Vec<Term> = (0..5)
+                                    .map(|i| {
+                                        let src = layouts[&child(i)].lookup[&(0, vec![0, 0, 0])];
+                                        builder.term(src, geometry.epsilon + i as u32, rational(1, 1))
+                                    })
+                                    .collect();
+                                coefficient_program.push(builder.instruction(scratch, epsilon_terms, PostOp::TimesEpsilon));
+                                terms.push(builder.term(scratch, NO_GEOMETRY, rational(1, 1)));
+                            }
                             coefficient_program.push(builder.instruction(dst, terms, PostOp::None));
                             continue;
                         }
@@ -1703,6 +1741,50 @@ impl DirectPlanData {
                             }
                         }
                         coefficient_program.push(builder.instruction(dst, terms, PostOp::None));
+                    }
+                }
+                // The (D - 4) terms of the momentum coefficients at the doubled
+                // line a's order (hep-ph/0509141 Eq. (6.10)): r E_kappa gets
+                // 2 (D - 4) sum_k kappa_k X^-1_k0 E_(00, kappa - e_k), and
+                // E_00(nu_a = 2) = -E_(kappa + e_a)(unit) / 2 (x_a = 1 - sum x
+                // for the origin). Only their poles survive: metric
+                // coefficients are IR finite at unit powers, not with a
+                // doubled massless line next to a lightlike leg or between
+                // two on-shell ones.
+                if r >= 1 && geometry.epsilon != NO_GEOMETRY {
+                    let scratch = epsilon_scratch.expect("pentagons with (D - 4) terms allocate a scratch value");
+                    let line = epsilon_line.expect("a doubled line");
+                    let local = subset.members.iter().position(|&m| m == line).expect("the doubled line is a member");
+                    for kappa in compositions(r, 4) {
+                        let dst = layout.lookup[&(0, kappa.clone())];
+                        let mut epsilon_terms = Vec::new();
+                        for k in 1..=4 {
+                            if kappa[k - 1] == 0 {
+                                continue;
+                            }
+                            let c = rational(i64::from(kappa[k - 1]), big_r);
+                            let g = geometry.epsilon + 4 + k as u32;
+                            let mut rest = kappa.clone();
+                            rest[k - 1] -= 1;
+                            if local >= 1 {
+                                let mut src = rest.clone();
+                                src[local - 1] += 1;
+                                epsilon_terms.push(builder.term(layout.lookup[&(0, src)], g, c.clone()));
+                            } else {
+                                epsilon_terms.push(builder.term(layout.lookup[&(0, rest.clone())], g, -c.clone()));
+                                for j in 0..4 {
+                                    let mut src = rest.clone();
+                                    src[j] += 1;
+                                    epsilon_terms.push(builder.term(layout.lookup[&(0, src)], g, -c.clone()));
+                                }
+                            }
+                        }
+                        coefficient_program.push(builder.instruction(scratch, epsilon_terms, PostOp::TimesEpsilon));
+                        let sum = vec![
+                            builder.term(dst, NO_GEOMETRY, rational(1, 1)),
+                            builder.term(scratch, NO_GEOMETRY, rational(1, 1)),
+                        ];
+                        coefficient_program.push(builder.instruction(dst, sum, PostOp::None));
                     }
                 }
             }
@@ -2108,6 +2190,7 @@ impl DirectPlanData {
             output_order,
             lambda_shift,
             unit_finite,
+            epsilon_scratch,
             coefficient_ranges,
             coefficient_counts,
             pentagon_blocks,

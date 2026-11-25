@@ -16,7 +16,7 @@ use symbolica::{domains::float::Complex, evaluate::EvaluationDomain};
 use super::{
     numeric::{
         C, L4, SolveQuality, cadd, cfma, cfma_real, cinv, cmul, cnorm2, cscale, csub, czero, div_dimension,
-        lfma, lfma_slots, lzero, mul_dimension, real_lfma_slots, solve_in_place,
+        lfma, lfma_slots, lzero, mul_dimension, real_lfma_slots, solve_in_place, times_epsilon,
     },
     plan::{DirectPlanData, Gather, Instruction, Jet, NO_GEOMETRY, PostOp, Subset, SubsetKind, SubsetMask, Term, members},
     shared::{MASTER_KEY_WORDS, SharedValue, SubsetStore},
@@ -2333,13 +2333,27 @@ where
         for i in 0..5 {
             self.geometry[geometry.b as usize + i] = self.rhs[i].clone();
         }
-        // A dotted massless line in a collinear pair of this pentagon. The
-        // reduction J5 = sum_i b_i J4^(i) + (4 - D) B J5^(D+2), B = sum_i b_i,
-        // drops its last term; in 6 - 2 eps dimensions the doubled line keeps
-        // a collinear pole, so the dropped part of the mass derivative is of
-        // order B, not eps (a generic pentagon is 1e-4 off). Only a B that
-        // vanishes to the inputs' rounding (a degenerate Gram determinant:
-        // the flat pentagons of two onia in a 2 -> 2 process) lets it go.
+        // The (D - 4) terms live at the doubled line's jet order only.
+        if geometry.epsilon != NO_GEOMETRY {
+            for i in 0..9 {
+                self.geometry[geometry.epsilon as usize + i] = self.zero.clone();
+            }
+        }
+        // A dotted massless line of this pentagon. The reduction
+        // J5 = sum_i b_i J4^(i) + (4 - D) B J5^(D+2), B = sum_i b_i, drops its
+        // last term, and the Gram-free coefficients drop (D - 4) times their
+        // metric ones. In 6 - 2 eps dimensions a doubled massless line can
+        // keep an IR pole: in a collinear pair, between two on-shell legs, or
+        // next to an on-shell leg whose line is doubled too (power counting
+        // below; without one these terms are of order eps). The dropped part
+        // of the mass derivative is then of order B, not eps (a generic
+        // collinear pentagon is 2.4e-4 off, a soft one 3.7e-2; two doubled
+        // lines of g g > 3P2[8] 3P1[8] g up to 2e-3). With one doubled line
+        // the plan keeps these terms (`PentagonGeometry::epsilon`). For other
+        // jets (a tripled line, two jet variables) only a B that vanishes to
+        // the inputs' rounding (a degenerate Gram determinant: the flat
+        // pentagons of two onia in a 2 -> 2 process) lets it go; a massive
+        // dotted line has no such pole.
         // (Quarkonium's pentagons at v = 0 take their exact denominator
         // identity instead.) With Y b = 1, the inputs' rounding moves
         // B = 1^T b by -b^T dY b to first order: at most the rounding times
@@ -2349,19 +2363,39 @@ where
         // pentagons were refused once the Cayley system amplified it (g g >
         // chi_c0 chi_c0 9.7 degrees from the beam: up to 40 times for binary64
         // inputs, 2.1 for binary128 ones; B is at most 0.026 of this bound).
-        let jet_lines: Vec<usize> =
-            self.plan.jet.as_ref().map_or(Vec::new(), |jet| jet.variables.iter().map(|&(line, _)| line).collect());
+        let jet_lines: Vec<usize> = if geometry.epsilon != NO_GEOMETRY {
+            Vec::new()
+        } else {
+            self.plan.jet.as_ref().map_or(Vec::new(), |jet| jet.variables.iter().map(|&(line, _)| line).collect())
+        };
         let massless = |i: usize| self.masses[i].re.is_zero() && self.masses[i].im.is_zero();
-        let collinear = jet_lines.iter().find(|&&dotted| {
-            members.contains(&dotted)
-                && massless(dotted)
-                && members.iter().any(|&e| {
-                    e != dotted
-                        && massless(e)
-                        && cnorm2(d(dotted, e)).sqrt() <= self.invariant_size(dotted, e) * &self.input_rounding
-                })
+        // Power counting in 6 dimensions at the jet's highest powers nu (a jet
+        // line's Taylor length, 1 for other lines): a massless line a is
+        // collinear to a massless partner e across a vanishing invariant if
+        // nu_a + nu_e >= 3, and soft if 2 nu_a plus the powers of the lines b
+        // on shell to it ((r_a - r_b)^2 = m_b^2) reaches 6.
+        let jet_power = |line: usize| -> usize {
+            self.plan
+                .jet
+                .as_ref()
+                .and_then(|jet| jet.variables.iter().find(|&&(l, _)| l == line))
+                .map_or(1, |&(_, length)| length)
+        };
+        let lightlike = |a: usize, e: usize| cnorm2(d(a, e)).sqrt() <= self.invariant_size(a, e) * &self.input_rounding;
+        let on_shell = |a: usize, b: usize| {
+            let size = cnorm2(&self.masses[b]).sqrt() + &self.invariant_size(a, b);
+            cnorm2(&csub(d(a, b), &self.masses[b])).sqrt() <= size * &self.input_rounding
+        };
+        let exposed = jet_lines.iter().find(|&&a| {
+            members.contains(&a) && massless(a) && {
+                let collinear = members
+                    .iter()
+                    .any(|&e| e != a && massless(e) && lightlike(a, e) && jet_power(a) + jet_power(e) >= 3);
+                let soft: usize = members.iter().filter(|&&b| b != a && on_shell(a, b)).map(|&b| jet_power(b)).sum();
+                collinear || 2 * jet_power(a) + soft >= 6
+            }
         });
-        if let Some(&dotted) = collinear {
+        if let Some(&dotted) = exposed {
             let mut sum = self.zero.clone();
             let mut bound = self.prototype.zero();
             for i in 0..5 {
@@ -2378,8 +2412,8 @@ where
             }
             if cnorm2(&sum).sqrt() > bound * &self.input_rounding {
                 return Err(GeometryFailure::Unstable(format!(
-                    "dotted massless line {dotted} in a collinear pair of pentagon {members:?}: \
-                     its (D + 2)-dimensional term is not reduced"
+                    "dotted massless line {dotted} of pentagon {members:?} in a Taylor jet without \
+                     its (D - 4) terms: its (D + 2)-dimensional term is not reduced"
                 )));
             }
         }
@@ -3586,6 +3620,32 @@ where
                             }
                         }
                     }
+                    if geometry.epsilon != NO_GEOMETRY {
+                        // The (D - 4) terms' weights (`PentagonGeometry::epsilon`),
+                        // at the jet's one order: b_1 = R0^-1 E b = b_a b + B R0^-1 e_a
+                        // gives 2 B R0^-1 e_a, and 2 X^-1_k0 from the Gram-free part.
+                        // A massive line is neither soft nor collinear: its terms
+                        // vanish (they would only add rounding).
+                        let e = geometry.epsilon as usize;
+                        for i in 0..9 {
+                            self.geometry_jet[0][e + i] = self.zero.clone();
+                        }
+                        let massless = self.masses[dotted].re.is_zero() && self.masses[dotted].im.is_zero();
+                        if let (Some(local), 2, true) = (local, k_len, massless) {
+                            let ba = self.geometry[geometry.b as usize + local].clone();
+                            for i in 0..5 {
+                                let product = cmul(&ba, &self.geometry[geometry.b as usize + i]);
+                                let value = csub(&self.geometry_jet[0][geometry.b as usize + i], &product);
+                                self.geometry_jet[0][e + i] = cadd(&value, &value);
+                            }
+                            if geometry.dd_rank >= 1 {
+                                for k in 1..=4 {
+                                    let x = self.geometry[geometry.xinv as usize + 5 * k].clone();
+                                    self.geometry_jet[0][e + 4 + k] = cadd(&x, &x);
+                                }
+                            }
+                        }
+                    }
                     if subset.moment_rank >= 1 {
                         for mu in 0..4 {
                             let mut a = self.zero.clone();
@@ -4457,6 +4517,9 @@ where
                 if let PostOp::DivideDimension { inverse } = instruction.post {
                     div_dimension(value, &self.constants[inverse as usize]);
                 }
+                if let PostOp::TimesEpsilon = instruction.post {
+                    times_epsilon(value);
+                }
             }
             let dst = instruction.dst as usize;
             self.values[dst] = accumulator[0].clone();
@@ -4564,6 +4627,11 @@ where
                 let inverse = &self.constants[inverse as usize];
                 for value in &mut acc {
                     div_dimension(value, inverse);
+                }
+            }
+            if let PostOp::TimesEpsilon = instruction.post {
+                for value in &mut acc {
+                    times_epsilon(value);
                 }
             }
             let dst = instruction.dst as usize;
@@ -4728,6 +4796,7 @@ where
                     PostOp::DivideDimension { inverse } => {
                         div_dimension(&mut accumulator, &constants[inverse as usize]);
                     }
+                    PostOp::TimesEpsilon => times_epsilon(&mut accumulator),
                     // Only plans with a Taylor jet have partial fractions.
                     PostOp::TaylorShift { .. } => unreachable!("a partial fraction without a Taylor jet"),
                 }
