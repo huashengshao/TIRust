@@ -8,13 +8,15 @@
 //! The lanes include (near-)degenerate ones, whose result depends on the
 //! previous lane in a workspace that is not lane-independent: affinely
 //! dependent boxes, and copies of them perturbed below the relation's
-//! tolerance, also inside pentagons and hexagons.
+//! tolerance, also inside pentagons and hexagons; flat hexagons, whose
+//! identity is a variant of its own; and triangles near a vanishing Källén
+//! function, which the fixed-precision floor refuses and MPFR serves.
 use std::thread;
 
 use iregi_masters::NativeFloat;
 use iregi_rust::{
-    BatchResult, DirectReductionPlan, DirectWorkspace, KinematicsBatch, ReductionSettings,
-    TensorStore, direct::EXPANSION_TOLERANCE,
+    BatchResult, DirectReductionPlan, DirectWorkspace, InvariantInput, KinematicsBatch,
+    ReductionSettings, ScaleInput, TensorStore, direct::EXPANSION_TOLERANCE,
 };
 use symbolica::{
     domains::float::{Complex, DoubleFloat, Float},
@@ -143,6 +145,212 @@ fn lanes(n: usize, step: usize, count: usize) -> Vec<Row> {
     }
     out.extend(rest);
     out
+}
+
+/// A lane with supplied invariants: shifts, the invariants `(q_i - q_j)^2`
+/// for `i < j` (given, or computed from the shifts in binary64), squared
+/// masses and mu^2.
+fn supplied(shifts: &[[f64; 4]], given: Option<&[Vec<f64>]>, masses: &[f64], mu2: f64) -> Row {
+    let square = |a: &[f64; 4], b: &[f64; 4]| {
+        let d: [f64; 4] = std::array::from_fn(|k| a[k] - b[k]);
+        d[0] * d[0] - d[1] * d[1] - d[2] * d[2] - d[3] * d[3]
+    };
+    let n = shifts.len();
+    let mut values: Row = shifts
+        .iter()
+        .flatten()
+        .map(|&x| Complex::new(x, 0.0))
+        .collect();
+    for i in 0..n {
+        for j in i + 1..n {
+            let s = given.map_or_else(|| square(&shifts[i], &shifts[j]), |s| s[i][j]);
+            values.push(Complex::new(s, 0.0));
+        }
+    }
+    values.extend(masses.iter().map(|&m| Complex::new(m, 0.0)));
+    values.push(Complex::new(mu2, 0.0));
+    values
+}
+
+fn supplied_plan(n: usize, rank: u16) -> DirectReductionPlan {
+    let mut settings = ReductionSettings::new(n, rank);
+    settings.invariants = InvariantInput::SuppliedInvariants;
+    settings.scale_input = ScaleInput::MuSquared;
+    DirectReductionPlan::new(settings).unwrap()
+}
+
+/// A g g > chic0 chic0 hexagon whose external points span three dimensions
+/// (MadLoop's binary64 inputs at sqrt(s) = 20 GeV, as in `tests/onia.rs`): a
+/// flat hexagon, reduced through the identity of its relations (a variant
+/// with a flat profile). Each is followed by a copy with one shift moved
+/// along z by `eps` (invariants from the shifts), which the variant of the
+/// lane before it must not reach.
+fn flat_hexagons() -> Vec<Row> {
+    const M2: [u64; 6] = [
+        0x40033851eb851eb9,
+        0x40033851eb851eb9,
+        0x40033851eb851eb9,
+        0,
+        0x40033851eb851eb9,
+        0,
+    ];
+    const P: [[u64; 4]; 6] = [
+        [0xbce0000000000000, 0, 0, 0],
+        [0x4023ffffffffffff, 0, 0, 0x4023ffffffffffff],
+        [0x4033ffffffffffff, 0, 0, 0],
+        [
+            0x402dfffffffffffe,
+            0x400e2fb56247673b,
+            0xc002541aee163b5a,
+            0xbffc384084d604c8,
+        ],
+        [
+            0x4023fffffffffffe,
+            0x401e2fb56247673b,
+            0xc012541aee163b5a,
+            0xc00c384084d604c8,
+        ],
+        [
+            0x4013fffffffffffd,
+            0x400e2fb56247673b,
+            0xc002541aee163b5a,
+            0xbffc384084d604c8,
+        ],
+    ];
+    const S: [[u64; 6]; 6] = [
+        [
+            0,
+            0,
+            0x4079000000000000,
+            0x40694ce147ae1479,
+            0x40233851eb851ec4,
+            0x40033851eb851eb9,
+        ],
+        [
+            0,
+            0,
+            0,
+            0xc0609be8cd135c44,
+            0xc0704f07856547c8,
+            0xc0609be8cd135c43,
+        ],
+        [
+            0x4079000000000000,
+            0,
+            0,
+            0x40033851eb851eb9,
+            0x40233851eb851ed4,
+            0x40694ce147ae147b,
+        ],
+        [
+            0x40694ce147ae1479,
+            0xc0609be8cd135c44,
+            0x40033851eb851eb9,
+            0,
+            0x40033851eb851eb9,
+            0x4059000000000000,
+        ],
+        [
+            0x40233851eb851ec4,
+            0xc0704f07856547c8,
+            0x40233851eb851ed4,
+            0x40033851eb851eb9,
+            0,
+            0x40033851eb851eb9,
+        ],
+        [
+            0x40033851eb851eb9,
+            0xc0609be8cd135c43,
+            0x40694ce147ae147b,
+            0x4059000000000000,
+            0x40033851eb851eb9,
+            0,
+        ],
+    ];
+    let f = f64::from_bits;
+    let shifts: Vec<[f64; 4]> = P.iter().map(|q| q.map(f)).collect();
+    let invariants: Vec<Vec<f64>> = S
+        .iter()
+        .map(|row| row.iter().map(|&x| f(x)).collect())
+        .collect();
+    let masses: Vec<f64> = M2.iter().map(|&m| f(m)).collect();
+    let flat = supplied(&shifts, Some(&invariants), &masses, 400.0);
+    let mut rows = Vec::new();
+    for eps in [0.0, 1e-14, 1e-12, 1e-10, 1e-8, 1e-6, 1e-3] {
+        for k in 3..6 {
+            let mut moved = shifts.clone();
+            moved[k][3] += eps;
+            rows.push(flat.clone());
+            rows.push(supplied(&moved, None, &masses, 400.0));
+        }
+    }
+    rows
+}
+
+/// Triangles near a vanishing Källén function (`tests/near_degenerate_triangles.rs`):
+/// nearly collinear timelike legs and a lightlike leg next to two nearly
+/// equal invariants, which the fixed-precision floor refuses, between
+/// generic ones; at rank 0 also exactly and nearly vanishing Källén
+/// functions of the invariants (`tests/direct_engine.rs`, #60), which
+/// binary64 and double-double leave to MPFR.
+fn near_degenerate_triangles(rank: u16) -> Vec<Row> {
+    let offset = [0.3, -0.7, 0.2, 1.1];
+    let triangle = |d1: [f64; 4], d2: [f64; 4], s01: Option<f64>, masses: [f64; 3]| {
+        let shifts: Vec<[f64; 4]> = [[0.0; 4], d1, d2]
+            .iter()
+            .map(|d| std::array::from_fn(|k| offset[k] + d[k]))
+            .collect();
+        let mut row = supplied(&shifts, None, &masses, 9.0);
+        if let Some(s01) = s01 {
+            row[12] = Complex::new(s01, 0.0);
+        }
+        row
+    };
+    let generic = triangle(
+        [1.9, 0.4, -0.3, 0.2],
+        [2.6, -0.5, 1.1, -0.4],
+        None,
+        [0.7, 2.9, 1.6],
+    );
+    let mut rows = vec![generic.clone()];
+    let (a, b) = (1.3f64, 2.1f64);
+    for eta in [1e-11, 1e-9, 1e-6] {
+        let c2 = (a + b) * (a + b) * (1.0 + eta);
+        let alpha = (c2 - b * b + a * a) / (2.0 * a);
+        rows.push(triangle(
+            [a, 0.0, 0.0, 0.0],
+            [alpha, 0.0, (alpha * alpha - c2).sqrt(), 0.0],
+            None,
+            [3.1, 5.7, 2.2],
+        ));
+        rows.push(generic.clone());
+    }
+    for eps in [1e-9, 1e-6, 1e-3] {
+        rows.push(triangle(
+            [1.3, 1.3, 0.0, 0.0],
+            [1.7 + eps, 1.7, 0.9, 0.0],
+            Some(0.0),
+            [2.3, 0.0, 6.4],
+        ));
+        rows.push(generic.clone());
+    }
+    if rank == 0 {
+        // Invariants (9, 36, 9): lambda = 0 with the shifts off the line.
+        for eps in [0.0, 1e-9] {
+            let mut row = triangle(
+                [3.0, 0.0, 0.0, 0.0],
+                [6.0, 0.0, 0.4, 0.0],
+                None,
+                [0.0, 1.0, 20.0],
+            );
+            row[12] = Complex::new(9.0, 0.0);
+            row[13] = Complex::new(36.0 * (1.0 + eps), 0.0);
+            row[14] = Complex::new(9.0, 0.0);
+            rows.push(row);
+            rows.push(generic.clone());
+        }
+    }
+    rows
 }
 
 fn batch<T: NativeFloat>(rows: &[&Row], lift: &impl Fn(f64) -> T) -> KinematicsBatch<T> {
@@ -521,5 +729,83 @@ fn without_the_setting_degenerate_lanes_depend_on_their_predecessors() {
                 setting.0
             );
         }
+    }
+}
+
+/// A flat hexagon selects a variant with a flat profile; every lane after it
+/// in a lane-independent workspace starts from the base plan again.
+#[test]
+fn lanes_after_flat_hexagons_are_bitwise_independent_of_the_threads() {
+    let rows = flat_hexagons();
+    for rank in [2, 4] {
+        let plan = supplied_plan(6, rank);
+        let settings: [Setting<f64>; 3] = [
+            ("gates", gates),
+            ("gate 0", gate_zero),
+            ("method choice", method_choice),
+        ];
+        for setting in settings {
+            let case = Case {
+                plan: &plan,
+                prototype: 0.0f64,
+                setting,
+                rotation: None,
+            };
+            let name = format!("flat hexagons R{rank} binary64 {}", setting.0);
+            case.check(&name, &rows, &|x| x, &[1, 2, 8], &[rows.len(), 1, 3]);
+        }
+    }
+}
+
+/// Triangles the fixed-precision floor and the degenerate-invariant test
+/// refuse, between generic ones, in binary64, double-double and MPFR.
+#[test]
+fn near_degenerate_triangles_are_bitwise_independent_of_the_threads() {
+    for rank in [0, 2, 3] {
+        let rows = near_degenerate_triangles(rank);
+        let plan = supplied_plan(3, rank);
+        let b64: [Setting<f64>; 3] = [
+            ("gates", gates),
+            ("gate 0", gate_zero),
+            ("method choice", method_choice),
+        ];
+        for setting in b64 {
+            let case = Case {
+                plan: &plan,
+                prototype: 0.0f64,
+                setting,
+                rotation: Some(1),
+            };
+            let name = format!("triangles R{rank} binary64 {}", setting.0);
+            case.check(&name, &rows, &|x| x, &[1, 2, 8], &[rows.len(), 1, 3]);
+        }
+        let case = Case {
+            plan: &plan,
+            prototype: DoubleFloat::from(0.0),
+            setting: ("gate 0", gate_zero),
+            rotation: Some(1),
+        };
+        let name = format!("triangles R{rank} double-double gate 0");
+        case.check(
+            &name,
+            &rows,
+            &DoubleFloat::from,
+            &[1, 2, 8],
+            &[rows.len(), 1],
+        );
+        let case = Case {
+            plan: &plan,
+            prototype: Float::new(128),
+            setting: ("gates", gates),
+            rotation: Some(1),
+        };
+        let name = format!("triangles R{rank} MPFR 128 bits gates");
+        case.check(
+            &name,
+            &rows,
+            &|x| Float::with_val(128, x),
+            &[1, 2, 8],
+            &[rows.len(), 1],
+        );
     }
 }

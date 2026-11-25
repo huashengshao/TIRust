@@ -5393,11 +5393,13 @@ where
                 && !(self.relation_profile.is_empty()
                     && self.lightlike_profile.is_empty()
                     && self.homogeneous_profile.is_empty()
+                    && self.flat_profile.is_empty()
                     && Arc::ptr_eq(&self.plan, &self.base_plan))
             {
                 self.relation_profile.clear();
                 self.lightlike_profile.clear();
                 self.homogeneous_profile.clear();
+                self.flat_profile.clear();
                 self.select_variant()?;
             }
             let mut failure = None;
