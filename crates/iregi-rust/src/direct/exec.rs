@@ -1557,23 +1557,112 @@ where
     /// its master otherwise: nearly dependent points that the working
     /// precision resolves (a Coulomb triple 1e-12 off its line at 256 bits)
     /// are evaluated as on main.
+    ///
+    /// The C0 master sees only the invariants, which can be degenerate while
+    /// the points are not (issue #60): invariants that round onto the
+    /// degenerate point, supplied ones (taken as given), or MadLoop's
+    /// snapped ones. A triangle whose invariants put binary64 or
+    /// double-double C0 where it is unreliable ([`Self::unreliable_fixed_c0`])
+    /// fails as singular too, so that the facade evaluates it at a higher
+    /// precision (MPFR reduces a vanishing Källén function exactly).
     fn ungated_scalar(&self, mask: SubsetMask, members: &[usize]) -> Result<(), GeometryFailure> {
         let margin = exact_f64(&self.prototype, 1024.0);
         let inputs = self.input_rounding.clone() * &margin;
-        if !self.points_affinely_dependent(members, &inputs) {
-            return Ok(());
+        if self.points_affinely_dependent(members, &inputs) {
+            let working = self.rounding.clone() * &margin;
+            if working >= inputs
+                || self.points_affinely_dependent(members, &working)
+                || matches!(self.relation_support(mask), Ok((_, true)))
+            {
+                return Err(GeometryFailure::Singular(
+                    mask,
+                    format!("scalar integral {members:?} with affinely dependent external points"),
+                ));
+            }
         }
-        let working = self.rounding.clone() * &margin;
-        if working >= inputs
-            || self.points_affinely_dependent(members, &working)
-            || matches!(self.relation_support(mask), Ok((_, true)))
-        {
+        if self.unreliable_fixed_c0(members) {
             return Err(GeometryFailure::Singular(
                 mask,
-                format!("scalar integral {members:?} with affinely dependent external points"),
+                format!("scalar triangle {members:?} whose invariants have a vanishing Källén function"),
             ));
         }
         Ok(())
+    }
+
+    /// Whether binary64 or double-double C0 is unreliable at the invariants
+    /// and masses of the triangle `members`, as its master receives them
+    /// (issue #60). oneloopmaster's fixed-precision sector code takes the
+    /// square root of the Källén function `lambda` of the invariants and loses
+    /// its accuracy as `lambda` vanishes, the faster the smaller the modified
+    /// Cayley determinant `det Y` (`Y_ij = (m_i + m_j - s_ij) / 2`):
+    /// - `|lambda|` within 16 roundings of `(|s_01| + |s_12| + |s_02|)^2`
+    ///   (unresolved): binary64 up to 1e-6 off at a generic `det Y`, 1e15 at
+    ///   `det Y = 0` (issue #36's point);
+    /// - `|lambda|` within `8 sqrt(u)` of that and `|det Y|` within 1024 times
+    ///   `|lambda|`'s share of the product of `Y`'s row norms (binary64 up to
+    ///   1e-4 off at a relative `lambda` of 1e-12 and `det Y` of 1e-13, and
+    ///   falling about as their ratio grows: 1e-8 at 10 to 100, 3e-10 at 1e3).
+    ///
+    /// Not where an invariant is zero (a lightlike leg: its sectors are
+    /// accurate), nor at a massless line between two legs on shell to 8
+    /// roundings (soft: `det Y = 0` at every `lambda`, the near-forward and
+    /// near-threshold Coulomb triangles, accurate), nor at MPFR, whose C0
+    /// reduces `lambda = 0` exactly and has the bits elsewhere.
+    fn unreliable_fixed_c0(&self, members: &[usize]) -> bool {
+        if T::FIXED_BITS.is_none() || members.len() != 3 {
+            return false;
+        }
+        let n = self.masses.len();
+        let zero = self.prototype.zero();
+        let leg = |i: usize, j: usize| &self.distances[members[i] * n + members[j]];
+        let legs = [leg(0, 1), leg(1, 2), leg(0, 2)];
+        if legs.iter().any(|s| !s.im.is_zero() || s.re.is_zero()) {
+            return false;
+        }
+        let abs = |x: T| if x < zero { zero.clone() - &x } else { x };
+        let (a, b, c) = (legs[0].re.clone(), legs[1].re.clone(), legs[2].re.clone());
+        let difference = a.clone() - &b - &c;
+        let lambda = abs(difference.clone() * &difference - exact_f64(&self.prototype, 4.0) * &b * &c);
+        let size = abs(a) + &abs(b) + &abs(c);
+        let scale = size.clone() * &size;
+        // u = rounding / 8.
+        let u = self.rounding.clone() / &exact_f64(&self.prototype, 8.0);
+        let near = exact_f64(&self.prototype, 8.0) * &u.clone().sqrt() * &scale;
+        if lambda > near {
+            return false;
+        }
+        let mass = |k: usize| &self.masses[members[k]];
+        let on_shell = |s: &C<T>, m: &C<T>| cnorm2(&csub(s, m)) <= self.rounding.clone() * &self.rounding * &cnorm2(m);
+        for k in 0..3 {
+            let (i, j) = ((k + 1) % 3, (k + 2) % 3);
+            if cnorm2(mass(k)).is_zero() && on_shell(leg(k, i), mass(i)) && on_shell(leg(k, j), mass(j)) {
+                return false;
+            }
+        }
+        if lambda <= exact_f64(&self.prototype, 16.0) * &u * &scale {
+            return true;
+        }
+        let half = exact_f64(&self.prototype, 0.5);
+        let y = |i: usize, j: usize| -> C<T> {
+            if i == j {
+                mass(i).clone()
+            } else {
+                cscale(&csub(&cadd(mass(i), mass(j)), leg(i.min(j), i.max(j))), &half)
+            }
+        };
+        let y: [[C<T>; 3]; 3] = std::array::from_fn(|i| std::array::from_fn(|j| y(i, j)));
+        let minor = |r: usize, s: usize, t: usize, w: usize| csub(&cmul(&y[r][t], &y[s][w]), &cmul(&y[r][w], &y[s][t]));
+        let determinant = cadd(
+            &csub(&cmul(&y[0][0], &minor(1, 2, 1, 2)), &cmul(&y[0][1], &minor(1, 2, 0, 2))),
+            &cmul(&y[0][2], &minor(1, 2, 0, 1)),
+        );
+        let mut rows = self.prototype.one();
+        for row in &y {
+            rows = rows * &(cnorm2(&row[0]) + &cnorm2(&row[1]) + &cnorm2(&row[2]));
+        }
+        // |det Y| <= 1024 (lambda / scale) prod |row|, squared.
+        let bound = exact_f64(&self.prototype, 1024.0) * &lambda / &scale;
+        cnorm2(&determinant) <= bound.clone() * &bound * &rows
     }
 
     /// Whether the three or four external points of `members` are affinely
