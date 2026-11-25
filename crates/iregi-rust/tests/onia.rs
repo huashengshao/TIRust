@@ -506,12 +506,12 @@ fn triple_identity(shifts: &[[f64; 4]], masses: &[f64], mu: f64, rank: u16, (a, 
 /// nonzero relative velocity. Their integrals are Coulomb singular (they
 /// grow like delta^(-1/2)), not the v = 0 value. Linear dependence is
 /// accepted only to the working precision's rounding of the inputs, so
-/// binary64 refuses these lanes, typed, at every rank with a Gram or Cayley
-/// check. The scalar triangle has none: its master is evaluated at the lane's
-/// own kinematics, bit-identical to main. Every lane that succeeds, directly
-/// or through the facade (whose 256-bit tier accepts the moved lanes), agrees
-/// with a 256-bit reference: the exact identity over 256-bit pinches, or the
-/// 256-bit generic reduction of the moved lane.
+/// binary64 refuses these lanes, typed, at every rank: with a Gram or Cayley
+/// check, and the scalar triangle, which has none, by the test of its points
+/// (issue #36; its binary64 master was evaluated there before). Every lane
+/// that succeeds, directly or through the facade (whose 256-bit tier accepts
+/// the moved lanes), agrees with a 256-bit reference: the exact identity over
+/// 256-bit pinches, or the 256-bit generic reduction of the moved lane.
 /// A heavy mass one ulp above 9 is within binary64's rounding (|K| is below
 /// 2^-53 of its inputs' size): a binary64 `DirectWorkspace` accepts it as
 /// linearly dependent, and its array equals the exact lane's. (Through the
@@ -565,15 +565,12 @@ fn nearly_dependent_lanes_are_refused() {
                     values
                 };
                 let direct = direct_lanes(n, rank, &[lane.clone()]).remove(0);
-                if n == 5 || rank >= 1 {
-                    assert_ne!(direct.0, LaneStatus::Success, "{label}, {name}, rank {rank}: binary64 accepted the lane");
-                }
+                assert_ne!(direct.0, LaneStatus::Success, "{label}, {name}, rank {rank}: binary64 accepted the lane");
                 let facade = facade_lane(settings, &lane);
                 for (what, (status, values)) in [("direct", direct), ("facade", facade)] {
                     if status == LaneStatus::Success {
-                        // The scalar triangle is oneloopmaster's binary64 C0,
-                        // bit-identical to main, conditioned like 1/delta
-                        // near the threshold.
+                        // The scalar triangle through the facade, conditioned
+                        // like 1/delta near the threshold.
                         let tolerance = if n == 3 && rank == 0 && *delta != 0.0 { 1e-15 / delta.abs() } else { 1e-8 };
                         let ea = relative_difference(&values, &reference);
                         assert!(ea <= tolerance, "{label}, {name}, rank {rank}, {what}: E/A {ea:e} against 256 bits");

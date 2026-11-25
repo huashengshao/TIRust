@@ -1541,6 +1541,97 @@ where
         Ok(AffineRelation::Constant(weights))
     }
 
+    /// A scalar triangle or box at rank 0 has no Gram system, so nothing else
+    /// stops its master from being evaluated at affinely dependent external
+    /// points, where oneloopmaster's C0 and D0 are wrong: C0 with a vanishing
+    /// Källén function and Cayley determinant (issue #36, 1e15 in binary64),
+    /// and near it (1e-2 at a relative Cayley determinant of 1e-7); D0 even
+    /// at 256 bits. Such a subset of a higher rank takes its denominator
+    /// identity or partial fraction where its Gram system is singular at the
+    /// working precision, and its partial fraction where the system is
+    /// singular only at the inputs' rounding and its propagators are linearly
+    /// dependent there (the v = 0 value of a Coulomb triple), else its
+    /// reduction. This one fails as singular in the same two cases, its
+    /// points dependent at 2^-(p - 13) of their spread (the lightlike margin)
+    /// with p the working precision or the inputs' (at most it), and keeps
+    /// its master otherwise: nearly dependent points that the working
+    /// precision resolves (a Coulomb triple 1e-12 off its line at 256 bits)
+    /// are evaluated as on main.
+    fn ungated_scalar(&self, mask: SubsetMask, members: &[usize]) -> Result<(), GeometryFailure> {
+        let margin = exact_f64(&self.prototype, 1024.0);
+        let inputs = self.input_rounding.clone() * &margin;
+        if !self.points_affinely_dependent(members, &inputs) {
+            return Ok(());
+        }
+        let working = self.rounding.clone() * &margin;
+        if working >= inputs
+            || self.points_affinely_dependent(members, &working)
+            || matches!(self.relation_support(mask), Ok((_, true)))
+        {
+            return Err(GeometryFailure::Singular(
+                mask,
+                format!("scalar integral {members:?} with affinely dependent external points"),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Whether the three or four external points of `members` are affinely
+    /// dependent at `tolerance`: [`Self::affine_relation`]'s rank test
+    /// (complete pivoting of the shift differences, a pivot at most
+    /// `tolerance` times the largest difference) without the relation or an
+    /// allocation, run on every lane of an ungated scalar top.
+    fn points_affinely_dependent(&self, members: &[usize], tolerance: &T) -> bool {
+        let n = members.len() - 1;
+        debug_assert!((2..=3).contains(&n));
+        let origin = members[0];
+        let mut p: [[C<T>; 3]; 4] = std::array::from_fn(|a| {
+            std::array::from_fn(|j| {
+                if j < n { csub(&self.shifts[members[j + 1]][a], &self.shifts[origin][a]) } else { self.zero.clone() }
+            })
+        });
+        // Squared, as the pivots.
+        let mut scale = self.prototype.zero();
+        for j in 0..n {
+            let mut norm = self.prototype.zero();
+            for row in &p {
+                norm += cnorm2(&row[j]);
+            }
+            if norm > scale {
+                scale = norm;
+            }
+        }
+        let tolerance = scale * &(tolerance.clone() * tolerance);
+        let mut columns = [0usize, 1, 2];
+        for step in 0..n {
+            let mut best = self.prototype.zero();
+            let mut pivot = (step, step);
+            for (row, values) in p.iter().enumerate().skip(step) {
+                for column in step..n {
+                    let candidate = cnorm2(&values[columns[column]]);
+                    if candidate > best {
+                        best = candidate;
+                        pivot = (row, column);
+                    }
+                }
+            }
+            if best <= tolerance {
+                return true;
+            }
+            p.swap(step, pivot.0);
+            columns.swap(step, pivot.1);
+            let inverse = cinv(&p[step][columns[step]]);
+            for row in step + 1..4 {
+                let factor = cmul(&p[row][columns[step]], &inverse);
+                for column in step..n {
+                    let update = cmul(&factor, &p[step][columns[column]]);
+                    p[row][columns[column]] = csub(&p[row][columns[column]], &update);
+                }
+            }
+        }
+        false
+    }
+
     /// Minimal support of the affine relation of a singular subset.
     #[inline(never)]
     fn relation_support(&self, mask: SubsetMask) -> Result<(SubsetMask, bool), String> {
@@ -1968,6 +2059,18 @@ where
                     }
                     for a in 0..4 {
                         self.geometry[geometry.origin as usize + a] = self.shifts[origin][a].clone();
+                    }
+                    if momenta >= 2 && subset.coefficient_rank < 1 && Some(subset.mask) == top_mask {
+                        // A rank-0 triangle or box (issue #36). Conditioning
+                        // zero, as an exactly singular Gram system: the facade
+                        // sends a refused lane to higher precision, where the
+                        // points may be resolved, not to the symbolic engine
+                        // (whose relation search takes a Coulomb triple 1e-12
+                        // off its line for the v = 0 one).
+                        if let Err(failure) = self.ungated_scalar(subset.mask, members) {
+                            self.failed_condition = Some(0.0);
+                            return Err(failure);
+                        }
                     }
                     if momenta == 1 && (subset.lightlike || subset.coefficient_rank >= 1) {
                         // Lightlike or coincident bubble: |p^2| negligible
