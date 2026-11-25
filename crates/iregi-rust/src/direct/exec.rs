@@ -307,6 +307,10 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     /// so lanes whose outputs are certainly finite stop after the
     /// coefficient program (see `top_outputs_finite`).
     coefficients_only: bool,
+    /// Every lane starts from the base plan instead of the previous lane's
+    /// variant (see [`Self::set_lane_independent`]); passed on to the
+    /// partial-rescue and small-Gram executors at every use.
+    pub(super) lane_independent: bool,
 }
 
 /// The stages whose stored refusals name their subset (see
@@ -529,6 +533,7 @@ where
             profiling: false,
             profile: DirectProfile::default(),
             coefficients_only: false,
+            lane_independent: false,
             dd_masters: None,
             base_plan: plan.clone(),
             base_constants: constants.clone(),
@@ -547,6 +552,18 @@ where
 
     pub fn set_profiling(&mut self, enabled: bool) {
         self.profiling = enabled;
+    }
+
+    /// Start every lane from the base plan (`true`) instead of the plan
+    /// variant the previous lane selected (`false`, the default). A lane
+    /// whose kinematics satisfy a variant's relations only to its tolerance
+    /// (a near-degenerate subset next to an exactly degenerate one) is
+    /// otherwise reduced through that variant after such a lane and through
+    /// the base plan alone, so its bits depend on the lanes and calls before
+    /// it. With `true` each lane's result is a function of the lane and the
+    /// executor's settings only.
+    pub(crate) fn set_lane_independent(&mut self, enabled: bool) {
+        self.lane_independent = enabled;
     }
 
     pub fn last_profile(&self) -> DirectProfile {
@@ -1307,6 +1324,7 @@ where
                 // Its scalar masters shared with the amplitude's other
                 // double-double evaluations (limb-exact keys).
                 executor.set_shared_subsets(self.shared.clone());
+                executor.lane_independent = self.lane_independent;
                 let result = executor
                     .reduce_batch(&KinematicsBatch { rows: 1, components: 1, values })
                     .map_err(|e| e.to_string())?;
@@ -3844,6 +3862,18 @@ where
             // Reuse the previous lane's variant; on a relation that does not
             // hold here, restart from the base plan. Each affinely dependent
             // subset the geometry discovers switches to a relation variant.
+            // Lane-independent executors restart from the base plan always.
+            if self.lane_independent
+                && !(self.relation_profile.is_empty()
+                    && self.lightlike_profile.is_empty()
+                    && self.homogeneous_profile.is_empty()
+                    && Arc::ptr_eq(&self.plan, &self.base_plan))
+            {
+                self.relation_profile.clear();
+                self.lightlike_profile.clear();
+                self.homogeneous_profile.clear();
+                self.select_variant()?;
+            }
             let mut failure = None;
             // The lane's plan, cloned once (an atomic increment and
             // decrement) and lent to every step below.
