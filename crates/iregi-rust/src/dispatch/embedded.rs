@@ -88,8 +88,10 @@ pub struct EmbedderOptions {
     /// Whatever the threshold, binary64 and double-double workspaces also
     /// refuse a triangle integral whose Gram system alone amplifies rounding
     /// by more than `2^(p - 34)` (p = 53 or 106 bits). This is a floor on the
-    /// Gram system's conditioning, not a promise of 34 correct bits. With
-    /// neither [`Self::method_choice`] nor [`Self::precision_tiers`], such
+    /// Gram system's conditioning, not a promise of 34 correct bits. A triangle
+    /// whose points are affinely dependent to the inputs' rounding is reduced
+    /// by its affine relation instead. With
+    /// neither [`Self::method_choice`] nor [`Self::precision_tiers`], the other
     /// lanes come back [`LaneStatus::Unstable`], as they do from a plain
     /// binary64 or double-double direct workspace at any stability
     /// threshold. The caller must handle that, for example by evaluating

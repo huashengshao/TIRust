@@ -116,6 +116,29 @@ fn coincident_shifts(rank: u16) -> Lane {
     lane("coincident shifts", rank, &shifts, [0.0, f64::from_bits(0xbe405ee5d4000000), 0.0], [mass; 3], mass)
 }
 
+/// Issue #74's reproducer, from #36's neighbourhood: three collinear shifts
+/// (equal spatial parts) and supplied invariants whose Källén function is
+/// zero as snapped. The Gram system is singular to the inputs' rounding.
+fn snapped_collinear(rank: u16) -> Lane {
+    let bits = |b: &[u64]| b.iter().map(|&x| f64::from_bits(x)).collect::<Vec<f64>>();
+    let shifts = bits(&[
+        0x403dab2be070d662, 0x4037cb493698157e, 0xc031f41de75dcbb7, 0x4049b57225b9aeb9,
+        0x405c3fe82b4923e2, 0x4037cb493698157e, 0xc031f41de75dcbb7, 0x4049b57225b9aeb9,
+        0x4065b939da5bd612, 0x4037cb493698157e, 0xc031f41de75dcbb7, 0x4049b57225b9aeb9,
+    ]);
+    let invariants = bits(&[0x40bb1fdf99982a25, 0x40d4489ebed507bb, 0x40acdeca9d16359e]);
+    let masses = bits(&[0x40b479ab89cb19cf, 0x40508848fbfb7ce5, 0x40b3bda0bb41e0ff]);
+    let mu2 = f64::from_bits(0x40a54619058c4fb7);
+    lane(
+        "snapped collinear",
+        rank,
+        &shifts,
+        [invariants[0], invariants[1], invariants[2]],
+        [masses[0], masses[1], masses[2]],
+        mu2,
+    )
+}
+
 /// A generic triangle (lambda of order its invariants squared).
 fn generic(rank: u16) -> Lane {
     let (shifts, invariants) = from_shifts([1.9, 0.4, -0.3, 0.2], [2.6, -0.5, 1.1, -0.4], None);
@@ -269,6 +292,39 @@ fn triangles_refused_by_their_estimate_stay_out_of_the_relation_variants() {
             assert_eq!(route, expected, "rank {}, gate {gate:?}", lane.rank);
             let error = error(result.lane(0).unwrap(), &exact);
             assert!(error <= 1e-13, "rank {}, gate {gate:?}: {route:?} {error:e} off", lane.rank);
+        }
+    }
+}
+
+#[test]
+fn dependent_triangles_take_their_relation_at_threshold_zero() {
+    // A triangle the fixed-precision floor refuses, while the Gram gate's
+    // measure passes, comes back Unstable unless its points are dependent. At
+    // threshold 0 the gate's measure never refused, so collinear points came
+    // back Unstable too, while threshold 1e-12 served them through their
+    // relation (issue #74). Their dependence is now tested on the shifts, at
+    // every threshold. The values are the same at both thresholds.
+    for rank in 1..=3 {
+        let lane = snapped_collinear(rank);
+        let exact = reference(&lane);
+        let plan = DirectReductionPlan::new(settings(rank)).unwrap();
+        for threshold in [1e-12, 0.0] {
+            let mut binary64 = plan.workspace(0.0f64).unwrap();
+            binary64.set_stability_threshold(threshold);
+            let result = binary64.reduce_batch(&batch(lane.values.clone())).unwrap();
+            assert_eq!(result.statuses[0], LaneStatus::Success, "binary64 rank {rank}, threshold {threshold:e}");
+            let error = error(result.lane(0).unwrap(), &exact);
+            assert!(error <= 1e-11, "binary64 rank {rank}, threshold {threshold:e}: {error:e} off");
+        }
+        for threshold in [1e-24, 0.0] {
+            let mut double = plan.workspace(DoubleFloat::from(0.0)).unwrap();
+            double.set_stability_threshold(DoubleFloat::from(threshold));
+            let result = double.reduce_batch(&double_double(&lane)).unwrap();
+            assert_eq!(result.statuses[0], LaneStatus::Success, "double-double rank {rank}, threshold {threshold:e}");
+            let values: Vec<Complex<f64>> =
+                result.lane(0).unwrap().iter().map(|z| Complex::new(z.re.to_f64(), z.im.to_f64())).collect();
+            let error = error(&values, &exact);
+            assert!(error <= 1e-15, "double-double rank {rank}, threshold {threshold:e}: {error:e} off");
         }
     }
 }
