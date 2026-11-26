@@ -214,3 +214,74 @@ fn raised_pentagons_keep_their_uv_remainders_at_ranks_6_and_7() {
     }
     eprintln!("worst: identities {:.1e}, binary64 where it serves {:.1e}", worst[0], worst[1]);
 }
+
+/// A massless line tripled in the collinear pair (2, 3) of a hexagon
+/// (huashengshao/TIRust#71 review, finding 1). The Cayley matrix of its box
+/// [2, 3, 4, 5] has relative determinant 4.1e-9 (condition 6.3e7) and holds
+/// the gate, but the IBP recursion applies its inverse once per dot, and its
+/// terms cancel at each. Binary64 served the box 9e-2 off at rank 0 (0.4 at
+/// rank 2), its pentagon 4.5e-2 and the hexagon 4.5e-4, as `Success`. The
+/// recursion now carries its amplification of rounding, which the gate holds
+/// to the threshold: binary64 refuses, and the facade with MadGraph's options
+/// serves them from double-double. The doubled line is served as before.
+#[test]
+fn raised_lines_hold_their_ibp_recursion_to_its_amplification() {
+    use iregi_rust::{EmbedderOptions, LaneRoute, TensorReductionPlan, TensorWorkspace};
+    let shifts: [[f64; 4]; 6] = [
+        [0.0, 0.0, 0.0, 0.0],
+        [3.625, -3.875, 1.0, -0.5],
+        [4.875, -3.625, -2.875, -0.875],
+        [6.0, -4.625, -3.0, -1.375],
+        [6.25, -4.5, 0.5, -5.25],
+        [9.5, -7.75, 1.125, -8.25],
+    ];
+    let masses = [0.0, 1.875, 0.0, 0.0, 4.75, 0.0];
+    let options = EmbedderOptions {
+        method_choice: false,
+        precision_tiers: true,
+        tier_margin_bits: 0,
+        double_double_headroom_bits: 26,
+        ..Default::default()
+    };
+    for (label, members, powers, rank) in [
+        ("hexagon, line 2 tripled", vec![0, 1, 2, 3, 4, 5], vec![1, 1, 3, 1, 1, 1], 2u16),
+        ("pentagon, line 2 tripled", vec![1, 2, 3, 4, 5], vec![1, 3, 1, 1, 1], 0),
+        ("box, line 2 tripled", vec![2, 3, 4, 5], vec![3, 1, 1, 1], 0),
+        ("box, line 2 tripled", vec![2, 3, 4, 5], vec![3, 1, 1, 1], 2),
+    ] {
+        let s: Vec<[f64; 4]> = members.iter().map(|&i| shifts[i]).collect();
+        let m: Vec<f64> = members.iter().map(|&i| masses[i]).collect();
+        let (status, _) = run64(&s, &m, &powers, rank);
+        let LaneStatus::Unstable(reason) = &status else { panic!("{label}, rank {rank}: binary64 {status:?}") };
+        assert!(reason.contains("amplifies rounding"), "{label}, rank {rank}: {reason}");
+        let (status, reference) = run(&s, &m, &powers, rank);
+        assert_eq!(status, LaneStatus::Success, "{label}, rank {rank}: 256 bits");
+        let mut settings = ReductionSettings::new(s.len(), rank);
+        settings.powers = powers.clone();
+        let plan = TensorReductionPlan::new(settings).unwrap();
+        let mut facade = TensorWorkspace::new_embedded(&plan, 0.0f64, options).unwrap();
+        let mut values: Vec<f64> = s.iter().flatten().copied().collect();
+        values.extend(&m);
+        values.push(MU);
+        let values = values.iter().map(|&x| Complex::new(x, 0.0)).collect();
+        let result = facade.reduce_batch(&KinematicsBatch { rows: 1, components: 1, values }).unwrap();
+        assert_eq!(result.statuses[0], LaneStatus::Success, "{label}, rank {rank}: {:?}", facade.last_diagnostics());
+        assert_eq!(facade.last_lane_routes(), Some(&[LaneRoute::Tier(106)][..]), "{label}, rank {rank}");
+        let scale = reference.iter().map(norm).fold(0.0, f64::max);
+        let error = result
+            .lane(0)
+            .unwrap()
+            .iter()
+            .zip(&reference)
+            .map(|(a, b)| (a.re - b.re.to_f64()).hypot(a.im - b.im.to_f64()))
+            .fold(0.0, f64::max)
+            / scale;
+        eprintln!("{label}, rank {rank}: binary64 refused, facade Tier(106) E/A {error:.1e}");
+        assert!(error <= 1e-13, "{label}, rank {rank}: facade E/A {error:e}");
+    }
+    // The line doubled: one Cayley step, estimated at 2e10 (3e8 measured),
+    // within the threshold, as before.
+    let s: Vec<[f64; 4]> = [2, 3, 4, 5].iter().map(|&i| shifts[i]).collect();
+    let m: Vec<f64> = [2, 3, 4, 5].iter().map(|&i| masses[i]).collect();
+    assert_eq!(run64(&s, &m, &[2, 1, 1, 1], 0).0, LaneStatus::Success);
+}

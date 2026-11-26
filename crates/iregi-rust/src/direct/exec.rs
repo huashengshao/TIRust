@@ -295,7 +295,7 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     values_jet: Vec<Vec<L4<T>>>,
     geometry_jet: Vec<Vec<C<T>>>,
     /// Per-lane IBP memo of raised-power scalars, keyed by packed powers.
-    ibp_memo: HashMap<u64, L4<T>>,
+    ibp_memo: HashMap<u64, (L4<T>, T)>,
     /// Per-lane inverse modified Cayley matrices, keyed by subset mask.
     rinv_memo: HashMap<SubsetMask, Vec<C<T>>>,
     /// Per-lane members a six- or seven-point thin system drops (bit sets
@@ -2863,7 +2863,10 @@ where
                 format!("ill-conditioned six-point coordinate system for {members:?}: relative determinant {:e}", relative),
             ));
         }
-        self.hexagon_drops.insert(weights as u32, drop);
+        // Read by the jets' thin systems only (`hexagon_choice`).
+        if self.plan.jet.is_some() {
+            self.hexagon_drops.insert(weights as u32, drop);
+        }
         let chosen: Vec<usize> = (0..size).filter(|&k| drop & (1 << k) == 0).collect();
         for column in 0..5 {
             let mut sum = self.zero.clone();
@@ -3507,7 +3510,6 @@ where
         moments
     }
 
-    /// `d f / d delta` of `f_member = d(origin, member) - m_member^2 + m_origin^2`.
     /// Member positions of the six members the current lane's thin system of
     /// the six- or seven-point subset with weights at `weights` chose, origin
     /// first ([`Self::geometry_hexagon`]).
@@ -3765,6 +3767,10 @@ where
     /// member's is `1 / 1920` (the Schwinger relation gives the same from
     /// E_{3,e_a}'s pole), its other orders vanish.
     fn pentagon_uv_poles(&mut self, plan: &DirectPlanData) {
+        // Only plans with a jet reach rank 7 Gram-free (`DD_PENTAGON_JET_RANK`).
+        if plan.jet.is_none() {
+            return;
+        }
         let n = self.masses.len();
         for subset in &plan.subsets {
             let Some(geometry) = subset.pentagon else { continue };
@@ -3930,6 +3936,7 @@ where
         }
     }
 
+    /// `d f / d delta` of `f_member = d(origin, member) - m_member^2 + m_origin^2`.
     fn f_derivative(&self, origin: usize, member: usize, dotted: usize) -> T {
         let mut value = self.prototype.zero();
         if origin == dotted {
@@ -4444,16 +4451,38 @@ where
     /// the validated symbolic `ibp.rs`:
     /// `(v_l - 1) J(v) = sum_i Rinv_li [-(5-|v|-2eps) J(w) + sum_j w_j J(w-e_i+e_j)]`,
     /// `w = v - e_l`. Every child has a smaller total power.
+    ///
+    /// Each value is memoized with a running estimate of its rounding error
+    /// ([`Self::ibp_child`], in units of the working precision): the masters
+    /// and closed forms carry their size, and each step adds its own
+    /// rounding (the size of every product it sums) and its children's
+    /// errors times their coefficients. `J(w)` enters every term of a Cayley
+    /// step, so its error enters once, with the sum of its coefficients. The
+    /// estimate over the value's size, the recursion's amplification of
+    /// rounding, is held against the threshold (`ibp_gate`), as the other
+    /// gates hold theirs: where the rows of the Cayley inverse are large and
+    /// their terms cancel, the loss compounds with every dot. A line tripled
+    /// in a collinear pair of a box, whose Cayley matrix holds its gate at a
+    /// relative determinant of 4e-9, came back 9e-2 off in binary64; the
+    /// estimate is 8e16 there (8e14 measured), 2e10 with the line doubled
+    /// (3e8), and at most 1e8 for the Coulomb partial fractions of two onia
+    /// at four dots (below 1e5).
     fn ibp(&mut self, powers: u64) -> Result<L4<T>, String> {
-        if let Some(value) = self.ibp_memo.get(&powers) {
-            return Ok(value.clone());
+        self.ibp_child(powers).map(|(value, _)| value)
+    }
+
+    /// `ibp(powers)` and its estimated rounding error, in units of the
+    /// working precision.
+    fn ibp_child(&mut self, powers: u64) -> Result<(L4<T>, T), String> {
+        if let Some(memo) = self.ibp_memo.get(&powers) {
+            return Ok(memo.clone());
         }
         let n = self.plan.settings.propagators;
         let bits = self.ibp_bits;
         let power = |packed: u64, i: usize| ibp_power(packed, bits, i);
         let mask: SubsetMask = (0..n).filter(|&i| power(powers, i) > 0).fold(0, |m, i| m | (1 << i));
         if mask == 0 {
-            return Ok(lzero(&self.zero));
+            return Ok((lzero(&self.zero), self.prototype.zero()));
         }
         let Some(l) = (0..n).find(|&i| power(powers, i) > 1) else {
             let subset = self
@@ -4462,7 +4491,9 @@ where
                 .iter()
                 .find(|subset| subset.mask == mask && subset.master.is_some())
                 .ok_or_else(|| format!("no master for subset {mask:#b}"))?;
-            return Ok(self.values[subset.master.unwrap() as usize].clone());
+            let value = self.values[subset.master.unwrap() as usize].clone();
+            let error = lsize(&value);
+            return Ok((value, error));
         };
         let total: u64 = (0..n).map(|i| power(powers, i)).sum();
         let active: Vec<usize> = (0..n).filter(|&i| power(powers, i) > 0).collect();
@@ -4472,8 +4503,9 @@ where
         // inputs' rounding, so its inverse must not be used, whatever the
         // stability threshold (a threshold of zero would accept it).
         if let Some(value) = self.singular_ibp_base(&active, powers) {
-            self.ibp_memo.insert(powers, value.clone());
-            return Ok(value);
+            let error = lsize(&value);
+            self.ibp_memo.insert(powers, (value.clone(), error.clone()));
+            return Ok((value, error));
         }
         // A soft line k (massless, every other member on shell against it:
         // R_jk = d_jk - m_j^2 = 0 to the inputs' rounding) empties row k of
@@ -4487,52 +4519,101 @@ where
             let c0 = 4 - total as i64 - power(powers, k) as i64;
             if c0 != 0 {
                 let mut sum = lzero(&self.zero);
+                let mut error = self.prototype.zero();
                 for &j in active.iter().filter(|&&j| j != k) {
                     let child = powers + ibp_unit(bits, j) - ibp_unit(bits, k);
-                    let value = self.ibp(child)?;
-                    let weight = C::new(self.prototype.from_usize(power(powers, j) as usize), self.prototype.zero());
-                    lfma(&mut sum, &weight, &value);
+                    let (value, child_error) = self.ibp_child(child)?;
+                    let weight = self.prototype.from_usize(power(powers, j) as usize);
+                    error += &(weight.clone() * &(child_error + &lsize(&value)));
+                    lfma(&mut sum, &C::new(weight, self.prototype.zero()), &value);
                 }
+                // 1 / (c0 - 2 eps) moves each slot by at most 1 + 2 / |c0|.
+                let mut scale = self.prototype.one() / &self.prototype.from_i64(c0.abs());
+                scale = scale.clone() + &(scale.clone() * &scale * &self.prototype.from_usize(2));
+                let error = error * &scale;
                 div_dimension(&mut sum, &(self.prototype.one() / &self.prototype.from_i64(c0)));
-                self.ibp_memo.insert(powers, sum.clone());
-                return Ok(sum);
+                self.ibp_gate(&active, powers, &sum, &error)?;
+                self.ibp_memo.insert(powers, (sum.clone(), error.clone()));
+                return Ok((sum, error));
             }
         }
         // A collinear pair a, b of a triangle (massless, lightlike to the
         // inputs' rounding): rows a and b of the Cayley matrix are
         // (0, 0, R_ac) and (0, 0, R_bc), so it is singular (`collinear_ibp`).
         if let Some(triple) = self.collinear_pair(&active) {
-            if let Some(value) = self.collinear_ibp(triple, l, powers)? {
-                self.ibp_memo.insert(powers, value.clone());
-                return Ok(value);
+            if let Some(memo) = self.collinear_ibp(triple, l, powers)? {
+                self.ibp_gate(&active, powers, &memo.0, &memo.1)?;
+                self.ibp_memo.insert(powers, memo.clone());
+                return Ok(memo);
             }
         }
         let inverse = self.cayley_inverse(mask)?;
         let local_l = active.iter().position(|&i| i == l).unwrap();
         let w = powers - ibp_unit(bits, l);
-        let base = self.ibp(w)?;
+        let (base, base_error) = self.ibp_child(w)?;
+        let a = self.prototype.from_i64(5 - total as i64);
         let mut common = base;
-        mul_dimension(&mut common, &self.prototype.from_i64(5 - total as i64));
+        mul_dimension(&mut common, &a);
         let common: L4<T> = std::array::from_fn(|slot| csub(&self.zero, &common[slot]));
+        let common_size = lsize(&common);
         let mut result = lzero(&self.zero);
+        let mut error = self.prototype.zero();
+        // The coefficients of J(w) over the terms: sum_i Rinv_li (w_i - a),
+        // and sum_i Rinv_li for its eps part.
+        let (mut base_weight, mut eps_weight) = (self.zero.clone(), self.zero.clone());
         let size = active.len();
         for (local_i, &i) in active.iter().enumerate() {
+            let coefficient = &inverse[local_l * size + local_i];
+            let magnitude = cnorm2(coefficient).sqrt();
             let mut term = common.clone();
+            let mut own = common_size.clone();
+            let mut children = self.prototype.zero();
             for &j in &active {
                 let wj = power(w, j);
                 if wj == 0 {
                     continue;
                 }
                 let child = w - ibp_unit(bits, i) + ibp_unit(bits, j);
-                let value = self.ibp(child)?;
-                lfma(&mut term, &C::new(self.prototype.from_usize(wj as usize), self.prototype.zero()), &value);
+                let (value, child_error) = self.ibp_child(child)?;
+                let weight = self.prototype.from_usize(wj as usize);
+                own += &(weight.clone() * &lsize(&value));
+                if j != i {
+                    children += &(weight.clone() * &child_error);
+                }
+                lfma(&mut term, &C::new(weight, self.prototype.zero()), &value);
             }
-            lfma(&mut result, &inverse[local_l * size + local_i], &term);
+            let wi = self.prototype.from_usize(power(w, i) as usize);
+            base_weight = cadd(&base_weight, &cscale(coefficient, &(wi - &a)));
+            eps_weight = cadd(&eps_weight, coefficient);
+            error += &(magnitude * &(children + &own));
+            lfma(&mut result, coefficient, &term);
         }
+        let two = self.prototype.from_usize(2);
+        error += &((cnorm2(&base_weight).sqrt() + &(cnorm2(&eps_weight).sqrt() * &two)) * &base_error);
         let divisor = self.prototype.one() / &self.prototype.from_usize(power(w, l) as usize);
         let result: L4<T> = std::array::from_fn(|slot| cscale(&result[slot], &divisor));
-        self.ibp_memo.insert(powers, result.clone());
-        Ok(result)
+        let error = error * &divisor;
+        self.ibp_gate(&active, powers, &result, &error)?;
+        self.ibp_memo.insert(powers, (result.clone(), error.clone()));
+        Ok((result, error))
+    }
+
+    /// Holds an IBP value's estimated rounding `error` (in units of the
+    /// working precision) against the threshold: refused (`Unstable`) when
+    /// its size over the error falls below it.
+    fn ibp_gate(&mut self, active: &[usize], powers: u64, value: &L4<T>, error: &T) -> Result<(), String> {
+        if error.is_zero() {
+            return Ok(());
+        }
+        let estimate = lsize(value) / error;
+        if estimate < self.stability_threshold {
+            self.failed_condition = Some(estimate.to_f64());
+            return Err(format!(
+                "IBP recursion of {active:?} at powers {powers:#x} amplifies rounding by {:e} (estimate {estimate:e})",
+                self.prototype.one() / &estimate
+            ));
+        }
+        Ok(())
     }
 
     /// A soft line of `active` (two members at least): massless, with every
@@ -4609,7 +4690,7 @@ where
         (a, b, c): (usize, usize, usize),
         l: usize,
         powers: u64,
-    ) -> Result<Option<L4<T>>, String> {
+    ) -> Result<Option<(L4<T>, T)>, String> {
         let n = self.plan.settings.propagators;
         let bits = self.ibp_bits;
         let power = |packed: u64, i: usize| ibp_power(packed, bits, i);
@@ -4634,15 +4715,19 @@ where
         if cnorm2(&coefficient).sqrt() <= self.input_rounding.clone() * &self.prototype.from_usize(64) {
             return Ok(None);
         }
+        // Its own divisions are not estimated: the value carries its
+        // children's largest relative error.
         // rhs_k for k = c and for the better row of a, b.
-        let mut dimension = self.ibp(mu)?;
+        let (mut dimension, dimension_error) = self.ibp_child(mu)?;
+        let mut relative = relative_error(&dimension, &dimension_error, &self.prototype);
         mul_dimension(&mut dimension, &self.prototype.from_i64(5 - total));
         let row = if cnorm2(&r_ac) >= cnorm2(&r_bc) { a } else { b };
         let mut rhs = [lzero(&self.zero), lzero(&self.zero)];
         for (slot, k) in [row, c].into_iter().enumerate() {
             let mut acc: L4<T> = std::array::from_fn(|s| csub(&self.zero, &dimension[s]));
             for i in [a, b, c] {
-                let value = self.ibp(mu + unit(i) - unit(k))?;
+                let (value, value_error) = self.ibp_child(mu + unit(i) - unit(k))?;
+                relative = max_of(relative, relative_error(&value, &value_error, &self.prototype));
                 lfma(&mut acc, &real(power(mu, i) as i64), &value);
             }
             rhs[slot] = acc;
@@ -4654,9 +4739,11 @@ where
         lfma(&mut u, &csub(&self.zero, &r_cc), &y_c);
         // W: a lower power of b.
         let mut w = lzero(&self.zero);
-        let k1 = self.ibp(mu + 2 * unit(a) - unit(b))?;
+        let (k1, e1) = self.ibp_child(mu + 2 * unit(a) - unit(b))?;
         lfma(&mut w, &real(mu_a as i64 + 1), &k1);
-        let k2 = self.ibp(mu + unit(a) + unit(c) - unit(b))?;
+        let (k2, e2) = self.ibp_child(mu + unit(a) + unit(c) - unit(b))?;
+        relative = max_of(relative, relative_error(&k1, &e1, &self.prototype));
+        relative = max_of(relative, relative_error(&k2, &e2, &self.prototype));
         lfma(&mut w, &real(mu_c as i64), &k2);
         let mut numerator = u.clone();
         lfma(&mut numerator, &r_cb, &y_c);
@@ -4678,7 +4765,9 @@ where
             (y_c, mu_c)
         };
         let inverse = cinv(&real(mu_l as i64));
-        Ok(Some(std::array::from_fn(|s| cmul(&y_l[s], &inverse))))
+        let value: L4<T> = std::array::from_fn(|s| cmul(&y_l[s], &inverse));
+        let error = max_of(relative, self.prototype.one()) * &lsize(&value);
+        Ok(Some((value, error)))
     }
 
     /// Closed forms of the IR-singular IBP bases (singular Cayley matrix)
@@ -5208,10 +5297,6 @@ where
         loop {
             let end = skip.get(next).map_or(program.len(), |&(a, _)| (a as usize).min(program.len()));
             for instruction in program.get(at..end).unwrap_or(&[]) {
-                // Only plans with a Taylor jet have pentagon terms.
-                if let PostOp::PentagonTerms { .. } = instruction.post {
-                    continue;
-                }
                 let mut accumulator = lzero(zero);
                 for term in &terms[instruction.terms.0 as usize..instruction.terms.1 as usize] {
                     let factor = if term.geometry == NO_GEOMETRY {
@@ -5234,10 +5319,12 @@ where
                     PostOp::DivideDimension { inverse } => {
                         div_dimension(&mut accumulator, &constants[inverse as usize]);
                     }
-                    PostOp::TimesEpsilon => times_epsilon(&mut accumulator),
-                    PostOp::PentagonTerms { .. } => {}
-                    // Only plans with a Taylor jet have partial fractions.
-                    PostOp::TaylorShift { .. } => unreachable!("a partial fraction without a Taylor jet"),
+                    // Only plans with a Taylor jet have partial fractions and
+                    // the pentagons' (D - 4) terms (`run_program` sends them
+                    // to the jet programs).
+                    PostOp::TaylorShift { .. } | PostOp::TimesEpsilon | PostOp::PentagonTerms { .. } => {
+                        unreachable!("a Taylor-jet operation in a plan without a jet")
+                    }
                 }
                 values[instruction.dst as usize] = accumulator;
             }
@@ -6450,9 +6537,24 @@ fn tolerance_at<T: NativeFloat>(prototype: &T, bits: u32, margin: i64) -> T {
     }
 }
 
-/// Width of each propagator's power field in the packed IBP keys of an
-/// `n`-propagator plan: the 64 key bits shared equally (dotted plans have at
-/// most six propagators, so at least 10 bits: powers up to 1023).
+/// The largest Laurent slot of `value`, in modulus.
+fn lsize<T: NativeFloat>(value: &L4<T>) -> T {
+    let mut size = cnorm2(&value[0]).sqrt();
+    for z in &value[1..] {
+        size = max_of(size, cnorm2(z).sqrt());
+    }
+    size
+}
+
+fn max_of<T: NativeFloat>(a: T, b: T) -> T {
+    if b > a { b } else { a }
+}
+
+/// `error / |value|` (largest slot), zero for a value without error.
+fn relative_error<T: NativeFloat>(value: &L4<T>, error: &T, prototype: &T) -> T {
+    if error.is_zero() { prototype.zero() } else { error.clone() / &lsize(value) }
+}
+
 /// `value / (a - 2 eps)` through the finite term for complex `a != 0`: as
 /// `div_dimension` (`1/a + 2 eps/a^2 + 4 eps^2/a^3`).
 fn div_dimension_complex<T: NativeFloat>(value: &L4<T>, a: &C<T>) -> L4<T> {
@@ -6469,6 +6571,9 @@ fn div_dimension_complex<T: NativeFloat>(value: &L4<T>, a: &C<T>) -> L4<T> {
     ]
 }
 
+/// Width of each propagator's power field in the packed IBP keys of an
+/// `n`-propagator plan: the 64 key bits shared equally (dotted plans have at
+/// most six propagators, so at least 10 bits: powers up to 1023).
 pub(crate) fn ibp_field_bits(n: usize) -> u32 {
     u64::BITS / n.max(1) as u32
 }
