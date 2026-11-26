@@ -73,7 +73,8 @@ pub struct DirectProfile {
 
 /// The denominator identity of an affinely dependent propagator set.
 enum AffineRelation<T: NativeFloat> {
-    /// `sum_i c_i D_i = 1`: the weights `c` in member order.
+    /// `sum_i c_i D_i = 1` to the inputs' rounding: the weights `c` in member
+    /// order.
     Constant(Vec<C<T>>),
     /// `sum_i c_i D_i = 0` (linearly dependent propagators) to the working
     /// precision's rounding of the inputs: `c` in member order,
@@ -1407,8 +1408,11 @@ where
 
     /// The constant-one identity `sum_i c_i D_i = 1` over `members`, if their
     /// external points are affinely dependent: `sum c_i = 0`, `sum c_i q_i = 0`
-    /// and `sum c_i (q_i^2 - m_i^2) = 1`. `c` follows the member order.
-    fn affine_relation(&self, members: &[usize]) -> Result<AffineRelation<T>, String> {
+    /// and `sum c_i (q_i^2 - m_i^2) = 1`. `c` follows the member order. With
+    /// `bound_identity`, an identity that holds only beyond the inputs'
+    /// rounding is an error. Without it, the relation only locates its
+    /// support: the identity used is that support's own.
+    fn affine_relation(&self, members: &[usize], bound_identity: bool) -> Result<AffineRelation<T>, String> {
         let k = members.len();
         if k < 2 {
             return Err("a single propagator has no denominator identity".into());
@@ -1433,7 +1437,7 @@ where
         }
         let original = p.clone();
         // Complete pivoting, so the numerical rank is explicit.
-        let tolerance = scale * &self.binary_tolerance(40);
+        let tolerance = scale.clone() * &self.binary_tolerance(40);
         let mut columns: Vec<usize> = (0..n).collect();
         let mut rank = 0;
         for step in 0..n.min(4) {
@@ -1513,6 +1517,8 @@ where
             if cnorm2(value).sqrt() <= floor { self.zero.clone() } else { value.clone() }
         };
         let mut dependent = true;
+        // |sum_j v_j p_j|^2, Euclidean over the components.
+        let mut residual_norm = self.prototype.zero();
         for a in 0..4 {
             let mut residual = self.zero.clone();
             let mut rounded = self.zero.clone();
@@ -1523,6 +1529,7 @@ where
                 cfma(&mut rounded, &v[j], &csub(&component(members[j + 1], a), &origin_component));
                 size += cnorm2(&v[j]).sqrt() * &cnorm2(&self.shifts[members[j + 1]][a]).sqrt();
             }
+            residual_norm += cnorm2(&residual);
             let residual = cnorm2(&residual).sqrt();
             if residual > bound.clone() * &self.binary_tolerance(33) {
                 return Err(format!("no exact affine relation among {members:?}"));
@@ -1563,6 +1570,25 @@ where
                 return Ok(AffineRelation::Homogeneous(c));
             }
             return Ok(AffineRelation::NearlyHomogeneous(c));
+        }
+        // The identity is off by 2 (l + q_0).r at the loop momentum l, with
+        // r = sum_j v_j p_j / constant (huashengshao/TIRust#73). Relative to
+        // the integral, that is at most 2 |r| |p|, with |p| the members'
+        // largest distance from the origin, and it is the same at every
+        // precision. Like the homogeneous relation, the identity must hold to
+        // the inputs' rounding: either the shifts are dependent there
+        // (`dependent`), or this bound is within it. Points dependent only
+        // beyond it fail the relation, for example points 6e-13 of their size
+        // off a line with a constant that cancels to 1e-9 of its size (the
+        // bound is then 2e-2, and binary64 served the triangle 1e-2 off as a
+        // success). The lane then goes to a precision whose Gram system
+        // resolves the points. Where no precision does (MadLoop's snapped
+        // invariants), it is refused.
+        let identity_error = exact_f64(&self.prototype, 2.0) * &residual_norm.sqrt() * &scale / &magnitude;
+        if bound_identity && !dependent && identity_error > self.input_rounding {
+            return Err(format!(
+                "the denominator identity of {members:?} holds only to {identity_error:e} (2 |r| |p|), beyond the inputs' rounding"
+            ));
         }
         let inverse = cinv(&constant);
         let mut weights = Vec::with_capacity(k);
@@ -1757,7 +1783,7 @@ where
     #[inline(never)]
     fn relation_support(&self, mask: SubsetMask) -> Result<(SubsetMask, bool), String> {
         let member_list: Vec<usize> = members(mask);
-        let weights = match self.affine_relation(&member_list)? {
+        let weights = match self.affine_relation(&member_list, false)? {
             AffineRelation::Constant(weights)
             | AffineRelation::Homogeneous(weights)
             | AffineRelation::NearlyHomogeneous(weights) => weights,
@@ -1774,7 +1800,7 @@ where
             }
         }
         let support_members: Vec<usize> = members(support);
-        let homogeneous = match self.affine_relation(&support_members)? {
+        let homogeneous = match self.affine_relation(&support_members, true)? {
             AffineRelation::Constant(_) => false,
             AffineRelation::Homogeneous(_) => true,
             AffineRelation::NearlyHomogeneous(_) => {
@@ -2096,7 +2122,7 @@ where
         let n = plan.settings.propagators;
         let threshold = self.stability_threshold.clone();
         for relation in &plan.relations {
-            let weights = match self.affine_relation(&relation.members).map_err(GeometryFailure::Relation)? {
+            let weights = match self.affine_relation(&relation.members, true).map_err(GeometryFailure::Relation)? {
                 AffineRelation::Constant(weights) => weights,
                 AffineRelation::Homogeneous(_) | AffineRelation::NearlyHomogeneous(_) => {
                     return Err(GeometryFailure::Relation(format!(
@@ -2110,7 +2136,7 @@ where
             }
         }
         for relation in &plan.homogeneous {
-            let c = match self.affine_relation(&relation.members).map_err(GeometryFailure::Relation)? {
+            let c = match self.affine_relation(&relation.members, true).map_err(GeometryFailure::Relation)? {
                 AffineRelation::Homogeneous(c) => c,
                 AffineRelation::Constant(_) => {
                     return Err(GeometryFailure::Relation(format!(
@@ -5526,6 +5552,13 @@ where
                                     self.select_variant()?;
                                     break plan;
                                 }
+                            }
+                            // Why the subset has no relation to reduce by, for
+                            // example an identity that holds only beyond the
+                            // inputs' rounding.
+                            Err(reason) => {
+                                failure = Some(format!("{error}; {reason}"));
+                                break plan;
                             }
                             _ => {
                                 failure = Some(error);
