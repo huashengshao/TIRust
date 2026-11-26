@@ -2430,14 +2430,23 @@ where
                             let message = format!(
                                 "ill-conditioned Gram matrix for {members:?}: {reason} (conditioning {condition:e} at rank {power})"
                             );
-                            if !gram_refuses {
+                            // Points affinely dependent to the inputs' rounding
+                            // make the Gram system singular there, so the gate
+                            // refuses them at any threshold above that rounding's
+                            // estimate, the default one included. At threshold 0
+                            // no estimate is below it, so their dependence is
+                            // tested here, on the shifts, which resolve it to that
+                            // rounding. The invariants' Gram determinant resolves
+                            // it only to its square root, which would also take
+                            // points 1e-13 off a line (huashengshao/TIRust#73)
+                            // as dependent (huashengshao/TIRust#74).
+                            if !gram_refuses && !self.points_affinely_dependent(members, &self.input_rounding) {
                                 // Refused by the triangle estimate or its floor
                                 // alone, where the Gram gate passes: the PV
                                 // recursion loses its accuracy, but the
-                                // propagators are not dependent (that zeroes
-                                // the Gram determinant and the gate refuses
-                                // too). Such a lane must not reach the relation
-                                // variants: their rank test (2^-40 at every
+                                // propagators are not dependent. Such a lane
+                                // must not reach the relation variants: their
+                                // rank test (2^-40 at every
                                 // precision) takes shifts that coincide to about
                                 // 1e-12 as dependent, and the denominator
                                 // identity sum_i c_i D_i = 1 built on them
