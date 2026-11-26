@@ -465,7 +465,9 @@ where
     /// [`EmbedderOptions::gate`](crate::EmbedderOptions::gate)). Binary64 and
     /// double-double workspaces also refuse a triangle integral whose Gram
     /// system alone amplifies rounding by more than `2^(p - 34)`, whatever
-    /// this threshold, even at zero.
+    /// this threshold, even at zero. A triangle whose points are affinely
+    /// dependent to the inputs' rounding is reduced by its affine relation
+    /// instead, at every threshold.
     pub fn set_stability_threshold(&mut self, threshold: T) {
         self.executor.set_stability_threshold(threshold);
     }
