@@ -3,9 +3,9 @@
 //! The plan mirrors the validated symbolic PV planner in `pv.rs`:
 //! Denner--Dittmaier Eqs. (5.10)--(5.11) for at most four denominators, the
 //! Gram-free Denner--Dittmaier pentagon reduction (hep-ph/0509141 sect. 5:
-//! coefficients up to rank 5 from box coefficients with only the modified
-//! Cayley determinant inverted; the four-dimensional external-basis moment
-//! recursion continues above rank 5 and for dotted propagators) and the exact
+//! coefficients up to rank 5, and up to rank 7 with a Taylor jet, from box
+//! coefficients with only the modified Cayley determinant inverted; the
+//! four-dimensional external-basis moment recursion continues above) and the exact
 //! thin six-point identity `l^mu = sum_i w_i^mu D_i`. Instead of
 //! building one expression per moment, every recurrence node becomes a short
 //! linear instruction over a flat value array, evaluated numerically per lane.
@@ -241,6 +241,25 @@ pub(crate) const NO_GEOMETRY: u32 = u32::MAX;
 /// reduction (hep-ph/0509141, sect. 5, with the rank-5 UV remainder); higher
 /// pentagon ranks continue with the four-dimensional Gram recursion.
 pub(crate) const DD_PENTAGON_RANK: i32 = 5;
+/// The same in plans with a Taylor jet (raised powers), with the UV
+/// remainders of ranks 6 and 7. The Gram recursion amplifies the supplied
+/// invariants' mismatch with the shifts like kappa^(R - 5) above rank 5
+/// (MadLoop's rank-7 two-P-wave hexagons: a mismatch of 1e-16 grew to about
+/// 1e-9, which the mismatch gate refuses); the Gram-free part does not. Unit
+/// powers keep rank 5.
+pub(crate) const DD_PENTAGON_JET_RANK: i32 = 7;
+
+/// The UV pole of a pentagon's coefficient of `{g^3 p^rest}` (rank `6 + |rest|`),
+/// as (numerator, denominator): `(-1)^|rest| prod_k rest_k! / (8 (4 + |rest|)!)`,
+/// from Feynman parameters (`4! / 192` times the simplex integral of
+/// `prod_k x_k^rest_k`, `x_0` the origin's). `1 / 192` at `rest = 0`.
+fn pentagon_e3_uv_pole(rest: &[u16]) -> (i64, i64) {
+    let factorial = |n: i64| (1..=n).product::<i64>().max(1);
+    let degree: i64 = rest.iter().map(|&x| i64::from(x)).sum();
+    let numerator: i64 = rest.iter().map(|&x| factorial(i64::from(x))).product();
+    let sign = if degree % 2 == 0 { 1 } else { -1 };
+    (sign * numerator, 8 * factorial(4 + degree))
+}
 
 /// Dense monomial enumeration in `tensor_basis` order with multiplication maps.
 #[derive(Clone, Debug)]
@@ -653,6 +672,11 @@ pub(crate) struct PentagonGeometry {
     pub epsilon: u32,
     /// Whether [`PostOp::PentagonTerms`] adds these terms for its jet instead.
     pub terms: bool,
+    /// Value index of the UV pole of the pentagon's coefficient of `{g^4}`
+    /// (rank 8), for its rank-7 UV remainder: kinematics dependent, unlike
+    /// the poles of `{g^3 p^rest}` (`pentagon_e3_uv_pole`). `NO_GEOMETRY`
+    /// below rank 7.
+    pub uv: u32,
     /// Coefficient ranks `0..=dd_rank` come from the Gram-free reduction;
     /// `-1` keeps the Gram recursion for every rank (dotted propagators,
     /// degenerate box children).
@@ -852,7 +876,7 @@ pub(crate) struct DirectPlanData {
     /// Gathers read `C(lambda + h, kappa)` and scale by `(-2)^h`.
     pub lambda_shift: u16,
     /// Value index holding the constant `[0, 0, 0, 1]` (unit finite part),
-    /// used by the rank-5 pentagon UV remainder.
+    /// used by the pentagon UV remainders of ranks 5 to 7.
     pub unit_finite: Option<u32>,
     /// Scratch value of the pentagons' (D - 4) terms
     /// ([`PentagonGeometry::epsilon`]).
@@ -1247,7 +1271,8 @@ impl DirectPlanData {
         // (dotted propagators, raised members of linearly dependent sets) the
         // executor carries the Taylor orders of X^-1 (`dd_pentagon_jets`): the
         // Gram recursion amplifies the supplied invariants' mismatch with the
-        // shifts like kappa^R, the Gram-free part does not.
+        // shifts like kappa^R, the Gram-free part does not, and reaches
+        // rank 7 there (`DD_PENTAGON_JET_RANK`).
         // Jets other than one doubled line: their pentagons' (D - 4) terms
         // come from `PostOp::PentagonTerms`, whose scalar term needs the
         // rank-1 coefficients.
@@ -1262,7 +1287,8 @@ impl DirectPlanData {
                 return -1;
             }
             let least = if mask & general_lines != 0 { 1 } else { 0 };
-            moment.max(least).min(DD_PENTAGON_RANK)
+            let cap = if jet.is_some() { DD_PENTAGON_JET_RANK } else { DD_PENTAGON_RANK };
+            moment.max(least).min(cap)
         };
 
         // Propagate rank needs from the top topology to its pinches.
@@ -1482,6 +1508,7 @@ impl DirectPlanData {
                         sums: NO_GEOMETRY,
                         epsilon: NO_GEOMETRY,
                         terms: dd >= 0 && mask & general_lines != 0,
+                        uv: NO_GEOMETRY,
                         dd_rank: dd,
                     };
                     geometry_count = grow(geometry_count, 29)?;
@@ -1523,6 +1550,10 @@ impl DirectPlanData {
                         shifted_layouts.insert(mask, shifted);
                         if dd >= 5 && unit_finite.is_none() {
                             unit_finite = Some(value_count);
+                            value_count = grow(value_count, 1)?;
+                        }
+                        if dd >= 7 {
+                            pentagon.uv = value_count;
                             value_count = grow(value_count, 1)?;
                         }
                     }
@@ -1708,11 +1739,17 @@ impl DirectPlanData {
         //   Ebar0 = sum_n X^-1_n0 [D_{lambda,kappa}(n) - D_{lambda,kappa}(0)],
         //   Ebar_k = sum_n X^-1_kn [D_I(n) - D_I(0)] - X^-1_k0 D_I(0)
         //     - 2 sum_n sum_i I_i Xtt_(kn)(0i)/det X [D_{lambda+1,I-e_i}(n) - .(0)],
-        // with the box coefficients of rank <= R only (no Gram inverse); the
-        // rank-5 UV remainder replaces D_0000(0) by D_0000(0) + 1/48 in
-        // E_{0000k}. D(n), n >= 1, drops momentum n (zero if I_n > 0); D(0)
-        // is the box without member 0 in this basis (D_{kappa}(0) = Dtilde for
-        // kappa_1 = 0, else -sum_{s=2..4} D_{kappa-e1+es}(0) - D_{kappa-e1}(0)).
+        // with the box coefficients of rank <= R only (no Gram inverse). The
+        // reduction drops 2 (D - 4) sum_k kappa_k X^-1_k0 E_{lambda+1,I} / R
+        // (the true D-dimensional coefficient); from lambda + 1 = 3 on E is UV
+        // divergent, and the UV remainder -4 sum_k kappa_k X^-1_k0
+        // UV[E_{lambda+1,I}] / R is kept: at rank 5 it replaces D_0000(0) by
+        // D_0000(0) + 1/48 in E_{0000k}; ranks 6 and 7 (with a jet) add those
+        // of E_{3,I} (`pentagon_e3_uv_pole`) and E_{4,0} (`PentagonGeometry::uv`,
+        // a value with Taylor orders). D(n), n >= 1, drops momentum n (zero if
+        // I_n > 0); D(0) is the box without member 0 in this basis
+        // (D_{kappa}(0) = Dtilde for kappa_1 = 0, else
+        // -sum_{s=2..4} D_{kappa-e1+es}(0) - D_{kappa-e1}(0)).
         let mut pentagon_blocks: Vec<Option<PentagonBlock>> = vec![None; subsets.len()];
         let mut pentagon_terms: Vec<PentagonTerms> = Vec::new();
         for (id, subset) in subsets.iter().enumerate() {
@@ -1833,9 +1870,19 @@ impl DirectPlanData {
                                 let g = geometry.sums + (5 + 4 * (k - 1) + (i - 1)) as u32;
                                 terms.push(builder.term(d0, g, -ci.clone()));
                             }
-                            if r == 5 && lambda == 2 {
-                                let unit = unit_finite.expect("rank-5 pentagons allocate the unit value");
-                                terms.push(builder.term(unit, xinv(k, 0), rational(-weight, 48 * big_r)));
+                            // UV remainders (rank 5 to 7).
+                            if lambda == 2 {
+                                let unit = unit_finite.expect("pentagons of rank 5 or more allocate the unit value");
+                                let (numerator, denominator) = pentagon_e3_uv_pole(&rest);
+                                terms.push(builder.term(
+                                    unit,
+                                    xinv(k, 0),
+                                    rational(-4 * weight * numerator, denominator * big_r),
+                                ));
+                            }
+                            if lambda == 3 {
+                                debug_assert_ne!(geometry.uv, NO_GEOMETRY, "rank-7 pentagons allocate their UV pole");
+                                terms.push(builder.term(geometry.uv, xinv(k, 0), rational(-4 * weight, big_r)));
                             }
                         }
                         coefficient_program.push(builder.instruction(dst, terms, PostOp::None));

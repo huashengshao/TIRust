@@ -175,3 +175,42 @@ fn raised_massless_lines_keep_the_d_minus_4_terms_at_every_order() {
     }
     eprintln!("worst: identities {:.1e}, binary64 {:.1e}", worst[0], worst[1]);
 }
+
+/// Pentagons with a Taylor jet are Gram-free at ranks 6 and 7 too
+/// (`DD_PENTAGON_JET_RANK`): above rank 5 the Gram recursion amplified the
+/// supplied invariants' mismatch with the shifts (MadLoop's rank-7 hexagons
+/// of g g > 3P2[8] 3P1[8] g, refused at every precision). There the
+/// reduction's dropped 2 (D - 4) sum_k kappa_k X^-1_k0 E_{lambda+1,kappa-e_k}
+/// / R have UV poles, and the plan keeps their remainders: the poles of
+/// E_{3,I} are numbers, E_{4,0}'s is linear in the masses and invariants.
+/// The same identities at ranks 6 and 7: massive pentagons (the remainders
+/// alone; without those of ranks 6 and 7 they miss by 2e-4 to 7e-3), IR
+/// exposed ones (with `PostOp::PentagonTerms`) and the collinear hexagon with
+/// two lines doubled.
+#[test]
+fn raised_pentagons_keep_their_uv_remainders_at_ranks_6_and_7() {
+    let threshold: [[f64; 4]; 5] =
+        [[0.0, 0.0, 0.0, 0.0], [4.5, -3.0, -1.0, 8.0], [-1.5, -4.0, -2.0, 8.0], [-4.0, -2.0, -2.0, 8.0], [-7.0, 0.0, 0.0, 7.0]];
+    let threshold_masses = [2.25, 0.0, 0.0, 2.25, 2.25];
+    let massive = [4.0, 1.0, 4.0, 2.0, 1.0];
+    let mut worst = [0.0f64; 2];
+    for (label, shifts, masses, powers) in [
+        ("massive pentagon, line 1 doubled", &SOFT_SHIFTS[..], &massive[..], vec![1, 2, 1, 1, 1]),
+        ("massive pentagon, line 0 doubled", &SOFT_SHIFTS[..], &massive[..], vec![2, 1, 1, 1, 1]),
+        ("massive pentagon, lines 1 and 2 doubled", &SOFT_SHIFTS[..], &massive[..], vec![1, 2, 2, 1, 1]),
+        ("massive pentagon, line 3 tripled", &SOFT_SHIFTS[..], &massive[..], vec![1, 1, 1, 3, 1]),
+        ("collinear pentagon, line 1 doubled", &COLLINEAR_SHIFTS[..5], &COLLINEAR_MASSES[..5], vec![1, 2, 1, 1, 1]),
+        ("tripled gluon at threshold", &threshold[..], &threshold_masses[..], vec![1, 1, 3, 1, 1]),
+        ("soft line and its neighbour doubled", &SOFT_SHIFTS[..], &SOFT_MASSES[..], vec![1, 2, 2, 1, 1]),
+        ("collinear pentagon, lines 0 and 1 doubled", &COLLINEAR_SHIFTS[..5], &COLLINEAR_MASSES[..5], vec![2, 2, 1, 1, 1]),
+        ("collinear hexagon, lines 1 and 3 doubled", &COLLINEAR_SHIFTS[..], &COLLINEAR_MASSES[..], vec![1, 2, 1, 2, 1, 1]),
+    ] {
+        for rank in 6..=7u16 {
+            let (identity, binary64) = residuals(shifts, masses, &powers, rank, label);
+            eprintln!("{label}, rank {rank}: identities {identity:.1e}, binary64 {binary64:.1e}");
+            assert!(identity <= 1e-60, "{label}, rank {rank}: identity residual {identity:e}");
+            worst = [worst[0].max(identity), if binary64.is_nan() { worst[1] } else { worst[1].max(binary64) }];
+        }
+    }
+    eprintln!("worst: identities {:.1e}, binary64 where it serves {:.1e}", worst[0], worst[1]);
+}

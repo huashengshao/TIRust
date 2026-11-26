@@ -3691,10 +3691,13 @@ where
             }
             additions.push((terms.layout[&(0, [0; 4])], scalar));
             for (index, p) in additions {
-                // epsilon times p: the double pole to the single, the single to the finite part.
+                // epsilon times p: the double pole to the single, the IR
+                // single pole to the finite part. The UV poles' share is the
+                // plan's (the UV remainders, at every order): only E(4, 0)'s
+                // is nonzero at an order o2 != 0, linear in the masses.
                 let target = &mut self.values_jet[o - 1][index as usize];
                 target[1] = cadd(&target[1], &p[2]);
-                target[3] = cadd(&target[3], &cadd(&p[0], &p[1]));
+                target[3] = cadd(&target[3], &p[1]);
             }
             // True momentum poles at o, for the next orders.
             for kappa2 in &terms.momenta {
@@ -3715,6 +3718,55 @@ where
                     }
                     let entry = momentum.get_mut(&(*kappa2, o)).expect("a momentum coefficient");
                     axpy(entry, &factor, &difference);
+                }
+            }
+        }
+    }
+
+    /// The UV pole of each rank-7 Gram-free pentagon's coefficient of `{g^4}`
+    /// ([`super::plan::PentagonGeometry::uv`]), with its Taylor orders. From
+    /// Feynman parameters, `(1/16) int A(x)` over the simplex, `A = sum_i x_i
+    /// m_i^2 - sum_k x_k p_k^2 + P^2`, `P = sum_k x_k p_k`:
+    /// `sum_i m_i^2 / 1920 - sum_k Z_kk / 5760 + sum_(k<l) Z_kl / 11520`, with
+    /// `Z_kl = 2 p_k.p_l` (as `C_0000`'s `sum m^2 / 24 - (p1^2 + p2^2) / 48 +
+    /// p1.p2 / 48`). Linear in the squared masses: a jet's first order in a
+    /// member's is `1 / 1920` (the Schwinger relation gives the same from
+    /// E_{3,e_a}'s pole), its other orders vanish.
+    fn pentagon_uv_poles(&mut self, plan: &DirectPlanData) {
+        let n = self.masses.len();
+        for subset in &plan.subsets {
+            let Some(geometry) = subset.pentagon else { continue };
+            if geometry.uv == NO_GEOMETRY {
+                continue;
+            }
+            let members = &subset.members;
+            let origin = members[0];
+            let d = |i: usize, j: usize| &self.distances[i * n + j];
+            let mut masses = self.zero.clone();
+            for &member in members {
+                masses = cadd(&masses, &self.masses[member]);
+            }
+            let (mut diagonal, mut mixed) = (self.zero.clone(), self.zero.clone());
+            for i in 0..4 {
+                let mi = members[i + 1];
+                diagonal = cadd(&diagonal, &cadd(d(origin, mi), d(origin, mi)));
+                for j in i + 1..4 {
+                    let mj = members[j + 1];
+                    mixed = cadd(&mixed, &csub(&cadd(d(origin, mi), d(origin, mj)), d(mi, mj)));
+                }
+            }
+            let over = |z: &C<T>, k: i64| cscale(z, &(self.prototype.one() / &self.prototype.from_i64(k)));
+            let pole = cadd(&csub(&over(&masses, 1920), &over(&diagonal, 5760)), &over(&mixed, 11520));
+            let index = geometry.uv as usize;
+            self.values[index] = [self.zero.clone(), self.zero.clone(), self.zero.clone(), pole];
+            if let Some(jet) = plan.jet.as_ref() {
+                let slope = over(&self.one, 1920);
+                for order in 1..jet.len {
+                    let digits = jet.digits(order);
+                    let first = digits.iter().sum::<usize>() == 1
+                        && jet.variables.iter().zip(&digits).any(|(&(line, _), &d)| d == 1 && members.contains(&line));
+                    let value = if first { slope.clone() } else { self.zero.clone() };
+                    self.values_jet[order - 1][index] = [self.zero.clone(), self.zero.clone(), self.zero.clone(), value];
                 }
             }
         }
@@ -6009,6 +6061,7 @@ where
             if let Some(unit) = plan.unit_finite {
                 self.values[unit as usize] = [self.zero.clone(), self.zero.clone(), self.zero.clone(), self.one.clone()];
             }
+            self.pentagon_uv_poles(&plan);
             self.detect_ir_free(&plan);
             let started = self.timer();
             self.run_program(&plan, false);
