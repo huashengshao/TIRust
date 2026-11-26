@@ -1519,6 +1519,10 @@ where
         let mut dependent = true;
         // |sum_j v_j p_j|^2, Euclidean over the components.
         let mut residual_norm = self.prototype.zero();
+        // What the working precision resolves of it: the residual's rounding,
+        // a unit 2^-p of each component's size.
+        let mut resolution_norm = self.prototype.zero();
+        let unit = self.precision_tolerance(0);
         for a in 0..4 {
             let mut residual = self.zero.clone();
             let mut rounded = self.zero.clone();
@@ -1534,6 +1538,8 @@ where
             if residual > bound.clone() * &self.binary_tolerance(33) {
                 return Err(format!("no exact affine relation among {members:?}"));
             }
+            let resolution = size.clone() * &unit;
+            resolution_norm += resolution.clone() * &resolution;
             let tolerance = size * &self.input_rounding;
             dependent &= residual <= tolerance || cnorm2(&rounded).sqrt() <= tolerance;
         }
@@ -1573,22 +1579,62 @@ where
         }
         // The identity is off by 2 (l + q_0).r at the loop momentum l, with
         // r = sum_j v_j p_j / constant (huashengshao/TIRust#73). Relative to
-        // the integral, that is at most 2 |r| |p|, with |p| the members'
-        // largest distance from the origin, and it is the same at every
-        // precision. Like the homogeneous relation, the identity must hold to
-        // the inputs' rounding: either the shifts are dependent there
-        // (`dependent`), or this bound is within it. Points dependent only
-        // beyond it fail the relation, for example points 6e-13 of their size
-        // off a line with a constant that cancels to 1e-9 of its size (the
-        // bound is then 2e-2, and binary64 served the triangle 1e-2 off as a
-        // success). The lane then goes to a precision whose Gram system
-        // resolves the points. Where no precision does (MadLoop's snapped
-        // invariants), it is refused.
+        // the integral, that is about 2 |r| |p|, with |p| the members'
+        // largest distance from the origin (an estimate: a rank-1 triangle's
+        // tensor was 24 times that off, huashengshao/TIRust#78), and it is the
+        // same at every precision. Like the homogeneous relation, the
+        // identity must hold to the inputs' rounding: either the shifts are
+        // dependent there (`dependent`), or this bound is within it. Points
+        // dependent only beyond it fail the relation, for example points
+        // 6e-13 of their size off a line with a constant that cancels to 1e-9
+        // of its size (the bound is then 2e-2, and binary64 served the
+        // triangle 1e-2 off as a success). The lane then goes to a precision
+        // whose Gram system resolves the points. Where no precision does
+        // (MadLoop's snapped invariants), it is refused.
         let identity_error = exact_f64(&self.prototype, 2.0) * &residual_norm.sqrt() * &scale / &magnitude;
         if bound_identity && !dependent && identity_error > self.input_rounding {
             return Err(format!(
                 "the denominator identity of {members:?} holds only to {identity_error:e} (2 |r| |p|), beyond the inputs' rounding"
             ));
+        }
+        // Shifts dependent to the inputs' rounding (`dependent`) are held to
+        // the estimate too (huashengshao/TIRust#78). Their r is of that
+        // rounding over the constant, so the estimate is large where the
+        // constant is small: a collinear triple rounded to binary64
+        // (q2 = q0 + alpha (q1 - q0), alpha not dyadic) whose constant cancels
+        // to 3.6e-10 of its size is 2.3e-3 off at rank 3 in binary64, and
+        // 1.2e-4 at 256 bits. The working precision may not resolve r:
+        // binary64 computes the residual of binary64 points 1/4 ulp off a line
+        // as exactly zero. So r counts the residual's own rounding
+        // (`resolution_norm`, a unit of 2^-p): in binary64 that is about the
+        // identity's amplification of rounding (as for the amplification
+        // floor of huashengshao/TIRust#75), while a tier that evaluates
+        // binary64 inputs at a higher precision resolves their actual offset
+        // (exactly representable collinear points, r = 0, keep the identity
+        // there). The estimate does not shrink with the working precision p,
+        // so the identity is held as a gate estimate, 2^-p / (2 |r| |p|),
+        // against the stability threshold, and in binary64 and double-double
+        // also against the triangle floor (2 |r| |p| at most
+        // 2^-TRIANGLE_KEPT_BITS), whatever the threshold. A lane refused here
+        // goes to a precision whose Gram system resolves the points as given.
+        if bound_identity && dependent {
+            let identity_bound =
+                exact_f64(&self.prototype, 2.0) * &(residual_norm.sqrt() + &resolution_norm.sqrt()) * &scale / &magnitude;
+            if let Some(floor) = &self.triangle_floor
+                && identity_bound.clone() * floor > unit
+            {
+                return Err(format!(
+                    "the denominator identity of {members:?} holds only to {identity_bound:e} (2 |r| |p|, with the residual's rounding), beyond the fixed-precision floor {:e}",
+                    unit / floor
+                ));
+            }
+            if identity_bound.clone() * &self.stability_threshold > unit {
+                return Err(format!(
+                    "the denominator identity of {members:?} holds only to {identity_bound:e} (2 |r| |p|, with the residual's rounding): estimate {:e}, below the threshold {:e}",
+                    unit / &identity_bound,
+                    self.stability_threshold
+                ));
+            }
         }
         let inverse = cinv(&constant);
         let mut weights = Vec::with_capacity(k);
