@@ -140,11 +140,16 @@ fn reference(lane: &Lane) -> Vec<(f64, f64)> {
     workspace.set_input_precision(53);
     workspace.set_stability_threshold(Float::with_val(1024, 2f64.powi(-(1024 - 120))));
     let result = workspace.reduce_batch(&lifted(lane, 1024)).unwrap();
+    assert_eq!(result.statuses[0], LaneStatus::Success, "{}: 1024-bit reference", lane.label);
     result.lane(0).unwrap().iter().map(|z| (z.re.to_f64(), z.im.to_f64())).collect()
 }
 
-/// Largest error of a slot over that slot's largest reference entry.
+/// Largest error of a slot over that slot's largest reference entry. Both
+/// arrays must be complete and finite: `f64::max` would drop a NaN.
 fn error(values: &[Complex<f64>], reference: &[(f64, f64)]) -> f64 {
+    assert_eq!(values.len(), reference.len(), "value and reference lengths");
+    assert!(values.iter().all(|z| z.re.is_finite() && z.im.is_finite()), "non-finite value: {values:?}");
+    assert!(reference.iter().all(|z| z.0.is_finite() && z.1.is_finite()), "non-finite reference: {reference:?}");
     (0..4)
         .map(|slot| {
             let entries: Vec<usize> = (slot..values.len()).step_by(4).collect();
@@ -206,7 +211,14 @@ fn fixed_precision_refuses_near_degenerate_triangles_at_any_threshold() {
     let mut binary64 = plan.workspace(0.0f64).unwrap();
     binary64.set_stability_threshold(0.0);
     let result = binary64.reduce_batch(&batch(collinear.values.clone())).unwrap();
-    assert!(matches!(result.statuses[0], LaneStatus::Unstable(_)), "{:?}", result.statuses[0]);
+    // The diagnostic names the floor that refused it, not the threshold.
+    match &result.statuses[0] {
+        LaneStatus::Unstable(reason) => {
+            assert!(reason.contains("below the fixed-precision floor"), "{reason}");
+            assert!(!reason.contains("below the threshold"), "{reason}");
+        }
+        status => panic!("{status:?}"),
+    }
     let estimate = binary64.last_conditions()[0].expect("a conditioning estimate");
     assert!(estimate > 2f64.powi(-80) && estimate < 2f64.powi(-19), "estimate {estimate:e}");
     let mut double = plan.workspace(DoubleFloat::from(0.0)).unwrap();

@@ -458,6 +458,14 @@ where
         self.executor.enable_alternative_pv();
     }
 
+    /// Threshold of the conditioning gates. Each Gram, Cayley or coordinate
+    /// system's estimate (a PV Gram system's raised to the recursion depth)
+    /// must reach it. The estimates are conditioning heuristics, not error
+    /// bounds (see
+    /// [`EmbedderOptions::gate`](crate::EmbedderOptions::gate)). Binary64 and
+    /// double-double workspaces also refuse a triangle integral whose Gram
+    /// system alone amplifies rounding by more than `2^(p - 34)`, whatever
+    /// this threshold, even at zero.
     pub fn set_stability_threshold(&mut self, threshold: T) {
         self.executor.set_stability_threshold(threshold);
     }
