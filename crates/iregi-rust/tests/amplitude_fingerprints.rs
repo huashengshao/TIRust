@@ -13,7 +13,9 @@
 //!
 //! Triangles have had the rotation test since the S-wave quarkonium
 //! triangles (`binary64_gate_refuses_lightlike_forward_quarkonium_triangles`
-//! in `tests/direct_engine.rs`), so with the test their lanes now carry an
+//! in `tests/direct_engine.rs`, now refused by the gate;
+//! `binary64_triangles_are_checked_by_the_rotation_test` keeps one on the
+//! test), so with the test their lanes now carry an
 //! estimate, which changed the default's hashes. In the heptagon amplitude
 //! the test refuses 4 of the 1,120 triangle lanes, which the double-double
 //! tier now serves: against 256 bits they were off by E/A 7.9e-11 to 2.1e-9

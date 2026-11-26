@@ -100,6 +100,22 @@ fn lightlike_forward(rank: u16, eps: f64) -> Lane {
     lane("lightlike-forward", rank, &shifts, invariants, [2.3, 0.0, 6.4], 9.0)
 }
 
+/// Issue #68's reproducer: two shifts that coincide to about 1e-12, a
+/// lightlike leg (s01 = 0, s12 = 0, s02 = -7.6e-9) and three equal masses
+/// against mu^2 of the same size. Its G is about 1e-12 while the Gram system
+/// itself is well conditioned, so the triangle estimate refuses rank 1 in
+/// binary64 and rank 2 in double-double where the Gram gate alone passes.
+fn coincident_shifts(rank: u16) -> Lane {
+    let bits = |b: &[u64]| b.iter().map(|&x| f64::from_bits(x)).collect::<Vec<f64>>();
+    let shifts = bits(&[
+        0, 0, 0, 0,
+        0x404f358c01babe7b, 0xc04eda752ce9e7a6, 0x4022c25e6e356758, 0xbfe30ba7fe9a3718,
+        0x404f358c01ba980d, 0xc04eda752ce9e87b, 0x4022c25e6e34d29f, 0xbfe30ba7fe97cb43,
+    ]);
+    let mass = f64::from_bits(0x40b93cc89cb252cf);
+    lane("coincident shifts", rank, &shifts, [0.0, f64::from_bits(0xbe405ee5d4000000), 0.0], [mass; 3], mass)
+}
+
 /// A generic triangle (lambda of order its invariants squared).
 fn generic(rank: u16) -> Lane {
     let (shifts, invariants) = from_shifts([1.9, 0.4, -0.3, 0.2], [2.6, -0.5, 1.1, -0.4], None);
@@ -124,11 +140,16 @@ fn reference(lane: &Lane) -> Vec<(f64, f64)> {
     workspace.set_input_precision(53);
     workspace.set_stability_threshold(Float::with_val(1024, 2f64.powi(-(1024 - 120))));
     let result = workspace.reduce_batch(&lifted(lane, 1024)).unwrap();
+    assert_eq!(result.statuses[0], LaneStatus::Success, "{}: 1024-bit reference", lane.label);
     result.lane(0).unwrap().iter().map(|z| (z.re.to_f64(), z.im.to_f64())).collect()
 }
 
-/// Largest error of a slot over that slot's largest reference entry.
+/// Largest error of a slot over that slot's largest reference entry. Both
+/// arrays must be complete and finite: `f64::max` would drop a NaN.
 fn error(values: &[Complex<f64>], reference: &[(f64, f64)]) -> f64 {
+    assert_eq!(values.len(), reference.len(), "value and reference lengths");
+    assert!(values.iter().all(|z| z.re.is_finite() && z.im.is_finite()), "non-finite value: {values:?}");
+    assert!(reference.iter().all(|z| z.0.is_finite() && z.1.is_finite()), "non-finite reference: {reference:?}");
     (0..4)
         .map(|slot| {
             let entries: Vec<usize> = (slot..values.len()).step_by(4).collect();
@@ -190,7 +211,14 @@ fn fixed_precision_refuses_near_degenerate_triangles_at_any_threshold() {
     let mut binary64 = plan.workspace(0.0f64).unwrap();
     binary64.set_stability_threshold(0.0);
     let result = binary64.reduce_batch(&batch(collinear.values.clone())).unwrap();
-    assert!(matches!(result.statuses[0], LaneStatus::Unstable(_)), "{:?}", result.statuses[0]);
+    // The diagnostic names the floor that refused it, not the threshold.
+    match &result.statuses[0] {
+        LaneStatus::Unstable(reason) => {
+            assert!(reason.contains("below the fixed-precision floor"), "{reason}");
+            assert!(!reason.contains("below the threshold"), "{reason}");
+        }
+        status => panic!("{status:?}"),
+    }
     let estimate = binary64.last_conditions()[0].expect("a conditioning estimate");
     assert!(estimate > 2f64.powi(-80) && estimate < 2f64.powi(-19), "estimate {estimate:e}");
     let mut double = plan.workspace(DoubleFloat::from(0.0)).unwrap();
@@ -209,6 +237,40 @@ fn fixed_precision_refuses_near_degenerate_triangles_at_any_threshold() {
     wide.set_input_precision(53);
     wide.set_stability_threshold(Float::with_val(256, 0.0));
     assert_eq!(wide.reduce_batch(&lifted(&forward, 256)).unwrap().statuses[0], LaneStatus::Success);
+}
+
+#[test]
+fn triangles_refused_by_their_estimate_stay_out_of_the_relation_variants() {
+    // A lane the triangle estimate alone refuses used to reach the relation
+    // variants, whose rank test took the coincident shifts as dependent: the
+    // denominator identity built on them (weights of 1e8 for equal masses)
+    // served it O(1) off as a success (binary64 rank 1 1.0 off, double-double
+    // rank 2 2.2 off; issue #68). It must now be refused, and the facade's
+    // tiers must serve it.
+    let rank1 = coincident_shifts(1);
+    let plan = DirectReductionPlan::new(settings(1)).unwrap();
+    let mut binary64 = plan.workspace(0.0f64).unwrap();
+    binary64.set_stability_threshold(1e-12);
+    let result = binary64.reduce_batch(&batch(rank1.values.clone())).unwrap();
+    assert!(matches!(result.statuses[0], LaneStatus::Unstable(_)), "binary64 rank 1: {:?}", result.statuses[0]);
+    let rank2 = coincident_shifts(2);
+    let plan = DirectReductionPlan::new(settings(2)).unwrap();
+    let mut double = plan.workspace(DoubleFloat::from(0.0)).unwrap();
+    double.set_stability_threshold(DoubleFloat::from(1e-24));
+    let result = double.reduce_batch(&double_double(&rank2)).unwrap();
+    assert!(matches!(result.statuses[0], LaneStatus::Unstable(_)), "double-double rank 2: {:?}", result.statuses[0]);
+    for (lane, expected) in [(rank1, LaneRoute::Tier(106)), (rank2, LaneRoute::Tier(256))] {
+        let exact = reference(&lane);
+        for gate in [None, Some(1e-10)] {
+            let mut workspace = madloop(lane.rank, gate);
+            let result = workspace.reduce_batch(&batch(lane.values.clone())).unwrap();
+            let route = workspace.last_lane_routes().unwrap()[0];
+            assert_eq!(result.statuses[0], LaneStatus::Success, "rank {}, gate {gate:?}", lane.rank);
+            assert_eq!(route, expected, "rank {}, gate {gate:?}", lane.rank);
+            let error = error(result.lane(0).unwrap(), &exact);
+            assert!(error <= 1e-13, "rank {}, gate {gate:?}: {route:?} {error:e} off", lane.rank);
+        }
+    }
 }
 
 #[test]
