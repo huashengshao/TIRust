@@ -1797,6 +1797,30 @@ where
         self.gram_top.is_none() && self.points_affinely_dependent(members, &self.binary_tolerance(40))
     }
 
+    /// The Gram gate of a box or triangle whose a priori estimate would have
+    /// sent it to a small-Gram method, kept on PV by [`Self::relation_points`]:
+    /// `threshold`, or the default threshold of the working precision where
+    /// that is stricter (1e-12 in binary64, `2^-(p - 53)` times that at `p`
+    /// bits). A workspace with the method choice usually runs a looser gate
+    /// (pyAmpliCol's and the facade's 1e-15): there, PV passed nearly
+    /// coincident shifts next to a lightlike leg at rank 1 and served them up
+    /// to 0.77 off, which binary64 refuses at its default threshold and the
+    /// expansion had served within 1.7e-13 (review of huashengshao/TIRust#84).
+    /// Refused at this gate, the subset takes the relation search, as at the
+    /// default threshold: a relation variant where the identity holds, a
+    /// refused lane where it does not.
+    fn relation_gate(&self, threshold: &T) -> T {
+        let mut default = self.prototype.from_rational(&symbolica::domains::rational::Rational::from((
+            symbolica::domains::integer::Integer::from(1),
+            symbolica::domains::integer::Integer::from(1_000_000_000_000i64),
+        )));
+        let bits = u64::from(self.prototype.get_precision());
+        if bits > 53 {
+            default *= &self.binary_tolerance(bits - 53);
+        }
+        if default > *threshold { default } else { threshold.clone() }
+    }
+
     /// Minimal support of the affine relation of a singular subset.
     #[inline(never)]
     fn relation_support(&self, mask: SubsetMask) -> Result<(SubsetMask, bool), String> {
@@ -2267,6 +2291,9 @@ where
                         let aux_top = self.gram_top.is_some() && Some(subset.mask) == top_mask;
                         let choose = gram && (self.gram_everywhere || self.gram_estimated);
                         let flag = flags && !self.estimate_tripped;
+                        // Points of an affine relation that the a priori choice
+                        // would have taken off PV (`relation_gate`).
+                        let mut held = false;
                         if (choose || flag) && !aux_top && (2..=3).contains(&size) {
                             // COLLIER's per-box choice: off Passarino-Veltman
                             // where its estimate is worse (w > 2) and the
@@ -2296,9 +2323,11 @@ where
                                 } else if !self.relation_points(members) {
                                     self.gram_external.push(subset_id);
                                     continue;
+                                } else {
+                                    // Points of an affine relation keep PV,
+                                    // held to the default gate, as below.
+                                    held = true;
                                 }
-                                // Points of an affine relation keep PV and its
-                                // gate, as below.
                             }
                         }
                         if self.gram_top.is_some() && (2..=3).contains(&size) && Some(subset.mask) == top_mask {
@@ -2393,6 +2422,7 @@ where
                         }
                         let mut estimate = condition.clone().pow(power);
                         let mut short = false;
+                        let threshold = if held { self.relation_gate(&threshold) } else { threshold.clone() };
                         // Whether the Gram gate's own measure refuses the system.
                         let gram_refuses = estimate < threshold;
                         // The triangle's Gram system alone, held against the fixed-precision floor.

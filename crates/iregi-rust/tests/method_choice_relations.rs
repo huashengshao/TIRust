@@ -10,7 +10,10 @@
 //! and from the facade with its default options (route `MethodChoice`).
 //! Such a subset now takes the gate and the relation search under these
 //! methods too: the method choice refuses these lanes, and the facade serves
-//! them from its precision tiers.
+//! them from its precision tiers. Where the a priori estimate would have
+//! switched the subset, that gate is binary64's default 1e-12, not the method
+//! choice's 1e-15: at 1e-15 PV passed nearly coincident lightlike shifts at
+//! rank 1 and served them 0.77 off.
 
 use iregi_rust::direct::EXPANSION_TOLERANCE;
 use iregi_rust::{
@@ -19,9 +22,9 @@ use iregi_rust::{
 };
 use symbolica::domains::float::{Complex, Float, RealLike};
 
-fn settings(rank: u16) -> ReductionSettings {
+fn settings(rank: u16, convention: Convention) -> ReductionSettings {
     let mut settings = ReductionSettings::new(3, rank);
-    settings.convention = Convention::MadLoop;
+    settings.convention = convention;
     settings.tensor_weights = TensorWeights::Components;
     settings.invariants = InvariantInput::SuppliedInvariants;
     settings.scale_input = ScaleInput::MuSquared;
@@ -63,14 +66,31 @@ fn nearly_homogeneous() -> Vec<Complex<f64>> {
     ])
 }
 
+/// Two lightlike shifts that coincide to about 1e-12 of their size, the
+/// invariant between them about zero, heavy masses (review of #84, native
+/// convention). The a priori estimate switches the triangle at rank 1, where
+/// the expansion served it within 2.9e-14; kept on PV at the method choice's
+/// gate 1e-15 it came back 0.77 off, while binary64 refuses it at its
+/// default threshold 1e-12.
+fn coincident_lightlike() -> Vec<Complex<f64>> {
+    lane(&[
+        0, 0, 0, 0,
+        0x40275808a1eb79c8, 0xc018ff5a24384f6c, 0xc0185cd6941aed36, 0xc01f0162319c2fdc,
+        0x40275808a1eb8919, 0xc018ff5a24384291, 0xc0185cd6941b0873, 0xc01f0162319c3573,
+        0, 0x3ddc940000000000, 0,
+        0x40c29d91f4195764, 0x40c245fae5813f0e, 0x40c0e5911fcf8534,
+        0x40c03d96d59b5282,
+    ])
+}
+
 fn batch<T: symbolica::domains::float::SingleFloat>(values: Vec<Complex<T>>) -> KinematicsBatch<T> {
     KinematicsBatch { rows: 1, components: 1, values }
 }
 
 /// The same binary64 inputs at 1024 bits.
-fn reference(values: &[Complex<f64>], rank: u16) -> Vec<(f64, f64)> {
+fn reference(values: &[Complex<f64>], rank: u16, convention: Convention) -> Vec<(f64, f64)> {
     let bits = 1024;
-    let mut workspace = DirectReductionPlan::new(settings(rank)).unwrap().workspace(Float::new(bits)).unwrap();
+    let mut workspace = DirectReductionPlan::new(settings(rank, convention)).unwrap().workspace(Float::new(bits)).unwrap();
     workspace.set_input_precision(53);
     workspace.set_stability_threshold(Float::with_val(bits, 2f64.powi(-(bits as i32 - 120))));
     let lifted = values.iter().map(|z| Complex::new(Float::with_val(bits, z.re), Float::with_val(bits, z.im))).collect();
@@ -100,10 +120,15 @@ fn error(values: &[Complex<f64>], reference: &[(f64, f64)]) -> f64 {
 
 #[test]
 fn relation_points_leave_the_small_gram_methods() {
-    for (name, values) in [("coincident", coincident()), ("nearly homogeneous", nearly_homogeneous())] {
+    let lanes = [
+        ("coincident", coincident(), Convention::MadLoop),
+        ("nearly homogeneous", nearly_homogeneous(), Convention::MadLoop),
+        ("coincident lightlike", coincident_lightlike(), Convention::IregiNative),
+    ];
+    for (name, values, convention) in lanes {
         for rank in 1..=4u16 {
             let label = format!("{name}, rank {rank}");
-            let plan = DirectReductionPlan::new(settings(rank)).unwrap();
+            let plan = DirectReductionPlan::new(settings(rank, convention)).unwrap();
             // The method choice as pyAmpliCol's TIR backend runs it.
             for first in [None, Some(EXPANSION_TOLERANCE)] {
                 let mut workspace = plan.workspace(0.0f64).unwrap();
@@ -117,7 +142,7 @@ fn relation_points_leave_the_small_gram_methods() {
                     result.statuses[0]
                 );
             }
-            let tensor = TensorReductionPlan::new(settings(rank)).unwrap();
+            let tensor = TensorReductionPlan::new(settings(rank, convention)).unwrap();
             // The facade's default options: refused, not served by the method choice.
             let mut facade = TensorWorkspace::new_embedded(&tensor, 0.0f64, EmbedderOptions::default()).unwrap();
             let result = facade.reduce_batch(&batch(values.clone())).unwrap();
@@ -130,7 +155,7 @@ fn relation_points_leave_the_small_gram_methods() {
             assert_eq!(result.statuses[0], LaneStatus::Success, "{label}, facade with tiers");
             let route = facade.last_lane_routes().unwrap()[0];
             assert!(matches!(route, LaneRoute::Tier(_)), "{label}, facade with tiers: route {route:?}");
-            let e = error(result.lane(0).unwrap(), &reference(&values, rank));
+            let e = error(result.lane(0).unwrap(), &reference(&values, rank, convention));
             assert!(e <= 1e-12, "{label}, facade with tiers: {route:?} {e:e} off 1024 bits");
         }
     }

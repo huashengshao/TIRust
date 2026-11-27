@@ -392,7 +392,10 @@ where
     /// the relation search's rank test, 2^-40 of their largest difference.
     /// Such a subset keeps its Gram gate, and where the gate refuses it, the
     /// relation search, which reduces it by its denominator identity or
-    /// refuses the lane (huashengshao/TIRust#79).
+    /// refuses the lane (huashengshao/TIRust#79). Where the a priori estimate
+    /// of `enable_estimated_method_choice` would have taken it, its gate is at
+    /// least the default threshold of the working precision (1e-12 in
+    /// binary64), whatever this workspace's threshold.
     pub fn enable_gram_expansion(&mut self, boost: u16) {
         let _oem_license = crate::license::unlock();
         self.executor.enable_gram_expansion(boost);
@@ -416,6 +419,10 @@ where
     /// g g > g g g g pentagons), and no per-lane estimate is reported.
     /// Boxes and triangles whose points have an affine relation keep PV, its
     /// gate and the relation search (see [`Self::enable_gram_expansion`]).
+    /// Where this estimate would have switched them, the gate is at least the
+    /// working precision's default threshold (1e-12 in binary64): at a looser
+    /// threshold, such as pyAmpliCol's 1e-15, PV passed nearly coincident
+    /// shifts at rank 1 that binary64 refuses at its default.
     pub fn enable_estimated_method_choice(&mut self, boost: u16, aux_threshold: T) {
         let _oem_license = crate::license::unlock();
         self.executor.enable_estimated_method_choice(boost, aux_threshold);
