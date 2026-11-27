@@ -1779,6 +1779,24 @@ where
         false
     }
 
+    /// Whether a box or triangle that a small-Gram method would take (the
+    /// expansions or the alternative PV, of `enable_gram_expansion`,
+    /// `enable_estimated_method_choice` and the others) has external points
+    /// affinely dependent at [`Self::affine_relation`]'s rank test (2^-40 of
+    /// the largest shift difference). Without such a method, the Gram gate
+    /// sends this subset to the lane loop's relation search, which takes a
+    /// relation variant where the denominator identity holds and refuses the
+    /// lane where it does not (huashengshao/TIRust#76, huashengshao/TIRust#78).
+    /// The small-Gram methods do not see that geometry. On
+    /// huashengshao/TIRust#79's triangle (two nearly coincident shifts next to
+    /// lightlike legs, identity refused) the a priori method choice served
+    /// rank 1 0.64 off and ranks 2 to 4 off by up to 9e13, as `Success`. Such
+    /// a subset takes the gate and the relation search instead. The
+    /// expansions' auxiliary executors (`gram_top`) are unchanged.
+    fn relation_points(&self, members: &[usize]) -> bool {
+        self.gram_top.is_none() && self.points_affinely_dependent(members, &self.binary_tolerance(40))
+    }
+
     /// Minimal support of the affine relation of a singular subset.
     #[inline(never)]
     fn relation_support(&self, mask: SubsetMask) -> Result<(SubsetMask, bool), String> {
@@ -2273,11 +2291,14 @@ where
                                 2f64.powi(-52) * w.powi(rank) > 2f64.powi(-36)
                             };
                             if gram::gram_indicator(&z, &f, size).is_some_and(switch) {
-                                if choose {
+                                if !choose {
+                                    self.estimate_tripped = true;
+                                } else if !self.relation_points(members) {
                                     self.gram_external.push(subset_id);
                                     continue;
                                 }
-                                self.estimate_tripped = true;
+                                // Points of an affine relation keep PV and its
+                                // gate, as below.
                             }
                         }
                         if self.gram_top.is_some() && (2..=3).contains(&size) && Some(subset.mask) == top_mask {
@@ -2399,9 +2420,13 @@ where
                             own_estimate = Some(own);
                         }
                         if estimate < threshold || short {
-                            if gram && (2..=3).contains(&size) {
+                            if gram && (2..=3).contains(&size) && !self.relation_points(members) {
                                 // Small-Gram expansion (box or triangle), injected in the lane loop
                                 // (with the a priori choice too: its retry covers refused lanes).
+                                // Points of an affine relation are refused
+                                // below, as without the expansion: the lane
+                                // loop takes the relation, or refuses the lane
+                                // (`relation_points`).
                                 let estimate = estimate.to_f64();
                                 self.failed_condition =
                                     Some(self.failed_condition.map_or(estimate, |f: f64| f.min(estimate)));

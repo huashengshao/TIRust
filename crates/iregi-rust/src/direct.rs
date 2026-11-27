@@ -384,6 +384,15 @@ where
     /// higher (Denner-Dittmaier); lanes it does not converge on are refused.
     /// The expansion is not checked here: callers verify the lanes (the
     /// public facade by the loop-rotation test).
+    ///
+    /// Neither this nor the other small-Gram methods (the expansions and the
+    /// alternative PV of `enable_gram_expansion_everywhere`,
+    /// `enable_estimated_method_choice` and `enable_alternative_pv`) takes a box or triangle
+    /// whose external points have an affine relation: points dependent at
+    /// the relation search's rank test, 2^-40 of their largest difference.
+    /// Such a subset keeps its Gram gate, and where the gate refuses it, the
+    /// relation search, which reduces it by its denominator identity or
+    /// refuses the lane (huashengshao/TIRust#79).
     pub fn enable_gram_expansion(&mut self, boost: u16) {
         let _oem_license = crate::license::unlock();
         self.executor.enable_gram_expansion(boost);
@@ -405,6 +414,8 @@ where
     /// rounding of the higher-rank triangles they read: a served lane can be
     /// off by more than that (up to 1.6e-6 on pyAmpliCol's binary64
     /// g g > g g g g pentagons), and no per-lane estimate is reported.
+    /// Boxes and triangles whose points have an affine relation keep PV, its
+    /// gate and the relation search (see [`Self::enable_gram_expansion`]).
     pub fn enable_estimated_method_choice(&mut self, boost: u16, aux_threshold: T) {
         let _oem_license = crate::license::unlock();
         self.executor.enable_estimated_method_choice(boost, aux_threshold);
