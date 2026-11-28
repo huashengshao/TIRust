@@ -485,7 +485,11 @@ where
     /// system alone amplifies rounding by more than `2^(p - 34)`, whatever
     /// this threshold, even at zero. A triangle whose points are affinely
     /// dependent to the inputs' rounding is reduced by its affine relation
-    /// instead, at every threshold.
+    /// instead, at every threshold. A relation's denominator identity is held
+    /// to its own estimate: its error `2 |r| |p|` (counting the residual's
+    /// rounding) must pass this threshold as `2^-p / (2 |r| |p|)`, and in
+    /// binary64 and double-double stay within `2^-34` at any threshold
+    /// (huashengshao/TIRust#78).
     pub fn set_stability_threshold(&mut self, threshold: T) {
         self.executor.set_stability_threshold(threshold);
     }
@@ -498,6 +502,12 @@ where
     /// working precision's 2^-(p - 13) whatever the inputs: the closed form's
     /// error is not in the stability estimate, and small parent Gram
     /// determinants amplify it (huashengshao/TIRust#85).
+    ///
+    /// A double-double or MPFR workspace that evaluates binary64 kinematics
+    /// should declare them (53 bits): at its own input rounding, shifts that
+    /// are collinear only to binary64 rounding are not dependent, and their
+    /// denominator identity is refused unless it holds to that rounding
+    /// (huashengshao/TIRust#76).
     pub fn set_input_precision(&mut self, bits: u32) {
         self.executor.set_input_precision(bits);
     }

@@ -12,6 +12,14 @@
 //! through MadGraph's bridge options. The identity must now hold to the
 //! inputs' rounding: either the shifts are dependent there, or `2 |r| |p|`
 //! is within it.
+//!
+//! Shifts dependent there still leave `r` of the inputs' rounding over the
+//! constant (huashengshao/TIRust#78): a collinear triple rounded to binary64
+//! with a small constant was served up to 2.3e-3 off in binary64 and 1.2e-4
+//! at 256 bits. The identity is now also held as a gate estimate,
+//! `2^-p / (2 |r| |p|)` with `r` counting the residual's own rounding, against
+//! the stability threshold and, in binary64 and double-double, the
+//! fixed-precision floor.
 
 use iregi_rust::{
     Convention, DirectReductionPlan, EmbedderOptions, InvariantInput, KinematicsBatch, LaneRoute, LaneStatus,
@@ -250,6 +258,69 @@ fn snapped_soft_collinear_triangles_are_refused() {
             let route = workspace.last_lane_routes().unwrap()[0];
             assert!(matches!(result.statuses[0], LaneStatus::Unstable(_)), "{}, gate {gate:?}: {:?}", lane.label, result.statuses[0]);
             assert_eq!(route, LaneRoute::Refused, "{}, gate {gate:?}", lane.label);
+        }
+    }
+}
+
+/// Issue #78's reproducer: a collinear triple rounded to binary64 (q2 = alpha
+/// q1, alpha about -1.0578, not dyadic), so the shifts are dependent only to
+/// the inputs' rounding, with squared masses whose relation constant cancels
+/// to 3.6e-10 of its size. Binary64 computes the residual of these points as
+/// zero; double-double and 1024 bits find 5e-16. Binary64 served ranks 0 to 4
+/// 8.6e-5 to 2.3e-3 off, and 256 bits up to 1.2e-4 (rank 3).
+fn rounded_collinear(rank: u16) -> Lane {
+    let shifts = [
+        0.0, 0.0, 0.0, 0.0,
+        14.504549010904627, 14.319710214420038, 6.198579212953203, -11.591562489193311,
+        -15.343398405409902, -15.147869727261595, -6.557064982877495, 12.261943565372903,
+    ];
+    let invariants = [-167.45886381536013, -187.38844383702136, -709.134512598177];
+    let masses = [645.7056412368579, 419.2952368223418, 520.6781141726311];
+    lane(format!("rounded collinear, rank {rank}"), rank, &shifts, invariants, masses, 588.222747834829)
+}
+
+#[test]
+fn collinear_triangles_rounded_to_binary64_leave_their_identity() {
+    // The identity's estimate 2 |r| |p| counts the residual's own rounding, so
+    // binary64 and a double-double workspace reading binary64 inputs refuse
+    // it, and the facade serves the points as given from the tier whose Gram
+    // system resolves them.
+    for rank in 0..=4 {
+        let lane = rounded_collinear(rank);
+        let plan = DirectReductionPlan::new(settings(rank)).unwrap();
+        for gate in [None, Some(1e-10)] {
+            let mut binary64 = plan.workspace(0.0f64).unwrap();
+            let mut double = plan.workspace(DoubleFloat::from(0.0)).unwrap();
+            double.set_input_precision(53);
+            if let Some(gate) = gate {
+                binary64.set_stability_threshold(gate);
+                double.set_stability_threshold(DoubleFloat::from(gate));
+            }
+            let statuses = [
+                ("binary64", binary64.reduce_batch(&batch(lane.values.clone())).unwrap().statuses[0].clone()),
+                ("double-double", double.reduce_batch(&double_double(&lane)).unwrap().statuses[0].clone()),
+            ];
+            for (workspace, status) in statuses {
+                match status {
+                    LaneStatus::Unstable(reason) => assert!(
+                        reason.contains("with the residual's rounding"),
+                        "{}, {workspace}, threshold {gate:?}: {reason}",
+                        lane.label
+                    ),
+                    status => panic!("{}, {workspace}, threshold {gate:?}: {status:?}", lane.label),
+                }
+            }
+        }
+        let exact = reference(&lane);
+        let expected = if rank < 3 { LaneRoute::Tier(256) } else { LaneRoute::Tier(512) };
+        for gate in [None, Some(1e-10)] {
+            let mut workspace = madloop(rank, gate);
+            let result = workspace.reduce_batch(&batch(lane.values.clone())).unwrap();
+            let route = workspace.last_lane_routes().unwrap()[0];
+            assert_eq!(result.statuses[0], LaneStatus::Success, "{}, gate {gate:?}", lane.label);
+            assert_eq!(route, expected, "{}, gate {gate:?}", lane.label);
+            let error = error(result.lane(0).unwrap(), &exact);
+            assert!(error <= 1e-13, "{}, gate {gate:?}: {route:?} {error:e} off", lane.label);
         }
     }
 }
