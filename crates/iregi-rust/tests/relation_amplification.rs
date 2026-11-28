@@ -109,14 +109,33 @@ fn heptagons_with_onia_off_threshold_leave_binary64() {
                 status => panic!("zeta {zeta:e}, rank {rank}: binary64 {status:?}"),
             }
             let exact = reference(&values, rank);
+            // With #82, rank 3 at 1.5e-7 off threshold is refused at every
+            // tier: #82 holds the identity of [1, 2, 4, 5] to 1.1e-7 against
+            // the inputs' rounding, beyond the fixed-precision floor. That
+            // bound is conservative here (a 1-ulp move of the heavy mass moves
+            // the exact-input value by 5e-10), but the lane is refused, not
+            // served wrong. Without #82, double-double serves it.
+            let may_refuse = zeta < 1e-6 && rank == 3;
             for gate in [None, Some(1e-10)] {
+                let label = format!("zeta {zeta:e}, rank {rank}, gate {gate:?}");
                 let mut workspace = madloop(rank, gate);
                 let result = workspace.reduce_batch(&batch(values.clone())).unwrap();
                 let route = workspace.last_lane_routes().unwrap()[0];
-                assert_eq!(result.statuses[0], LaneStatus::Success, "zeta {zeta:e}, rank {rank}, gate {gate:?}");
-                assert_eq!(route, LaneRoute::Tier(106), "zeta {zeta:e}, rank {rank}, gate {gate:?}");
-                let error = error(result.lane(0).unwrap(), &exact);
-                assert!(error <= 1e-13, "zeta {zeta:e}, rank {rank}, gate {gate:?}: {error:e} off");
+                match &result.statuses[0] {
+                    LaneStatus::Success => {
+                        // From a tier: double-double, or 256 bits where #82
+                        // refuses the double-double identity (rank 3 at zeta
+                        // 1e-4 and 1e-5).
+                        assert!(matches!(route, LaneRoute::Tier(_)), "{label}: {route:?}");
+                        let error = error(result.lane(0).unwrap(), &exact);
+                        assert!(error <= 1e-13, "{label}: {error:e} off");
+                    }
+                    LaneStatus::Unstable(reason) if may_refuse => {
+                        assert_eq!(route, LaneRoute::Refused, "{label}");
+                        assert!(reason.contains("denominator identity"), "{label}: {reason}");
+                    }
+                    status => panic!("{label}: {status:?}"),
+                }
             }
         }
     }
