@@ -16,9 +16,9 @@ use symbolica::{domains::float::Complex, evaluate::EvaluationDomain};
 use super::{
     numeric::{
         C, L4, SolveQuality, cadd, cfma, cfma_real, cinv, cmul, cnorm2, cscale, csub, czero, div_dimension,
-        lfma, lfma_slots, lzero, mul_dimension, real_lfma_slots, solve_in_place,
+        lfma, lfma_slots, lzero, mul_dimension, real_lfma_slots, solve_in_place, times_epsilon,
     },
-    plan::{DirectPlanData, Gather, Instruction, Jet, NO_GEOMETRY, PostOp, Subset, SubsetKind, SubsetMask, Term, members},
+    plan::{DirectPlanData, FastMap, Gather, Instruction, Jet, NO_GEOMETRY, PostOp, Subset, SubsetKind, SubsetMask, Term, members},
     shared::{MASTER_KEY_WORDS, SharedValue, SubsetStore},
 };
 use crate::{
@@ -298,9 +298,13 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     values_jet: Vec<Vec<L4<T>>>,
     geometry_jet: Vec<Vec<C<T>>>,
     /// Per-lane IBP memo of raised-power scalars, keyed by packed powers.
-    ibp_memo: HashMap<u64, L4<T>>,
+    ibp_memo: HashMap<u64, (L4<T>, T)>,
     /// Per-lane inverse modified Cayley matrices, keyed by subset mask.
     rinv_memo: HashMap<SubsetMask, Vec<C<T>>>,
+    /// Per-lane members a six- or seven-point thin system drops (bit sets
+    /// over the member positions), keyed by its weights' geometry offset:
+    /// the jets of its weights solve the same system.
+    hexagon_drops: HashMap<u32, u128>,
     /// `(-2)^h` of dimension-shifted gathers.
     gather_scale: T,
     /// The current lane's masters have no IR poles (two-slot kernels).
@@ -532,6 +536,7 @@ where
             geometry_jet: vec![vec![zero.clone(); plan.geometry_count.max(1)]; jet_orders],
             ibp_memo: HashMap::new(),
             rinv_memo: HashMap::new(),
+            hexagon_drops: HashMap::new(),
             gather_scale,
             ir_free: false,
             master_rows: 0,
@@ -2759,13 +2764,27 @@ where
         for i in 0..5 {
             self.geometry[geometry.b as usize + i] = self.rhs[i].clone();
         }
-        // A dotted massless line in a collinear pair of this pentagon. The
-        // reduction J5 = sum_i b_i J4^(i) + (4 - D) B J5^(D+2), B = sum_i b_i,
-        // drops its last term; in 6 - 2 eps dimensions the doubled line keeps
-        // a collinear pole, so the dropped part of the mass derivative is of
-        // order B, not eps (a generic pentagon is 1e-4 off). Only a B that
-        // vanishes to the inputs' rounding (a degenerate Gram determinant:
-        // the flat pentagons of two onia in a 2 -> 2 process) lets it go.
+        // The (D - 4) terms live at the doubled line's jet order only.
+        if geometry.epsilon != NO_GEOMETRY {
+            for i in 0..9 {
+                self.geometry[geometry.epsilon as usize + i] = self.zero.clone();
+            }
+        }
+        // A dotted massless line of this pentagon. The reduction
+        // J5 = sum_i b_i J4^(i) + (4 - D) B J5^(D+2), B = sum_i b_i, drops its
+        // last term, and the Gram-free coefficients drop (D - 4) times their
+        // metric ones. In 6 - 2 eps dimensions a doubled massless line can
+        // keep an IR pole: in a collinear pair, between two on-shell legs, or
+        // next to an on-shell leg whose line is doubled too (power counting
+        // below; without one these terms are of order eps). The dropped part
+        // of the mass derivative is then of order B, not eps (a generic
+        // collinear pentagon is 2.4e-4 off, a soft one 3.7e-2; two doubled
+        // lines of g g > 3P2[8] 3P1[8] g up to 2e-3). With one doubled line
+        // the plan keeps these terms (`PentagonGeometry::epsilon`). For other
+        // jets (a tripled line, two jet variables) only a B that vanishes to
+        // the inputs' rounding (a degenerate Gram determinant: the flat
+        // pentagons of two onia in a 2 -> 2 process) lets it go; a massive
+        // dotted line has no such pole.
         // (Quarkonium's pentagons at v = 0 take their exact denominator
         // identity instead.) With Y b = 1, the inputs' rounding moves
         // B = 1^T b by -b^T dY b to first order: at most the rounding times
@@ -2775,37 +2794,14 @@ where
         // pentagons were refused once the Cayley system amplified it (g g >
         // chi_c0 chi_c0 9.7 degrees from the beam: up to 40 times for binary64
         // inputs, 2.1 for binary128 ones; B is at most 0.026 of this bound).
-        let jet_lines: Vec<usize> =
-            self.plan.jet.as_ref().map_or(Vec::new(), |jet| jet.variables.iter().map(|&(line, _)| line).collect());
-        let massless = |i: usize| self.masses[i].re.is_zero() && self.masses[i].im.is_zero();
-        let collinear = jet_lines.iter().find(|&&dotted| {
-            members.contains(&dotted)
-                && massless(dotted)
-                && members.iter().any(|&e| {
-                    e != dotted
-                        && massless(e)
-                        && cnorm2(d(dotted, e)).sqrt() <= self.invariant_size(dotted, e) * &self.input_rounding
-                })
-        });
-        if let Some(&dotted) = collinear {
-            let mut sum = self.zero.clone();
-            let mut bound = self.prototype.zero();
-            for i in 0..5 {
-                sum = cadd(&sum, &self.rhs[i]);
-                let size = cnorm2(&self.rhs[i]).sqrt();
-                for j in 0..5 {
-                    let (mi, mj) = (members[i], members[j]);
-                    let entry = cnorm2(d(mi, mj)).sqrt()
-                        + &self.invariant_size(mi, mj)
-                        + &cnorm2(&self.masses[mi]).sqrt()
-                        + &cnorm2(&self.masses[mj]).sqrt();
-                    bound += size.clone() * &cnorm2(&self.rhs[j]).sqrt() * &entry;
-                }
-            }
-            if cnorm2(&sum).sqrt() > bound * &self.input_rounding {
+        let covered = geometry.epsilon != NO_GEOMETRY || geometry.terms;
+        let exposed = (!covered && self.plan.jet.is_some()).then(|| self.pentagon_ir_exposed(members)).flatten();
+        if let Some(dotted) = exposed {
+            let b: Vec<C<T>> = self.rhs[..5].to_vec();
+            if !self.pentagon_b_vanishes(members, &b) {
                 return Err(GeometryFailure::Unstable(format!(
-                    "dotted massless line {dotted} in a collinear pair of pentagon {members:?}: \
-                     its (D + 2)-dimensional term is not reduced"
+                    "massless line {dotted} of pentagon {members:?} is IR exposed at its jet's powers, \
+                     and the pentagon has no Gram-free part to keep its (D - 4) terms"
                 )));
             }
         }
@@ -3122,6 +3118,10 @@ where
                 subset.mask,
                 format!("ill-conditioned six-point coordinate system for {members:?}: relative determinant {:e}", relative),
             ));
+        }
+        // Read by the jets' thin systems only (`hexagon_choice`).
+        if self.plan.jet.is_some() {
+            self.hexagon_drops.insert(weights as u32, drop);
         }
         if self.track_relation_estimates {
             self.relation_estimates.push((subset.mask, relative.clone()));
@@ -3769,6 +3769,432 @@ where
         moments
     }
 
+    /// Member positions of the six members the current lane's thin system of
+    /// the six- or seven-point subset with weights at `weights` chose, origin
+    /// first ([`Self::geometry_hexagon`]).
+    fn hexagon_choice(&self, weights: usize, size: usize) -> Vec<usize> {
+        let drop = self.hexagon_drops.get(&(weights as u32)).copied().unwrap_or(0);
+        (0..size).filter(|&k| drop & (1 << k) == 0).collect()
+    }
+
+    /// A massless member of a pentagon whose (D + 2)-dimensional integrals
+    /// can be IR divergent at the plan's jet: power counting in 6 dimensions
+    /// at the jet's highest powers nu (a jet line's Taylor length, 1 for other
+    /// lines). A massless line a is collinear to a massless partner e across a
+    /// vanishing invariant if nu_a + nu_e >= 3, and soft if 2 nu_a plus the
+    /// powers of the lines b on shell to it ((r_a - r_b)^2 = m_b^2, a raised
+    /// massive b too) reaches 6. Without one, the (D - 4) terms of its
+    /// reduction vanish.
+    fn pentagon_ir_exposed(&self, members: &[usize]) -> Option<usize> {
+        let n = self.masses.len();
+        let d = |i: usize, j: usize| &self.distances[i * n + j];
+        let massless = |i: usize| self.masses[i].re.is_zero() && self.masses[i].im.is_zero();
+        let power = |line: usize| -> usize {
+            self.plan
+                .jet
+                .as_ref()
+                .and_then(|jet| jet.variables.iter().find(|&&(l, _)| l == line))
+                .map_or(1, |&(_, length)| length)
+        };
+        let lightlike = |a: usize, e: usize| cnorm2(d(a, e)).sqrt() <= self.invariant_size(a, e) * &self.input_rounding;
+        let on_shell = |a: usize, b: usize| {
+            let size = cnorm2(&self.masses[b]).sqrt() + &self.invariant_size(a, b);
+            cnorm2(&csub(d(a, b), &self.masses[b])).sqrt() <= size * &self.input_rounding
+        };
+        members.iter().copied().find(|&a| {
+            massless(a) && {
+                let collinear =
+                    members.iter().any(|&e| e != a && massless(e) && lightlike(a, e) && power(a) + power(e) >= 3);
+                let soft: usize = members.iter().filter(|&&b| b != a && on_shell(a, b)).map(|&b| power(b)).sum();
+                collinear || 2 * power(a) + soft >= 6
+            }
+        })
+    }
+
+    /// Whether a pentagon's B = sum_i b_i vanishes to its inputs' rounding
+    /// (a degenerate Gram determinant: flat pentagons). With Y b = 1 the
+    /// rounding moves B by -b^T dY b to first order: at most the rounding times
+    /// sum_ij |b_i| |b_j| y_ij, y_ij the size of Y_ij's inputs (the invariant's,
+    /// its cancellation's and both masses').
+    fn pentagon_b_vanishes(&self, members: &[usize], b: &[C<T>]) -> bool {
+        let n = self.masses.len();
+        let mut sum = self.zero.clone();
+        let mut bound = self.prototype.zero();
+        for i in 0..5 {
+            sum = cadd(&sum, &b[i]);
+            let size = cnorm2(&b[i]).sqrt();
+            for j in 0..5 {
+                let (mi, mj) = (members[i], members[j]);
+                let entry = cnorm2(&self.distances[mi * n + mj]).sqrt()
+                    + &self.invariant_size(mi, mj)
+                    + &cnorm2(&self.masses[mi]).sqrt()
+                    + &cnorm2(&self.masses[mj]).sqrt();
+                bound += size.clone() * &cnorm2(&b[j]).sqrt() * &entry;
+            }
+        }
+        cnorm2(&sum).sqrt() <= bound * &self.input_rounding
+    }
+
+    /// The (D - 4) terms of a Gram-free pentagon at every order of a jet other
+    /// than one doubled line ([`super::plan::PentagonTerms`]). With
+    /// E(lambda, kappa) its coefficients and o the jet's orders, by degree:
+    /// - true metric poles from momentum moments one order lower (Schwinger
+    ///   parameters): E(lambda + 1, I)|_o = -E(lambda, I + e_a)|_(o - e_v) / (2 o_v),
+    ///   v a raised massless line of o, a its member (at the origin
+    ///   e_a = -(1 + sum_j e_j)); an order raising massive lines only has none;
+    /// - the dropped terms (hep-ph/0509141 Eq. (6.10)): r dE(lambda, kappa)|_o
+    ///   = 2 (D - 4) sum_k kappa_k sum_(o1 + o2 = o) X^-1_k0|_o1 E(lambda + 1,
+    ///   kappa - e_k)|_o2, and Melrose's scalar 4 eps sum B|_o1 E(1, 0)|_o2;
+    /// - for the next orders, the true D-dimensional poles of the momentum
+    ///   coefficients: the Gram-free ones are exact in four dimensions only,
+    ///   so their metric parts, expanded through g_4 = sum 2 Z^-1_jk p_j p_k,
+    ///   are traded for the true ones.
+    fn pentagon_terms(&mut self, plan: &DirectPlanData, block: usize) {
+        let terms = &plan.pentagon_terms[block];
+        let jet = plan.jet.as_ref().expect("a pentagon's terms need a jet");
+        let subset = &plan.subsets[terms.subset];
+        let members = subset.members.clone();
+        let geometry = subset.pentagon.expect("a pentagon");
+        let n = self.masses.len();
+        let zero = self.zero.clone();
+        let no_poles = lzero(&zero);
+        let massless = |line: usize| self.masses[line].re.is_zero() && self.masses[line].im.is_zero();
+        let mut orders: Vec<usize> = (1..jet.len)
+            .filter(|&o| {
+                jet.digits(o).iter().enumerate().all(|(v, &d)| d == 0 || terms.lines.iter().any(|&(w, _)| w == v))
+            })
+            .collect();
+        orders.sort_by_key(|&o| (jet.digits(o).iter().sum::<usize>(), o));
+        // The relation holds for any raised line; a massless one first.
+        let raised: Vec<Option<(usize, usize, usize)>> = (0..jet.len)
+            .map(|o| {
+                let digits = jet.digits(o);
+                let mut lines = terms.lines.iter().filter(|&&(v, _)| digits[v] >= 1);
+                lines
+                    .clone()
+                    .find(|&&(v, _)| massless(jet.variables[v].0))
+                    .or_else(|| lines.next())
+                    .map(|&(v, local)| (v, local, digits[v]))
+            })
+            .collect();
+        if self.pentagon_ir_exposed(&members).is_none() {
+            return;
+        }
+        // A flat pentagon (B vanishing: a degenerate Gram determinant, the
+        // two onia of a 2 -> 2 process) keeps its Gram-free value, as before
+        // (checked against exact partial fractions in tests/onia.rs); its Gram
+        // inverse below would not exist.
+        let b0: Vec<C<T>> = (0..5).map(|i| self.geometry[geometry.b as usize + i].clone()).collect();
+        if self.pentagon_b_vanishes(&members, &b0) {
+            return;
+        }
+        // Z^-1 of the members' momenta (mass independent).
+        let d = |i: usize, j: usize| self.distances[i * n + j].clone();
+        let origin = members[0];
+        for i in 0..4 {
+            for j in 0..4 {
+                let (mi, mj) = (members[i + 1], members[j + 1]);
+                self.matrix[i * 4 + j] = csub(&cadd(&d(origin, mi), &d(origin, mj)), &d(mi, mj));
+                self.rhs[i * 4 + j] = if i == j { self.one.clone() } else { zero.clone() };
+            }
+        }
+        let zinv: Option<Vec<C<T>>> =
+            solve_in_place(&mut self.matrix[..16], &mut self.rhs[..16], 4, 4).map(|_| self.rhs[..16].to_vec());
+        let pole = |v: &L4<T>| -> L4<T> { [v[0].clone(), v[1].clone(), v[2].clone(), zero.clone()] };
+        let axpy = |acc: &mut L4<T>, f: &C<T>, x: &L4<T>| {
+            for slot in 0..3 {
+                acc[slot] = cadd(&acc[slot], &cmul(f, &x[slot]));
+            }
+        };
+        let plus = |kappa: &[u16; 4], a: usize| -> [u16; 4] {
+            let mut k = *kappa;
+            k[a] += 1;
+            k
+        };
+        let mut metric: FastMap<(u16, [u16; 4], usize), L4<T>> = FastMap::default();
+        let mut momentum: FastMap<([u16; 4], usize), L4<T>> = FastMap::default();
+        for &o in &orders {
+            // True metric poles at o.
+            if let Some((v, local, digit)) = raised[o] {
+                let lower = jet.lower[v][o] as usize;
+                let scale = C::new(self.prototype.from_i64(-1) / &self.prototype.from_usize(2 * digit), self.prototype.zero());
+                for &(lambda1, kappa) in &terms.metric {
+                    let lambda = lambda1 - 1;
+                    let truth = |exec: &Self, j: [u16; 4]| -> L4<T> {
+                        if lower == 0 {
+                            pole(&exec.values[terms.layout[&(lambda, j)] as usize])
+                        } else if lambda >= 1 {
+                            metric.get(&(lambda, j, lower)).cloned().unwrap_or_else(|| no_poles.clone())
+                        } else {
+                            momentum.get(&(j, lower)).cloned().unwrap_or_else(|| no_poles.clone())
+                        }
+                    };
+                    let mut acc = no_poles.clone();
+                    let one = C::new(self.prototype.one(), self.prototype.zero());
+                    let minus = C::new(self.prototype.from_i64(-1), self.prototype.zero());
+                    if local >= 1 {
+                        axpy(&mut acc, &one, &truth(self, plus(&kappa, local - 1)));
+                    } else {
+                        axpy(&mut acc, &minus, &truth(self, kappa));
+                        for j in 0..4 {
+                            axpy(&mut acc, &minus, &truth(self, plus(&kappa, j)));
+                        }
+                    }
+                    let mut value = no_poles.clone();
+                    axpy(&mut value, &scale, &acc);
+                    metric.insert((lambda1, kappa, o), value);
+                }
+            }
+            // The dropped terms at o: sum over o1 + o2 = o with o2 != 0.
+            let splits: Vec<(usize, usize)> = (0..jet.len)
+                .flat_map(|a| jet.sums[a].iter().filter(|&&(b, c)| c as usize == o && b != 0).map(move |&(b, _)| (a, b as usize)))
+                .collect();
+            let geo = |exec: &Self, order: usize, g: usize| -> C<T> {
+                if order == 0 { exec.geometry[g].clone() } else { exec.geometry_jet[order - 1][g].clone() }
+            };
+            let mut additions: Vec<(u32, L4<T>)> = Vec::new();
+            for &(lambda, kappa) in &terms.results {
+                let r = 2 * u64::from(lambda) + kappa.iter().map(|&x| u64::from(x)).sum::<u64>();
+                let mut sum = no_poles.clone();
+                for k in 0..4 {
+                    if kappa[k] == 0 {
+                        continue;
+                    }
+                    let mut rest = kappa;
+                    rest[k] -= 1;
+                    let weight = self.prototype.from_i64(-4 * i64::from(kappa[k])) / &self.prototype.from_usize(r as usize);
+                    for &(o1, o2) in &splits {
+                        if let Some(g) = metric.get(&(lambda + 1, rest, o2)) {
+                            let x = cscale(&geo(self, o1, geometry.xinv as usize + 5 * (k + 1)), &weight);
+                            axpy(&mut sum, &x, g);
+                        }
+                    }
+                }
+                additions.push((terms.layout[&(lambda, kappa)], sum));
+            }
+            let mut scalar = no_poles.clone();
+            for &(o1, o2) in &splits {
+                if let Some(g) = metric.get(&(1, [0; 4], o2)) {
+                    let mut b = zero.clone();
+                    for i in 0..5 {
+                        b = cadd(&b, &geo(self, o1, geometry.b as usize + i));
+                    }
+                    axpy(&mut scalar, &cscale(&b, &self.prototype.from_i64(4)), g);
+                }
+            }
+            additions.push((terms.layout[&(0, [0; 4])], scalar));
+            for (index, p) in additions {
+                // epsilon times p: the double pole to the single, the IR
+                // single pole to the finite part. The UV poles' share is the
+                // plan's (the UV remainders, at every order): only E(4, 0)'s
+                // is nonzero at an order o2 != 0, linear in the masses.
+                let target = &mut self.values_jet[o - 1][index as usize];
+                target[1] = cadd(&target[1], &p[2]);
+                target[3] = cadd(&target[3], &p[1]);
+            }
+            // True momentum poles at o, for the next orders.
+            for kappa2 in &terms.momenta {
+                momentum.insert((*kappa2, o), pole(&self.values_jet[o - 1][terms.layout[&(0, *kappa2)] as usize]));
+            }
+            if let Some(zinv) = &zinv {
+                let two = self.prototype.from_usize(2);
+                for (lambda, kappa, kappa2, labels, count) in &terms.expansion {
+                    let mut factor = C::new(self.prototype.from_usize(*count as usize), self.prototype.zero());
+                    for &(j, k) in labels {
+                        factor = cmul(&factor, &cscale(&zinv[4 * j as usize + k as usize], &two));
+                    }
+                    let mut difference = pole(&self.values_jet[o - 1][terms.layout[&(*lambda, *kappa)] as usize]);
+                    if let Some(g) = metric.get(&(*lambda, *kappa, o)) {
+                        for slot in 0..3 {
+                            difference[slot] = csub(&difference[slot], &g[slot]);
+                        }
+                    }
+                    let entry = momentum.get_mut(&(*kappa2, o)).expect("a momentum coefficient");
+                    axpy(entry, &factor, &difference);
+                }
+            }
+        }
+    }
+
+    /// The UV pole of each rank-7 Gram-free pentagon's coefficient of `{g^4}`
+    /// ([`super::plan::PentagonGeometry::uv`]), with its Taylor orders. From
+    /// Feynman parameters, `(1/16) int A(x)` over the simplex, `A = sum_i x_i
+    /// m_i^2 - sum_k x_k p_k^2 + P^2`, `P = sum_k x_k p_k`:
+    /// `sum_i m_i^2 / 1920 - sum_k Z_kk / 5760 + sum_(k<l) Z_kl / 11520`, with
+    /// `Z_kl = 2 p_k.p_l` (as `C_0000`'s `sum m^2 / 24 - (p1^2 + p2^2) / 48 +
+    /// p1.p2 / 48`). Linear in the squared masses: a jet's first order in a
+    /// member's is `1 / 1920` (the Schwinger relation gives the same from
+    /// E_{3,e_a}'s pole), its other orders vanish.
+    fn pentagon_uv_poles(&mut self, plan: &DirectPlanData) {
+        // Only plans with a jet reach rank 7 Gram-free (`DD_PENTAGON_JET_RANK`).
+        if plan.jet.is_none() {
+            return;
+        }
+        let n = self.masses.len();
+        for subset in &plan.subsets {
+            let Some(geometry) = subset.pentagon else { continue };
+            if geometry.uv == NO_GEOMETRY {
+                continue;
+            }
+            let members = &subset.members;
+            let origin = members[0];
+            let d = |i: usize, j: usize| &self.distances[i * n + j];
+            let mut masses = self.zero.clone();
+            for &member in members {
+                masses = cadd(&masses, &self.masses[member]);
+            }
+            let (mut diagonal, mut mixed) = (self.zero.clone(), self.zero.clone());
+            for i in 0..4 {
+                let mi = members[i + 1];
+                diagonal = cadd(&diagonal, &cadd(d(origin, mi), d(origin, mi)));
+                for j in i + 1..4 {
+                    let mj = members[j + 1];
+                    mixed = cadd(&mixed, &csub(&cadd(d(origin, mi), d(origin, mj)), d(mi, mj)));
+                }
+            }
+            let over = |z: &C<T>, k: i64| cscale(z, &(self.prototype.one() / &self.prototype.from_i64(k)));
+            let pole = cadd(&csub(&over(&masses, 1920), &over(&diagonal, 5760)), &over(&mixed, 11520));
+            let index = geometry.uv as usize;
+            self.values[index] = [self.zero.clone(), self.zero.clone(), self.zero.clone(), pole];
+            if let Some(jet) = plan.jet.as_ref() {
+                let slope = over(&self.one, 1920);
+                for order in 1..jet.len {
+                    let digits = jet.digits(order);
+                    let first = digits.iter().sum::<usize>() == 1
+                        && jet.variables.iter().zip(&digits).any(|(&(line, _), &d)| d == 1 && members.contains(&line));
+                    let value = if first { slope.clone() } else { self.zero.clone() };
+                    self.values_jet[order - 1][index] = [self.zero.clone(), self.zero.clone(), self.zero.clone(), value];
+                }
+            }
+        }
+    }
+
+    /// Taylor orders of a Gram-free pentagon's entries in the jet's squared
+    /// masses: the inverse `X^-1` of its modified Cayley matrix `X = [[2 m0^2,
+    /// f^T], [f, Z]]`, the sums of its entries and the products `adjadj`.
+    /// `X` is linear in each squared mass (`Z` holds none), `X(delta) = X0 +
+    /// sum_v delta_v X_v` with `X_v` only in row and column 0, so
+    /// `X^-1_o = -X0^-1 sum_v X_v X^-1_(o - e_v)`; the sums are linear in
+    /// `X^-1` and the `adjadj` entries products of two of its entries.
+    fn dd_pentagon_jets(&mut self, subset: &Subset, jet: &Jet) {
+        let geometry = subset.pentagon.unwrap();
+        if geometry.dd_rank < 0 {
+            return;
+        }
+        let members = &subset.members;
+        let origin = members[0];
+        let xinv = geometry.xinv as usize;
+        // X_v, 5x5, per variable (row and column 0 only).
+        let derivatives: Vec<Vec<T>> = jet
+            .variables
+            .iter()
+            .map(|&(line, _)| {
+                let mut x = vec![self.prototype.zero(); 25];
+                if origin == line {
+                    x[0] = self.prototype.from_usize(2);
+                }
+                for i in 0..4 {
+                    let df = self.f_derivative(origin, members[i + 1], line);
+                    x[i + 1] = df.clone();
+                    x[(i + 1) * 5] = df;
+                }
+                x
+            })
+            .collect();
+        if derivatives.iter().flatten().all(|value| value.is_zero()) {
+            return;
+        }
+        let order0: Vec<C<T>> = self.geometry[xinv..xinv + 25].to_vec();
+        let mut orders: Vec<Vec<C<T>>> = vec![order0.clone()];
+        for order in 1..jet.len {
+            // m = sum_v X_v X^-1_(o - e_v).
+            let mut m = vec![self.zero.clone(); 25];
+            for (v, x) in derivatives.iter().enumerate() {
+                let lower = jet.lower[v][order];
+                if lower == Jet::NONE {
+                    continue;
+                }
+                let previous = &orders[lower as usize];
+                for i in 0..5 {
+                    for j in 0..5 {
+                        let mut value = m[i * 5 + j].clone();
+                        for k in 0..5 {
+                            if !x[i * 5 + k].is_zero() {
+                                value = cadd(&value, &cscale(&previous[k * 5 + j], &x[i * 5 + k]));
+                            }
+                        }
+                        m[i * 5 + j] = value;
+                    }
+                }
+            }
+            let mut next = vec![self.zero.clone(); 25];
+            for i in 0..5 {
+                for j in 0..5 {
+                    let mut value = self.zero.clone();
+                    for k in 0..5 {
+                        value = csub(&value, &cmul(&order0[i * 5 + k], &m[k * 5 + j]));
+                    }
+                    next[i * 5 + j] = value;
+                }
+            }
+            orders.push(next);
+        }
+        let sums = geometry.sums as usize;
+        let adjadj = geometry.adjadj as usize;
+        for order in 1..jet.len {
+            let x = &orders[order];
+            for (i, value) in x.iter().enumerate() {
+                self.geometry_jet[order - 1][xinv + i] = value.clone();
+            }
+            let mut column = self.zero.clone();
+            for m in 1..=4 {
+                column = cadd(&column, &x[5 * m]);
+            }
+            self.geometry_jet[order - 1][sums] = column;
+            for k in 1..=4 {
+                let mut row = self.zero.clone();
+                for m in 0..5 {
+                    row = cadd(&row, &x[5 * k + m]);
+                }
+                self.geometry_jet[order - 1][sums + k] = row;
+            }
+            for slot in 0..64 {
+                self.geometry_jet[order - 1][adjadj + slot] = self.zero.clone();
+            }
+        }
+        // adjadj_(kmi) = X^-1_0m X^-1_ik - X^-1_im X^-1_0k, a product: order c
+        // collects the orders (a, b) with a + b = c.
+        for a in 0..jet.len {
+            for &(b, c) in &jet.sums[a] {
+                let c = c as usize;
+                if c == 0 {
+                    continue;
+                }
+                let (x, y) = (&orders[a], &orders[b as usize]);
+                for k in 1..=4 {
+                    for i in 1..=4 {
+                        for m in 1..=4 {
+                            let value = csub(&cmul(&x[m], &y[5 * i + k]), &cmul(&x[5 * i + m], &y[k]));
+                            let index = adjadj + 16 * (k - 1) + 4 * (m - 1) + (i - 1);
+                            self.geometry_jet[c - 1][index] = cadd(&self.geometry_jet[c - 1][index], &value);
+                        }
+                    }
+                }
+            }
+        }
+        for order in 1..jet.len {
+            for k in 1..=4 {
+                for i in 1..=4 {
+                    let mut total = self.zero.clone();
+                    for m in (1..=4).filter(|&m| m != k) {
+                        total = cadd(&total, &self.geometry_jet[order - 1][adjadj + 16 * (k - 1) + 4 * (m - 1) + (i - 1)]);
+                    }
+                    self.geometry_jet[order - 1][sums + 5 + 4 * (k - 1) + (i - 1)] = total;
+                }
+            }
+        }
+    }
+
     /// `d f / d delta` of `f_member = d(origin, member) - m_member^2 + m_origin^2`.
     fn f_derivative(&self, origin: usize, member: usize, dotted: usize) -> T {
         let mut value = self.prototype.zero();
@@ -3886,6 +4312,32 @@ where
                             }
                         }
                     }
+                    if geometry.epsilon != NO_GEOMETRY {
+                        // The (D - 4) terms' weights (`PentagonGeometry::epsilon`),
+                        // at the jet's one order: b_1 = R0^-1 E b = b_a b + B R0^-1 e_a
+                        // gives 2 B R0^-1 e_a, and 2 X^-1_k0 from the Gram-free part.
+                        // Without an IR-exposed member (`pentagon_ir_exposed`) the
+                        // terms vanish (they would only add rounding).
+                        let e = geometry.epsilon as usize;
+                        for i in 0..9 {
+                            self.geometry_jet[0][e + i] = self.zero.clone();
+                        }
+                        let exposed = self.pentagon_ir_exposed(&members).is_some();
+                        if let (Some(local), 2, true) = (local, k_len, exposed) {
+                            let ba = self.geometry[geometry.b as usize + local].clone();
+                            for i in 0..5 {
+                                let product = cmul(&ba, &self.geometry[geometry.b as usize + i]);
+                                let value = csub(&self.geometry_jet[0][geometry.b as usize + i], &product);
+                                self.geometry_jet[0][e + i] = cadd(&value, &value);
+                            }
+                            if geometry.dd_rank >= 1 {
+                                for k in 1..=4 {
+                                    let x = self.geometry[geometry.xinv as usize + 5 * k].clone();
+                                    self.geometry_jet[0][e + 4 + k] = cadd(&x, &x);
+                                }
+                            }
+                        }
+                    }
                     if subset.moment_rank >= 1 {
                         for mu in 0..4 {
                             let mut a = self.zero.clone();
@@ -3900,16 +4352,22 @@ where
                 }
                 SubsetKind::Hexagon => {
                     // A(delta) = A0 + delta A1, A1 only in the f row:
-                    // X_k = -A0^-1 A1 X_(k-1) = y (-a1 . X_(k-1)), y = A0^-1 e_4.
+                    // X_k = -A0^-1 A1 X_(k-1) = y (-a1 . X_(k-1)), y = A0^-1 e_4,
+                    // over the six members the lane's system chose (a
+                    // seven-point lane's dropped member keeps weight zero).
                     let weights = subset.hexagon.unwrap() as usize;
+                    let size = members.len();
+                    let chosen = self.hexagon_choice(weights, size);
+                    let origin = members[chosen[0]];
+                    let slot = |column: usize, c: usize| weights + size * column + chosen[c];
                     let a1: Vec<T> = (0..5)
-                        .map(|c| self.f_derivative(origin, members[c + 1], dotted))
+                        .map(|c| self.f_derivative(origin, members[chosen[c + 1]], dotted))
                         .collect();
                     if a1.iter().all(|value| value.is_zero()) {
                         continue;
                     }
                     for column in 0..5 {
-                        let member = members[column + 1];
+                        let member = members[chosen[column + 1]];
                         for mu in 0..4 {
                             self.matrix[mu * 5 + column] =
                                 csub(&self.shifts[member][mu], &self.shifts[origin][mu]);
@@ -3930,9 +4388,9 @@ where
                             let mut r = self.zero.clone();
                             for c in 0..5 {
                                 let previous = if order == 0 {
-                                    &self.geometry[weights + 6 * column + c + 1]
+                                    &self.geometry[slot(column, c + 1)]
                                 } else {
-                                    &self.geometry_jet[order - 1][weights + 6 * column + c + 1]
+                                    &self.geometry_jet[order - 1][slot(column, c + 1)]
                                 };
                                 r = csub(&r, &cscale(previous, &a1[c]));
                             }
@@ -3940,14 +4398,18 @@ where
                             for i in 0..5 {
                                 let value = cmul(&y[i], &r);
                                 sum = cadd(&sum, &value);
-                                self.geometry_jet[order][weights + 6 * column + i + 1] = value;
+                                self.geometry_jet[order][slot(column, i + 1)] = value;
                             }
-                            self.geometry_jet[order][weights + 6 * column] = csub(&self.zero, &sum);
+                            self.geometry_jet[order][slot(column, 0)] = csub(&self.zero, &sum);
                         }
                     }
                 }
                 SubsetKind::Relation(_) | SubsetKind::Homogeneous(_) => {}
             }
+        }
+        let jet = plan.jet.as_ref().expect("a jet");
+        for subset in plan.subsets.iter().filter(|subset| matches!(subset.kind, SubsetKind::Pentagon)) {
+            self.dd_pentagon_jets(subset, jet);
         }
         Ok(())
     }
@@ -4106,18 +4568,23 @@ where
                 }
                 SubsetKind::Hexagon => {
                     // A(delta) = A0 + sum_v delta_v A_v, A_v only in the f row:
-                    // X_o = y (-sum_v a_v . X_(o - e_v)), y = A0^-1 e_4.
+                    // X_o = y (-sum_v a_v . X_(o - e_v)), y = A0^-1 e_4, over
+                    // the lane's chosen six members (as the univariate case).
                     let weights = subset.hexagon.unwrap() as usize;
+                    let size = members.len();
+                    let chosen = self.hexagon_choice(weights, size);
+                    let origin = members[chosen[0]];
+                    let slot = |column: usize, c: usize| weights + size * column + chosen[c];
                     let a1: Vec<Vec<T>> = jet
                         .variables
                         .iter()
-                        .map(|&(line, _)| (0..5).map(|c| self.f_derivative(origin, members[c + 1], line)).collect())
+                        .map(|&(line, _)| (0..5).map(|c| self.f_derivative(origin, members[chosen[c + 1]], line)).collect())
                         .collect();
                     if a1.iter().flatten().all(|value| value.is_zero()) {
                         continue;
                     }
                     for column in 0..5 {
-                        let member = members[column + 1];
+                        let member = members[chosen[column + 1]];
                         for mu in 0..4 {
                             self.matrix[mu * 5 + column] = csub(&self.shifts[member][mu], &self.shifts[origin][mu]);
                         }
@@ -4139,7 +4606,7 @@ where
                                     continue;
                                 }
                                 for c in 0..5 {
-                                    let index = weights + 6 * column + c + 1;
+                                    let index = slot(column, c + 1);
                                     let previous = if lower == 0 {
                                         &self.geometry[index]
                                     } else {
@@ -4152,14 +4619,17 @@ where
                             for i in 0..5 {
                                 let value = cmul(&y[i], &r);
                                 sum = cadd(&sum, &value);
-                                self.geometry_jet[order - 1][weights + 6 * column + i + 1] = value;
+                                self.geometry_jet[order - 1][slot(column, i + 1)] = value;
                             }
-                            self.geometry_jet[order - 1][weights + 6 * column] = csub(&self.zero, &sum);
+                            self.geometry_jet[order - 1][slot(column, 0)] = csub(&self.zero, &sum);
                         }
                     }
                 }
                 SubsetKind::Relation(_) | SubsetKind::Homogeneous(_) => {}
             }
+        }
+        for subset in plan.subsets.iter().filter(|subset| matches!(subset.kind, SubsetKind::Pentagon)) {
+            self.dd_pentagon_jets(subset, jet);
         }
         Ok(())
     }
@@ -4240,16 +4710,38 @@ where
     /// the validated symbolic `ibp.rs`:
     /// `(v_l - 1) J(v) = sum_i Rinv_li [-(5-|v|-2eps) J(w) + sum_j w_j J(w-e_i+e_j)]`,
     /// `w = v - e_l`. Every child has a smaller total power.
+    ///
+    /// Each value is memoized with a running estimate of its rounding error
+    /// ([`Self::ibp_child`], in units of the working precision): the masters
+    /// and closed forms carry their size, and each step adds its own
+    /// rounding (the size of every product it sums) and its children's
+    /// errors times their coefficients. `J(w)` enters every term of a Cayley
+    /// step, so its error enters once, with the sum of its coefficients. The
+    /// estimate over the value's size, the recursion's amplification of
+    /// rounding, is held against the threshold (`ibp_gate`), as the other
+    /// gates hold theirs: where the rows of the Cayley inverse are large and
+    /// their terms cancel, the loss compounds with every dot. A line tripled
+    /// in a collinear pair of a box, whose Cayley matrix holds its gate at a
+    /// relative determinant of 4e-9, came back 9e-2 off in binary64; the
+    /// estimate is 8e16 there (8e14 measured), 2e10 with the line doubled
+    /// (3e8), and at most 1e8 for the Coulomb partial fractions of two onia
+    /// at four dots (below 1e5).
     fn ibp(&mut self, powers: u64) -> Result<L4<T>, String> {
-        if let Some(value) = self.ibp_memo.get(&powers) {
-            return Ok(value.clone());
+        self.ibp_child(powers).map(|(value, _)| value)
+    }
+
+    /// `ibp(powers)` and its estimated rounding error, in units of the
+    /// working precision.
+    fn ibp_child(&mut self, powers: u64) -> Result<(L4<T>, T), String> {
+        if let Some(memo) = self.ibp_memo.get(&powers) {
+            return Ok(memo.clone());
         }
         let n = self.plan.settings.propagators;
         let bits = self.ibp_bits;
         let power = |packed: u64, i: usize| ibp_power(packed, bits, i);
         let mask: SubsetMask = (0..n).filter(|&i| power(powers, i) > 0).fold(0, |m, i| m | (1 << i));
         if mask == 0 {
-            return Ok(lzero(&self.zero));
+            return Ok((lzero(&self.zero), self.prototype.zero()));
         }
         let Some(l) = (0..n).find(|&i| power(powers, i) > 1) else {
             let subset = self
@@ -4258,7 +4750,9 @@ where
                 .iter()
                 .find(|subset| subset.mask == mask && subset.master.is_some())
                 .ok_or_else(|| format!("no master for subset {mask:#b}"))?;
-            return Ok(self.values[subset.master.unwrap() as usize].clone());
+            let value = self.values[subset.master.unwrap() as usize].clone();
+            let error = lsize(&value);
+            return Ok((value, error));
         };
         let total: u64 = (0..n).map(|i| power(powers, i)).sum();
         let active: Vec<usize> = (0..n).filter(|&i| power(powers, i) > 0).collect();
@@ -4268,8 +4762,9 @@ where
         // inputs' rounding, so its inverse must not be used, whatever the
         // stability threshold (a threshold of zero would accept it).
         if let Some(value) = self.singular_ibp_base(&active, powers) {
-            self.ibp_memo.insert(powers, value.clone());
-            return Ok(value);
+            let error = lsize(&value);
+            self.ibp_memo.insert(powers, (value.clone(), error.clone()));
+            return Ok((value, error));
         }
         // A soft line k (massless, every other member on shell against it:
         // R_jk = d_jk - m_j^2 = 0 to the inputs' rounding) empties row k of
@@ -4283,52 +4778,101 @@ where
             let c0 = 4 - total as i64 - power(powers, k) as i64;
             if c0 != 0 {
                 let mut sum = lzero(&self.zero);
+                let mut error = self.prototype.zero();
                 for &j in active.iter().filter(|&&j| j != k) {
                     let child = powers + ibp_unit(bits, j) - ibp_unit(bits, k);
-                    let value = self.ibp(child)?;
-                    let weight = C::new(self.prototype.from_usize(power(powers, j) as usize), self.prototype.zero());
-                    lfma(&mut sum, &weight, &value);
+                    let (value, child_error) = self.ibp_child(child)?;
+                    let weight = self.prototype.from_usize(power(powers, j) as usize);
+                    error += &(weight.clone() * &(child_error + &lsize(&value)));
+                    lfma(&mut sum, &C::new(weight, self.prototype.zero()), &value);
                 }
+                // 1 / (c0 - 2 eps) moves each slot by at most 1 + 2 / |c0|.
+                let mut scale = self.prototype.one() / &self.prototype.from_i64(c0.abs());
+                scale = scale.clone() + &(scale.clone() * &scale * &self.prototype.from_usize(2));
+                let error = error * &scale;
                 div_dimension(&mut sum, &(self.prototype.one() / &self.prototype.from_i64(c0)));
-                self.ibp_memo.insert(powers, sum.clone());
-                return Ok(sum);
+                self.ibp_gate(&active, powers, &sum, &error)?;
+                self.ibp_memo.insert(powers, (sum.clone(), error.clone()));
+                return Ok((sum, error));
             }
         }
         // A collinear pair a, b of a triangle (massless, lightlike to the
         // inputs' rounding): rows a and b of the Cayley matrix are
         // (0, 0, R_ac) and (0, 0, R_bc), so it is singular (`collinear_ibp`).
         if let Some(triple) = self.collinear_pair(&active) {
-            if let Some(value) = self.collinear_ibp(triple, l, powers)? {
-                self.ibp_memo.insert(powers, value.clone());
-                return Ok(value);
+            if let Some(memo) = self.collinear_ibp(triple, l, powers)? {
+                self.ibp_gate(&active, powers, &memo.0, &memo.1)?;
+                self.ibp_memo.insert(powers, memo.clone());
+                return Ok(memo);
             }
         }
         let inverse = self.cayley_inverse(mask)?;
         let local_l = active.iter().position(|&i| i == l).unwrap();
         let w = powers - ibp_unit(bits, l);
-        let base = self.ibp(w)?;
+        let (base, base_error) = self.ibp_child(w)?;
+        let a = self.prototype.from_i64(5 - total as i64);
         let mut common = base;
-        mul_dimension(&mut common, &self.prototype.from_i64(5 - total as i64));
+        mul_dimension(&mut common, &a);
         let common: L4<T> = std::array::from_fn(|slot| csub(&self.zero, &common[slot]));
+        let common_size = lsize(&common);
         let mut result = lzero(&self.zero);
+        let mut error = self.prototype.zero();
+        // The coefficients of J(w) over the terms: sum_i Rinv_li (w_i - a),
+        // and sum_i Rinv_li for its eps part.
+        let (mut base_weight, mut eps_weight) = (self.zero.clone(), self.zero.clone());
         let size = active.len();
         for (local_i, &i) in active.iter().enumerate() {
+            let coefficient = &inverse[local_l * size + local_i];
+            let magnitude = cnorm2(coefficient).sqrt();
             let mut term = common.clone();
+            let mut own = common_size.clone();
+            let mut children = self.prototype.zero();
             for &j in &active {
                 let wj = power(w, j);
                 if wj == 0 {
                     continue;
                 }
                 let child = w - ibp_unit(bits, i) + ibp_unit(bits, j);
-                let value = self.ibp(child)?;
-                lfma(&mut term, &C::new(self.prototype.from_usize(wj as usize), self.prototype.zero()), &value);
+                let (value, child_error) = self.ibp_child(child)?;
+                let weight = self.prototype.from_usize(wj as usize);
+                own += &(weight.clone() * &lsize(&value));
+                if j != i {
+                    children += &(weight.clone() * &child_error);
+                }
+                lfma(&mut term, &C::new(weight, self.prototype.zero()), &value);
             }
-            lfma(&mut result, &inverse[local_l * size + local_i], &term);
+            let wi = self.prototype.from_usize(power(w, i) as usize);
+            base_weight = cadd(&base_weight, &cscale(coefficient, &(wi - &a)));
+            eps_weight = cadd(&eps_weight, coefficient);
+            error += &(magnitude * &(children + &own));
+            lfma(&mut result, coefficient, &term);
         }
+        let two = self.prototype.from_usize(2);
+        error += &((cnorm2(&base_weight).sqrt() + &(cnorm2(&eps_weight).sqrt() * &two)) * &base_error);
         let divisor = self.prototype.one() / &self.prototype.from_usize(power(w, l) as usize);
         let result: L4<T> = std::array::from_fn(|slot| cscale(&result[slot], &divisor));
-        self.ibp_memo.insert(powers, result.clone());
-        Ok(result)
+        let error = error * &divisor;
+        self.ibp_gate(&active, powers, &result, &error)?;
+        self.ibp_memo.insert(powers, (result.clone(), error.clone()));
+        Ok((result, error))
+    }
+
+    /// Holds an IBP value's estimated rounding `error` (in units of the
+    /// working precision) against the threshold: refused (`Unstable`) when
+    /// its size over the error falls below it.
+    fn ibp_gate(&mut self, active: &[usize], powers: u64, value: &L4<T>, error: &T) -> Result<(), String> {
+        if error.is_zero() {
+            return Ok(());
+        }
+        let estimate = lsize(value) / error;
+        if estimate < self.stability_threshold {
+            self.failed_condition = Some(estimate.to_f64());
+            return Err(format!(
+                "IBP recursion of {active:?} at powers {powers:#x} amplifies rounding by {:e} (estimate {estimate:e})",
+                self.prototype.one() / &estimate
+            ));
+        }
+        Ok(())
     }
 
     /// A soft line of `active` (two members at least): massless, with every
@@ -4405,7 +4949,7 @@ where
         (a, b, c): (usize, usize, usize),
         l: usize,
         powers: u64,
-    ) -> Result<Option<L4<T>>, String> {
+    ) -> Result<Option<(L4<T>, T)>, String> {
         let n = self.plan.settings.propagators;
         let bits = self.ibp_bits;
         let power = |packed: u64, i: usize| ibp_power(packed, bits, i);
@@ -4430,15 +4974,19 @@ where
         if cnorm2(&coefficient).sqrt() <= self.input_rounding.clone() * &self.prototype.from_usize(64) {
             return Ok(None);
         }
+        // Its own divisions are not estimated: the value carries its
+        // children's largest relative error.
         // rhs_k for k = c and for the better row of a, b.
-        let mut dimension = self.ibp(mu)?;
+        let (mut dimension, dimension_error) = self.ibp_child(mu)?;
+        let mut relative = relative_error(&dimension, &dimension_error, &self.prototype);
         mul_dimension(&mut dimension, &self.prototype.from_i64(5 - total));
         let row = if cnorm2(&r_ac) >= cnorm2(&r_bc) { a } else { b };
         let mut rhs = [lzero(&self.zero), lzero(&self.zero)];
         for (slot, k) in [row, c].into_iter().enumerate() {
             let mut acc: L4<T> = std::array::from_fn(|s| csub(&self.zero, &dimension[s]));
             for i in [a, b, c] {
-                let value = self.ibp(mu + unit(i) - unit(k))?;
+                let (value, value_error) = self.ibp_child(mu + unit(i) - unit(k))?;
+                relative = max_of(relative, relative_error(&value, &value_error, &self.prototype));
                 lfma(&mut acc, &real(power(mu, i) as i64), &value);
             }
             rhs[slot] = acc;
@@ -4450,9 +4998,11 @@ where
         lfma(&mut u, &csub(&self.zero, &r_cc), &y_c);
         // W: a lower power of b.
         let mut w = lzero(&self.zero);
-        let k1 = self.ibp(mu + 2 * unit(a) - unit(b))?;
+        let (k1, e1) = self.ibp_child(mu + 2 * unit(a) - unit(b))?;
         lfma(&mut w, &real(mu_a as i64 + 1), &k1);
-        let k2 = self.ibp(mu + unit(a) + unit(c) - unit(b))?;
+        let (k2, e2) = self.ibp_child(mu + unit(a) + unit(c) - unit(b))?;
+        relative = max_of(relative, relative_error(&k1, &e1, &self.prototype));
+        relative = max_of(relative, relative_error(&k2, &e2, &self.prototype));
         lfma(&mut w, &real(mu_c as i64), &k2);
         let mut numerator = u.clone();
         lfma(&mut numerator, &r_cb, &y_c);
@@ -4474,7 +5024,9 @@ where
             (y_c, mu_c)
         };
         let inverse = cinv(&real(mu_l as i64));
-        Ok(Some(std::array::from_fn(|s| cmul(&y_l[s], &inverse))))
+        let value: L4<T> = std::array::from_fn(|s| cmul(&y_l[s], &inverse));
+        let error = max_of(relative, self.prototype.one()) * &lsize(&value);
+        Ok(Some((value, error)))
     }
 
     /// Closed forms of the IR-singular IBP bases (singular Cayley matrix)
@@ -4697,6 +5249,10 @@ where
         let mut accumulator = vec![lzero(&self.zero); len];
         let mut factors = vec![self.zero.clone(); len];
         for instruction in program {
+            if let PostOp::PentagonTerms { block } = instruction.post {
+                self.pentagon_terms(plan, block as usize);
+                continue;
+            }
             if let PostOp::TaylorShift { variable, own } = instruction.post {
                 match jet.univariate() {
                     Some(k_len) => self.taylor_shift::<true>(plan, instruction, k_len),
@@ -4738,6 +5294,9 @@ where
             for value in &mut accumulator {
                 if let PostOp::DivideDimension { inverse } = instruction.post {
                     div_dimension(value, &self.constants[inverse as usize]);
+                }
+                if let PostOp::TimesEpsilon = instruction.post {
+                    times_epsilon(value);
                 }
             }
             let dst = instruction.dst as usize;
@@ -4813,6 +5372,10 @@ where
             &plan.coefficient_program
         };
         for instruction in program {
+            if let PostOp::PentagonTerms { block } = instruction.post {
+                self.pentagon_terms(plan, block as usize);
+                continue;
+            }
             if let PostOp::TaylorShift { .. } = instruction.post {
                 self.taylor_shift::<FULL>(plan, instruction, K);
                 continue;
@@ -4846,6 +5409,11 @@ where
                 let inverse = &self.constants[inverse as usize];
                 for value in &mut acc {
                     div_dimension(value, inverse);
+                }
+            }
+            if let PostOp::TimesEpsilon = instruction.post {
+                for value in &mut acc {
+                    times_epsilon(value);
                 }
             }
             let dst = instruction.dst as usize;
@@ -5010,8 +5578,12 @@ where
                     PostOp::DivideDimension { inverse } => {
                         div_dimension(&mut accumulator, &constants[inverse as usize]);
                     }
-                    // Only plans with a Taylor jet have partial fractions.
-                    PostOp::TaylorShift { .. } => unreachable!("a partial fraction without a Taylor jet"),
+                    // Only plans with a Taylor jet have partial fractions and
+                    // the pentagons' (D - 4) terms (`run_program` sends them
+                    // to the jet programs).
+                    PostOp::TaylorShift { .. } | PostOp::TimesEpsilon | PostOp::PentagonTerms { .. } => {
+                        unreachable!("a Taylor-jet operation in a plan without a jet")
+                    }
                 }
                 values[instruction.dst as usize] = accumulator;
             }
@@ -5874,6 +6446,7 @@ where
             if let Some(unit) = plan.unit_finite {
                 self.values[unit as usize] = [self.zero.clone(), self.zero.clone(), self.zero.clone(), self.one.clone()];
             }
+            self.pentagon_uv_poles(&plan);
             self.detect_ir_free(&plan);
             let started = self.timer();
             self.run_program(&plan, false);
@@ -6230,9 +6803,24 @@ fn tolerance_at<T: NativeFloat>(prototype: &T, bits: u32, margin: i64) -> T {
     }
 }
 
-/// Width of each propagator's power field in the packed IBP keys of an
-/// `n`-propagator plan: the 64 key bits shared equally (dotted plans have at
-/// most six propagators, so at least 10 bits: powers up to 1023).
+/// The largest Laurent slot of `value`, in modulus.
+fn lsize<T: NativeFloat>(value: &L4<T>) -> T {
+    let mut size = cnorm2(&value[0]).sqrt();
+    for z in &value[1..] {
+        size = max_of(size, cnorm2(z).sqrt());
+    }
+    size
+}
+
+fn max_of<T: NativeFloat>(a: T, b: T) -> T {
+    if b > a { b } else { a }
+}
+
+/// `error / |value|` (largest slot), zero for a value without error.
+fn relative_error<T: NativeFloat>(value: &L4<T>, error: &T, prototype: &T) -> T {
+    if error.is_zero() { prototype.zero() } else { error.clone() / &lsize(value) }
+}
+
 /// `value / (a - 2 eps)` through the finite term for complex `a != 0`: as
 /// `div_dimension` (`1/a + 2 eps/a^2 + 4 eps^2/a^3`).
 fn div_dimension_complex<T: NativeFloat>(value: &L4<T>, a: &C<T>) -> L4<T> {
@@ -6249,6 +6837,9 @@ fn div_dimension_complex<T: NativeFloat>(value: &L4<T>, a: &C<T>) -> L4<T> {
     ]
 }
 
+/// Width of each propagator's power field in the packed IBP keys of an
+/// `n`-propagator plan: the 64 key bits shared equally (dotted plans have at
+/// most six propagators, so at least 10 bits: powers up to 1023).
 pub(crate) fn ibp_field_bits(n: usize) -> u32 {
     u64::BITS / n.max(1) as u32
 }

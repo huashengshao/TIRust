@@ -1140,14 +1140,20 @@ fn supplied_invariant_lanes_match(fixture: &Value, wide: bool) {
 /// Collinear pairs (two massless lines whose invariant vanishes): a triangle
 /// with one has a singular Cayley matrix that no soft line empties, and its
 /// null vector's IBP identity reduces it (main refuses it, "singular Cayley
-/// matrix"). A generic triangle and box sharing the pair, either pair member
-/// doubled, and a pentagon with its massive line doubled, against original
-/// IREGI's quad scalars with powers (benchmarks/onia/make_collinear_fixture.py).
-/// The pentagon with a pair member doubled is refused: its Cayley reduction
-/// drops a (D + 2)-dimensional term whose mass derivative keeps a collinear
-/// pole (1e-4 of the integral here).
+/// matrix"). A generic triangle, box and pentagon sharing the pair, each pair
+/// member doubled, a pentagon with its massive line doubled, a pair member
+/// tripled or both doubled, a pentagon whose doubled massless line joins two
+/// on-shell legs ("soft", also with its massive neighbour doubled), and two
+/// onia at threshold's pentagon with its Coulomb gluon tripled, against
+/// original IREGI's quad scalars with powers
+/// (benchmarks/onia/make_collinear_fixture.py). There the pentagon's Cayley
+/// reduction drops (4 - D) B J5^(D+2), whose mass derivatives keep an IR
+/// pole: the executor keeps its finite part (2.4e-4 of the collinear
+/// pentagons, 3.7e-2 of the soft one and 8% of the threshold one, which were
+/// served without it; issue #67). Their tensor coefficients:
+/// `tests/doubled_ir_pentagons.rs`.
 #[test]
-fn collinear_pairs_reduce_dotted_triangles_and_refuse_unreduced_pentagons() {
+fn collinear_pairs_reduce_dotted_triangles_boxes_and_pentagons() {
     let fixture: Value = serde_json::from_str(include_str!("fixtures/onia-collinear.json")).unwrap();
     let shifts: Vec<[f64; 4]> = fixture["shifts"]
         .as_array()
@@ -1157,37 +1163,49 @@ fn collinear_pairs_reduce_dotted_triangles_and_refuse_unreduced_pentagons() {
         .collect();
     let masses: Vec<f64> = fixture["masses_squared"].as_array().unwrap().iter().map(|m| m.as_f64().unwrap()).collect();
     let mu = fixture["mu"].as_f64().unwrap();
-    for case in fixture["cases"].as_array().unwrap() {
-        let (n, dotted) = (case["n"].as_u64().unwrap() as usize, case["dotted"].as_u64().unwrap() as usize);
-        let reference: Vec<Complex<f64>> = case["reference"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|z| Complex::new(z[0].as_str().unwrap().parse().unwrap(), z[1].as_str().unwrap().parse().unwrap()))
-            .collect();
-        let mut settings = ReductionSettings::new(n, 0);
-        settings.powers[dotted] = 2;
-        let lane = coulomb_lane(&shifts[..n], &masses[..n], mu);
-        for (what, (status, values)) in
-            [("direct", direct_lanes_with(settings.clone(), &lane)), ("facade", facade_lane(settings.clone(), &lane))]
-        {
-            assert_eq!(status, LaneStatus::Success, "n={n}, D{dotted} doubled, {what}");
+    let point = |key: &str| -> (Vec<[f64; 4]>, Vec<f64>, f64) {
+        let p = &fixture[key];
+        let shifts = p["shifts"].as_array().unwrap().iter().map(|q| std::array::from_fn(|a| q[a].as_f64().unwrap())).collect();
+        let masses = p["masses_squared"].as_array().unwrap().iter().map(|m| m.as_f64().unwrap()).collect();
+        (shifts, masses, p["mu"].as_f64().unwrap_or(mu))
+    };
+    let (soft, threshold) = (point("soft"), point("threshold"));
+    let collinear = (shifts, masses, mu);
+    let points = [("collinear", &collinear, "cases"), ("soft", &soft, "soft"), ("threshold", &threshold, "threshold")];
+    for (label, (shifts, masses, mu), key) in points {
+        let cases = if key == "cases" { &fixture["cases"] } else { &fixture[key]["cases"] };
+        for case in cases.as_array().unwrap() {
+            let n = case["n"].as_u64().unwrap() as usize;
+            let powers: Vec<u16> = match case.get("powers") {
+                Some(p) => p.as_array().unwrap().iter().map(|x| x.as_u64().unwrap() as u16).collect(),
+                None => {
+                    let dotted = case["dotted"].as_u64().unwrap() as usize;
+                    (0..n).map(|i| if i == dotted { 2 } else { 1 }).collect()
+                }
+            };
+            let what_case = format!("{label}, n={n}, powers {powers:?}");
+            let reference: Vec<Complex<f64>> = case["reference"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|z| Complex::new(z[0].as_str().unwrap().parse().unwrap(), z[1].as_str().unwrap().parse().unwrap()))
+                .collect();
+            let mut settings = ReductionSettings::new(n, 0);
+            settings.powers = powers.clone();
+            let lane = coulomb_lane(&shifts[..n], &masses[..n], *mu);
+            for (what, (status, values)) in
+                [("direct", direct_lanes_with(settings.clone(), &lane)), ("facade", facade_lane(settings.clone(), &lane))]
+            {
+                assert_eq!(status, LaneStatus::Success, "{what_case}, {what}");
+                let ea = relative_difference(&values, &reference);
+                assert!(ea <= 1e-13, "{what_case}, {what}: E/A {ea:e} against quad IREGI");
+            }
+            let (status, values) = direct256(settings, &lane);
+            assert_eq!(status, LaneStatus::Success, "{what_case}, 256 bits");
             let ea = relative_difference(&values, &reference);
-            assert!(ea <= 1e-13, "n={n}, D{dotted} doubled, {what}: E/A {ea:e} against quad IREGI");
+            eprintln!("{what_case}: 256 bits E/A {ea:.1e} against quad IREGI");
+            assert!(ea <= 1e-15, "{what_case}, 256 bits: E/A {ea:e} against quad IREGI");
         }
-        let (status, values) = direct256(settings, &lane);
-        assert_eq!(status, LaneStatus::Success, "n={n}, D{dotted} doubled, 256 bits");
-        let ea = relative_difference(&values, &reference);
-        assert!(ea <= 1e-15, "n={n}, D{dotted} doubled, 256 bits: E/A {ea:e} against quad IREGI");
-    }
-    for dotted in [0, 1] {
-        let mut settings = ReductionSettings::new(5, 0);
-        settings.powers[dotted] = 2;
-        let (status, _) = direct_lanes_with(settings, &coulomb_lane(&shifts, &masses, mu));
-        assert!(
-            matches!(&status, LaneStatus::Unstable(e) if e.contains("collinear pair of pentagon")),
-            "pentagon, D{dotted} doubled: {status:?}"
-        );
     }
 }
 
@@ -3325,8 +3343,9 @@ fn two_onium_exact(case: &Value, build: u32) -> (Vec<Vec<Float>>, Vec<Float>) {
 /// rounding exceeds here (by up to 40 for binary64 inputs, and 2.1 for
 /// binary128 inputs at 50 and 200 GeV). It now holds B to the rounding's
 /// first-order effect, |b^T dY b| (Y b = 1), of which B is at most 0.026.
-/// A generic pentagon is still refused
-/// (`collinear_pairs_reduce_dotted_triangles_and_refuse_unreduced_pentagons`).
+/// A generic pentagon keeps the term instead
+/// (`collinear_pairs_reduce_dotted_triangles_boxes_and_pentagons`); here it
+/// is of the order of B, which the inputs' rounding sets.
 /// - MadLoop's binary64 inputs through the bridge's embedder (relation
 ///   tiers): served by the double-double tier, within 1e-8 of 256 bits on the
 ///   same inputs (declared binary64; equal once rounded, measured).

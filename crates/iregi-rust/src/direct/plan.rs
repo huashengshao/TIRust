@@ -3,9 +3,9 @@
 //! The plan mirrors the validated symbolic PV planner in `pv.rs`:
 //! Denner--Dittmaier Eqs. (5.10)--(5.11) for at most four denominators, the
 //! Gram-free Denner--Dittmaier pentagon reduction (hep-ph/0509141 sect. 5:
-//! coefficients up to rank 5 from box coefficients with only the modified
-//! Cayley determinant inverted; the four-dimensional external-basis moment
-//! recursion continues above rank 5 and for dotted propagators) and the exact
+//! coefficients up to rank 5, and up to rank 7 with a Taylor jet, from box
+//! coefficients with only the modified Cayley determinant inverted; the
+//! four-dimensional external-basis moment recursion continues above) and the exact
 //! thin six-point identity `l^mu = sum_i w_i^mu D_i`. Instead of
 //! building one expression per moment, every recurrence node becomes a short
 //! linear instruction over a flat value array, evaluated numerically per lane.
@@ -99,8 +99,9 @@ pub struct DirectCapabilities {
     /// members of linearly dependent sets). Two is the validated domain:
     /// P-wave pairs of bound states.
     pub max_dotted_propagators: usize,
-    /// Largest number of propagators with a raised power (the seven-point
-    /// thin system has no mass-derivative jets).
+    /// Largest number of propagators with a raised power: the thin systems of
+    /// six and seven points carry mass-derivative jets (a seven-point lane's
+    /// over the six members it chooses).
     pub max_dotted_points: usize,
     /// Largest PV coefficient rank `R + 2h` (a rank-`R` integral in
     /// `D + 2h` dimensions needs its subsets' coefficients up to `R + 2h`):
@@ -127,7 +128,7 @@ impl DirectCapabilities {
             max_propagators: SubsetMask::BITS as usize,
             max_rank: max_rank as u16,
             max_dotted_propagators: 2,
-            max_dotted_points: 6,
+            max_dotted_points: 7,
             max_coefficient_rank: u16::MAX,
             max_shifted_points: 4,
         }
@@ -181,8 +182,8 @@ impl DirectCapabilities {
             ));
         }
         if dotted > 0 && n > self.max_dotted_points {
-            // The seven-point thin system picks its six members per lane;
-            // its mass-derivative jets are not implemented.
+            // Eight or more points reduce through thin systems that drop
+            // several members per lane, whose jets are not validated.
             return Err(ReductionError::Unsupported(format!(
                 "direct engine handles raised powers up to {} propagators",
                 self.max_dotted_points
@@ -240,6 +241,25 @@ pub(crate) const NO_GEOMETRY: u32 = u32::MAX;
 /// reduction (hep-ph/0509141, sect. 5, with the rank-5 UV remainder); higher
 /// pentagon ranks continue with the four-dimensional Gram recursion.
 pub(crate) const DD_PENTAGON_RANK: i32 = 5;
+/// The same in plans with a Taylor jet (raised powers), with the UV
+/// remainders of ranks 6 and 7. The Gram recursion amplifies the supplied
+/// invariants' mismatch with the shifts like kappa^(R - 5) above rank 5
+/// (MadLoop's rank-7 two-P-wave hexagons: a mismatch of 1e-16 grew to about
+/// 1e-9, which the mismatch gate refuses); the Gram-free part does not. Unit
+/// powers keep rank 5.
+pub(crate) const DD_PENTAGON_JET_RANK: i32 = 7;
+
+/// The UV pole of a pentagon's coefficient of `{g^3 p^rest}` (rank `6 + |rest|`),
+/// as (numerator, denominator): `(-1)^|rest| prod_k rest_k! / (8 (4 + |rest|)!)`,
+/// from Feynman parameters (`4! / 192` times the simplex integral of
+/// `prod_k x_k^rest_k`, `x_0` the origin's). `1 / 192` at `rest = 0`.
+fn pentagon_e3_uv_pole(rest: &[u16]) -> (i64, i64) {
+    let factorial = |n: i64| (1..=n).product::<i64>().max(1);
+    let degree: i64 = rest.iter().map(|&x| i64::from(x)).sum();
+    let numerator: i64 = rest.iter().map(|&x| factorial(i64::from(x))).product();
+    let sign = if degree % 2 == 0 { 1 } else { -1 };
+    (sign * numerator, 8 * factorial(4 + degree))
+}
 
 /// Dense monomial enumeration in `tensor_basis` order with multiplication maps.
 #[derive(Clone, Debug)]
@@ -383,6 +403,12 @@ pub(crate) enum PostOp {
     /// own order `k - e_i + e_v`, for the entries `own` of
     /// `DirectPlanData::taylor_own`.
     TaylorShift { variable: u16, own: (u32, u32) },
+    /// Multiply by `epsilon` (`D = 4 - 2 epsilon`): the poles become the
+    /// finite part and the double pole the single one.
+    TimesEpsilon,
+    /// The (D - 4) terms of a Gram-free pentagon at every order of a jet
+    /// other than one doubled line ([`PentagonTerms`]); no destination.
+    PentagonTerms { block: u32 },
 }
 
 /// Largest number of jet variables: dotted propagators and raised members of
@@ -638,10 +664,105 @@ pub(crate) struct PentagonGeometry {
     /// k = 1..4 `sum_{n=0..4} X^-1_kn`, then for (k, i) the sums over
     /// `n != k` of `Xtt_(kn)(0i)/det X` at `sums + 5 + 4 (k-1) + (i-1)`.
     pub sums: u32,
+    /// The (D - 4) terms of a pentagon with one doubled line `a` (a
+    /// univariate jet of length 2), at jet order 1 only (order 0 is zero):
+    /// `epsilon + i`, i = 0..4, is `2 B R^-1_(a i)` for Melrose's scalar, and
+    /// `epsilon + 4 + k`, k = 1..4, is `2 X^-1_(k0)` for the Gram-free
+    /// coefficients. `NO_GEOMETRY` otherwise.
+    pub epsilon: u32,
+    /// Whether [`PostOp::PentagonTerms`] adds these terms for its jet instead.
+    pub terms: bool,
+    /// Value index of the UV pole of the pentagon's coefficient of `{g^4}`
+    /// (rank 8), for its rank-7 UV remainder: kinematics dependent, unlike
+    /// the poles of `{g^3 p^rest}` (`pentagon_e3_uv_pole`). `NO_GEOMETRY`
+    /// below rank 7.
+    pub uv: u32,
     /// Coefficient ranks `0..=dd_rank` come from the Gram-free reduction;
     /// `-1` keeps the Gram recursion for every rank (dotted propagators,
     /// degenerate box children).
     pub dd_rank: i32,
+}
+
+/// The (D - 4) terms of a Gram-free pentagon for a jet other than one doubled
+/// line, added at every order by [`PostOp::PentagonTerms`] (`exec.rs`
+/// `pentagon_terms`).
+#[derive(Clone, Debug)]
+pub(crate) struct PentagonTerms {
+    pub subset: usize,
+    /// Highest Gram-free coefficient rank.
+    pub rank: u16,
+    /// `(jet variable, local index)` of the jet lines among the members.
+    pub lines: Vec<(usize, usize)>,
+    /// Value index of `E(lambda, kappa)`, `2 lambda + |kappa| <= rank`.
+    pub layout: FastMap<(u16, [u16; 4]), u32>,
+    /// Metric coefficients `(lambda >= 1, kappa)` of rank `<= rank + 1`, whose
+    /// poles the recursion carries.
+    pub metric: Vec<(u16, [u16; 4])>,
+    /// Coefficients `(lambda, kappa)` of rank 1 to `rank`, which get terms.
+    pub results: Vec<(u16, [u16; 4])>,
+    /// Momentum multi-indices of rank `<= rank`.
+    pub momenta: Vec<[u16; 4]>,
+    /// The four-dimensional metric g_4 = sum_jk 2 Z^-1_jk p_j p_k substituted in
+    /// `E(lambda >= 1, kappa)`: its momentum-only `kappa2` part, as
+    /// `(lambda, kappa, kappa2, label pairs (j, k), count)`.
+    pub expansion: Vec<(u16, [u16; 4], [u16; 4], Vec<(u8, u8)>, u64)>,
+}
+
+/// [`PentagonTerms::expansion`] up to `rank`: every metric of a structure
+/// `{g^lambda p^kappa}` replaced by 2 Z^-1_jk p_j p_k. A momentum-only term with
+/// multi-index `kappa2` collects, per set of lambda disjoint index pairs of
+/// labels (j, k), the product of 2 Z^-1_jk: `count` such sets.
+pub(crate) fn metric_expansion(rank: u16) -> Vec<(u16, [u16; 4], [u16; 4], Vec<(u8, u8)>, u64)> {
+    let pairs: Vec<(u8, u8)> = (0..4u8).flat_map(|j| (j..4).map(move |k| (j, k))).collect();
+    let factorial = |n: u64| (1..=n).product::<u64>().max(1);
+    let mut out = Vec::new();
+    for r in 2..=rank {
+        for lambda in 1..=r / 2 {
+            for kappa in compositions(r - 2 * lambda, 4) {
+                // Multisets of lambda pairs, as non-decreasing index lists.
+                let mut chosen = vec![0usize; lambda as usize];
+                loop {
+                    let set: Vec<(u8, u8)> = chosen.iter().map(|&i| pairs[i]).collect();
+                    let mut used = [0u64; 4];
+                    for &(j, k) in &set {
+                        used[j as usize] += 1;
+                        used[k as usize] += 1;
+                    }
+                    let kappa2: [u16; 4] = std::array::from_fn(|a| kappa[a] + used[a] as u16);
+                    let mut count: u64 = (0..4).map(|a| factorial(u64::from(kappa2[a])) / factorial(u64::from(kappa2[a]) - used[a])).product();
+                    let mut i = 0;
+                    while i < chosen.len() {
+                        let mut m = 1;
+                        while i + m < chosen.len() && chosen[i + m] == chosen[i] {
+                            m += 1;
+                        }
+                        let (j, k) = pairs[chosen[i]];
+                        count /= factorial(m as u64) * if j == k { 1u64 << m } else { 1 };
+                        i += m;
+                    }
+                    out.push((lambda, std::array::from_fn(|a| kappa[a]), kappa2, set, count));
+                    // Next non-decreasing list.
+                    let mut position = chosen.len();
+                    let mut advanced = false;
+                    while position > 0 {
+                        position -= 1;
+                        if chosen[position] + 1 < pairs.len() {
+                            let next = chosen[position] + 1;
+                            for c in &mut chosen[position..] {
+                                *c = next;
+                            }
+                            advanced = true;
+                            break;
+                        }
+                    }
+                    if !advanced {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    out
 }
 
 /// One gather of Cartesian moments from PV coefficients.
@@ -755,8 +876,13 @@ pub(crate) struct DirectPlanData {
     /// Gathers read `C(lambda + h, kappa)` and scale by `(-2)^h`.
     pub lambda_shift: u16,
     /// Value index holding the constant `[0, 0, 0, 1]` (unit finite part),
-    /// used by the rank-5 pentagon UV remainder.
+    /// used by the pentagon UV remainders of ranks 5 to 7.
     pub unit_finite: Option<u32>,
+    /// Scratch value of the pentagons' (D - 4) terms
+    /// ([`PentagonGeometry::epsilon`]).
+    pub epsilon_scratch: Option<u32>,
+    /// Per [`PostOp::PentagonTerms`] block.
+    pub pentagon_terms: Vec<PentagonTerms>,
     /// Per subset: its coefficient instructions `coefficient_program[a..b]`
     /// (PV subsets; empty otherwise) and the number of its coefficient values
     /// `C(lambda, kappa)`, contiguous from its master. A refused box or
@@ -1140,17 +1266,29 @@ impl DirectPlanData {
         let basis = tensor_basis(rank);
         let monomials = MonomialTable::shared(rank);
         let top = full_mask(n);
-        // Gram-free pentagon rank: not for dotted propagators (no geometry
-        // jets of X^-1 yet) or when a box child is degenerate (it supplies
-        // moments by its identity, not PV coefficients).
+        // Gram-free pentagon rank: not when a box child is degenerate (it
+        // supplies moments by its identity, not PV coefficients). With a jet
+        // (dotted propagators, raised members of linearly dependent sets) the
+        // executor carries the Taylor orders of X^-1 (`dd_pentagon_jets`): the
+        // Gram recursion amplifies the supplied invariants' mismatch with the
+        // shifts like kappa^R, the Gram-free part does not, and reaches
+        // rank 7 there (`DD_PENTAGON_JET_RANK`).
+        // Jets other than one doubled line: their pentagons' (D - 4) terms
+        // come from `PostOp::PentagonTerms`, whose scalar term needs the
+        // rank-1 coefficients.
+        let general_lines: SubsetMask = jet.as_ref().filter(|jet| jet.univariate() != Some(2)).map_or(0, |jet| {
+            jet.variables.iter().fold(0, |mask, &(line, _)| mask | (1 << line))
+        });
         let dd_rank = |mask: SubsetMask, moment: i32| -> i32 {
-            if moment < 0 || jet.is_some() {
+            if moment < 0 {
                 return -1;
             }
             if members(mask).into_iter().any(|member| relation_for(without(mask, member)).is_some()) {
                 return -1;
             }
-            moment.min(DD_PENTAGON_RANK)
+            let least = if mask & general_lines != 0 { 1 } else { 0 };
+            let cap = if jet.is_some() { DD_PENTAGON_JET_RANK } else { DD_PENTAGON_RANK };
+            moment.max(least).min(cap)
         };
 
         // Propagate rank needs from the top topology to its pinches.
@@ -1272,6 +1410,10 @@ impl DirectPlanData {
         // D(0) of a Gram-free pentagon in its own momentum basis.
         let mut shifted_layouts: FastMap<SubsetMask, FastMap<(u16, Vec<u16>), u32>> = FastMap::default();
         let mut unit_finite = None;
+        let mut epsilon_scratch = None;
+        // One doubled line (a univariate jet of length 2): the line whose
+        // Gram-free pentagons carry their (D - 4) terms.
+        let epsilon_line = jet.as_ref().and_then(|jet| (jet.univariate() == Some(2)).then(|| jet.variables[0].0));
         let mut relations = Vec::new();
         for &relation in relation_masks {
             let member_list = members(relation);
@@ -1364,9 +1506,20 @@ impl DirectPlanData {
                         xinv: NO_GEOMETRY,
                         adjadj: NO_GEOMETRY,
                         sums: NO_GEOMETRY,
+                        epsilon: NO_GEOMETRY,
+                        terms: dd >= 0 && mask & general_lines != 0,
+                        uv: NO_GEOMETRY,
                         dd_rank: dd,
                     };
                     geometry_count = grow(geometry_count, 29)?;
+                    if dd >= 0 && epsilon_line.is_some_and(|line| mask & (1 << line) != 0) {
+                        pentagon.epsilon = geometry_count;
+                        geometry_count = grow(geometry_count, 9)?;
+                        if epsilon_scratch.is_none() {
+                            epsilon_scratch = Some(value_count);
+                            value_count = grow(value_count, 1)?;
+                        }
+                    }
                     if dd >= 0 {
                         // Momenta and origin for the gather, X^-1, Xtt/det X.
                         let (geometry, length) = PvGeometry::new(geometry_count, 4);
@@ -1397,6 +1550,10 @@ impl DirectPlanData {
                         shifted_layouts.insert(mask, shifted);
                         if dd >= 5 && unit_finite.is_none() {
                             unit_finite = Some(value_count);
+                            value_count = grow(value_count, 1)?;
+                        }
+                        if dd >= 7 {
+                            pentagon.uv = value_count;
                             value_count = grow(value_count, 1)?;
                         }
                     }
@@ -1582,12 +1739,19 @@ impl DirectPlanData {
         //   Ebar0 = sum_n X^-1_n0 [D_{lambda,kappa}(n) - D_{lambda,kappa}(0)],
         //   Ebar_k = sum_n X^-1_kn [D_I(n) - D_I(0)] - X^-1_k0 D_I(0)
         //     - 2 sum_n sum_i I_i Xtt_(kn)(0i)/det X [D_{lambda+1,I-e_i}(n) - .(0)],
-        // with the box coefficients of rank <= R only (no Gram inverse); the
-        // rank-5 UV remainder replaces D_0000(0) by D_0000(0) + 1/48 in
-        // E_{0000k}. D(n), n >= 1, drops momentum n (zero if I_n > 0); D(0)
-        // is the box without member 0 in this basis (D_{kappa}(0) = Dtilde for
-        // kappa_1 = 0, else -sum_{s=2..4} D_{kappa-e1+es}(0) - D_{kappa-e1}(0)).
+        // with the box coefficients of rank <= R only (no Gram inverse). The
+        // reduction drops 2 (D - 4) sum_k kappa_k X^-1_k0 E_{lambda+1,I} / R
+        // (the true D-dimensional coefficient); from lambda + 1 = 3 on E is UV
+        // divergent, and the UV remainder -4 sum_k kappa_k X^-1_k0
+        // UV[E_{lambda+1,I}] / R is kept: at rank 5 it replaces D_0000(0) by
+        // D_0000(0) + 1/48 in E_{0000k}; ranks 6 and 7 (with a jet) add those
+        // of E_{3,I} (`pentagon_e3_uv_pole`) and E_{4,0} (`PentagonGeometry::uv`,
+        // a value with Taylor orders). D(n), n >= 1, drops momentum n (zero if
+        // I_n > 0); D(0) is the box without member 0 in this basis
+        // (D_{kappa}(0) = Dtilde for kappa_1 = 0, else
+        // -sum_{s=2..4} D_{kappa-e1+es}(0) - D_{kappa-e1}(0)).
         let mut pentagon_blocks: Vec<Option<PentagonBlock>> = vec![None; subsets.len()];
+        let mut pentagon_terms: Vec<PentagonTerms> = Vec::new();
         for (id, subset) in subsets.iter().enumerate() {
             let Some(geometry) = subset.pentagon else { continue };
             if subset.kind != SubsetKind::Pentagon || geometry.dd_rank < 0 {
@@ -1645,6 +1809,19 @@ impl DirectPlanData {
                                 let src = layouts[&child(i)].lookup[&(0, vec![0, 0, 0])];
                                 terms.push(builder.term(src, geometry.b + i as u32, rational(1, 1)));
                             }
+                            if geometry.epsilon != NO_GEOMETRY {
+                                // Its (4 - D) B J5^(D+2) term at the doubled
+                                // line's order: epsilon 2 B sum_i R^-1_(ai) J4^(i).
+                                let scratch = epsilon_scratch.expect("pentagons with (D - 4) terms allocate a scratch value");
+                                let epsilon_terms: Vec<Term> = (0..5)
+                                    .map(|i| {
+                                        let src = layouts[&child(i)].lookup[&(0, vec![0, 0, 0])];
+                                        builder.term(src, geometry.epsilon + i as u32, rational(1, 1))
+                                    })
+                                    .collect();
+                                coefficient_program.push(builder.instruction(scratch, epsilon_terms, PostOp::TimesEpsilon));
+                                terms.push(builder.term(scratch, NO_GEOMETRY, rational(1, 1)));
+                            }
                             coefficient_program.push(builder.instruction(dst, terms, PostOp::None));
                             continue;
                         }
@@ -1693,14 +1870,115 @@ impl DirectPlanData {
                                 let g = geometry.sums + (5 + 4 * (k - 1) + (i - 1)) as u32;
                                 terms.push(builder.term(d0, g, -ci.clone()));
                             }
-                            if r == 5 && lambda == 2 {
-                                let unit = unit_finite.expect("rank-5 pentagons allocate the unit value");
-                                terms.push(builder.term(unit, xinv(k, 0), rational(-weight, 48 * big_r)));
+                            // UV remainders (rank 5 to 7).
+                            if lambda == 2 {
+                                let unit = unit_finite.expect("pentagons of rank 5 or more allocate the unit value");
+                                let (numerator, denominator) = pentagon_e3_uv_pole(&rest);
+                                terms.push(builder.term(
+                                    unit,
+                                    xinv(k, 0),
+                                    rational(-4 * weight * numerator, denominator * big_r),
+                                ));
+                            }
+                            if lambda == 3 {
+                                debug_assert_ne!(geometry.uv, NO_GEOMETRY, "rank-7 pentagons allocate their UV pole");
+                                terms.push(builder.term(geometry.uv, xinv(k, 0), rational(-4 * weight, big_r)));
                             }
                         }
                         coefficient_program.push(builder.instruction(dst, terms, PostOp::None));
                     }
                 }
+                // The (D - 4) terms of the momentum coefficients at the doubled
+                // line a's order (hep-ph/0509141 Eq. (6.10)): r E_kappa gets
+                // 2 (D - 4) sum_k kappa_k X^-1_k0 E_(00, kappa - e_k), and
+                // E_00(nu_a = 2) = -E_(kappa + e_a)(unit) / 2 (x_a = 1 - sum x
+                // for the origin). Only their poles survive: metric
+                // coefficients are IR finite at unit powers, not with a
+                // doubled massless line next to a lightlike leg or between
+                // two on-shell ones.
+                if r >= 1 && geometry.epsilon != NO_GEOMETRY {
+                    let scratch = epsilon_scratch.expect("pentagons with (D - 4) terms allocate a scratch value");
+                    let line = epsilon_line.expect("a doubled line");
+                    let local = subset.members.iter().position(|&m| m == line).expect("the doubled line is a member");
+                    for kappa in compositions(r, 4) {
+                        let dst = layout.lookup[&(0, kappa.clone())];
+                        let mut epsilon_terms = Vec::new();
+                        for k in 1..=4 {
+                            if kappa[k - 1] == 0 {
+                                continue;
+                            }
+                            let c = rational(i64::from(kappa[k - 1]), big_r);
+                            let g = geometry.epsilon + 4 + k as u32;
+                            let mut rest = kappa.clone();
+                            rest[k - 1] -= 1;
+                            if local >= 1 {
+                                let mut src = rest.clone();
+                                src[local - 1] += 1;
+                                epsilon_terms.push(builder.term(layout.lookup[&(0, src)], g, c.clone()));
+                            } else {
+                                epsilon_terms.push(builder.term(layout.lookup[&(0, rest.clone())], g, -c.clone()));
+                                for j in 0..4 {
+                                    let mut src = rest.clone();
+                                    src[j] += 1;
+                                    epsilon_terms.push(builder.term(layout.lookup[&(0, src)], g, -c.clone()));
+                                }
+                            }
+                        }
+                        coefficient_program.push(builder.instruction(scratch, epsilon_terms, PostOp::TimesEpsilon));
+                        let sum = vec![
+                            builder.term(dst, NO_GEOMETRY, rational(1, 1)),
+                            builder.term(scratch, NO_GEOMETRY, rational(1, 1)),
+                        ];
+                        coefficient_program.push(builder.instruction(dst, sum, PostOp::None));
+                    }
+                }
+            }
+            if geometry.terms {
+                let jet = jet.as_ref().expect("a jet");
+                let lines: Vec<(usize, usize)> = jet
+                    .variables
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(v, &(line, _))| subset.members.iter().position(|&m| m == line).map(|local| (v, local)))
+                    .collect();
+                let key = |kappa: &[u16]| -> [u16; 4] { std::array::from_fn(|a| kappa[a]) };
+                let mut pentagon_layout = FastMap::default();
+                let mut results = Vec::new();
+                let mut momenta = Vec::new();
+                for r in 0..=dd {
+                    for lambda in 0..=r / 2 {
+                        for kappa in compositions(r - 2 * lambda, 4) {
+                            pentagon_layout.insert((lambda, key(&kappa)), layout.lookup[&(lambda, kappa.clone())]);
+                            if r >= 1 {
+                                results.push((lambda, key(&kappa)));
+                            }
+                            if lambda == 0 {
+                                momenta.push(key(&kappa));
+                            }
+                        }
+                    }
+                }
+                let mut metric = Vec::new();
+                for r in 2..=dd + 1 {
+                    for lambda in 1..=r / 2 {
+                        for kappa in compositions(r - 2 * lambda, 4) {
+                            metric.push((lambda, key(&kappa)));
+                        }
+                    }
+                }
+                let block = pentagon_terms.len() as u32;
+                pentagon_terms.push(PentagonTerms {
+                    subset: id,
+                    rank: dd,
+                    lines,
+                    layout: pentagon_layout,
+                    metric,
+                    results,
+                    momenta,
+                    expansion: metric_expansion(dd),
+                });
+                let dst = layout.lookup[&(0, vec![0; 4])];
+                coefficient_program.push(builder.instruction(dst, Vec::new(), PostOp::PentagonTerms { block }));
             }
             pentagon_blocks[id] = Some(PentagonBlock {
                 instructions: (first_instruction, coefficient_program.len() as u32),
@@ -2104,6 +2382,8 @@ impl DirectPlanData {
             output_order,
             lambda_shift,
             unit_finite,
+            epsilon_scratch,
+            pentagon_terms,
             coefficient_ranges,
             coefficient_counts,
             pentagon_blocks,
