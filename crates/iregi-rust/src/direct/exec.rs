@@ -332,6 +332,11 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     /// estimate of a triangle's Gram system alone the Gram gate accepts;
     /// `None` for MPFR.
     triangle_floor: Option<T>,
+    /// Gate estimates of the subsets the current relation variant evaluates,
+    /// for [`Self::amplified_estimates`] (huashengshao/TIRust#75), and
+    /// whether the variant has relations to record them for.
+    relation_estimates: Vec<(SubsetMask, T)>,
+    track_relation_estimates: bool,
     /// Supplied invariants of the current lane: their largest distance from
     /// the invariants of its shifts, relative to each invariant's input size
     /// (`invariant_size`), where it exceeds `rounding`; `None` for inputs
@@ -482,6 +487,8 @@ where
             input_rounding: tolerance_at(&prototype, prototype.get_precision(), ROUNDING_MARGIN_BITS),
             triangle_floor: T::FIXED_BITS
                 .map(|_| tolerance_at(&prototype, prototype.get_precision(), TRIANGLE_KEPT_BITS)),
+            relation_estimates: Vec::new(),
+            track_relation_estimates: false,
             ibp_bits: ibp_field_bits(plan.settings.propagators),
             shifts: vec![[zero.clone(), zero.clone(), zero.clone(), zero.clone()]; plan.settings.propagators],
             masses: vec![zero.clone(); plan.settings.propagators],
@@ -2221,6 +2228,9 @@ where
         self.estimate_tripped = false;
         let n = plan.settings.propagators;
         let threshold = self.stability_threshold.clone();
+        self.relation_estimates.clear();
+        self.track_relation_estimates = !plan.relations.is_empty();
+        let mut amplifications = Vec::with_capacity(plan.relations.len());
         for relation in &plan.relations {
             let weights = match self.affine_relation(&relation.members, true).map_err(GeometryFailure::Relation)? {
                 AffineRelation::Constant(weights) => weights,
@@ -2231,6 +2241,20 @@ where
                     )))
                 }
             };
+            let amplification = self.identity_amplification(&relation.members, &weights);
+            // Binary64 and double-double: an identity that alone costs more
+            // than p - TRIANGLE_KEPT_BITS bits, whatever the threshold (as the
+            // triangle floor; huashengshao/TIRust#75).
+            if let Some(floor) = &self.triangle_floor
+                && amplification.clone() * floor > self.prototype.one()
+            {
+                self.failed_condition = Some((self.prototype.one() / &amplification).to_f64());
+                return Err(GeometryFailure::Unstable(format!(
+                    "the denominator identity of {:?} amplifies rounding by {amplification:e}, beyond the fixed-precision floor {floor:e}",
+                    relation.members
+                )));
+            }
+            amplifications.push(amplification);
             for (j, weight) in weights.into_iter().enumerate() {
                 self.geometry[relation.weights as usize + j] = weight;
             }
@@ -2571,6 +2595,9 @@ where
                             }
                             return Err(GeometryFailure::Singular(subset.mask, message));
                         }
+                        if self.track_relation_estimates {
+                            self.relation_estimates.push((subset.mask, estimate.clone()));
+                        }
                         // Singular to the inputs' rounding, which the working
                         // precision's threshold admits: binary64 inputs at 512
                         // bits. If its propagators are linearly dependent at
@@ -2609,6 +2636,78 @@ where
                 SubsetKind::Relation(_) | SubsetKind::Homogeneous(_) => {}
                 SubsetKind::Hexagon => self.geometry_hexagon(subset, n)?,
             }
+        }
+        if !amplifications.is_empty() {
+            self.amplified_estimates(plan, &amplifications, &threshold)?;
+        }
+        Ok(())
+    }
+
+    /// How much the identity `sum_i c_i D_i = 1` of `members` (weights `c` in
+    /// member order) amplifies the errors of the integrals it pinches:
+    /// `sum_j |c_j| |f_j|`, with `f_j = s_0j - m_j^2 + m_0^2` for each member
+    /// but the origin. That is the constant's bound over the constant itself
+    /// (at least 1): about `1 / eps` for a constant that cancels to `eps` of
+    /// its size, as next to a Coulomb triple `zeta` off threshold
+    /// (huashengshao/TIRust#75).
+    fn identity_amplification(&self, members: &[usize], weights: &[C<T>]) -> T {
+        let n = self.plan.settings.propagators;
+        let origin = members[0];
+        let mut amplification = self.prototype.zero();
+        for (j, &member) in members.iter().enumerate().skip(1) {
+            let f = cadd(&csub(&self.distances[origin * n + member], &self.masses[member]), &self.masses[origin]);
+            amplification += (cnorm2(&weights[j]) * &cnorm2(&f)).sqrt();
+        }
+        amplification
+    }
+
+    /// A subset below a relation subset reaches the result through that
+    /// subset's denominator identity, its error multiplied by the identity's
+    /// amplification ([`Self::identity_amplification`]). Each gate estimate
+    /// recorded this lane, divided by the product of the amplifications of the
+    /// distinct relations above its subset, must still reach the threshold
+    /// (huashengshao/TIRust#75). Without that, binary64 served unit-power
+    /// heptagons with two onia `zeta` off threshold `Success`, about `1e-8 /
+    /// zeta` off at zeta from 1 to 1e-2 and up to 1e-2 below; double-double
+    /// served them exactly.
+    fn amplified_estimates(
+        &mut self,
+        plan: &DirectPlanData,
+        amplifications: &[T],
+        threshold: &T,
+    ) -> Result<(), GeometryFailure> {
+        let mut seen = vec![false; amplifications.len()];
+        let mut worst: Option<(SubsetMask, T, T)> = None;
+        for (mask, estimate) in &self.relation_estimates {
+            seen.iter_mut().for_each(|s| *s = false);
+            let mut amplification = self.prototype.one();
+            let mut under = false;
+            for above in &plan.subsets {
+                if let SubsetKind::Relation(relation) = above.kind
+                    && above.mask != *mask
+                    && *mask & !above.mask == 0
+                    && !seen[relation]
+                {
+                    seen[relation] = true;
+                    under = true;
+                    amplification = amplification * &amplifications[relation];
+                }
+            }
+            if !under {
+                continue;
+            }
+            let kept = estimate.clone() / &amplification;
+            if worst.as_ref().is_none_or(|(_, least, _)| kept < *least) {
+                worst = Some((*mask, kept, amplification));
+            }
+        }
+        if let Some((mask, kept, amplification)) = worst
+            && kept < *threshold
+        {
+            self.failed_condition = Some(kept.to_f64());
+            return Err(GeometryFailure::Unstable(format!(
+                "subset {mask:#b} below a denominator identity: estimate {kept:e} with the identities' amplification {amplification:e}, below the threshold {threshold:e}"
+            )));
         }
         Ok(())
     }
@@ -2653,6 +2752,9 @@ where
                 "ill-conditioned Cayley matrix for {members:?}: relative determinant {:e}",
                 quality.relative_determinant
             )));
+        }
+        if self.track_relation_estimates {
+            self.relation_estimates.push((subset.mask, quality.relative_determinant.clone()));
         }
         for i in 0..5 {
             self.geometry[geometry.b as usize + i] = self.rhs[i].clone();
@@ -2748,6 +2850,9 @@ where
                     "ill-conditioned modified Cayley matrix for {members:?}: relative determinant {:e}",
                     quality.relative_determinant
                 )));
+            }
+            if self.track_relation_estimates {
+                self.relation_estimates.push((subset.mask, quality.relative_determinant.clone()));
             }
             let xinv: Vec<C<T>> = self.rhs[..25].to_vec();
             for (i, value) in xinv.iter().enumerate() {
@@ -2850,6 +2955,9 @@ where
                     "ill-conditioned pentagon Gram matrix for {members:?}: condition number {:e}",
                     kappa
                 )));
+            }
+            if self.track_relation_estimates {
+                self.relation_estimates.push((subset.mask, condition.clone()));
             }
             if let Some(mismatch) = &self.input_mismatch {
                 // Mismatched supplied invariants (issue #40): Z^-1 is applied
@@ -3014,6 +3122,9 @@ where
                 subset.mask,
                 format!("ill-conditioned six-point coordinate system for {members:?}: relative determinant {:e}", relative),
             ));
+        }
+        if self.track_relation_estimates {
+            self.relation_estimates.push((subset.mask, relative.clone()));
         }
         let chosen: Vec<usize> = (0..size).filter(|&k| drop & (1 << k) == 0).collect();
         for column in 0..5 {
