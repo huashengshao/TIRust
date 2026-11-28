@@ -384,6 +384,18 @@ where
     /// higher (Denner-Dittmaier); lanes it does not converge on are refused.
     /// The expansion is not checked here: callers verify the lanes (the
     /// public facade by the loop-rotation test).
+    ///
+    /// Neither this nor the other small-Gram methods (the expansions and the
+    /// alternative PV of `enable_gram_expansion_everywhere`,
+    /// `enable_estimated_method_choice` and `enable_alternative_pv`) takes a box or triangle
+    /// whose external points have an affine relation: points dependent at
+    /// the relation search's rank test, 2^-40 of their largest difference.
+    /// Such a subset keeps its Gram gate, and where the gate refuses it, the
+    /// relation search, which reduces it by its denominator identity or
+    /// refuses the lane (huashengshao/TIRust#79). Where the a priori estimate
+    /// of `enable_estimated_method_choice` would have taken it, its gate is at
+    /// least the default threshold of the working precision (1e-12 in
+    /// binary64), whatever this workspace's threshold.
     pub fn enable_gram_expansion(&mut self, boost: u16) {
         let _oem_license = crate::license::unlock();
         self.executor.enable_gram_expansion(boost);
@@ -405,6 +417,12 @@ where
     /// rounding of the higher-rank triangles they read: a served lane can be
     /// off by more than that (up to 1.6e-6 on pyAmpliCol's binary64
     /// g g > g g g g pentagons), and no per-lane estimate is reported.
+    /// Boxes and triangles whose points have an affine relation keep PV, its
+    /// gate and the relation search (see [`Self::enable_gram_expansion`]).
+    /// Where this estimate would have switched them, the gate is at least the
+    /// working precision's default threshold (1e-12 in binary64): at a looser
+    /// threshold, such as pyAmpliCol's 1e-15, PV passed nearly coincident
+    /// shifts at rank 1 that binary64 refuses at its default.
     pub fn enable_estimated_method_choice(&mut self, boost: u16, aux_threshold: T) {
         let _oem_license = crate::license::unlock();
         self.executor.enable_estimated_method_choice(boost, aux_threshold);
@@ -467,16 +485,29 @@ where
     /// system alone amplifies rounding by more than `2^(p - 34)`, whatever
     /// this threshold, even at zero. A triangle whose points are affinely
     /// dependent to the inputs' rounding is reduced by its affine relation
-    /// instead, at every threshold.
+    /// instead, at every threshold. A relation's denominator identity is held
+    /// to its own estimate: its error `2 |r| |p|` (counting the residual's
+    /// rounding) must pass this threshold as `2^-p / (2 |r| |p|)`, and in
+    /// binary64 and double-double stay within `2^-34` at any threshold
+    /// (huashengshao/TIRust#78).
     pub fn set_stability_threshold(&mut self, threshold: T) {
         self.executor.set_stability_threshold(threshold);
     }
 
     /// Precision (bits) of the inputs this workspace evaluates; by default
-    /// its working precision. A bubble is lightlike (closed-form coefficients)
-    /// when |p^2| is at most 2^-(bits - 13) of its scale: 2^-40 for binary64
-    /// inputs, also when they are evaluated at a higher precision (rescue
-    /// tiers), and relative to the working precision for inputs given at it.
+    /// its working precision. In binary64 and double-double workspaces a
+    /// bubble is lightlike (closed-form coefficients, at p^2 = 0 exactly) when
+    /// |p^2| is at most 2^-(bits - 13) of its scale: 2^-40 for binary64 inputs,
+    /// also in double-double (the rescue tier). MPFR workspaces keep their
+    /// working precision's 2^-(p - 13) whatever the inputs: the closed form's
+    /// error is not in the stability estimate, and small parent Gram
+    /// determinants amplify it (huashengshao/TIRust#85).
+    ///
+    /// A double-double or MPFR workspace that evaluates binary64 kinematics
+    /// should declare them (53 bits): at its own input rounding, shifts that
+    /// are collinear only to binary64 rounding are not dependent, and their
+    /// denominator identity is refused unless it holds to that rounding
+    /// (huashengshao/TIRust#76).
     pub fn set_input_precision(&mut self, bits: u32) {
         self.executor.set_input_precision(bits);
     }
