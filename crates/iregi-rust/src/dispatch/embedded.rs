@@ -65,6 +65,16 @@ pub struct EmbedderOptions {
     /// 7e-6 from the tiers' values, and forward e+e- > mu+mu- at a scattering
     /// angle of 5e-4, 2.8e-5 off in the matrix element, while the direction
     /// check reported 1e-15.
+    ///
+    /// A box or triangle whose points have an affine relation is not the
+    /// method choice's: it keeps the gates' relation search there too
+    /// ([`DirectWorkspace::enable_gram_expansion`](crate::DirectWorkspace::enable_gram_expansion)),
+    /// so a lane whose relation the binary64 pass refused is not served by
+    /// the expansions. Where the a priori estimate would have switched such
+    /// a subset, its gate is binary64's default threshold, 1e-12, and not the
+    /// method choice's gate. Refused there, or by the search again, the lane
+    /// goes to the precision tiers, or comes back refused
+    /// (huashengshao/TIRust#79).
     pub method_choice: bool,
     /// Binary64 workspaces: boxes and triangles refused inside a lane are
     /// computed in double-double. Default `false`. Their double-double gate
