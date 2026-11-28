@@ -46,9 +46,10 @@ pub enum DirectMasters {
 const NO_SLOT: u32 = u32::MAX;
 
 /// A bubble is lightlike when |p^2| is at most `2^-(p - LIGHTLIKE_MARGIN_BITS)`
-/// of its largest scale (|p^2|, |m0^2|, |m1^2|), `p` the precision of the
-/// inputs (by default the working precision): 2^-40 for binary64 inputs, also
-/// when they are evaluated at a higher precision (rescue tiers).
+/// of its largest scale (|p^2|, |m0^2|, |m1^2|). In binary64 and double-double
+/// `p` is the precision of the inputs (by default the working precision): 2^-40
+/// for binary64 inputs, also in the double-double tier. In MPFR it is the
+/// working precision, whatever the inputs (`set_input_precision`).
 const LIGHTLIKE_MARGIN_BITS: i64 = 13;
 /// `rounding` is 8 units of 2^-p: `tolerance_at(p, ROUNDING_MARGIN_BITS)`.
 const ROUNDING_MARGIN_BITS: i64 = 3;
@@ -249,10 +250,11 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     scale_squared: bool,
     /// The current lane's scale argument as given (mu or mu^2).
     lane_scale: C<T>,
-    /// Precision (bits) of the inputs: the lightlike bubble rule is relative
-    /// to it. The working precision unless set (`set_input_precision`).
+    /// Precision (bits) of the inputs. The working precision unless set
+    /// (`set_input_precision`).
     input_bits: u32,
-    /// `2^-(input_bits - LIGHTLIKE_MARGIN_BITS)` (computed once).
+    /// `2^-(p - LIGHTLIKE_MARGIN_BITS)`, `p` the inputs' precision in binary64
+    /// and double-double and the working precision in MPFR (computed once).
     lightlike_tolerance: T,
     /// `8 * 2^-min(input_bits, p)`: the rounding the inputs carry, within
     /// which degenerate kinematics are decided exactly (linearly dependent
@@ -684,7 +686,17 @@ where
 
     pub fn set_input_precision(&mut self, bits: u32) {
         self.input_bits = bits;
-        self.lightlike_tolerance = tolerance_at(&self.prototype, bits, LIGHTLIKE_MARGIN_BITS);
+        // A lightlike bubble takes its closed form at p^2 = 0 exactly: a model
+        // error of up to the tolerance, which the gates do not see and which
+        // a parent with a small Gram determinant amplifies (TIRust#85: a
+        // triangle with nearly coincident shifts, 8e-3 off at rank 2 with
+        // binary64's 2^-40 at 1024 bits). Binary64 and double-double keep the
+        // inputs' tolerance: the bubbles of lightlike legs whose binary64 p^2
+        // is only rounding (gluons against m_t^2) are too ill-conditioned for
+        // them as given. MPFR evaluates such bubbles as given, at its working
+        // precision's tolerance.
+        let lightlike_bits = if T::FIXED_BITS.is_some() { bits } else { self.prototype.get_precision() };
+        self.lightlike_tolerance = tolerance_at(&self.prototype, lightlike_bits, LIGHTLIKE_MARGIN_BITS);
         let bits = bits.min(self.prototype.get_precision());
         self.input_rounding = tolerance_at(&self.prototype, bits, ROUNDING_MARGIN_BITS);
     }
@@ -2273,10 +2285,10 @@ where
                             .iter()
                             .map(|z| cnorm2(z).sqrt())
                             .fold(self.prototype.zero(), |a, b| if b > a { b } else { a });
-                        // Precision-relative: 2^-40 in binary64 (13 bits above
-                        // its roundoff), 2^-93 in double-double, 2^-(p-13) at p
-                        // MPFR bits; never a fixed binary64 bound at higher
-                        // precision.
+                        // Precision-relative (`lightlike_tolerance`): 2^-40 in
+                        // binary64 (13 bits above its roundoff) and for binary64
+                        // inputs in double-double, 2^-93 for double-double
+                        // inputs, 2^-(p-13) at p MPFR bits whatever the inputs.
                         let lightlike = cnorm2(p2).sqrt() <= scale * &self.lightlike_tolerance;
                         if subset.lightlike {
                             if !lightlike {

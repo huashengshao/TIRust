@@ -104,9 +104,13 @@ rank-one lifecycle case. Each family's validated domain is documented separately
   same accuracy bound). The executors of one direct plan (binary64,
   double-double and MPFR, method choice and check passes) share its plan
   variants and small-Gram auxiliary plans, built once per plan.
-- The lightlike bubble rule is relative to the inputs' precision: |p^2| up
-  to 2^-(p - 13) of the bubble's scale (2^-40 for binary64 inputs, also in the
-  rescue tiers that lift them; `DirectWorkspace::set_input_precision`).
+- The lightlike bubble rule is relative to the inputs' precision in binary64
+  and double-double: |p^2| up to 2^-(p - 13) of the bubble's scale (2^-40 for
+  binary64 inputs, also in the double-double tier that lifts them;
+  `DirectWorkspace::set_input_precision`). MPFR workspaces, the 256- and
+  512-bit tiers included, use their working precision's 2^-(p - 13): the
+  closed form at p^2 = 0 is an error the gates do not see, which small parent
+  Gram determinants amplify (#85).
 - `DirectReductionPlan::capabilities(&prototype)` (`DirectCapabilities`): the
   largest point count (64, the subset-mask width), rank (C(R+4,4) within the
   u32 monomial indices: 564), raised power (2^(64/N) - 1 IBP key fields,

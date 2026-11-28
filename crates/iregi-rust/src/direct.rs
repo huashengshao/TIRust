@@ -477,10 +477,14 @@ where
     }
 
     /// Precision (bits) of the inputs this workspace evaluates; by default
-    /// its working precision. A bubble is lightlike (closed-form coefficients)
-    /// when |p^2| is at most 2^-(bits - 13) of its scale: 2^-40 for binary64
-    /// inputs, also when they are evaluated at a higher precision (rescue
-    /// tiers), and relative to the working precision for inputs given at it.
+    /// its working precision. In binary64 and double-double workspaces a
+    /// bubble is lightlike (closed-form coefficients, at p^2 = 0 exactly) when
+    /// |p^2| is at most 2^-(bits - 13) of its scale: 2^-40 for binary64 inputs,
+    /// also in double-double (the rescue tier). MPFR workspaces keep their
+    /// working precision's 2^-(p - 13) whatever the inputs: the closed form's
+    /// error is not in the stability estimate, and small parent Gram
+    /// determinants amplify it (huashengshao/TIRust#85).
+    ///
     /// A double-double or MPFR workspace that evaluates binary64 kinematics
     /// should declare them (53 bits): at its own input rounding, shifts that
     /// are collinear only to binary64 rounding are not dependent, and their
