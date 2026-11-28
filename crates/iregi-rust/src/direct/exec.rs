@@ -46,9 +46,10 @@ pub enum DirectMasters {
 const NO_SLOT: u32 = u32::MAX;
 
 /// A bubble is lightlike when |p^2| is at most `2^-(p - LIGHTLIKE_MARGIN_BITS)`
-/// of its largest scale (|p^2|, |m0^2|, |m1^2|), `p` the precision of the
-/// inputs (by default the working precision): 2^-40 for binary64 inputs, also
-/// when they are evaluated at a higher precision (rescue tiers).
+/// of its largest scale (|p^2|, |m0^2|, |m1^2|). In binary64 and double-double
+/// `p` is the precision of the inputs (by default the working precision): 2^-40
+/// for binary64 inputs, also in the double-double tier. In MPFR it is the
+/// working precision, whatever the inputs (`set_input_precision`).
 const LIGHTLIKE_MARGIN_BITS: i64 = 13;
 /// `rounding` is 8 units of 2^-p: `tolerance_at(p, ROUNDING_MARGIN_BITS)`.
 const ROUNDING_MARGIN_BITS: i64 = 3;
@@ -249,10 +250,11 @@ pub(crate) struct DirectExecutor<T: NativeFloat> {
     scale_squared: bool,
     /// The current lane's scale argument as given (mu or mu^2).
     lane_scale: C<T>,
-    /// Precision (bits) of the inputs: the lightlike bubble rule is relative
-    /// to it. The working precision unless set (`set_input_precision`).
+    /// Precision (bits) of the inputs. The working precision unless set
+    /// (`set_input_precision`).
     input_bits: u32,
-    /// `2^-(input_bits - LIGHTLIKE_MARGIN_BITS)` (computed once).
+    /// `2^-(p - LIGHTLIKE_MARGIN_BITS)`, `p` the inputs' precision in binary64
+    /// and double-double and the working precision in MPFR (computed once).
     lightlike_tolerance: T,
     /// `8 * 2^-min(input_bits, p)`: the rounding the inputs carry, within
     /// which degenerate kinematics are decided exactly (linearly dependent
@@ -691,7 +693,17 @@ where
 
     pub fn set_input_precision(&mut self, bits: u32) {
         self.input_bits = bits;
-        self.lightlike_tolerance = tolerance_at(&self.prototype, bits, LIGHTLIKE_MARGIN_BITS);
+        // A lightlike bubble takes its closed form at p^2 = 0 exactly: a model
+        // error of up to the tolerance, which the gates do not see and which
+        // a parent with a small Gram determinant amplifies (TIRust#85: a
+        // triangle with nearly coincident shifts, 8e-3 off at rank 2 with
+        // binary64's 2^-40 at 1024 bits). Binary64 and double-double keep the
+        // inputs' tolerance: the bubbles of lightlike legs whose binary64 p^2
+        // is only rounding (gluons against m_t^2) are too ill-conditioned for
+        // them as given. MPFR evaluates such bubbles as given, at its working
+        // precision's tolerance.
+        let lightlike_bits = if T::FIXED_BITS.is_some() { bits } else { self.prototype.get_precision() };
+        self.lightlike_tolerance = tolerance_at(&self.prototype, lightlike_bits, LIGHTLIKE_MARGIN_BITS);
         let bits = bits.min(self.prototype.get_precision());
         self.input_rounding = tolerance_at(&self.prototype, bits, ROUNDING_MARGIN_BITS);
     }
@@ -1786,6 +1798,48 @@ where
         false
     }
 
+    /// Whether a box or triangle that a small-Gram method would take (the
+    /// expansions or the alternative PV, of `enable_gram_expansion`,
+    /// `enable_estimated_method_choice` and the others) has external points
+    /// affinely dependent at [`Self::affine_relation`]'s rank test (2^-40 of
+    /// the largest shift difference). Without such a method, the Gram gate
+    /// sends this subset to the lane loop's relation search, which takes a
+    /// relation variant where the denominator identity holds and refuses the
+    /// lane where it does not (huashengshao/TIRust#76, huashengshao/TIRust#78).
+    /// The small-Gram methods do not see that geometry. On
+    /// huashengshao/TIRust#79's triangle (two nearly coincident shifts next to
+    /// lightlike legs, identity refused) the a priori method choice served
+    /// rank 1 0.64 off and ranks 2 to 4 off by up to 9e13, as `Success`. Such
+    /// a subset takes the gate and the relation search instead. The
+    /// expansions' auxiliary executors (`gram_top`) are unchanged.
+    fn relation_points(&self, members: &[usize]) -> bool {
+        self.gram_top.is_none() && self.points_affinely_dependent(members, &self.binary_tolerance(40))
+    }
+
+    /// The Gram gate of a box or triangle whose a priori estimate would have
+    /// sent it to a small-Gram method, kept on PV by [`Self::relation_points`]:
+    /// `threshold`, or the default threshold of the working precision where
+    /// that is stricter (1e-12 in binary64, `2^-(p - 53)` times that at `p`
+    /// bits). A workspace with the method choice usually runs a looser gate
+    /// (pyAmpliCol's and the facade's 1e-15): there, PV passed nearly
+    /// coincident shifts next to a lightlike leg at rank 1 and served them up
+    /// to 0.77 off, which binary64 refuses at its default threshold and the
+    /// expansion had served within 1.7e-13 (review of huashengshao/TIRust#84).
+    /// Refused at this gate, the subset takes the relation search, as at the
+    /// default threshold: a relation variant where the identity holds, a
+    /// refused lane where it does not.
+    fn relation_gate(&self, threshold: &T) -> T {
+        let mut default = self.prototype.from_rational(&symbolica::domains::rational::Rational::from((
+            symbolica::domains::integer::Integer::from(1),
+            symbolica::domains::integer::Integer::from(1_000_000_000_000i64),
+        )));
+        let bits = u64::from(self.prototype.get_precision());
+        if bits > 53 {
+            default *= &self.binary_tolerance(bits - 53);
+        }
+        if default > *threshold { default } else { threshold.clone() }
+    }
+
     /// Minimal support of the affine relation of a singular subset.
     #[inline(never)]
     fn relation_support(&self, mask: SubsetMask) -> Result<(SubsetMask, bool), String> {
@@ -2251,10 +2305,10 @@ where
                             .iter()
                             .map(|z| cnorm2(z).sqrt())
                             .fold(self.prototype.zero(), |a, b| if b > a { b } else { a });
-                        // Precision-relative: 2^-40 in binary64 (13 bits above
-                        // its roundoff), 2^-93 in double-double, 2^-(p-13) at p
-                        // MPFR bits; never a fixed binary64 bound at higher
-                        // precision.
+                        // Precision-relative (`lightlike_tolerance`): 2^-40 in
+                        // binary64 (13 bits above its roundoff) and for binary64
+                        // inputs in double-double, 2^-93 for double-double
+                        // inputs, 2^-(p-13) at p MPFR bits whatever the inputs.
                         let lightlike = cnorm2(p2).sqrt() <= scale * &self.lightlike_tolerance;
                         if subset.lightlike {
                             if !lightlike {
@@ -2273,6 +2327,9 @@ where
                         let aux_top = self.gram_top.is_some() && Some(subset.mask) == top_mask;
                         let choose = gram && (self.gram_everywhere || self.gram_estimated);
                         let flag = flags && !self.estimate_tripped;
+                        // Points of an affine relation that the a priori choice
+                        // would have taken off PV (`relation_gate`).
+                        let mut held = false;
                         if (choose || flag) && !aux_top && (2..=3).contains(&size) {
                             // COLLIER's per-box choice: off Passarino-Veltman
                             // where its estimate is worse (w > 2) and the
@@ -2297,11 +2354,16 @@ where
                                 2f64.powi(-52) * w.powi(rank) > 2f64.powi(-36)
                             };
                             if gram::gram_indicator(&z, &f, size).is_some_and(switch) {
-                                if choose {
+                                if !choose {
+                                    self.estimate_tripped = true;
+                                } else if !self.relation_points(members) {
                                     self.gram_external.push(subset_id);
                                     continue;
+                                } else {
+                                    // Points of an affine relation keep PV,
+                                    // held to the default gate, as below.
+                                    held = true;
                                 }
-                                self.estimate_tripped = true;
                             }
                         }
                         if self.gram_top.is_some() && (2..=3).contains(&size) && Some(subset.mask) == top_mask {
@@ -2396,6 +2458,7 @@ where
                         }
                         let mut estimate = condition.clone().pow(power);
                         let mut short = false;
+                        let threshold = if held { self.relation_gate(&threshold) } else { threshold.clone() };
                         // Whether the Gram gate's own measure refuses the system.
                         let gram_refuses = estimate < threshold;
                         // The triangle's Gram system alone, held against the fixed-precision floor.
@@ -2423,9 +2486,13 @@ where
                             own_estimate = Some(own);
                         }
                         if estimate < threshold || short {
-                            if gram && (2..=3).contains(&size) {
+                            if gram && (2..=3).contains(&size) && !self.relation_points(members) {
                                 // Small-Gram expansion (box or triangle), injected in the lane loop
                                 // (with the a priori choice too: its retry covers refused lanes).
+                                // Points of an affine relation are refused
+                                // below, as without the expansion: the lane
+                                // loop takes the relation, or refuses the lane
+                                // (`relation_points`).
                                 let estimate = estimate.to_f64();
                                 self.failed_condition =
                                     Some(self.failed_condition.map_or(estimate, |f: f64| f.min(estimate)));

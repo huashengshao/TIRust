@@ -692,12 +692,16 @@ fn mpfr_lane_independent_engines_are_bitwise_independent_of_the_threads() {
 }
 
 /// The lanes above exercise what the setting removes: without it some
-/// degenerate lane differs between one call of all lanes and alone.
+/// degenerate lane differs between one call of all lanes and alone. (The
+/// method choice did too: the box perturbed by 1e-15 took its predecessor's
+/// relation in one call and the small-Gram expansion alone. Since
+/// huashengshao/TIRust#79 the method choice leaves points with an affine
+/// relation to the relation search, alone as well, and no lane here differs.)
 #[test]
 fn without_the_setting_degenerate_lanes_depend_on_their_predecessors() {
     let plan = DirectReductionPlan::new(ReductionSettings::new(4, 2)).unwrap();
     let rows = degenerate(4);
-    let settings: [Setting<f64>; 2] = [("gate 0", gate_zero), ("method choice", method_choice)];
+    let settings: [Setting<f64>; 1] = [("gate 0", gate_zero)];
     for setting in settings {
         let case = Case {
             plan: &plan,
